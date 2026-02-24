@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "skills": {
+    "app-store-changelog": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "3a59863f1cabefdaf342d994ebd2641a19186b7816085f1027578ef7baf63a89"
+    },
+    "core-data-expert": {
+      "source": "avdlee/core-data-agent-skill",
+      "sourceType": "github",
+      "computedHash": "b8d2829005b1f2fefbaa8af2ea7d7d64e2fbeca2f2172033176ad0780edc3970"
+    },
+    "ios-debugger-agent": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "ffaa86d5b055e161ec32acd535d5f7581825af0941c691a0c65e59380c04f11f"
+    },
+    "macos-spm-app-packaging": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "ea5d8bcefd89d582463bd733115a239b2bfa4471454c764f7ee9b0f6a7c49df6"
+    },
+    "swift-concurrency": {
+      "source": "avdlee/swift-concurrency-agent-skill",
+      "sourceType": "github",
+      "computedHash": "f799ff819d9d6a1ccef7db0d6cd3d06dbbf7c2c6c514c39b8485d94b31cc251c"
+    },
+    "swift-concurrency-expert": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "4a230bf6acd49e9f77d88a6b39b5fd877a66bef119feaa8a4fa0ebe92a3a0713"
+    },
+    "swift-testing-expert": {
+      "source": "avdlee/swift-testing-agent-skill",
+      "sourceType": "github",
+      "computedHash": "cd86f35466a2d831467ef748b402bfddfb063ca3ddd03f63305864d91367da0c"
+    },
+    "swiftui-expert-skill": {
+      "source": "avdlee/swiftui-agent-skill",
+      "sourceType": "github",
+      "computedHash": "2266f713890104352fe8eca44fc546c096e3459cc25e7e21bc57514f57d2e5a4"
+    },
+    "swiftui-liquid-glass": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "6ca3eecfe3ebfa838adbbe3e547f6a6ff9284db05310ee7838e03fdf8937be66"
+    },
+    "swiftui-performance-audit": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "0c4029813d8085be2337ddef76cfa8b932b9c33a95f1a592e5e1926054ffc319"
+    },
+    "swiftui-ui-patterns": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "127d27ab992b1bba4be62f6fe972e25fc688301077f3e2d92ded8f45b94b4813"
+    },
+    "swiftui-view-refactor": {
+      "source": "dimillian/skills",
+      "sourceType": "github",
+      "computedHash": "8934a53708a788434dc1a0f81d52e2b22b2dade869993abae43051ee3c7d4914"
+    }
+  }
+}
