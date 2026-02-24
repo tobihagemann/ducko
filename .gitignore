@@ -1,0 +1,18 @@
+# SwiftPM
+.build/
+.swiftpm/xcode/xcuserdata/
+
+# Xcode
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+DerivedData/
+
+# macOS
+.DS_Store
+._*
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
