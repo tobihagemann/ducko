@@ -1,0 +1,4 @@
+module CDnssd [system] {
+    header "shim.h"
+    export *
+}

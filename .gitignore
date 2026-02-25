@@ -15,6 +15,9 @@ DerivedData/
 .DS_Store
 ._*
 
+# Docs
+docs/
+
 # Environment & Secrets
 .env
 .env.local

@@ -12,7 +12,7 @@ A native macOS XMPP client — spiritual successor to Adium.
 ## Module Boundaries
 
 ```
-DuckoXMPP   # standalone XMPP library, depends only on CLibxml2 (system lib)
+DuckoXMPP   # standalone XMPP library, depends only on CLibxml2 + CDnssd (system libs)
 DuckoCore   # depends on DuckoXMPP only
 DuckoData   # depends on DuckoCore
 DuckoUI     # depends on DuckoCore

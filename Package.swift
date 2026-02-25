@@ -14,8 +14,9 @@ let package = Package(
     ],
     targets: [
         .systemLibrary(name: "CLibxml2", path: "Sources/CLibxml2", pkgConfig: "libxml-2.0"),
+        .systemLibrary(name: "CDnssd", path: "Sources/CDnssd"),
 
-        .target(name: "DuckoXMPP", dependencies: ["CLibxml2"]),
+        .target(name: "DuckoXMPP", dependencies: ["CLibxml2", "CDnssd"]),
         .testTarget(name: "DuckoXMPPTests", dependencies: ["DuckoXMPP"]),
 
         .target(name: "DuckoCore", dependencies: ["DuckoXMPP"]),
