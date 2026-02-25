@@ -18,7 +18,8 @@ swift build
 ## Running
 
 ```
-swift run Ducko
+swift run DuckoApp    # GUI
+swift run DuckoCLI    # CLI
 ```
 
 ## Testing
@@ -29,19 +30,19 @@ swift test
 
 ## Architecture
 
-Five SwiftPM modules with clear dependency boundaries:
+Six SwiftPM modules with clear dependency boundaries:
 
 ```
 DuckoXMPP  (standalone XMPP protocol implementation)
     ^
     |
 DuckoCore  (domain types, services, business logic)
+    ^            ^            ^
+    |            |            |
+DuckoData    DuckoUI      DuckoCLI  (+ swift-argument-parser)
     ^            ^
     |            |
-DuckoData    DuckoUI
-    ^            ^
-    |            |
-    +-- DuckoApp --+  (app entry point + Sparkle)
+    +-- DuckoApp --+  (+ Sparkle)
 ```
 
 | Module | Purpose |
@@ -50,7 +51,8 @@ DuckoData    DuckoUI
 | **DuckoCore** | Domain layer. Account/Contact/Conversation types, service objects, message filter pipeline. |
 | **DuckoData** | Persistence layer. SwiftData models, migration logic, query helpers. |
 | **DuckoUI** | View layer. SwiftUI views, view models, theme engine, window management. |
-| **DuckoApp** | App entry point. Dependency wiring, menu bar, Sparkle updates, lifecycle. |
+| **DuckoApp** | GUI entry point. Dependency wiring, menu bar, Sparkle updates, lifecycle. |
+| **DuckoCLI** | CLI entry point. Subcommands, interactive REPL, terminal output formatting. |
 
 ## Key Decisions
 
@@ -63,6 +65,7 @@ DuckoData    DuckoUI
 | Distribution | Direct (Sparkle) | No App Store sandbox constraints |
 | Persistence | SwiftData | Modern, declarative, Swift-native |
 | UI | SwiftUI + separate windows | Adium-style multi-window UX |
+| CLI | swift-argument-parser | Scriptable + interactive access alongside GUI |
 
 ## License
 

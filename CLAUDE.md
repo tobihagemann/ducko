@@ -17,12 +17,14 @@ DuckoCore   # depends on DuckoXMPP only
 DuckoData   # depends on DuckoCore
 DuckoUI     # depends on DuckoCore
 DuckoApp    # depends on all + Sparkle
+DuckoCLI    # depends on DuckoCore, DuckoData, DuckoXMPP + swift-argument-parser
 ```
 
 These boundaries are strict:
 - DuckoXMPP must never import other Ducko modules
 - DuckoCore must never import DuckoData or DuckoUI
 - DuckoUI must never import DuckoData
+- DuckoCLI must never import DuckoUI or Sparkle
 
 ## Build & Test
 
@@ -30,6 +32,8 @@ These boundaries are strict:
 swift build
 swift test
 swift test --filter DuckoXMPPTests   # run a specific test target
+swift run DuckoApp                   # run GUI
+swift run DuckoCLI                   # run CLI
 ```
 
 Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` commands.
