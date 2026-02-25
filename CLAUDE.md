@@ -12,7 +12,7 @@ A native macOS XMPP client — spiritual successor to Adium.
 ## Module Boundaries
 
 ```
-DuckoXMPP   # standalone XMPP library, zero internal deps
+DuckoXMPP   # standalone XMPP library, depends only on CLibxml2 (system lib)
 DuckoCore   # depends on DuckoXMPP only
 DuckoData   # depends on DuckoCore
 DuckoUI     # depends on DuckoCore
@@ -45,3 +45,4 @@ Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` 
 - **XMLElement naming**: our `XMLElement` struct (in DuckoXMPP) conflicts with Foundation's `NSXMLElement`. Do not `import Foundation` in files that use `XMLElement` directly. Use stdlib alternatives instead of Foundation string helpers in those files.
 - **Testing**: use Swift Testing (`import Testing`, `@Test`, `#expect`, `#require`), not XCTest. Struct-based suites, parameterized tests via `@Test(arguments:)`.
 - **Concurrency**: value types (struct/enum) are automatically `Sendable`. Never use `@unchecked Sendable`. Use actors for mutable shared state.
+- **libxml2 / CLibxml2**: DuckoXMPP uses libxml2 via a `CLibxml2` system library target (`Sources/CLibxml2/`). For C callbacks that need a back-reference to a Swift class, use the `Unmanaged.passUnretained(self).toOpaque()` pattern — do not use NSObject or `@objc`.

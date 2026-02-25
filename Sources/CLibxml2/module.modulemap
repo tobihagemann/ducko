@@ -1,0 +1,5 @@
+module CLibxml2 [system] {
+    header "shim.h"
+    link "xml2"
+    export *
+}

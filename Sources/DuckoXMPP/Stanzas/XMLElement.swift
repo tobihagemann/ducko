@@ -122,7 +122,7 @@ struct XMLElement: Hashable, Sendable {
         return result
     }
 
-    private static func escape(_ string: String) -> String {
+    static func escape(_ string: String) -> String {
         var result = ""
         result.reserveCapacity(string.count)
         for char in string {

@@ -13,7 +13,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
     ],
     targets: [
-        .target(name: "DuckoXMPP"),
+        .systemLibrary(name: "CLibxml2", path: "Sources/CLibxml2", pkgConfig: "libxml-2.0"),
+
+        .target(name: "DuckoXMPP", dependencies: ["CLibxml2"]),
         .testTarget(name: "DuckoXMPPTests", dependencies: ["DuckoXMPP"]),
 
         .target(name: "DuckoCore", dependencies: ["DuckoXMPP"]),
