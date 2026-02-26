@@ -4,6 +4,8 @@ import Foundation
 @MainActor @Observable
 public final class ChatService {
     public private(set) var openConversations: [Conversation] = []
+    public private(set) var activeConversationID: UUID?
+    public private(set) var messages: [ChatMessage] = []
 
     private let store: any PersistenceStore
     private let filterPipeline: MessageFilterPipeline
@@ -56,6 +58,38 @@ public final class ChatService {
         try await persistMessage(message, in: conversation, accountID: accountID)
     }
 
+    public func selectConversation(_ id: UUID?, accountID: UUID? = nil) async {
+        activeConversationID = id
+        guard let id else {
+            messages = []
+            return
+        }
+        messages = await loadMessages(for: id)
+        try? await store.markMessagesRead(in: id)
+        if let accountID {
+            openConversations = await (try? store.fetchConversations(for: accountID)) ?? openConversations
+        }
+    }
+
+    public func startConversation(jidString: String, accountID: UUID) async throws -> UUID {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
+        openConversations = try await store.fetchConversations(for: accountID)
+        return conversation.id
+    }
+
+    public enum ChatServiceError: Error, LocalizedError {
+        case invalidJID(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case let .invalidJID(string): "Invalid JID: \(string)"
+            }
+        }
+    }
+
     // MARK: - Event Handling
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) async {
@@ -78,12 +112,8 @@ public final class ChatService {
               let body = xmppMessage.body,
               let fromJID = xmppMessage.from?.bareJID else { return }
 
-        // Check for duplicate stanza ID
         let stanzaID = xmppMessage.id
-        if let stanzaID,
-           let conversation = openConversations.first(where: { $0.jid == fromJID && $0.accountID == accountID }),
-           let existing = try? await store.fetchMessages(for: conversation.id, before: nil, limit: 50),
-           existing.contains(where: { $0.stanzaID == stanzaID }) {
+        if await isDuplicate(stanzaID: stanzaID, from: fromJID, accountID: accountID) {
             return
         }
 
@@ -132,6 +162,24 @@ public final class ChatService {
         try await store.upsertConversation(updated)
 
         openConversations = try await store.fetchConversations(for: accountID)
+
+        if conversation.id == activeConversationID {
+            messages = await loadMessages(for: conversation.id)
+        }
+    }
+
+    private func isDuplicate(stanzaID: String?, from jid: BareJID, accountID: UUID) async -> Bool {
+        guard let stanzaID else { return false }
+        guard let conversation = openConversations.first(where: { $0.jid == jid && $0.accountID == accountID }) else {
+            return false
+        }
+        let existing = try? await store.fetchMessages(for: conversation.id, before: nil, limit: 50)
+        return existing?.contains { $0.stanzaID == stanzaID } ?? false
+    }
+
+    private func loadMessages(for conversationID: UUID) async -> [ChatMessage] {
+        let fetched = try? await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+        return (fetched ?? []).reversed()
     }
 
     private func findOrCreateConversation(for jid: BareJID, accountID: UUID) async throws -> Conversation {

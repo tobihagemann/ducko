@@ -12,6 +12,7 @@ public final class AccountService {
 
     private let store: any PersistenceStore
     private var clients: [UUID: XMPPClient] = [:]
+    private var passwords: [UUID: String] = [:]
     private var eventTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectAttempts: [UUID: Int] = [:]
@@ -22,6 +23,16 @@ public final class AccountService {
         case connecting
         case connected(FullJID)
         case error(String)
+    }
+
+    public enum AccountServiceError: Error, LocalizedError {
+        case invalidJID(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case let .invalidJID(string): "Invalid JID: \(string)"
+            }
+        }
     }
 
     public init(store: any PersistenceStore) {
@@ -37,13 +48,15 @@ public final class AccountService {
         }
     }
 
-    public func connect(accountID: UUID) async throws {
+    public func connect(accountID: UUID, password: String) async throws {
+        passwords[accountID] = password
         cancelReconnect(for: accountID, resetAttempts: true)
         try await performConnect(accountID: accountID)
     }
 
     public func disconnect(accountID: UUID) async {
         cancelReconnect(for: accountID, resetAttempts: true)
+        passwords[accountID] = nil
         eventTasks[accountID]?.cancel()
         eventTasks[accountID] = nil
 
@@ -51,6 +64,27 @@ public final class AccountService {
             await client.disconnect()
         }
         connectionStates[accountID] = .disconnected
+    }
+
+    public func createAccount(jidString: String) async throws -> UUID {
+        guard let jid = BareJID.parse(jidString) else {
+            throw AccountServiceError.invalidJID(jidString)
+        }
+        let account = Account(
+            id: UUID(),
+            jid: jid,
+            isEnabled: true,
+            connectOnLaunch: false,
+            createdAt: Date()
+        )
+        try await store.saveAccount(account)
+        return account.id
+    }
+
+    public func deleteAccount(_ id: UUID) async throws {
+        await disconnect(accountID: id)
+        try await store.deleteAccount(id)
+        try await loadAccounts()
     }
 
     // MARK: - Client Access
@@ -62,14 +96,21 @@ public final class AccountService {
     // MARK: - Private: Connection
 
     private func performConnect(accountID: UUID) async throws {
-        guard let account = accounts.first(where: { $0.id == accountID }) else { return }
+        let account: Account
+        if let existing = accounts.first(where: { $0.id == accountID }) {
+            account = existing
+        } else {
+            let all = try await store.fetchAccounts()
+            guard let fetched = all.first(where: { $0.id == accountID }) else { return }
+            account = fetched
+        }
 
         connectionStates[accountID] = .connecting
 
         var builder = XMPPClientBuilder(
             domain: account.jid.domainPart,
             username: account.jid.localPart ?? "",
-            password: "" // Password will come from Keychain in a future prompt.
+            password: passwords[accountID] ?? ""
         )
         builder.withModule(ChatModule())
 
