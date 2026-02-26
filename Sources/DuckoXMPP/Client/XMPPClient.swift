@@ -1,6 +1,8 @@
 import os
 import Synchronization
 
+private let log = Logger(subsystem: "com.ducko.xmpp", category: "client")
+
 /// Orchestrates the full XMPP connection flow and dispatches stanzas to feature modules.
 ///
 /// Drives: TCP → STARTTLS → SASL → resource binding → session establishment.
@@ -51,7 +53,7 @@ public actor XMPPClient {
         self.eventContinuation = continuation
         self.domain = domain
         self.credentials = credentials
-        self.connection = XMPPConnection(transport: transport ?? NWConnectionTransport())
+        self.connection = XMPPConnection(transport: transport ?? POSIXTransport())
     }
 
     // MARK: - Module Registration
@@ -98,6 +100,7 @@ public actor XMPPClient {
         do {
             try await establish()
         } catch {
+            log.error("Connection failed: \(String(describing: error), privacy: .public)")
             state = .disconnected
             throw error
         }
@@ -108,6 +111,7 @@ public actor XMPPClient {
             try await performHandshake(reader: reader)
             startReader(reader: reader)
         } catch {
+            log.error("Handshake failed: \(String(describing: error), privacy: .public)")
             state = .disconnected
             await connection.disconnect()
             throw error
@@ -125,6 +129,7 @@ public actor XMPPClient {
         if features1.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {
             state = .negotiatingTLS
             try await negotiateTLS(reader: reader)
+            log.info("TLS established")
             try await openStream()
             postTLSFeatures = try await reader.awaitFeatures()
         } else {
@@ -134,6 +139,7 @@ public actor XMPPClient {
         // 3. SASL authentication
         state = .authenticating
         try await authenticate(features: postTLSFeatures, reader: reader)
+        log.info("Authenticated")
 
         // 4. Post-auth stream (reset parser for new XML document)
         await connection.resetStream()
@@ -151,6 +157,7 @@ public actor XMPPClient {
         }
 
         // 7. Connected
+        log.notice("Connected as \(fullJID)")
         connectedJIDLock.withLock { $0 = fullJID }
         state = .connected(fullJID)
         eventContinuation.yield(.connected(fullJID))
@@ -208,7 +215,6 @@ public actor XMPPClient {
         try await connection.send(XMPPStreamWriter.stanza(starttls))
 
         let element = try await reader.awaitStanza()
-
         guard element.name == "proceed" else {
             throw XMPPClientError.tlsNegotiationFailed("Server rejected STARTTLS: \(element.name)")
         }

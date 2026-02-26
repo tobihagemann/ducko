@@ -1,3 +1,4 @@
+import AppKit
 import DuckoCore
 import DuckoData
 import DuckoUI
@@ -9,6 +10,7 @@ struct DuckoApp: App {
     @State private var environment: AppEnvironment
 
     init() {
+        NSApplication.shared.setActivationPolicy(.regular)
         do {
             let container = try ModelContainerFactory.makeContainer()
             let store = SwiftDataPersistenceStore(modelContainer: container)
