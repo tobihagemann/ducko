@@ -1,5 +1,5 @@
 /// XMPP stream-level errors per RFC 6120 §4.9.3.
-enum XMPPStreamError: String, Sendable {
+public enum XMPPStreamError: String, Sendable {
     case badFormat = "bad-format"
     case badNamespacePrefix = "bad-namespace-prefix"
     case conflict
@@ -30,12 +30,18 @@ enum XMPPStreamError: String, Sendable {
 // MARK: - XMPPStanzaError
 
 /// XMPP stanza-level error per RFC 6120 §8.3.3.
-struct XMPPStanzaError: Sendable {
-    let errorType: ErrorType
-    let condition: Condition
-    let text: String?
+public struct XMPPStanzaError: Sendable {
+    public let errorType: ErrorType
+    public let condition: Condition
+    public let text: String?
 
-    enum ErrorType: String, Sendable {
+    public init(errorType: ErrorType, condition: Condition, text: String? = nil) {
+        self.errorType = errorType
+        self.condition = condition
+        self.text = text
+    }
+
+    public enum ErrorType: String, Sendable {
         case auth
         case cancel
         case `continue`
@@ -43,7 +49,7 @@ struct XMPPStanzaError: Sendable {
         case wait
     }
 
-    enum Condition: String, Sendable {
+    public enum Condition: String, Sendable {
         case badRequest = "bad-request"
         case conflict
         case featureNotImplemented = "feature-not-implemented"

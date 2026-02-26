@@ -1,12 +1,12 @@
 /// An XMPP `<message>` stanza.
-struct XMPPMessage: XMPPStanza {
-    var element: XMLElement
+public struct XMPPMessage: XMPPStanza {
+    public var element: XMLElement
 
-    init(element: XMLElement) {
+    public init(element: XMLElement) {
         self.element = element
     }
 
-    init(type: MessageType = .chat, to: JID? = nil, id: String? = nil) {
+    public init(type: MessageType = .chat, to: JID? = nil, id: String? = nil) {
         var attributes: [String: String] = ["type": type.rawValue]
         if let to { attributes["to"] = to.description }
         if let id { attributes["id"] = id }
@@ -15,7 +15,7 @@ struct XMPPMessage: XMPPStanza {
 
     // MARK: - Message Type
 
-    enum MessageType: String, Sendable {
+    public enum MessageType: String, Sendable {
         case chat
         case groupchat
         case headline
@@ -23,24 +23,24 @@ struct XMPPMessage: XMPPStanza {
         case error
     }
 
-    var messageType: MessageType? {
+    public var messageType: MessageType? {
         get { type.flatMap(MessageType.init(rawValue:)) }
         set { type = newValue?.rawValue }
     }
 
     // MARK: - Child Elements
 
-    var body: String? {
+    public var body: String? {
         get { element.childText(named: "body") }
         set { element.setChildText(named: "body", to: newValue) }
     }
 
-    var subject: String? {
+    public var subject: String? {
         get { element.childText(named: "subject") }
         set { element.setChildText(named: "subject", to: newValue) }
     }
 
-    var thread: String? {
+    public var thread: String? {
         get { element.childText(named: "thread") }
         set { element.setChildText(named: "thread", to: newValue) }
     }

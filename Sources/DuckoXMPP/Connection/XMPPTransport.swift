@@ -1,5 +1,5 @@
 /// Errors from XMPP connection operations.
-enum XMPPConnectionError: Error, Sendable {
+public enum XMPPConnectionError: Error, Sendable {
     case alreadyConnected
     case notConnected
     case connectionFailed(String)
@@ -10,7 +10,7 @@ enum XMPPConnectionError: Error, Sendable {
 }
 
 /// Abstracts the network transport for testability.
-protocol XMPPTransport: Sendable {
+public protocol XMPPTransport: Sendable {
     func connect(host: String, port: UInt16) async throws
     func upgradeTLS(serverName: String) async throws
     func send(_ bytes: [UInt8]) async throws

@@ -1,12 +1,12 @@
 /// An XMPP `<iq>` stanza.
-struct XMPPIQ: XMPPStanza {
-    var element: XMLElement
+public struct XMPPIQ: XMPPStanza {
+    public var element: XMLElement
 
-    init(element: XMLElement) {
+    public init(element: XMLElement) {
         self.element = element
     }
 
-    init(type: IQType, to: JID? = nil, id: String? = nil) {
+    public init(type: IQType, to: JID? = nil, id: String? = nil) {
         var attributes: [String: String] = ["type": type.rawValue]
         if let to { attributes["to"] = to.description }
         if let id { attributes["id"] = id }
@@ -15,14 +15,14 @@ struct XMPPIQ: XMPPStanza {
 
     // MARK: - IQ Type
 
-    enum IQType: String, Sendable {
+    public enum IQType: String, Sendable {
         case get
         case set
         case result
         case error
     }
 
-    var iqType: IQType? {
+    public var iqType: IQType? {
         get { type.flatMap(IQType.init(rawValue:)) }
         set { type = newValue?.rawValue }
     }
@@ -30,7 +30,7 @@ struct XMPPIQ: XMPPStanza {
     // MARK: - Payload
 
     /// The first non-error child element (the IQ payload).
-    var childElement: XMLElement? {
+    public var childElement: XMLElement? {
         for case .element(let child) in element.children where child.name != "error" {
             return child
         }
@@ -39,8 +39,8 @@ struct XMPPIQ: XMPPStanza {
 
     // MARK: - Convenience
 
-    var isGet: Bool { iqType == .get }
-    var isSet: Bool { iqType == .set }
-    var isResult: Bool { iqType == .result }
-    var isError: Bool { iqType == .error }
+    public var isGet: Bool { iqType == .get }
+    public var isSet: Bool { iqType == .set }
+    public var isResult: Bool { iqType == .result }
+    public var isError: Bool { iqType == .error }
 }

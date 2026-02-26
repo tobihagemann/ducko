@@ -1,12 +1,12 @@
 /// An XMPP `<presence>` stanza.
-struct XMPPPresence: XMPPStanza {
-    var element: XMLElement
+public struct XMPPPresence: XMPPStanza {
+    public var element: XMLElement
 
-    init(element: XMLElement) {
+    public init(element: XMLElement) {
         self.element = element
     }
 
-    init(type: PresenceType? = nil, to: JID? = nil, id: String? = nil) {
+    public init(type: PresenceType? = nil, to: JID? = nil, id: String? = nil) {
         var attributes: [String: String] = [:]
         if let type { attributes["type"] = type.rawValue }
         if let to { attributes["to"] = to.description }
@@ -17,7 +17,7 @@ struct XMPPPresence: XMPPStanza {
     // MARK: - Presence Type
 
     /// Presence type attribute. `nil` means available per RFC 6121.
-    enum PresenceType: String, Sendable {
+    public enum PresenceType: String, Sendable {
         case unavailable
         case subscribe
         case subscribed
@@ -27,14 +27,14 @@ struct XMPPPresence: XMPPStanza {
         case error
     }
 
-    var presenceType: PresenceType? {
+    public var presenceType: PresenceType? {
         get { type.flatMap(PresenceType.init(rawValue:)) }
         set { type = newValue?.rawValue }
     }
 
     // MARK: - Show
 
-    enum Show: String, Comparable, Sendable {
+    public enum Show: String, Comparable, Sendable {
         case chat
         case away
         case xa
@@ -49,26 +49,26 @@ struct XMPPPresence: XMPPStanza {
             }
         }
 
-        static func < (lhs: Show, rhs: Show) -> Bool {
+        public static func < (lhs: Show, rhs: Show) -> Bool {
             lhs.sortOrder < rhs.sortOrder
         }
     }
 
-    var show: Show? {
+    public var show: Show? {
         get { element.childText(named: "show").flatMap(Show.init(rawValue:)) }
         set { element.setChildText(named: "show", to: newValue?.rawValue) }
     }
 
     // MARK: - Status
 
-    var status: String? {
+    public var status: String? {
         get { element.childText(named: "status") }
         set { element.setChildText(named: "status", to: newValue) }
     }
 
     // MARK: - Priority
 
-    var priority: Int {
+    public var priority: Int {
         get { element.childText(named: "priority").flatMap(Int.init) ?? 0 }
         set { element.setChildText(named: "priority", to: String(newValue)) }
     }

@@ -6,7 +6,7 @@ import Synchronization
 /// Drives: TCP → STARTTLS → SASL → resource binding → session establishment.
 /// Incoming stanzas are routed to registered ``XMPPModule``s. Domain-level events
 /// are exposed via ``events``.
-actor XMPPClient {
+public actor XMPPClient {
     private let connection: XMPPConnection
     private let domain: String
     private let credentials: Credentials
@@ -20,16 +20,21 @@ actor XMPPClient {
     private let eventContinuation: AsyncStream<XMPPEvent>.Continuation
 
     /// Domain events from the client (connected, disconnected, messages, etc.).
-    nonisolated let events: AsyncStream<XMPPEvent>
+    public nonisolated let events: AsyncStream<XMPPEvent>
 
-    struct Credentials: Sendable {
-        let username: String
-        let password: String
+    public struct Credentials: Sendable {
+        public let username: String
+        public let password: String
+
+        public init(username: String, password: String) {
+            self.username = username
+            self.password = password
+        }
     }
 
     // MARK: - Connection State
 
-    enum ConnectionState: Sendable {
+    public enum ConnectionState: Sendable {
         case disconnected
         case connecting
         case negotiatingTLS
@@ -40,30 +45,30 @@ actor XMPPClient {
 
     // MARK: - Init
 
-    init(domain: String, credentials: Credentials, transport: any XMPPTransport = NWConnectionTransport()) {
+    public init(domain: String, credentials: Credentials, transport: (any XMPPTransport)? = nil) {
         let (stream, continuation) = AsyncStream.makeStream(of: XMPPEvent.self)
         self.events = stream
         self.eventContinuation = continuation
         self.domain = domain
         self.credentials = credentials
-        self.connection = XMPPConnection(transport: transport)
+        self.connection = XMPPConnection(transport: transport ?? NWConnectionTransport())
     }
 
     // MARK: - Module Registration
 
-    func register<M: XMPPModule>(_ module: M) {
+    public func register<M: XMPPModule>(_ module: M) {
         let key = ObjectIdentifier(type(of: module))
         modules[key] = module
         module.setUp(makeModuleContext())
     }
 
-    func module<M: XMPPModule>(ofType type: M.Type) -> M? {
+    public func module<M: XMPPModule>(ofType type: M.Type) -> M? {
         modules[ObjectIdentifier(type)] as? M
     }
 
     // MARK: - ID Generation
 
-    nonisolated func generateID() -> String {
+    public nonisolated func generateID() -> String {
         let value = idCounter.wrappingAdd(1, ordering: .relaxed).oldValue &+ 1
         return "ducko-\(value)"
     }
@@ -71,14 +76,14 @@ actor XMPPClient {
     // MARK: - Connect
 
     /// SRV-aware connect: resolves SRV records then runs the full XMPP handshake.
-    func connect() async throws {
+    public func connect() async throws {
         try await performConnect { [connection, domain] in
             try await connection.connect(domain: domain)
         }
     }
 
     /// Direct connect to a specific host and port, bypassing SRV resolution.
-    func connect(host: String, port: UInt16) async throws {
+    public func connect(host: String, port: UInt16) async throws {
         try await performConnect { [connection] in
             try await connection.connect(host: host, port: port)
         }
@@ -157,14 +162,14 @@ actor XMPPClient {
 
     // MARK: - Disconnect
 
-    func disconnect() async {
+    public func disconnect() async {
         cleanUp(reason: .requested)
         await connection.disconnect()
     }
 
     // MARK: - Sending
 
-    func send(_ stanza: any XMPPStanza) async throws {
+    public func send(_ stanza: any XMPPStanza) async throws {
         guard case .connected = state else {
             throw XMPPClientError.notConnected
         }
@@ -173,7 +178,7 @@ actor XMPPClient {
 
     /// Sends an IQ and awaits the matching result/error response.
     /// Returns the result's child element, or `nil` for IQ errors.
-    func sendIQ(_ iq: XMPPIQ) async throws -> XMLElement? {
+    public func sendIQ(_ iq: XMPPIQ) async throws -> XMLElement? {
         var iq = iq
         let stanzaID = iq.id ?? generateID()
         iq.id = stanzaID

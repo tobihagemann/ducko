@@ -1,0 +1,156 @@
+import Foundation
+import DuckoXMPP
+
+@MainActor @Observable
+public final class AccountService {
+    // MARK: - Published State
+
+    public private(set) var accounts: [Account] = []
+    public private(set) var connectionStates: [UUID: ConnectionState] = [:]
+
+    // MARK: - Internal
+
+    private let store: any PersistenceStore
+    private var clients: [UUID: XMPPClient] = [:]
+    private var eventTasks: [UUID: Task<Void, Never>] = [:]
+    private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
+    private var reconnectAttempts: [UUID: Int] = [:]
+    var onEvent: ((XMPPEvent, UUID) -> Void)?
+
+    public enum ConnectionState: Sendable {
+        case disconnected
+        case connecting
+        case connected(FullJID)
+        case error(String)
+    }
+
+    public init(store: any PersistenceStore) {
+        self.store = store
+    }
+
+    // MARK: - Lifecycle
+
+    public func loadAccounts() async throws {
+        accounts = try await store.fetchAccounts()
+        for account in accounts {
+            if connectionStates[account.id] == nil {
+                connectionStates[account.id] = .disconnected
+            }
+        }
+    }
+
+    public func connect(accountID: UUID) async throws {
+        cancelReconnect(for: accountID, resetAttempts: true)
+        try await performConnect(accountID: accountID)
+    }
+
+    public func disconnect(accountID: UUID) async {
+        cancelReconnect(for: accountID, resetAttempts: true)
+        eventTasks[accountID]?.cancel()
+        eventTasks[accountID] = nil
+
+        if let client = clients.removeValue(forKey: accountID) {
+            await client.disconnect()
+        }
+        connectionStates[accountID] = .disconnected
+    }
+
+    // MARK: - Client Access
+
+    func client(for accountID: UUID) -> XMPPClient? {
+        clients[accountID]
+    }
+
+    // MARK: - Private: Connection
+
+    private func performConnect(accountID: UUID) async throws {
+        guard let account = accounts.first(where: { $0.id == accountID }) else { return }
+
+        connectionStates[accountID] = .connecting
+
+        var builder = XMPPClientBuilder(
+            domain: account.jid.domainPart,
+            username: account.jid.localPart ?? "",
+            password: "" // Password will come from Keychain in a future prompt.
+        )
+        builder.withModule(ChatModule())
+
+        let client = await builder.build()
+        clients[accountID] = client
+
+        startEventConsumption(for: accountID, client: client)
+
+        do {
+            if let host = account.host, let port = account.port {
+                try await client.connect(host: host, port: UInt16(port))
+            } else {
+                try await client.connect()
+            }
+        } catch {
+            connectionStates[accountID] = .error(error.localizedDescription)
+            throw error
+        }
+    }
+
+    // MARK: - Private: Event Consumption
+
+    private func startEventConsumption(for accountID: UUID, client: XMPPClient) {
+        eventTasks[accountID]?.cancel()
+
+        eventTasks[accountID] = Task { [weak self] in
+            for await event in client.events {
+                guard let self, !Task.isCancelled else { return }
+                self.handleEvent(event, accountID: accountID)
+            }
+        }
+    }
+
+    private func handleEvent(_ event: XMPPEvent, accountID: UUID) {
+        switch event {
+        case .connected(let jid):
+            connectionStates[accountID] = .connected(jid)
+            reconnectAttempts[accountID] = 0
+        case .disconnected(let reason):
+            clients[accountID] = nil
+            eventTasks[accountID]?.cancel()
+            eventTasks[accountID] = nil
+            switch reason {
+            case .requested:
+                connectionStates[accountID] = .disconnected
+            case .streamError(let message), .connectionLost(let message):
+                connectionStates[accountID] = .error(message)
+                scheduleReconnect(accountID: accountID)
+            }
+        case .authenticationFailed(let message):
+            connectionStates[accountID] = .error(message)
+        default:
+            break
+        }
+
+        onEvent?(event, accountID)
+    }
+
+    // MARK: - Private: Reconnection
+
+    private func cancelReconnect(for accountID: UUID, resetAttempts: Bool) {
+        reconnectTasks[accountID]?.cancel()
+        reconnectTasks[accountID] = nil
+        if resetAttempts {
+            reconnectAttempts[accountID] = 0
+        }
+    }
+
+    private func scheduleReconnect(accountID: UUID) {
+        let attempt = reconnectAttempts[accountID] ?? 0
+        guard attempt < 5 else { return }
+
+        reconnectAttempts[accountID] = attempt + 1
+        let delay = min(pow(2.0, Double(attempt)), 30.0)
+
+        reconnectTasks[accountID] = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            try? await self?.performConnect(accountID: accountID)
+        }
+    }
+}

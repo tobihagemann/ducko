@@ -2,7 +2,7 @@
 ///
 /// Modules are `final class` (not actor) to keep handler calls synchronous from the dispatch loop.
 /// The ``ModuleContext`` is stored behind an `OSAllocatedUnfairLock` for `Sendable` compliance.
-protocol XMPPModule: AnyObject, Sendable {
+public protocol XMPPModule: AnyObject, Sendable {
     /// Called once when the module is registered with a client.
     func setUp(_ context: ModuleContext)
     /// Called after the XMPP session is fully established.
@@ -17,8 +17,8 @@ protocol XMPPModule: AnyObject, Sendable {
 
 /// Default no-op implementations.
 extension XMPPModule {
-    func handleConnect() async throws {}
-    func handleMessage(_ message: XMPPMessage) throws {}
-    func handlePresence(_ presence: XMPPPresence) throws {}
-    func handleIQ(_ iq: XMPPIQ) throws {}
+    public func handleConnect() async throws {}
+    public func handleMessage(_ message: XMPPMessage) throws {}
+    public func handlePresence(_ presence: XMPPPresence) throws {}
+    public func handleIQ(_ iq: XMPPIQ) throws {}
 }

@@ -1,5 +1,5 @@
 /// Errors from XMPP client operations.
-enum XMPPClientError: Error, Sendable {
+public enum XMPPClientError: Error, Sendable {
     case notConnected
     case alreadyConnected
     case streamError(String)
