@@ -54,10 +54,20 @@ actor XMPPConnection {
     /// Parser access is actor-isolated, so queued `feedParser` calls will
     /// execute against the new parser after the swap.
     func upgradeTLS(serverName: String) async throws {
+        resetStream()
+        try await transport.upgradeTLS(serverName: serverName)
+    }
+
+    // MARK: - Stream Reset
+
+    /// Resets the parser for a new XMPP stream (e.g. after SASL authentication).
+    ///
+    /// The receive task continues running — only the forward task is restarted
+    /// with the new parser's event stream.
+    func resetStream() {
         forwardTask?.cancel()
         forwardTask = nil
         parser.close()
-        try await transport.upgradeTLS(serverName: serverName)
         parser = XMPPStreamParser()
         startForwarding()
     }
