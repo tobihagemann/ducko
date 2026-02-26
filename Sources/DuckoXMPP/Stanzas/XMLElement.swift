@@ -26,14 +26,14 @@ public struct XMLElement: Hashable, Sendable {
     // MARK: - Child Lookup
 
     public func child(named name: String) -> XMLElement? {
-        for case .element(let child) in children where child.name == name {
+        for case let .element(child) in children where child.name == name {
             return child
         }
         return nil
     }
 
     public func child(named name: String, namespace: String) -> XMLElement? {
-        for case .element(let child) in children where child.name == name && child.namespace == namespace {
+        for case let .element(child) in children where child.name == name && child.namespace == namespace {
             return child
         }
         return nil
@@ -41,7 +41,7 @@ public struct XMLElement: Hashable, Sendable {
 
     public func children(named name: String) -> [XMLElement] {
         children.compactMap { node in
-            guard case .element(let child) = node, child.name == name else { return nil }
+            guard case let .element(child) = node, child.name == name else { return nil }
             return child
         }
     }
@@ -51,7 +51,7 @@ public struct XMLElement: Hashable, Sendable {
     /// Concatenated text of all direct text nodes.
     public var textContent: String? {
         let text = children.compactMap { node -> String? in
-            guard case .text(let value) = node else { return nil }
+            guard case let .text(value) = node else { return nil }
             return value
         }.joined()
         return text.isEmpty ? nil : text
@@ -81,7 +81,7 @@ public struct XMLElement: Hashable, Sendable {
     /// Replaces the text content of a named child element. Removes the child if `value` is `nil`.
     public mutating func setChildText(named name: String, to value: String?) {
         children.removeAll { node in
-            guard case .element(let child) = node else { return false }
+            guard case let .element(child) = node else { return false }
             return child.name == name
         }
         if let value {
@@ -110,9 +110,9 @@ public struct XMLElement: Hashable, Sendable {
             result += ">"
             for child in children {
                 switch child {
-                case .text(let text):
+                case let .text(text):
                     result += Self.escape(text)
-                case .element(let element):
+                case let .element(element):
                     result += element.xmlString
                 }
             }

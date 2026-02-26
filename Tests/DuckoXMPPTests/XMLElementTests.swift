@@ -1,8 +1,7 @@
 import Testing
-
 @testable import DuckoXMPP
 
-struct XMLElementTests {
+enum XMLElementTests {
     struct Serialization {
         @Test("Self-closing element")
         func selfClosing() {

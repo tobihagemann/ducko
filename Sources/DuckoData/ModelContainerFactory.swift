@@ -8,7 +8,7 @@ public enum ModelContainerFactory {
         ConversationRecord.self,
         MessageRecord.self,
         AttachmentRecord.self,
-        LinkPreviewRecord.self,
+        LinkPreviewRecord.self
     ])
 
     public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {

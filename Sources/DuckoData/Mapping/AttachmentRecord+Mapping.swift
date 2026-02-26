@@ -1,5 +1,5 @@
-import Foundation
 import DuckoCore
+import Foundation
 
 extension AttachmentRecord {
     func toDomain() -> Attachment? {

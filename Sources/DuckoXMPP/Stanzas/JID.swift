@@ -37,9 +37,9 @@ extension BareJID: Codable {
     }
 }
 
-extension BareJID {
+public extension BareJID {
     /// Parses a bare JID string. Returns `nil` if the string contains a resource part or is otherwise invalid.
-    public static func parse(_ string: String) -> BareJID? {
+    static func parse(_ string: String) -> BareJID? {
         guard !string.isEmpty else { return nil }
         // Bare JIDs must not contain a resource separator
         guard !string.contains("/") else { return nil }
@@ -91,9 +91,9 @@ extension FullJID: Codable {
     }
 }
 
-extension FullJID {
+public extension FullJID {
     /// Parses a full JID string. The resource may contain slashes per RFC 6120.
-    public static func parse(_ string: String) -> FullJID? {
+    static func parse(_ string: String) -> FullJID? {
         guard !string.isEmpty else { return nil }
         // Split on first `/` — resource part may contain additional slashes
         guard let slashIndex = string.firstIndex(of: "/") else { return nil }
@@ -115,8 +115,8 @@ public enum JID: Hashable, Sendable {
 
     public var bareJID: BareJID {
         switch self {
-        case .bare(let bareJID): bareJID
-        case .full(let fullJID): fullJID.bareJID
+        case let .bare(bareJID): bareJID
+        case let .full(fullJID): fullJID.bareJID
         }
     }
 }
@@ -124,8 +124,8 @@ public enum JID: Hashable, Sendable {
 extension JID: CustomStringConvertible {
     public var description: String {
         switch self {
-        case .bare(let bareJID): bareJID.description
-        case .full(let fullJID): fullJID.description
+        case let .bare(bareJID): bareJID.description
+        case let .full(fullJID): fullJID.description
         }
     }
 }
@@ -147,9 +147,9 @@ extension JID: Codable {
     }
 }
 
-extension JID {
+public extension JID {
     /// Parses a JID string, returning `.full` if a resource is present, `.bare` otherwise.
-    public static func parse(_ string: String) -> JID? {
+    static func parse(_ string: String) -> JID? {
         if let fullJID = FullJID.parse(string) {
             return .full(fullJID)
         }

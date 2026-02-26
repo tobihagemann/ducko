@@ -13,7 +13,7 @@ struct DuckoCLI: AsyncParsableCommand {
             History.self,
             Room.self,
             Account.self,
-            Interactive.self,
+            Interactive.self
         ],
         defaultSubcommand: Interactive.self
     )

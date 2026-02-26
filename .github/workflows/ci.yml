@@ -11,6 +11,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: Lint
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install tools
+        run: brew install swiftlint swiftformat
+
+      - name: Lint & Format Check
+        run: ./Scripts/lint.sh --check
+
   build-and-test:
     name: Build & Test
     runs-on: macos-26

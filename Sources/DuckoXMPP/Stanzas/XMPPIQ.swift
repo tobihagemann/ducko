@@ -31,7 +31,7 @@ public struct XMPPIQ: XMPPStanza {
 
     /// The first non-error child element (the IQ payload).
     public var childElement: XMLElement? {
-        for case .element(let child) in element.children where child.name != "error" {
+        for case let .element(child) in element.children where child.name != "error" {
             return child
         }
         return nil
@@ -39,8 +39,19 @@ public struct XMPPIQ: XMPPStanza {
 
     // MARK: - Convenience
 
-    public var isGet: Bool { iqType == .get }
-    public var isSet: Bool { iqType == .set }
-    public var isResult: Bool { iqType == .result }
-    public var isError: Bool { iqType == .error }
+    public var isGet: Bool {
+        iqType == .get
+    }
+
+    public var isSet: Bool {
+        iqType == .set
+    }
+
+    public var isResult: Bool {
+        iqType == .result
+    }
+
+    public var isError: Bool {
+        iqType == .error
+    }
 }

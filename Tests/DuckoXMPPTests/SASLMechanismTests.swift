@@ -1,6 +1,5 @@
 import CryptoKit
 import Testing
-
 @testable import DuckoXMPP
 
 // MARK: - Base64 Tests
@@ -21,7 +20,7 @@ struct Base64Tests {
         "user",
         "pencil",
         "\0user\0pencil",
-        "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL",
+        "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL"
     ])
     func roundTrip(input: String) {
         let encoded = Base64.encode(input)
@@ -36,7 +35,7 @@ struct Base64Tests {
         ("foo", "Zm9v"),
         ("foob", "Zm9vYg=="),
         ("fooba", "Zm9vYmE="),
-        ("foobar", "Zm9vYmFy"),
+        ("foobar", "Zm9vYmFy")
     ])
     func encodeKnownVectors(input: String, expected: String) {
         #expect(Base64.encode(input) == expected)
@@ -123,7 +122,7 @@ struct SCRAMSHA1Tests {
         challenge.addText(Base64.encode(Self.serverFirstMessage))
 
         let challengeResponse = mechanism.handleChallenge(challenge)
-        guard case .continueWith(let responseElement) = challengeResponse else {
+        guard case let .continueWith(responseElement) = challengeResponse else {
             Issue.record("Expected continueWith, got \(challengeResponse)")
             return
         }
@@ -145,7 +144,7 @@ struct SCRAMSHA1Tests {
     }
 
     @Test("Client-first-message bare matches RFC 5802 §5")
-    func clientFirstMessageBare() throws {
+    func clientFirstMessageBare() {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         let message = state.clientFirstMessage(authcid: "user", password: "pencil")
         #expect(message == "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL")
@@ -185,7 +184,8 @@ struct SCRAMSHA1Tests {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         let result = state.clientFinalMessage(
-            serverFirstMessage: "r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=100")
+            serverFirstMessage: "r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=100"
+        )
         guard case .failure(.iterationCountTooLow(100)) = result else {
             Issue.record("Expected iterationCountTooLow(100), got \(result)")
             return
@@ -205,7 +205,7 @@ struct SCRAMSHA1Tests {
     }
 
     @Test("Username escaping: = becomes =3D, comma becomes =2C")
-    func usernameEscaping() throws {
+    func usernameEscaping() {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { "testnonce" })
         let message = state.clientFirstMessage(authcid: "user=name,test", password: "pass")
         #expect(message.contains("n=user=3Dname=2Ctest"))
@@ -236,7 +236,7 @@ struct SCRAMSHA256Tests {
         challenge.addText(Base64.encode(Self.serverFirstMessage))
 
         let challengeResponse = mechanism.handleChallenge(challenge)
-        guard case .continueWith(let responseElement) = challengeResponse else {
+        guard case let .continueWith(responseElement) = challengeResponse else {
             Issue.record("Expected continueWith, got \(challengeResponse)")
             return
         }
@@ -285,7 +285,7 @@ struct SCRAMSHA256Tests {
     }
 
     @Test("Malformed challenge rejected")
-    func malformedChallenge() throws {
+    func malformedChallenge() {
         var state = SCRAMState<SHA256>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         let result = state.clientFinalMessage(serverFirstMessage: "garbage")

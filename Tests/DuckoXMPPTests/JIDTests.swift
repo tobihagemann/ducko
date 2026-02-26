@@ -1,15 +1,14 @@
 import Foundation
 import Testing
-
 @testable import DuckoXMPP
 
-struct JIDTests {
+enum JIDTests {
     struct BareJIDParsing {
         @Test("Valid bare JIDs", arguments: [
             ("user@example.com", "user", "example.com"),
             ("example.com", nil as String?, "example.com"),
             ("user@chat.example.com", "user", "chat.example.com"),
-            ("user@192.168.1.1", "user", "192.168.1.1"),
+            ("user@192.168.1.1", "user", "192.168.1.1")
         ])
         func validBareJID(input: String, expectedLocal: String?, expectedDomain: String) throws {
             let jid = try #require(BareJID.parse(input))
@@ -26,7 +25,7 @@ struct JIDTests {
     struct FullJIDParsing {
         @Test("Valid full JIDs", arguments: [
             ("user@example.com/resource", "user", "example.com", "resource"),
-            ("example.com/resource", nil as String?, "example.com", "resource"),
+            ("example.com/resource", nil as String?, "example.com", "resource")
         ])
         func validFullJID(
             input: String, expectedLocal: String?, expectedDomain: String, expectedResource: String
@@ -55,7 +54,7 @@ struct JIDTests {
         @Test("Bare JID parsed as .bare")
         func parseBare() throws {
             let jid = try #require(JID.parse("user@example.com"))
-            guard case .bare(let bareJID) = jid else {
+            guard case let .bare(bareJID) = jid else {
                 Issue.record("Expected .bare, got \(jid)")
                 return
             }
@@ -66,7 +65,7 @@ struct JIDTests {
         @Test("Full JID parsed as .full")
         func parseFull() throws {
             let jid = try #require(JID.parse("user@example.com/resource"))
-            guard case .full(let fullJID) = jid else {
+            guard case let .full(fullJID) = jid else {
                 Issue.record("Expected .full, got \(jid)")
                 return
             }
@@ -133,7 +132,7 @@ struct JIDTests {
     struct Description {
         @Test("BareJID description formats correctly", arguments: [
             ("user@example.com", "user@example.com"),
-            ("example.com", "example.com"),
+            ("example.com", "example.com")
         ])
         func bareJIDDescription(input: String, expected: String) throws {
             let jid = try #require(BareJID.parse(input))

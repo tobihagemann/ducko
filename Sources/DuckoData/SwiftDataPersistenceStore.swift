@@ -1,7 +1,7 @@
-import Foundation
-import SwiftData
 import DuckoCore
 import DuckoXMPP
+import Foundation
+import SwiftData
 
 public enum PersistenceStoreError: Error {
     case parentNotFound(String)
@@ -9,7 +9,6 @@ public enum PersistenceStoreError: Error {
 
 @ModelActor
 public actor SwiftDataPersistenceStore: PersistenceStore {
-
     // MARK: - Accounts
 
     public func fetchAccounts() throws -> [Account] {

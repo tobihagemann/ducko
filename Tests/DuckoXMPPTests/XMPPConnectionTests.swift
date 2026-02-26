@@ -1,5 +1,4 @@
 import Testing
-
 @testable import DuckoXMPP
 
 // MARK: - Mock Transport
@@ -98,7 +97,7 @@ private func collectEvents(
 
 // MARK: - Tests
 
-struct XMPPConnectionTests {
+enum XMPPConnectionTests {
     struct ConnectionLifecycle {
         @Test("Connect establishes transport")
         func connectEstablishesTransport() async throws {
@@ -261,7 +260,7 @@ struct SRVRecordTests {
         let records = [
             SRVRecord(priority: 20, weight: 50, port: 5222, target: "low-pri.example.com"),
             SRVRecord(priority: 10, weight: 30, port: 5222, target: "high-pri-low-weight.example.com"),
-            SRVRecord(priority: 10, weight: 70, port: 5222, target: "high-pri-high-weight.example.com"),
+            SRVRecord(priority: 10, weight: 70, port: 5222, target: "high-pri-high-weight.example.com")
         ]
 
         let sorted = records.sorted()

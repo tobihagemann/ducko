@@ -1,5 +1,5 @@
-import Foundation
 import DuckoXMPP
+import Foundation
 
 @MainActor @Observable
 public final class AccountService {
@@ -32,10 +32,8 @@ public final class AccountService {
 
     public func loadAccounts() async throws {
         accounts = try await store.fetchAccounts()
-        for account in accounts {
-            if connectionStates[account.id] == nil {
-                connectionStates[account.id] = .disconnected
-            }
+        for account in accounts where connectionStates[account.id] == nil {
+            connectionStates[account.id] = .disconnected
         }
     }
 
@@ -100,28 +98,28 @@ public final class AccountService {
         eventTasks[accountID] = Task { [weak self] in
             for await event in client.events {
                 guard let self, !Task.isCancelled else { return }
-                self.handleEvent(event, accountID: accountID)
+                handleEvent(event, accountID: accountID)
             }
         }
     }
 
     private func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
-        case .connected(let jid):
+        case let .connected(jid):
             connectionStates[accountID] = .connected(jid)
             reconnectAttempts[accountID] = 0
-        case .disconnected(let reason):
+        case let .disconnected(reason):
             clients[accountID] = nil
             eventTasks[accountID]?.cancel()
             eventTasks[accountID] = nil
             switch reason {
             case .requested:
                 connectionStates[accountID] = .disconnected
-            case .streamError(let message), .connectionLost(let message):
+            case let .streamError(message), let .connectionLost(message):
                 connectionStates[accountID] = .error(message)
                 scheduleReconnect(accountID: accountID)
             }
-        case .authenticationFailed(let message):
+        case let .authenticationFailed(message):
             connectionStates[accountID] = .error(message)
         default:
             break

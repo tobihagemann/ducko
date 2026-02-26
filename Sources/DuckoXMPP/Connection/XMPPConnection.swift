@@ -93,7 +93,7 @@ actor XMPPConnection {
 
     private func startForwarding() {
         let parserEvents = parser.events
-        let continuation = self.eventContinuation
+        let continuation = eventContinuation
         forwardTask = Task {
             for await event in parserEvents {
                 continuation.yield(event)

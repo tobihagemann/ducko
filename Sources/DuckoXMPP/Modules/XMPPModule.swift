@@ -16,9 +16,9 @@ public protocol XMPPModule: AnyObject, Sendable {
 }
 
 /// Default no-op implementations.
-extension XMPPModule {
-    public func handleConnect() async throws {}
-    public func handleMessage(_ message: XMPPMessage) throws {}
-    public func handlePresence(_ presence: XMPPPresence) throws {}
-    public func handleIQ(_ iq: XMPPIQ) throws {}
+public extension XMPPModule {
+    func handleConnect() async throws {}
+    func handleMessage(_ message: XMPPMessage) throws {}
+    func handlePresence(_ presence: XMPPPresence) throws {}
+    func handleIQ(_ iq: XMPPIQ) throws {}
 }

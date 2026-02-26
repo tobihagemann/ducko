@@ -1,5 +1,5 @@
-import Foundation
 import DuckoXMPP
+import Foundation
 
 @MainActor @Observable
 public final class ChatService {
@@ -17,7 +17,7 @@ public final class ChatService {
     // MARK: - Wiring
 
     func setAccountService(_ service: AccountService) {
-        self.accountService = service
+        accountService = service
     }
 
     // MARK: - Public API
@@ -60,7 +60,7 @@ public final class ChatService {
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) async {
         switch event {
-        case .messageReceived(let xmppMessage):
+        case let .messageReceived(xmppMessage):
             await handleMessageReceived(xmppMessage, accountID: accountID)
         default:
             break

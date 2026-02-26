@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-
 @testable import DuckoCore
 @testable import DuckoXMPP
 
@@ -36,7 +35,7 @@ private func makeIncomingMessage(
 
 // MARK: - Tests
 
-struct ChatServiceTests {
+enum ChatServiceTests {
     struct IncomingMessages {
         @Test("Incoming message creates conversation and persists message")
         @MainActor
@@ -109,7 +108,7 @@ struct ChatServiceTests {
 
             // Message with no body
             var xmppMessage = XMPPMessage(type: .chat, to: .bare(testAccountJID))
-            xmppMessage.from = .full(FullJID(bareJID: contactJID, resourcePart: "res")!)
+            xmppMessage.from = try .full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
             await service.handleEvent(.messageReceived(xmppMessage), accountID: testAccountID)
 
             let conversations = try await store.fetchConversations(for: testAccountID)
@@ -123,7 +122,7 @@ struct ChatServiceTests {
             let service = makeChatService(store: store)
 
             var xmppMessage = XMPPMessage(type: .headline, to: .bare(testAccountJID))
-            xmppMessage.from = .full(FullJID(bareJID: contactJID, resourcePart: "res")!)
+            xmppMessage.from = try .full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
             xmppMessage.body = "Headline"
             await service.handleEvent(.messageReceived(xmppMessage), accountID: testAccountID)
 

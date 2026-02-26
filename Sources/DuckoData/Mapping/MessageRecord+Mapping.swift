@@ -1,5 +1,5 @@
-import Foundation
 import DuckoCore
+import Foundation
 
 extension MessageRecord {
     func toDomain() -> ChatMessage? {

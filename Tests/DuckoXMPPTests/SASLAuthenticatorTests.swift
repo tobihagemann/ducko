@@ -1,5 +1,4 @@
 import Testing
-
 @testable import DuckoXMPP
 
 // MARK: - Helpers
@@ -19,7 +18,7 @@ private func features(mechanisms: [String]) -> XMLElement {
 
 // MARK: - Tests
 
-struct SASLAuthenticatorTests {
+enum SASLAuthenticatorTests {
     struct MechanismSelection {
         @Test("Selects SCRAM-SHA-256 when all offered")
         func selectsSCRAMSHA256() throws {
@@ -126,7 +125,7 @@ struct SASLAuthenticatorTests {
             failure.addChild(text)
 
             let response = auth.receive(failure)
-            guard case .failure(.serverFailure(let condition, let errorText)) = response else {
+            guard case let .failure(.serverFailure(condition, errorText)) = response else {
                 Issue.record("Expected serverFailure, got \(response)")
                 return
             }
@@ -147,7 +146,7 @@ struct SASLAuthenticatorTests {
             failure.addChild(XMLElement(name: "temporary-auth-failure"))
 
             let response = auth.receive(failure)
-            guard case .failure(.serverFailure(let condition, let errorText)) = response else {
+            guard case let .failure(.serverFailure(condition, errorText)) = response else {
                 Issue.record("Expected serverFailure, got \(response)")
                 return
             }
@@ -184,7 +183,7 @@ struct SASLAuthenticatorTests {
 
     struct SCRAMFlow {
         @Test("Full SCRAM-SHA-256 flow through authenticator")
-        func fullSCRAMSHA256Flow() throws {
+        func fullSCRAMSHA256Flow() {
             let clientNonce = "rOprNGfwEbeRWgbNEkqO"
             var mech = SCRAMSHA256(nonceGenerator: { clientNonce })
             let authElement = mech.start(authcid: "user", password: "pencil")
@@ -199,7 +198,7 @@ struct SASLAuthenticatorTests {
             challenge.addText(Base64.encode(serverFirst))
 
             let challengeResult = auth.receive(challenge)
-            guard case .continueWith(let responseElement) = challengeResult else {
+            guard case let .continueWith(responseElement) = challengeResult else {
                 Issue.record("Expected continueWith, got \(challengeResult)")
                 return
             }

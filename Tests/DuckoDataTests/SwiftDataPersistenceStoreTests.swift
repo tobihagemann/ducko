@@ -1,12 +1,10 @@
 import Foundation
 import Testing
-
 @testable import DuckoCore
 @testable import DuckoData
 @testable import DuckoXMPP
 
 struct SwiftDataPersistenceStoreTests {
-
     private func makeStore() throws -> SwiftDataPersistenceStore {
         let container = try ModelContainerFactory.makeContainer(inMemory: true)
         return SwiftDataPersistenceStore(modelContainer: container)
@@ -245,7 +243,7 @@ struct SwiftDataPersistenceStoreTests {
 
         @Test("Conversation type round-trips", arguments: [
             Conversation.ConversationType.chat,
-            Conversation.ConversationType.groupchat,
+            Conversation.ConversationType.groupchat
         ])
         func typeRoundTrip(type: Conversation.ConversationType) async throws {
             let store = try outer.makeStore()
@@ -321,7 +319,7 @@ struct SwiftDataPersistenceStoreTests {
             let (store, conversationID) = try await makeStoreWithConversation()
 
             let now = Date()
-            for i in 0..<5 {
+            for i in 0 ..< 5 {
                 let msg = outer.makeMessage(
                     conversationID: conversationID,
                     body: "Message \(i)",

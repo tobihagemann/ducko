@@ -38,6 +38,15 @@ swift run DuckoCLI                   # run CLI
 
 Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` commands.
 
+## Lint & Format
+
+SwiftFormat and SwiftLint are installed via Homebrew. Run via the orchestrator script:
+
+```
+./Scripts/lint.sh              # Format + autocorrect + lint all files
+./Scripts/lint.sh --check      # Check-only mode (CI)
+```
+
 ## Code Conventions
 
 - **No Objective-C**: pure Swift, no `@objc`, no NSObject subclasses

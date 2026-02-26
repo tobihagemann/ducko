@@ -25,11 +25,11 @@ struct SCRAMSHA1: SASLMechanism {
         }
 
         switch state.clientFinalMessage(serverFirstMessage: decoded) {
-        case .success(let response):
+        case let .success(response):
             var element = XMLElement(name: "response", namespace: saslNamespace)
             element.addText(Base64.encode(response))
             return .continueWith(element)
-        case .failure(let error):
+        case let .failure(error):
             return .failure(error)
         }
     }
@@ -44,7 +44,7 @@ struct SCRAMSHA1: SASLMechanism {
         switch state.verifyServerFinal(serverFinalMessage: decoded) {
         case .success:
             return .success
-        case .failure(let error):
+        case let .failure(error):
             return .failure(error)
         }
     }

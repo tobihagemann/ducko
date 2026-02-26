@@ -1,7 +1,8 @@
 /// Standalone base64 encode/decode using only the Swift stdlib (no Foundation).
 enum Base64 {
     private static let encodeTable: [UInt8] = Array(
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8)
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8
+    )
 
     /// Decoding lookup: ASCII value → 6-bit value, or 0xFF for invalid.
     private static let decodeTable: [UInt8] = {
@@ -52,6 +53,7 @@ enum Base64 {
 
     // MARK: - Decode
 
+    // swiftlint:disable:next cyclomatic_complexity
     static func decode(_ string: String) -> [UInt8]? {
         var input: [UInt8] = []
         input.reserveCapacity(string.utf8.count)
@@ -68,10 +70,10 @@ enum Base64 {
         let eq = UInt8(ascii: "=")
         var paddingCount = 0
         if input[input.count - 1] == eq { paddingCount += 1 }
-        if input.count >= 2 && input[input.count - 2] == eq { paddingCount += 1 }
+        if input.count >= 2, input[input.count - 2] == eq { paddingCount += 1 }
 
         // Padding of 3rd char requires 4th char to also be padding
-        if paddingCount == 1 && input[input.count - 2] == eq { return nil }
+        if paddingCount == 1, input[input.count - 2] == eq { return nil }
 
         var result: [UInt8] = []
         result.reserveCapacity(input.count / 4 * 3 - paddingCount)
@@ -95,8 +97,8 @@ enum Base64 {
             let c3 = char3 == eq ? UInt8(0) : decodeTable[Int(char3)]
 
             if c0 == 0xFF || c1 == 0xFF { return nil }
-            if char2 != eq && c2 == 0xFF { return nil }
-            if char3 != eq && c3 == 0xFF { return nil }
+            if char2 != eq, c2 == 0xFF { return nil }
+            if char3 != eq, c3 == 0xFF { return nil }
 
             result.append(c0 << 2 | c1 >> 4)
             if char2 != eq {

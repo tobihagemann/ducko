@@ -1,5 +1,5 @@
-import Foundation
 import DuckoXMPP
+import Foundation
 
 public struct Account: Sendable, Identifiable {
     public var id: UUID

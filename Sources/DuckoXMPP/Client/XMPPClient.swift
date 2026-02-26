@@ -56,7 +56,7 @@ public actor XMPPClient {
 
     // MARK: - Module Registration
 
-    public func register<M: XMPPModule>(_ module: M) {
+    public func register(_ module: some XMPPModule) {
         let key = ObjectIdentifier(type(of: module))
         modules[key] = module
         module.setUp(makeModuleContext())
@@ -239,11 +239,11 @@ public actor XMPPClient {
 
             let response = authenticator.receive(element)
             switch response {
-            case .continueWith(let reply):
+            case let .continueWith(reply):
                 try await connection.send(XMPPStreamWriter.stanza(reply))
             case .success:
                 return
-            case .failure(let error):
+            case let .failure(error):
                 let message = String(describing: error)
                 eventContinuation.yield(.authenticationFailed(message))
                 throw XMPPClientError.authenticationFailed(message)
@@ -324,7 +324,7 @@ public actor XMPPClient {
                 throw XMPPClientError.unexpectedStreamState("Expected stream opened")
             }
             let featuresEvent = try await awaitNextEvent()
-            guard case .stanzaReceived(let features) = featuresEvent, features.name == "features" else {
+            guard case let .stanzaReceived(features) = featuresEvent, features.name == "features" else {
                 throw XMPPClientError.unexpectedStreamState("Expected stream features")
             }
             return features
@@ -332,7 +332,7 @@ public actor XMPPClient {
 
         func awaitStanza() async throws -> XMLElement {
             let event = try await awaitNextEvent()
-            guard case .stanzaReceived(let element) = event else {
+            guard case let .stanzaReceived(element) = event else {
                 throw XMPPClientError.unexpectedStreamState("Expected stanza")
             }
             return element
@@ -345,7 +345,7 @@ public actor XMPPClient {
         readerTask = Task { [weak self] in
             while let event = await reader.next() {
                 guard let self else { return }
-                await self.handleEvent(event)
+                await handleEvent(event)
             }
             await self?.handleStreamEnd()
         }
@@ -355,11 +355,11 @@ public actor XMPPClient {
         switch event {
         case .streamOpened:
             break
-        case .stanzaReceived(let element):
+        case let .stanzaReceived(element):
             dispatchStanza(element)
         case .streamClosed:
             cleanUp(reason: .streamError("Stream closed by server"))
-        case .error(let error):
+        case let .error(error):
             cleanUp(reason: .connectionLost(error.message))
         }
     }
@@ -428,7 +428,7 @@ public actor XMPPClient {
                 eventContinuation.yield(event)
             },
             generateID: { [self] in
-                self.generateID()
+                generateID()
             },
             connectedJID: { [connectedJIDLock] in
                 connectedJIDLock.withLock { $0 }

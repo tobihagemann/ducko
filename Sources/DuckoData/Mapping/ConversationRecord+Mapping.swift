@@ -1,6 +1,6 @@
-import Foundation
 import DuckoCore
 import DuckoXMPP
+import Foundation
 
 extension ConversationRecord {
     func toDomain() -> Conversation? {

@@ -8,5 +8,7 @@ public protocol LinkPreviewFetcher: Sendable {
 public struct NoOpLinkPreviewFetcher: LinkPreviewFetcher {
     public init() {}
 
-    public func fetchPreview(for url: URL) async throws -> LinkPreview? { nil }
+    public func fetchPreview(for url: URL) async throws -> LinkPreview? {
+        nil
+    }
 }

@@ -6,11 +6,11 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "DuckoApp", targets: ["DuckoApp"]),
-        .executable(name: "DuckoCLI", targets: ["DuckoCLI"]),
+        .executable(name: "DuckoCLI", targets: ["DuckoCLI"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
-        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0")
     ],
     targets: [
         .systemLibrary(name: "CLibxml2", path: "Sources/CLibxml2", pkgConfig: "libxml-2.0"),
@@ -39,9 +39,9 @@ let package = Package(
                 "DuckoCore",
                 "DuckoData",
                 "DuckoXMPP",
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
-        .testTarget(name: "DuckoCLITests", dependencies: ["DuckoCLI"]),
+        .testTarget(name: "DuckoCLITests", dependencies: ["DuckoCLI"])
     ]
 )

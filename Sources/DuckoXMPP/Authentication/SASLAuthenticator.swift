@@ -9,7 +9,7 @@ struct SASLAuthenticator: Sendable {
     private static let preferenceOrder: [String] = [
         SCRAMSHA256.mechanismName,
         SCRAMSHA1.mechanismName,
-        SASLPlain.mechanismName,
+        SASLPlain.mechanismName
     ]
 
     /// Creates an authenticator with a specific mechanism (for testing with known nonces).
@@ -51,16 +51,15 @@ struct SASLAuthenticator: Sendable {
             return .failure(.invalidState("No active mechanism"))
         }
 
-        let response: SASLAuthResponse
-        switch stanza.name {
+        let response: SASLAuthResponse = switch stanza.name {
         case "challenge":
-            response = mechanism.handleChallenge(stanza)
+            mechanism.handleChallenge(stanza)
         case "success":
-            response = mechanism.handleSuccess(stanza)
+            mechanism.handleSuccess(stanza)
         case "failure":
-            response = parseFailure(stanza)
+            parseFailure(stanza)
         default:
-            response = .failure(.invalidState("Unexpected SASL element: \(stanza.name)"))
+            .failure(.invalidState("Unexpected SASL element: \(stanza.name)"))
         }
 
         activeMechanism = mechanism
@@ -86,7 +85,7 @@ struct SASLAuthenticator: Sendable {
         // The condition is the first child element (e.g. <not-authorized/>)
         var condition = "unknown"
         var text: String?
-        for case .element(let child) in failure.children {
+        for case let .element(child) in failure.children {
             if child.name == "text" {
                 text = child.textContent
             } else {
@@ -106,15 +105,15 @@ struct SASLAuthenticator: Sendable {
 
         mutating func start(authcid: String, password: String) -> XMLElement {
             switch self {
-            case .scramSHA256(var m):
+            case var .scramSHA256(m):
                 let result = m.start(authcid: authcid, password: password)
                 self = .scramSHA256(m)
                 return result
-            case .scramSHA1(var m):
+            case var .scramSHA1(m):
                 let result = m.start(authcid: authcid, password: password)
                 self = .scramSHA1(m)
                 return result
-            case .plain(var m):
+            case var .plain(m):
                 let result = m.start(authcid: authcid, password: password)
                 self = .plain(m)
                 return result
@@ -123,15 +122,15 @@ struct SASLAuthenticator: Sendable {
 
         mutating func handleChallenge(_ challenge: XMLElement) -> SASLAuthResponse {
             switch self {
-            case .scramSHA256(var m):
+            case var .scramSHA256(m):
                 let result = m.handleChallenge(challenge)
                 self = .scramSHA256(m)
                 return result
-            case .scramSHA1(var m):
+            case var .scramSHA1(m):
                 let result = m.handleChallenge(challenge)
                 self = .scramSHA1(m)
                 return result
-            case .plain(var m):
+            case var .plain(m):
                 let result = m.handleChallenge(challenge)
                 self = .plain(m)
                 return result
@@ -140,15 +139,15 @@ struct SASLAuthenticator: Sendable {
 
         mutating func handleSuccess(_ success: XMLElement) -> SASLAuthResponse {
             switch self {
-            case .scramSHA256(var m):
+            case var .scramSHA256(m):
                 let result = m.handleSuccess(success)
                 self = .scramSHA256(m)
                 return result
-            case .scramSHA1(var m):
+            case var .scramSHA1(m):
                 let result = m.handleSuccess(success)
                 self = .scramSHA1(m)
                 return result
-            case .plain(var m):
+            case var .plain(m):
                 let result = m.handleSuccess(success)
                 self = .plain(m)
                 return result

@@ -126,6 +126,7 @@ final class XMPPStreamParser {
 
 // MARK: - SAX2 Callbacks
 
+// swiftlint:disable:next function_parameter_count
 private func saxStartElementNs(
     _ ctx: UnsafeMutableRawPointer?,
     _ localname: UnsafePointer<xmlChar>?,
@@ -146,7 +147,7 @@ private func saxStartElementNs(
     // Extract namespace declarations (prefix/URI pairs)
     var nsDecls: [(prefix: String?, uri: String)] = []
     if let namespaces, nb_namespaces > 0 {
-        for i in 0..<Int(nb_namespaces) {
+        for i in 0 ..< Int(nb_namespaces) {
             let base = i * 2
             let nsPrefix = namespaces[base].map { String(cString: $0) }
             let nsURI = namespaces[base + 1].map { String(cString: $0) } ?? ""
@@ -157,14 +158,13 @@ private func saxStartElementNs(
     // Extract attributes from quintuplet array [localname, prefix, URI, valueBegin, valueEnd]
     var attrs: [String: String] = [:]
     if let attributes, nb_attributes > 0 {
-        for i in 0..<Int(nb_attributes) {
+        for i in 0 ..< Int(nb_attributes) {
             let base = i * 5
             guard let attrLocalname = attributes[base] else { continue }
-            let key: String
-            if let attrPrefix = attributes[base + 1] {
-                key = String(cString: attrPrefix) + ":" + String(cString: attrLocalname)
+            let key = if let attrPrefix = attributes[base + 1] {
+                String(cString: attrPrefix) + ":" + String(cString: attrLocalname)
             } else {
-                key = String(cString: attrLocalname)
+                String(cString: attrLocalname)
             }
             if let valueStart = attributes[base + 3], let valueEnd = attributes[base + 4] {
                 let length = valueEnd - valueStart

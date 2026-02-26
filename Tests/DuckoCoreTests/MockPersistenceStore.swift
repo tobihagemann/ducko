@@ -1,5 +1,5 @@
-import Foundation
 import DuckoCore
+import Foundation
 
 actor MockPersistenceStore: PersistenceStore {
     var accounts: [Account] = []

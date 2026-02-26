@@ -66,7 +66,7 @@ private struct SRVQueryData {
 ///
 /// Runs entirely on the calling thread — no async/callback nesting needed.
 /// The DNS-SD callback fires synchronously during `DNSServiceProcessResult`.
-private func srvQuery(domain: String) throws -> [SRVRecord] {
+private func srvQuery(domain: String) throws -> [SRVRecord] { // swiftlint:disable:this cyclomatic_complexity function_body_length
     let name = "_xmpp-client._tcp.\(domain)"
     var sdRef: DNSServiceRef?
 
@@ -96,7 +96,8 @@ private func srvQuery(domain: String) throws -> [SRVRecord] {
 
             if !target.isEmpty, target != "." {
                 data.pointee.records.append(
-                    SRVRecord(priority: priority, weight: weight, port: port, target: target))
+                    SRVRecord(priority: priority, weight: weight, port: port, target: target)
+                )
             }
         }
 
@@ -128,7 +129,7 @@ private func srvQuery(domain: String) throws -> [SRVRecord] {
 
     // Process results synchronously with poll(), 100ms per iteration, 5s max
     var pollFd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-    for _ in 0..<50 {
+    for _ in 0 ..< 50 {
         if dataPtr.pointee.isDone { break }
         let result = Darwin.poll(&pollFd, 1, 100)
         if result < 0 { break }

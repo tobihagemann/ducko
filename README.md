@@ -28,6 +28,27 @@ swift run DuckoCLI    # CLI
 swift test
 ```
 
+## Code Style
+
+[SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and [SwiftLint](https://github.com/realm/SwiftLint) enforce code style. Install both via Homebrew:
+
+```
+brew install swiftlint swiftformat
+```
+
+Set up the pre-commit hook (run once after cloning):
+
+```
+./Scripts/install-hooks.sh
+```
+
+Run manually:
+
+```
+./Scripts/lint.sh              # Format + autocorrect + lint all files
+./Scripts/lint.sh --check      # Check-only mode (CI)
+```
+
 ## Architecture
 
 Six SwiftPM modules with clear dependency boundaries:

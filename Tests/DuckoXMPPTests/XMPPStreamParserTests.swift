@@ -1,5 +1,4 @@
 import Testing
-
 @testable import DuckoXMPP
 
 private let streamOpenTag =
@@ -22,12 +21,12 @@ private func parseChunks(_ chunks: [String]) async -> [XMLStreamEvent] {
 
 extension XMLStreamEvent {
     var streamOpenedAttributes: [String: String]? {
-        guard case .streamOpened(let attrs) = self else { return nil }
+        guard case let .streamOpened(attrs) = self else { return nil }
         return attrs
     }
 
     var stanzaElement: XMLElement? {
-        guard case .stanzaReceived(let element) = self else { return nil }
+        guard case let .stanzaReceived(element) = self else { return nil }
         return element
     }
 
@@ -42,12 +41,12 @@ extension XMLStreamEvent {
     }
 }
 
-struct XMPPStreamParserTests {
+enum XMPPStreamParserTests {
     struct StreamLifecycle {
         @Test("Stream open emits streamOpened with attributes")
         func streamOpen() async throws {
             let events = await parseChunks([
-                "<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' to='example.com' from='example.com' version='1.0'>",
+                "<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' to='example.com' from='example.com' version='1.0'>"
             ])
             try #require(events.count == 1)
             let attrs = try #require(events[0].streamOpenedAttributes)
@@ -62,7 +61,7 @@ struct XMPPStreamParserTests {
         func streamClose() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "</stream:stream>",
+                "</stream:stream>"
             ])
             try #require(events.count == 2)
             #expect(events[0].streamOpenedAttributes != nil)
@@ -74,7 +73,7 @@ struct XMPPStreamParserTests {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><body>Hi</body></message>",
-                "</stream:stream>",
+                "</stream:stream>"
             ])
             try #require(events.count == 3)
             #expect(events[0].streamOpenedAttributes != nil)
@@ -88,7 +87,7 @@ struct XMPPStreamParserTests {
         func simpleMessage() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "<message type='chat' to='user@example.com'><body>Hello</body></message>",
+                "<message type='chat' to='user@example.com'><body>Hello</body></message>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -102,7 +101,7 @@ struct XMPPStreamParserTests {
         func nestedElements() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "<iq type='result' id='1'><query><item jid='a@b'/><item jid='c@d'/></query></iq>",
+                "<iq type='result' id='1'><query><item jid='a@b'/><item jid='c@d'/></query></iq>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -118,7 +117,7 @@ struct XMPPStreamParserTests {
         func textContent() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "<message><body>Hello &amp; goodbye</body></message>",
+                "<message><body>Hello &amp; goodbye</body></message>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -129,7 +128,7 @@ struct XMPPStreamParserTests {
         func namespace() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "<iq type='result'><query xmlns='jabber:iq:roster'><item jid='a@b'/></query></iq>",
+                "<iq type='result'><query xmlns='jabber:iq:roster'><item jid='a@b'/></query></iq>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -141,7 +140,7 @@ struct XMPPStreamParserTests {
         func selfClosing() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "<presence/>",
+                "<presence/>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -155,10 +154,10 @@ struct XMPPStreamParserTests {
                 streamOpenTag,
                 "<message><body>One</body></message>",
                 "<message><body>Two</body></message>",
-                "<message><body>Three</body></message>",
+                "<message><body>Three</body></message>"
             ])
             try #require(events.count == 4) // open + 3 stanzas
-            for i in 1...3 {
+            for i in 1 ... 3 {
                 let element = try #require(events[i].stanzaElement)
                 #expect(element.name == "message")
             }
@@ -168,7 +167,7 @@ struct XMPPStreamParserTests {
         func contentNamespaceOmitted() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "<message><body>Hi</body></message>",
+                "<message><body>Hi</body></message>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -183,7 +182,7 @@ struct XMPPStreamParserTests {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><bo",
-                "dy>Hello</body></message>",
+                "dy>Hello</body></message>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -195,7 +194,7 @@ struct XMPPStreamParserTests {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message type='ch",
-                "at' to='user@example.com'><body>Hi</body></message>",
+                "at' to='user@example.com'><body>Hi</body></message>"
             ])
             try #require(events.count == 2)
             let element = try #require(events[1].stanzaElement)
@@ -206,7 +205,7 @@ struct XMPPStreamParserTests {
         @Test("Stream open and stanza in same chunk")
         func streamOpenAndStanzaSameChunk() async throws {
             let events = await parseChunks([
-                streamOpenTag + "<presence/>",
+                streamOpenTag + "<presence/>"
             ])
             try #require(events.count == 2)
             #expect(events[0].streamOpenedAttributes != nil)
@@ -235,7 +234,7 @@ struct XMPPStreamParserTests {
         func multipleStanzasOneChunk() async throws {
             let events = await parseChunks([
                 streamOpenTag,
-                "<presence/><message><body>Hi</body></message><iq type='get'/>",
+                "<presence/><message><body>Hi</body></message><iq type='get'/>"
             ])
             try #require(events.count == 4) // open + 3 stanzas
             let presence = try #require(events[1].stanzaElement)
@@ -253,7 +252,7 @@ struct XMPPStreamParserTests {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><body>unclosed",
-                "</message>",
+                "</message>"
             ])
             #expect(events.contains { $0.isError })
         }

@@ -1,5 +1,5 @@
-import Foundation
 import DuckoXMPP
+import Foundation
 
 @MainActor @Observable
 public final class PresenceService {

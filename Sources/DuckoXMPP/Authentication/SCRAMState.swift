@@ -14,7 +14,9 @@ struct SCRAMState<H: HashFunction>: Sendable where H.Digest: Sendable {
     private let nonceGenerator: @Sendable () -> String
 
     /// Minimum PBKDF2 iteration count per RFC 5802 §5.1.
-    static var minimumIterationCount: Int { 4096 }
+    static var minimumIterationCount: Int {
+        4096
+    }
 
     init(nonceGenerator: @Sendable @escaping () -> String = randomNonce) {
         self.nonceGenerator = nonceGenerator
@@ -26,7 +28,7 @@ struct SCRAMState<H: HashFunction>: Sendable where H.Digest: Sendable {
     mutating func clientFirstMessage(authcid: String, password: String) -> String {
         self.authcid = authcid
         self.password = password
-        self.clientNonce = nonceGenerator()
+        clientNonce = nonceGenerator()
 
         let escapedUser = escapeUsername(authcid)
         clientFirstMessageBare = "n=\(escapedUser),r=\(clientNonce)"
@@ -134,9 +136,9 @@ struct SCRAMState<H: HashFunction>: Sendable where H.Digest: Sendable {
         var u = hmac(key: password, data: saltPlusOne)
         var result = u
 
-        for _ in 1..<iterations {
+        for _ in 1 ..< iterations {
             u = hmac(key: password, data: u)
-            for j in 0..<result.count {
+            for j in 0 ..< result.count {
                 result[j] ^= u[j]
             }
         }
@@ -158,7 +160,7 @@ struct SCRAMState<H: HashFunction>: Sendable where H.Digest: Sendable {
         var result: [String: String] = [:]
         for part in message.split(separator: ",", omittingEmptySubsequences: true) {
             guard let eqIndex = part.firstIndex(of: "=") else { continue }
-            let key = String(part[part.startIndex..<eqIndex])
+            let key = String(part[part.startIndex ..< eqIndex])
             let value = String(part[part.index(after: eqIndex)...])
             result[key] = value
         }
@@ -180,6 +182,6 @@ struct SCRAMState<H: HashFunction>: Sendable where H.Digest: Sendable {
 
     /// Default nonce generator: 24 random bytes, base64-encoded.
     static func randomNonce() -> String {
-        Base64.encode((0..<24).map { _ in UInt8.random(in: 0...255) })
+        Base64.encode((0 ..< 24).map { _ in UInt8.random(in: 0 ... 255) })
     }
 }

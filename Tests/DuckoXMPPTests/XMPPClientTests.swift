@@ -1,5 +1,4 @@
 import Testing
-
 @testable import DuckoXMPP
 
 // MARK: - Test Helpers
@@ -10,46 +9,46 @@ private let serverStreamOpen =
 
 /// Features offering STARTTLS and PLAIN auth.
 private let featuresWithTLS = """
-    <features xmlns='http://etherx.jabber.org/streams'>\
-    <starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\
-    <mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
-    <mechanism>PLAIN</mechanism>\
-    </mechanisms>\
-    </features>
-    """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\
+<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
+<mechanism>PLAIN</mechanism>\
+</mechanisms>\
+</features>
+"""
 
 /// Features offering only PLAIN auth (no TLS).
 private let featuresNoTLS = """
-    <features xmlns='http://etherx.jabber.org/streams'>\
-    <mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
-    <mechanism>PLAIN</mechanism>\
-    </mechanisms>\
-    </features>
-    """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
+<mechanism>PLAIN</mechanism>\
+</mechanisms>\
+</features>
+"""
 
 /// Post-auth features with bind and session.
 private let featuresBindSession = """
-    <features xmlns='http://etherx.jabber.org/streams'>\
-    <bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
-    <session xmlns='urn:ietf:params:xml:ns:xmpp-session'/>\
-    </features>
-    """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
+<session xmlns='urn:ietf:params:xml:ns:xmpp-session'/>\
+</features>
+"""
 
 /// Post-auth features with bind only.
 private let featuresBind = """
-    <features xmlns='http://etherx.jabber.org/streams'>\
-    <bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
-    </features>
-    """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
+</features>
+"""
 
 /// Bind result with a full JID.
 private let bindResult = """
-    <iq type='result' id='ducko-1'>\
-    <bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'>\
-    <jid>user@example.com/ducko</jid>\
-    </bind>\
-    </iq>
-    """
+<iq type='result' id='ducko-1'>\
+<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'>\
+<jid>user@example.com/ducko</jid>\
+</bind>\
+</iq>
+"""
 
 /// Session result.
 private let sessionResult = "<iq type='result' id='ducko-2'/>"
@@ -160,7 +159,7 @@ private func collectEvents(
 
 // MARK: - Tests
 
-struct XMPPClientTests {
+enum XMPPClientTests {
     struct ConnectFlow {
         @Test("Full connect with STARTTLS and PLAIN auth")
         func fullConnectWithTLS() async throws {
@@ -237,7 +236,7 @@ struct XMPPClientTests {
             try await connectTask.value
 
             let events = try await eventsTask.value
-            guard case .connected(let jid) = events.last else {
+            guard case let .connected(jid) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected connected event")
             }
             #expect(jid.bareJID.localPart == "user")
@@ -410,7 +409,7 @@ struct XMPPClientTests {
             )
 
             let events = try await eventsTask.value
-            guard case .messageReceived(let message) = events.last else {
+            guard case let .messageReceived(message) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected messageReceived event")
             }
             #expect(message.body == "Hello!")
@@ -444,7 +443,7 @@ struct XMPPClientTests {
             )
 
             let events = try await eventsTask.value
-            guard case .presenceReceived(let presence) = events.last else {
+            guard case let .presenceReceived(presence) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected presenceReceived event")
             }
             #expect(presence.show == .away)
@@ -477,7 +476,7 @@ struct XMPPClientTests {
             )
 
             let events = try await eventsTask.value
-            guard case .iqReceived(let iq) = events.last else {
+            guard case let .iqReceived(iq) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected iqReceived event")
             }
             #expect(iq.isGet)
@@ -513,7 +512,7 @@ struct XMPPClientTests {
             try? await Task.sleep(for: .milliseconds(50))
 
             let events = try await eventsTask.value
-            guard case .disconnected(let reason) = events.last else {
+            guard case let .disconnected(reason) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected disconnected event")
             }
             if case .streamError = reason {
@@ -526,7 +525,7 @@ struct XMPPClientTests {
 
     struct Builder {
         @Test("Builder creates client with modules")
-        func builderCreatesClientWithModules() async throws {
+        func builderCreatesClientWithModules() async {
             let mock = MockTransport()
             var builder = XMPPClientBuilder(domain: "example.com", username: "user", password: "pass")
             builder.withTransport(mock)

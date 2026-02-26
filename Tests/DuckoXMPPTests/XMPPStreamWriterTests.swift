@@ -1,8 +1,7 @@
 import Testing
-
 @testable import DuckoXMPP
 
-struct XMPPStreamWriterTests {
+enum XMPPStreamWriterTests {
     struct StreamOpening {
         @Test("Generates valid stream opening with required attributes")
         func basic() {
@@ -89,13 +88,13 @@ struct XMPPStreamWriterTests {
 
             try #require(events.count == 3)
 
-            guard case .streamOpened(let attrs) = events[0] else {
+            guard case let .streamOpened(attrs) = events[0] else {
                 Issue.record("Expected streamOpened")
                 return
             }
             #expect(attrs["to"] == "example.com")
 
-            guard case .stanzaReceived(let element) = events[1] else {
+            guard case let .stanzaReceived(element) = events[1] else {
                 Issue.record("Expected stanzaReceived")
                 return
             }

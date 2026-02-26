@@ -1,0 +1,14 @@
+--minversion 0.55.0
+--exclude .build,DerivedData,Sources/CLibxml2,Sources/CDnssd
+
+# Format options
+--closurevoid preserve
+--commas inline
+--importgrouping testable-bottom
+--self init-only
+--stripunusedargs closure-only
+--swiftversion 6.2
+
+# Rules
+--enable isEmpty
+--disable redundantReturn,trailingClosures,wrapMultilineStatementBraces

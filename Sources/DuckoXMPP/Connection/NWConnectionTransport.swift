@@ -49,7 +49,7 @@ actor NWConnectionTransport: XMPPTransport {
 
         // Cancel the existing plain-text connection
         conn.cancel()
-        self.connection = nil
+        connection = nil
 
         // Create a new connection with TLS
         let tlsOptions = NWProtocolTLS.Options()
@@ -98,9 +98,10 @@ actor NWConnectionTransport: XMPPTransport {
                 switch state {
                 case .ready:
                     continuation.finish()
-                case .failed(let error):
+                case let .failed(error):
                     continuation.finish(
-                        throwing: XMPPConnectionError.connectionFailed("\(error)"))
+                        throwing: XMPPConnectionError.connectionFailed("\(error)")
+                    )
                 case .cancelled:
                     continuation.finish(throwing: XMPPConnectionError.connectionCancelled)
                 default:
@@ -112,7 +113,7 @@ actor NWConnectionTransport: XMPPTransport {
         conn.start(queue: queue)
         for try await _ in stateStream {}
 
-        self.connection = conn
+        connection = conn
         conn.stateUpdateHandler = nil
         scheduleReceive(conn)
     }
