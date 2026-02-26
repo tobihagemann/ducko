@@ -1,5 +1,7 @@
 /// Standalone base64 encode/decode using only the Swift stdlib (no Foundation).
 enum Base64 {
+    private static let eq = UInt8(ascii: "=")
+
     private static let encodeTable: [UInt8] = Array(
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/".utf8
     )
@@ -34,14 +36,14 @@ enum Base64 {
             let b0 = bytes[i]
             result.append(encodeTable[Int(b0 >> 2)])
             result.append(encodeTable[Int((b0 & 0x03) << 4)])
-            result.append(UInt8(ascii: "="))
-            result.append(UInt8(ascii: "="))
+            result.append(eq)
+            result.append(eq)
         } else if remaining == 2 {
             let b0 = bytes[i], b1 = bytes[i + 1]
             result.append(encodeTable[Int(b0 >> 2)])
             result.append(encodeTable[Int((b0 & 0x03) << 4 | b1 >> 4)])
             result.append(encodeTable[Int((b1 & 0x0F) << 2)])
-            result.append(UInt8(ascii: "="))
+            result.append(eq)
         }
 
         return String(decoding: result, as: UTF8.self)
@@ -53,7 +55,6 @@ enum Base64 {
 
     // MARK: - Decode
 
-    // swiftlint:disable:next cyclomatic_complexity
     static func decode(_ string: String) -> [UInt8]? {
         var input: [UInt8] = []
         input.reserveCapacity(string.utf8.count)
@@ -66,14 +67,10 @@ enum Base64 {
         guard input.count % 4 == 0 else { return nil }
         if input.isEmpty { return [] }
 
-        // Count padding and validate it only appears at the end
-        let eq = UInt8(ascii: "=")
+        // Count padding from the end
         var paddingCount = 0
         if input[input.count - 1] == eq { paddingCount += 1 }
         if input.count >= 2, input[input.count - 2] == eq { paddingCount += 1 }
-
-        // Padding of 3rd char requires 4th char to also be padding
-        if paddingCount == 1, input[input.count - 2] == eq { return nil }
 
         var result: [UInt8] = []
         result.reserveCapacity(input.count / 4 * 3 - paddingCount)
@@ -81,37 +78,41 @@ enum Base64 {
         let lastQuartetStart = input.count - 4
         var i = 0
         while i < input.count {
-            let isLastQuartet = i == lastQuartetStart
-            let char2 = input[i + 2]
-            let char3 = input[i + 3]
-
-            // Padding is only valid in the final quartet
-            if !isLastQuartet && (char2 == eq || char3 == eq) { return nil }
-
-            // If 3rd char is padding, 4th must also be padding
-            if char2 == eq && char3 != eq { return nil }
-
-            let c0 = decodeTable[Int(input[i])]
-            let c1 = decodeTable[Int(input[i + 1])]
-            let c2 = char2 == eq ? UInt8(0) : decodeTable[Int(char2)]
-            let c3 = char3 == eq ? UInt8(0) : decodeTable[Int(char3)]
-
-            if c0 == 0xFF || c1 == 0xFF { return nil }
-            if char2 != eq, c2 == 0xFF { return nil }
-            if char3 != eq, c3 == 0xFF { return nil }
-
-            result.append(c0 << 2 | c1 >> 4)
-            if char2 != eq {
-                result.append((c1 & 0x0F) << 4 | c2 >> 2)
-            }
-            if char3 != eq {
-                result.append((c2 & 0x03) << 6 | c3)
-            }
-
+            guard let bytes = decodeQuartet(
+                input[i], input[i + 1], input[i + 2], input[i + 3],
+                isLastQuartet: i == lastQuartetStart
+            ) else { return nil }
+            result.append(contentsOf: bytes)
             i += 4
         }
 
         return result
+    }
+
+    /// Decodes a single 4-character quartet into 1-3 output bytes, or `nil` on invalid input.
+    private static func decodeQuartet(
+        _ b0: UInt8, _ b1: UInt8, _ b2: UInt8, _ b3: UInt8,
+        isLastQuartet: Bool
+    ) -> [UInt8]? {
+        // Padding is only valid in the final quartet
+        if !isLastQuartet, b2 == eq || b3 == eq { return nil }
+
+        // If 3rd char is padding, 4th must also be padding
+        if b2 == eq, b3 != eq { return nil }
+
+        let c0 = decodeTable[Int(b0)]
+        let c1 = decodeTable[Int(b1)]
+        let c2 = b2 == eq ? UInt8(0) : decodeTable[Int(b2)]
+        let c3 = b3 == eq ? UInt8(0) : decodeTable[Int(b3)]
+
+        if c0 == 0xFF || c1 == 0xFF { return nil }
+        if b2 != eq, c2 == 0xFF { return nil }
+        if b3 != eq, c3 == 0xFF { return nil }
+
+        var bytes: [UInt8] = [c0 << 2 | c1 >> 4]
+        if b2 != eq { bytes.append((c1 & 0x0F) << 4 | c2 >> 2) }
+        if b3 != eq { bytes.append((c2 & 0x03) << 6 | c3) }
+        return bytes
     }
 
     /// Decodes a base64 string to a UTF-8 string, or `nil` if invalid.

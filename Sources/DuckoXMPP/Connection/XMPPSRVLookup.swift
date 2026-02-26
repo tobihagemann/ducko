@@ -66,16 +66,13 @@ private struct SRVQueryData {
 ///
 /// Runs entirely on the calling thread — no async/callback nesting needed.
 /// The DNS-SD callback fires synchronously during `DNSServiceProcessResult`.
-private func srvQuery(domain: String) throws -> [SRVRecord] { // swiftlint:disable:this cyclomatic_complexity function_body_length
+private func srvQuery(domain: String) throws -> [SRVRecord] {
     let name = "_xmpp-client._tcp.\(domain)"
     var sdRef: DNSServiceRef?
 
     let dataPtr = UnsafeMutablePointer<SRVQueryData>.allocate(capacity: 1)
     dataPtr.initialize(to: SRVQueryData())
-    defer {
-        dataPtr.deinitialize(count: 1)
-        dataPtr.deallocate()
-    }
+    defer { dataPtr.deinitialize(count: 1); dataPtr.deallocate() }
 
     let callback: DNSServiceQueryRecordReply = {
         _, flags, _, errorCode, _, _, _, rdlen, rdata, _, ctx in
@@ -87,18 +84,8 @@ private func srvQuery(domain: String) throws -> [SRVRecord] { // swiftlint:disab
             return
         }
 
-        if let rdata, rdlen >= 7 {
-            let ptr = rdata.assumingMemoryBound(to: UInt8.self)
-            let priority = UInt16(ptr[0]) << 8 | UInt16(ptr[1])
-            let weight = UInt16(ptr[2]) << 8 | UInt16(ptr[3])
-            let port = UInt16(ptr[4]) << 8 | UInt16(ptr[5])
-            let target = srvParseDNSName(ptr + 6, length: Int(rdlen) - 6)
-
-            if !target.isEmpty, target != "." {
-                data.pointee.records.append(
-                    SRVRecord(priority: priority, weight: weight, port: port, target: target)
-                )
-            }
+        if let record = srvParseSRVRecord(rdata, length: rdlen) {
+            data.pointee.records.append(record)
         }
 
         if flags & kDNSServiceFlagsMoreComing == 0 {
@@ -139,6 +126,18 @@ private func srvQuery(domain: String) throws -> [SRVRecord] { // swiftlint:disab
     }
 
     return dataPtr.pointee.records
+}
+
+/// Parses a single SRV record from DNS rdata, or `nil` if the data is too short or the target is empty.
+private func srvParseSRVRecord(_ rdata: UnsafeRawPointer?, length: UInt16) -> SRVRecord? {
+    guard let rdata, length >= 7 else { return nil }
+    let ptr = rdata.assumingMemoryBound(to: UInt8.self)
+    let priority = UInt16(ptr[0]) << 8 | UInt16(ptr[1])
+    let weight = UInt16(ptr[2]) << 8 | UInt16(ptr[3])
+    let port = UInt16(ptr[4]) << 8 | UInt16(ptr[5])
+    let target = srvParseDNSName(ptr + 6, length: Int(length) - 6)
+    guard !target.isEmpty, target != "." else { return nil }
+    return SRVRecord(priority: priority, weight: weight, port: port, target: target)
 }
 
 /// Parses a DNS wire-format name (sequence of length-prefixed labels) into a dotted string.
