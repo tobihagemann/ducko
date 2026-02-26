@@ -1,0 +1,45 @@
+import Foundation
+import SwiftData
+
+@Model
+final class AccountRecord {
+    @Attribute(.unique) var id: UUID
+    var jid: String
+    var displayName: String?
+    var isEnabled: Bool
+    var connectOnLaunch: Bool
+    var host: String?
+    var port: Int?
+    var resource: String?
+    @Relationship(deleteRule: .cascade, inverse: \ContactRecord.account)
+    var contacts: [ContactRecord]
+    @Relationship(deleteRule: .cascade, inverse: \ConversationRecord.account)
+    var conversations: [ConversationRecord]
+    var createdAt: Date
+
+    init(
+        id: UUID,
+        jid: String,
+        displayName: String? = nil,
+        isEnabled: Bool = true,
+        connectOnLaunch: Bool = false,
+        host: String? = nil,
+        port: Int? = nil,
+        resource: String? = nil,
+        contacts: [ContactRecord] = [],
+        conversations: [ConversationRecord] = [],
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.jid = jid
+        self.displayName = displayName
+        self.isEnabled = isEnabled
+        self.connectOnLaunch = connectOnLaunch
+        self.host = host
+        self.port = port
+        self.resource = resource
+        self.contacts = contacts
+        self.conversations = conversations
+        self.createdAt = createdAt
+    }
+}

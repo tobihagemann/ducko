@@ -1,9 +1,9 @@
 /// A bare JID: `localPart@domainPart` or just `domainPart`.
-struct BareJID: Hashable, Sendable {
-    let localPart: String?
-    let domainPart: String
+public struct BareJID: Hashable, Sendable {
+    public let localPart: String?
+    public let domainPart: String
 
-    init?(localPart: String?, domainPart: String) {
+    public init?(localPart: String?, domainPart: String) {
         guard !domainPart.isEmpty else { return nil }
         if let localPart, localPart.isEmpty { return nil }
         self.localPart = localPart
@@ -12,7 +12,7 @@ struct BareJID: Hashable, Sendable {
 }
 
 extension BareJID: CustomStringConvertible {
-    var description: String {
+    public var description: String {
         if let localPart {
             return "\(localPart)@\(domainPart)"
         }
@@ -21,7 +21,7 @@ extension BareJID: CustomStringConvertible {
 }
 
 extension BareJID: Codable {
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let string = try decoder.singleValueContainer().decode(String.self)
         guard let jid = Self.parse(string) else {
             throw DecodingError.dataCorrupted(
@@ -31,7 +31,7 @@ extension BareJID: Codable {
         self = jid
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(description)
     }
@@ -39,13 +39,13 @@ extension BareJID: Codable {
 
 extension BareJID {
     /// Parses a bare JID string. Returns `nil` if the string contains a resource part or is otherwise invalid.
-    static func parse(_ string: String) -> BareJID? {
+    public static func parse(_ string: String) -> BareJID? {
         guard !string.isEmpty else { return nil }
         // Bare JIDs must not contain a resource separator
         guard !string.contains("/") else { return nil }
 
         if let atIndex = string.firstIndex(of: "@") {
-            let localPart = String(string[string.startIndex..<atIndex])
+            let localPart = String(string[..<atIndex])
             let domainPart = String(string[string.index(after: atIndex)...])
             return BareJID(localPart: localPart, domainPart: domainPart)
         } else {
@@ -57,11 +57,11 @@ extension BareJID {
 // MARK: - FullJID
 
 /// A full JID: `localPart@domainPart/resourcePart`.
-struct FullJID: Hashable, Sendable {
-    let bareJID: BareJID
-    let resourcePart: String
+public struct FullJID: Hashable, Sendable {
+    public let bareJID: BareJID
+    public let resourcePart: String
 
-    init?(bareJID: BareJID, resourcePart: String) {
+    public init?(bareJID: BareJID, resourcePart: String) {
         guard !resourcePart.isEmpty else { return nil }
         self.bareJID = bareJID
         self.resourcePart = resourcePart
@@ -69,13 +69,13 @@ struct FullJID: Hashable, Sendable {
 }
 
 extension FullJID: CustomStringConvertible {
-    var description: String {
+    public var description: String {
         "\(bareJID)/\(resourcePart)"
     }
 }
 
 extension FullJID: Codable {
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let string = try decoder.singleValueContainer().decode(String.self)
         guard let jid = Self.parse(string) else {
             throw DecodingError.dataCorrupted(
@@ -85,7 +85,7 @@ extension FullJID: Codable {
         self = jid
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(description)
     }
@@ -93,12 +93,12 @@ extension FullJID: Codable {
 
 extension FullJID {
     /// Parses a full JID string. The resource may contain slashes per RFC 6120.
-    static func parse(_ string: String) -> FullJID? {
+    public static func parse(_ string: String) -> FullJID? {
         guard !string.isEmpty else { return nil }
         // Split on first `/` — resource part may contain additional slashes
         guard let slashIndex = string.firstIndex(of: "/") else { return nil }
 
-        let barePart = String(string[string.startIndex..<slashIndex])
+        let barePart = String(string[..<slashIndex])
         let resourcePart = String(string[string.index(after: slashIndex)...])
 
         guard let bareJID = BareJID.parse(barePart) else { return nil }
@@ -109,11 +109,11 @@ extension FullJID {
 // MARK: - JID
 
 /// A JID that is either bare or full.
-enum JID: Hashable, Sendable {
+public enum JID: Hashable, Sendable {
     case bare(BareJID)
     case full(FullJID)
 
-    var bareJID: BareJID {
+    public var bareJID: BareJID {
         switch self {
         case .bare(let bareJID): bareJID
         case .full(let fullJID): fullJID.bareJID
@@ -122,7 +122,7 @@ enum JID: Hashable, Sendable {
 }
 
 extension JID: CustomStringConvertible {
-    var description: String {
+    public var description: String {
         switch self {
         case .bare(let bareJID): bareJID.description
         case .full(let fullJID): fullJID.description
@@ -131,7 +131,7 @@ extension JID: CustomStringConvertible {
 }
 
 extension JID: Codable {
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let string = try decoder.singleValueContainer().decode(String.self)
         guard let jid = Self.parse(string) else {
             throw DecodingError.dataCorrupted(
@@ -141,7 +141,7 @@ extension JID: Codable {
         self = jid
     }
 
-    func encode(to encoder: Encoder) throws {
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         try container.encode(description)
     }
@@ -149,7 +149,7 @@ extension JID: Codable {
 
 extension JID {
     /// Parses a JID string, returning `.full` if a resource is present, `.bare` otherwise.
-    static func parse(_ string: String) -> JID? {
+    public static func parse(_ string: String) -> JID? {
         if let fullJID = FullJID.parse(string) {
             return .full(fullJID)
         }
