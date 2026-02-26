@@ -38,7 +38,7 @@ case "${MODE}" in
         echo "${STAGED_FILES}" | xargs git add
 
         echo "Linting (autocorrect) staged files..."
-        echo "${STAGED_FILES}" | xargs swiftlint lint --fix --quiet
+        echo "${STAGED_FILES}" | xargs swiftlint lint --fix --strict --quiet
 
         echo "Re-staging autocorrected files..."
         echo "${STAGED_FILES}" | xargs git add
@@ -62,7 +62,7 @@ case "${MODE}" in
         swiftformat .
 
         echo "Linting (autocorrect)..."
-        swiftlint lint --fix --quiet
+        swiftlint lint --fix --strict --quiet
         ;;
 esac
 
