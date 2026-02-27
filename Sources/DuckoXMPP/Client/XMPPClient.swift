@@ -419,40 +419,48 @@ public actor XMPPClient {
 
     private func dispatchStanza(_ element: XMLElement) {
         // Run incoming interceptors first; if any consumes the stanza, stop.
-        for interceptor in interceptors {
-            if interceptor.processIncoming(element) { return }
-        }
+        guard !interceptors.contains(where: { $0.processIncoming(element) }) else { return }
 
         switch element.name {
         case "message":
-            let message = XMPPMessage(element: element)
-            eventContinuation.yield(.messageReceived(message))
-            for module in modules.values {
-                try? module.handleMessage(message)
-            }
+            dispatchMessage(element)
         case "presence":
-            let presence = XMPPPresence(element: element)
-            eventContinuation.yield(.presenceReceived(presence))
-            for module in modules.values {
-                try? module.handlePresence(presence)
-            }
+            dispatchPresence(element)
         case "iq":
-            let iq = XMPPIQ(element: element)
-            if let stanzaID = iq.id, let pending = pendingIQs[stanzaID] {
-                let senderBare = iq.from?.bareJID
-                if pending.expectedFrom == nil || senderBare == pending.expectedFrom {
-                    pendingIQs.removeValue(forKey: stanzaID)
-                    pending.timeoutTask.cancel()
-                    pending.continuation.resume(returning: iq.isResult ? iq.childElement : nil)
-                    return
-                }
-            }
-            eventContinuation.yield(.iqReceived(iq))
-            for module in modules.values {
-                try? module.handleIQ(iq)
-            }
+            dispatchIQ(element)
         default:
             break
+        }
+    }
+
+    private func dispatchMessage(_ element: XMLElement) {
+        let message = XMPPMessage(element: element)
+        eventContinuation.yield(.messageReceived(message))
+        for module in modules.values {
+            try? module.handleMessage(message)
+        }
+    }
+
+    private func dispatchPresence(_ element: XMLElement) {
+        let presence = XMPPPresence(element: element)
+        eventContinuation.yield(.presenceReceived(presence))
+        for module in modules.values {
+            try? module.handlePresence(presence)
+        }
+    }
+
+    private func dispatchIQ(_ element: XMLElement) {
+        let iq = XMPPIQ(element: element)
+        if let stanzaID = iq.id, let pending = pendingIQs[stanzaID],
+           pending.expectedFrom == nil || iq.from?.bareJID == pending.expectedFrom {
+            pendingIQs.removeValue(forKey: stanzaID)
+            pending.timeoutTask.cancel()
+            pending.continuation.resume(returning: iq.isResult ? iq.childElement : nil)
+            return
+        }
+        eventContinuation.yield(.iqReceived(iq))
+        for module in modules.values {
+            try? module.handleIQ(iq)
         }
     }
 
