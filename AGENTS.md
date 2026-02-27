@@ -47,6 +47,10 @@ SwiftFormat and SwiftLint are installed via Homebrew. Run via the orchestrator s
 ./Scripts/lint.sh --check      # Check-only mode (CI)
 ```
 
+## Agent Skills
+
+Project-specific agent skills live in `Skills/`. Both `.claude/skills/` and `.agents/skills/` contain symlinks pointing there. When creating a new skill, add the `SKILL.md` to `Skills/<name>/` and create symlinks from both directories.
+
 ## Code Conventions
 
 - **No Objective-C**: pure Swift, no `@objc`, no NSObject subclasses

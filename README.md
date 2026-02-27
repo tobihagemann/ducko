@@ -49,6 +49,10 @@ Run manually:
 ./Scripts/lint.sh --check      # Check-only mode (CI)
 ```
 
+## Agent Skills
+
+Project-specific [agent skills](https://agentskills.io/) live in `Skills/`. See individual `SKILL.md` files for details.
+
 ## Architecture
 
 Six SwiftPM modules with clear dependency boundaries:
