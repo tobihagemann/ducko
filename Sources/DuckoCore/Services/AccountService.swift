@@ -27,10 +27,12 @@ public final class AccountService {
 
     public enum AccountServiceError: Error, LocalizedError {
         case invalidJID(String)
+        case noKeychainPassword(String)
 
         public var errorDescription: String? {
             switch self {
             case let .invalidJID(string): "Invalid JID: \(string)"
+            case let .noKeychainPassword(jid): "No password found in Keychain for \(jid)"
             }
         }
     }
@@ -52,6 +54,32 @@ public final class AccountService {
         passwords[accountID] = password
         cancelReconnect(for: accountID, resetAttempts: true)
         try await performConnect(accountID: accountID)
+    }
+
+    public func connect(accountID: UUID) async throws {
+        guard let account = accounts.first(where: { $0.id == accountID }) else {
+            throw AccountServiceError.noKeychainPassword(accountID.uuidString)
+        }
+        let jid = account.jid.description
+        guard let password = KeychainHelper.loadPassword(for: jid) else {
+            throw AccountServiceError.noKeychainPassword(jid)
+        }
+        try await connect(accountID: accountID, password: password)
+    }
+
+    public func savePasswordToKeychain(accountID: UUID) async {
+        if accounts.first(where: { $0.id == accountID }) == nil {
+            try? await loadAccounts()
+        }
+        guard let account = accounts.first(where: { $0.id == accountID }),
+              let password = passwords[accountID]
+        else { return }
+        KeychainHelper.savePassword(password, for: account.jid.description)
+    }
+
+    public func deletePasswordFromKeychain(accountID: UUID) {
+        guard let account = accounts.first(where: { $0.id == accountID }) else { return }
+        KeychainHelper.deletePassword(for: account.jid.description)
     }
 
     public func disconnect(accountID: UUID) async {
@@ -84,6 +112,7 @@ public final class AccountService {
     public func deleteAccount(_ id: UUID) async throws {
         await disconnect(accountID: id)
         try await store.deleteAccount(id)
+        deletePasswordFromKeychain(accountID: id)
         try await loadAccounts()
     }
 

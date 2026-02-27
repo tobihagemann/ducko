@@ -66,7 +66,7 @@ extension DuckoCLI {
 
             let selectedAccount = try await resolveAccount(account, environment: env)
 
-            guard let password = CredentialHelper.getPassword() else {
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
                 throw CLIError.noPassword
             }
 
@@ -116,7 +116,7 @@ extension DuckoCLI {
 
             let selectedAccount = try await resolveAccount(account, environment: env)
 
-            guard let password = CredentialHelper.getPassword() else {
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
                 throw CLIError.noPassword
             }
 
@@ -238,7 +238,7 @@ extension DuckoCLI {
     struct Account: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage XMPP accounts",
-            subcommands: [List.self],
+            subcommands: [List.self, Add.self],
             defaultSubcommand: List.self
         )
 
@@ -250,7 +250,61 @@ extension DuckoCLI {
             @OptionGroup var global: GlobalOptions
 
             func run() async throws {
-                print("account list: not yet implemented")
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                try await env.accountService.loadAccounts()
+                let accounts = await MainActor.run { env.accountService.accounts }
+
+                guard !accounts.isEmpty else {
+                    print("No accounts configured.")
+                    return
+                }
+
+                for account in accounts {
+                    print(formatter.formatAccount(account))
+                }
+            }
+        }
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a new XMPP account"
+            )
+
+            @Argument(help: "The bare JID (e.g. alice@example.com)")
+            var jid: String
+
+            func run() async throws {
+                guard BareJID.parse(jid) != nil else {
+                    throw CLIError.invalidJID(jid)
+                }
+
+                guard let password = CredentialHelper.getPassword() else {
+                    throw CLIError.noPassword
+                }
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: PlainFormatter())
+                }
+                let env = context.environment
+
+                let accountID = try await env.accountService.createAccount(jidString: jid)
+                do {
+                    try await env.accountService.connect(accountID: accountID, password: password)
+                    try await waitForConnected(accountID: accountID, environment: env)
+                    await env.accountService.savePasswordToKeychain(accountID: accountID)
+                    await env.accountService.disconnect(accountID: accountID)
+                } catch {
+                    try? await env.accountService.deleteAccount(accountID)
+                    throw error
+                }
+
+                print("Account added: \(jid)")
             }
         }
     }

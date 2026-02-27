@@ -5,6 +5,7 @@ import Foundation
 protocol CLIFormatter: Sendable {
     func formatMessage(_ message: ChatMessage) -> String
     func formatContact(_ contact: Contact) -> String
+    func formatAccount(_ account: Account) -> String
     func formatPresence(jid: BareJID, status: String, message: String?) -> String
     func formatError(_ error: any Error) -> String
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String?

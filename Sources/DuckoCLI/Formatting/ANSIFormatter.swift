@@ -19,15 +19,18 @@ struct ANSIFormatter: CLIFormatter {
 
     func formatMessage(_ message: ChatMessage) -> String {
         let timestamp = iso8601(message.timestamp)
-        if message.isOutgoing {
-            return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.cyan)-> \(message.fromJID): \(message.body)\(Color.reset)"
-        }
-        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(message.fromJID): \(message.body)\(Color.reset)"
+        let direction = message.isOutgoing ? "->" : "<-"
+        let color = message.isOutgoing ? Color.cyan : Color.green
+        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(message.fromJID): \(message.body)\(Color.reset)"
     }
 
     func formatContact(_ contact: Contact) -> String {
         let name = contact.name ?? contact.jid.description
         return "\(Color.bold)\(name)\(Color.reset) (\(contact.jid)) \(Color.dim)[\(contact.subscription.rawValue)]\(Color.reset)"
+    }
+
+    func formatAccount(_ account: Account) -> String {
+        "\(Color.bold)\(account.jid)\(Color.reset) \(Color.dim)(\(account.id))\(Color.reset)"
     }
 
     func formatPresence(jid: BareJID, status: String, message: String?) -> String {

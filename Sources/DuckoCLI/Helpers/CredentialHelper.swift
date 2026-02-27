@@ -1,11 +1,13 @@
-import Foundation
+import Darwin
+import DuckoCore
 
 enum CredentialHelper {
-    /// Returns a password from the environment variable `DUCKO_PASSWORD`,
-    /// or prompts interactively via `getpass()` if running in a TTY.
-    static func getPassword() -> String? {
-        if let envPassword = ProcessInfo.processInfo.environment["DUCKO_PASSWORD"] {
-            return envPassword
+    /// Returns a password using a two-tier fallback:
+    /// 1. Keychain (if JID provided)
+    /// 2. Interactive prompt via `getpass()` (if running in a TTY)
+    static func getPassword(for jid: String? = nil) -> String? {
+        if let jid, let keychainPassword = KeychainHelper.loadPassword(for: jid) {
+            return keychainPassword
         }
         guard isatty(STDIN_FILENO) != 0 else { return nil }
         guard let cString = getpass("Password: ") else { return nil }

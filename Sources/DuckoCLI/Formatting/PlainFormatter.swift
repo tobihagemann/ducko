@@ -14,6 +14,10 @@ struct PlainFormatter: CLIFormatter {
         return "\(name) (\(contact.jid)) [\(contact.subscription.rawValue)]"
     }
 
+    func formatAccount(_ account: Account) -> String {
+        "\(account.jid) (\(account.id))"
+    }
+
     func formatPresence(jid: BareJID, status: String, message: String?) -> String {
         if let message {
             return "\(jid) is \(status): \(message)"

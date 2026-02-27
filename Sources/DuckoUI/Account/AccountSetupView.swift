@@ -54,11 +54,13 @@ struct AccountSetupView: View {
     private func connectAccount() async {
         isConnecting = true
         errorMessage = nil
+        defer { isConnecting = false }
 
         do {
             let accountID = try await environment.accountService.createAccount(jidString: jidString)
             do {
                 try await environment.accountService.connect(accountID: accountID, password: password)
+                await environment.accountService.savePasswordToKeychain(accountID: accountID)
                 try await environment.accountService.loadAccounts()
             } catch {
                 try? await environment.accountService.deleteAccount(accountID)
@@ -67,7 +69,5 @@ struct AccountSetupView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-
-        isConnecting = false
     }
 }

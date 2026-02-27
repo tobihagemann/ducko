@@ -16,14 +16,14 @@ Default subcommand is `interactive` (REPL mode).
 
 ## Authentication
 
-Password is required for all commands that connect to XMPP.
+Password is required for all commands that connect to XMPP. Two-tier fallback (first match wins):
 
-| Method | Usage |
-|---|---|
-| Environment variable | `DUCKO_PASSWORD=secret ducko send ...` |
-| Interactive prompt | Reads from `/dev/tty` when stdin is a TTY |
+| Tier | Method | Usage |
+|---|---|---|
+| 1 | Keychain | Saved automatically on connect in DuckoApp |
+| 2 | Interactive prompt | Reads from `/dev/tty` when stdin is a TTY |
 
-Accounts are created in DuckoApp (GUI). The CLI shares the same SwiftData database.
+Accounts can be created via `ducko account add <jid>` or in DuckoApp (GUI). The CLI shares the same SwiftData database and macOS Keychain.
 
 ## Global Options
 
@@ -39,7 +39,7 @@ Accounts are created in DuckoApp (GUI). The CLI shares the same SwiftData databa
 Send a one-off message, then disconnect.
 
 ```
-DUCKO_PASSWORD=secret ducko send alice@example.com "Hello"
+ducko send alice@example.com "Hello"
 ```
 
 ### `interactive` (default)
@@ -51,7 +51,24 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `quit` / `exit` — disconnect and exit
 
 ```
-DUCKO_PASSWORD=secret ducko interactive
+ducko interactive
+```
+
+### `account list`
+
+List all configured accounts. Supports `--output` format.
+
+```
+ducko account list
+ducko account list --output json
+```
+
+### `account add <jid>`
+
+Add a new XMPP account. Prompts for password, connects to verify credentials, saves password to Keychain, then disconnects.
+
+```
+ducko account add alice@example.com
 ```
 
 ### Stubs (not yet implemented)
@@ -64,7 +81,7 @@ DUCKO_PASSWORD=secret ducko interactive
 | `room join <jid>` | Join a MUC room |
 | `room leave <jid>` | Leave a MUC room |
 | `room list` | List joined rooms |
-| `account list` | List configured accounts |
+| `account delete <jid>` | Delete an account |
 
 ## Output Formats
 
@@ -92,15 +109,15 @@ Keys are sorted alphabetically. Use `--output json` when piping to `jq` or proce
 ## Examples
 
 ```bash
-# Send a message
-DUCKO_PASSWORD=secret ducko send alice@example.com "Hello"
+# Send a message (password from Keychain)
+ducko send alice@example.com "Hello"
 
 # Send with JSON output
-DUCKO_PASSWORD=secret ducko send --output json alice@example.com "Hello" | jq .
+ducko send --output json alice@example.com "Hello" | jq .
 
 # Start interactive session
-DUCKO_PASSWORD=secret ducko interactive
+ducko interactive
 
 # Use a specific account
-DUCKO_PASSWORD=secret ducko --account 12345678-1234-1234-1234-123456789abc send bob@example.com "Hey"
+ducko --account 12345678-1234-1234-1234-123456789abc send bob@example.com "Hey"
 ```

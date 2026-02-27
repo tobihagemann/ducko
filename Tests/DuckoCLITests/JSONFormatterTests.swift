@@ -29,6 +29,25 @@ struct JSONFormatterTests {
         #expect(json["direction"] == "incoming")
     }
 
+    @Test func accountOutputIsValidJSON() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let accountID = UUID()
+        let account = Account(
+            id: accountID,
+            jid: jid,
+            isEnabled: true,
+            connectOnLaunch: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatAccount(account)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "account")
+        #expect(json["jid"] == "alice@example.com")
+        #expect(json["id"] == accountID.uuidString)
+        #expect(json["isEnabled"] == "true")
+    }
+
     @Test func eventConnectedContainsAccountField() throws {
         let accountID = UUID()
         let jid = try #require(FullJID.parse("alice@example.com/res"))

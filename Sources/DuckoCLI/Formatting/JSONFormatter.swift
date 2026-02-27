@@ -17,7 +17,7 @@ struct JSONFormatter: CLIFormatter {
             "direction": message.isOutgoing ? "outgoing" : "incoming",
             "from": message.fromJID,
             "body": message.body,
-            "timestamp": iso8601(message.timestamp)
+            "timestamp": formatTimestamp(message.timestamp)
         ])
     }
 
@@ -31,6 +31,15 @@ struct JSONFormatter: CLIFormatter {
             dict["name"] = name
         }
         return encode(dict)
+    }
+
+    func formatAccount(_ account: Account) -> String {
+        encode([
+            "type": "account",
+            "id": account.id.uuidString,
+            "jid": account.jid.description,
+            "isEnabled": account.isEnabled ? "true" : "false"
+        ])
     }
 
     func formatPresence(jid: BareJID, status: String, message: String?) -> String {
@@ -90,7 +99,7 @@ struct JSONFormatter: CLIFormatter {
                 "from": from.description,
                 "body": body,
                 "account": accountID.uuidString,
-                "timestamp": iso8601(Date())
+                "timestamp": formatTimestamp(Date())
             ])
         case .presenceReceived, .iqReceived:
             return nil
@@ -98,16 +107,23 @@ struct JSONFormatter: CLIFormatter {
     }
 
     func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String {
+        var dict: [String: String] = [
+            "type": "connection_state",
+            "jid": jid.description
+        ]
         switch state {
         case .disconnected:
-            return encode(["type": "connection_state", "jid": jid.description, "state": "disconnected"])
+            dict["state"] = "disconnected"
         case .connecting:
-            return encode(["type": "connection_state", "jid": jid.description, "state": "connecting"])
+            dict["state"] = "connecting"
         case let .connected(fullJID):
-            return encode(["type": "connection_state", "jid": jid.description, "state": "connected", "fullJID": fullJID.description])
+            dict["state"] = "connected"
+            dict["fullJID"] = fullJID.description
         case let .error(message):
-            return encode(["type": "connection_state", "jid": jid.description, "state": "error", "message": message])
+            dict["state"] = "error"
+            dict["message"] = message
         }
+        return encode(dict)
     }
 
     // MARK: - Private
@@ -121,7 +137,8 @@ struct JSONFormatter: CLIFormatter {
         return string
     }
 
-    private func iso8601(_ date: Date) -> String {
+    /// ISO 8601 without fractional seconds for cleaner JSON output.
+    private func formatTimestamp(_ date: Date) -> String {
         date.formatted(Date.ISO8601FormatStyle())
     }
 }

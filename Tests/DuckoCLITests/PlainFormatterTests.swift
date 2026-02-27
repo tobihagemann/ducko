@@ -83,6 +83,23 @@ struct PlainFormatterTests {
         #expect(output.contains("[to]"))
     }
 
+    // MARK: - formatAccount
+
+    @Test func formatAccount() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let accountID = UUID()
+        let account = Account(
+            id: accountID,
+            jid: jid,
+            isEnabled: true,
+            connectOnLaunch: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatAccount(account)
+        #expect(output.contains("alice@example.com"))
+        #expect(output.contains(accountID.uuidString))
+    }
+
     // MARK: - formatPresence
 
     @Test func formatPresenceWithMessage() throws {

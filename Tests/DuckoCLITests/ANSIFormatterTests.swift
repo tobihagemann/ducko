@@ -24,6 +24,21 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}["))
     }
 
+    @Test func accountUsesBoldAndDim() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let account = Account(
+            id: UUID(),
+            jid: jid,
+            isEnabled: true,
+            connectOnLaunch: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatAccount(account)
+        #expect(output.contains("\u{001B}[1m")) // bold
+        #expect(output.contains("\u{001B}[2m")) // dim
+        #expect(output.contains("alice@example.com"))
+    }
+
     @Test func errorUsesRedCode() {
         let output = formatter.formatError(CLIError.connectionTimeout)
         #expect(output.contains("\u{001B}[31m"))

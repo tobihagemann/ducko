@@ -11,11 +11,11 @@ enum CLIError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .noAccounts:
-            "No accounts configured. Use the GUI or create one first."
+            "No accounts configured. Run 'ducko account add <jid>' to add one."
         case let .accountNotFound(id):
             "Account not found: \(id)"
         case .noPassword:
-            "No password provided. Set DUCKO_PASSWORD or run in a terminal."
+            "No password provided. Run in a terminal to enter interactively."
         case let .invalidJID(jid):
             "Invalid JID: \(jid)"
         case let .connectionFailed(message):
