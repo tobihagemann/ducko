@@ -9,21 +9,23 @@ Run the `/peekaboo` skill first to load full Peekaboo CLI reference. This skill 
 
 Test and interact with running macOS applications without stealing focus. Combine Peekaboo CLI for reading UI state and element-targeted clicks with osascript for background-safe text input and value reading.
 
-## Critical: Background Safety Rules
+## Background Safety Rules
 
-Simulated keystrokes (`peekaboo type`, `peekaboo paste`, `peekaboo hotkey`) go to the **frontmost app**, not the target app. If the user is working in another app, keystrokes land there instead. Always use background-safe alternatives.
+Simulated keystrokes (`peekaboo type`, `peekaboo paste`, `peekaboo hotkey`) go to the **frontmost app**, not the target app. Always use background-safe alternatives.
 
 | Action | Background-Safe | Command |
 |---|---|---|
 | Read UI tree | Yes | `peekaboo see --app APP --json` |
 | Screenshot | Yes | `peekaboo image --window-id WID` |
 | Click element | Yes | `peekaboo click --no-auto-focus --on ELEM --app APP` |
-| Set text value | Yes | `osascript` with `set value of` |
+| Set text value | Yes* | `osascript` with `set value of` |
 | Read text value | Yes | `osascript` with `get value of` |
 | Click button | Yes | `osascript` with `click button` |
 | Type keystrokes | **NO** | Lands in frontmost app |
 | Paste (Cmd+V) | **NO** | Lands in frontmost app |
 | Hotkeys | **NO** | Lands in frontmost app |
+
+*`set value` updates the accessibility layer but **does not trigger SwiftUI `@State` bindings**. Use `keystroke` inside a single osascript block when SwiftUI binding updates are needed (see Multi-Step Interaction Sequences below).
 
 ## Workflow
 
@@ -51,11 +53,11 @@ peekaboo list apps | grep -i AppName
 peekaboo see --app AppName --json
 ```
 
-Parse the JSON output to find element IDs (`elem_N`), roles, and labels. The `--app` flag works for `see` without focus issues.
+Parse the JSON output to find element IDs (`elem_N`), roles, and labels.
 
 ### Step 4: Take a Screenshot
 
-Resolve the window ID first, then capture by ID (avoids focus timeout):
+Resolve the window ID first, then capture by ID:
 
 ```bash
 peekaboo list windows --app AppName
@@ -64,13 +66,13 @@ peekaboo image --window-id WID --path /tmp/screenshot.png
 
 ### Step 5: Interact with Elements
 
-**Click an element** (uses accessibility API, no focus needed):
+**Click an element** (accessibility API, no focus needed):
 
 ```bash
 peekaboo click --no-auto-focus --on elem_4 --app AppName
 ```
 
-**Set a text field value** (uses `AXUIElementSetAttributeValue`, fully background-safe):
+**Set a text field value** (background-safe, but does NOT trigger SwiftUI bindings):
 
 ```bash
 osascript -e 'tell application "System Events" to set value of text field 1 of group 1 of window 1 of process "AppName" to "text"'
@@ -98,20 +100,50 @@ Take another screenshot or read values back to confirm the interaction succeeded
 kill $APP_PID
 ```
 
+## Multi-Step Interaction Sequences
+
+Each tool call returns focus to the terminal. Multi-step flows **must** be in a single `osascript` heredoc -- splitting across tool calls loses focus between steps.
+
+```bash
+osascript << 'APPLESCRIPT'
+tell application "System Events"
+    set frontmost of process "AppName" to true
+    delay 0.5
+    tell process "AppName"
+        click text field 1 of group 1 of window 1
+        delay 0.3
+        keystroke "username"
+        delay 0.2
+        keystroke tab
+        delay 0.2
+        keystroke "password"
+        delay 0.3
+        click button 1 of group 1 of window 1
+    end tell
+end tell
+APPLESCRIPT
+```
+
+This pattern uses `keystroke` (triggers SwiftUI bindings) and keeps focus on the target app throughout the sequence.
+
+**Important**: Use `osascript << 'APPLESCRIPT'` heredoc syntax (not `osascript -e`) to avoid shell escaping issues.
+
 ## osascript Element Discovery
 
 When the UI hierarchy is unknown, explore it incrementally with osascript. See [references/osascript-patterns.md](references/osascript-patterns.md) for element addressing patterns and exploration techniques.
 
 ## Peekaboo Focus Timeout Issue
 
-Peekaboo's `click`, `type`, `image` with `--app` try to activate/focus the app first. For SwiftPM-built apps, this activation often times out ("Timeout while waiting for condition") because `NSRunningApplication.activate()` doesn't get acknowledged.
+Peekaboo's `click`, `type`, `image` with `--app` try to activate the app first. For SwiftPM-built apps this often times out because `NSRunningApplication.activate()` is not acknowledged.
 
 **Workarounds:**
-- Always use `--no-auto-focus` on `click` commands
+- Use `--no-auto-focus` on `click` commands
 - Use `--window-id WID` instead of `--app` for `image` captures
 - `see --app` works fine (read-only, skips focus)
 
+**Caveat with `--no-auto-focus`**: Clicks use absolute screen coordinates. If another window overlaps the target, the click hits the wrong window. Prefer `osascript` click (accessibility API, position-independent) for reliable button clicks.
+
 ## Additional Resources
 
-For the full Peekaboo CLI reference, run `peekaboo --help` or `peekaboo <subcommand> --help`.
-For osascript UI scripting patterns, see [references/osascript-patterns.md](references/osascript-patterns.md).
+- Full Peekaboo CLI reference: `peekaboo --help` or `peekaboo <subcommand> --help`
+- osascript UI scripting patterns: [references/osascript-patterns.md](references/osascript-patterns.md)
