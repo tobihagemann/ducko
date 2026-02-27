@@ -36,6 +36,8 @@ swift run DuckoApp                   # run GUI
 swift run DuckoCLI                   # run CLI
 ```
 
+After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., `.build/debug/DuckoCLI`).
+
 Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` commands.
 
 ## Lint & Format

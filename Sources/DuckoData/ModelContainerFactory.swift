@@ -12,7 +12,16 @@ public enum ModelContainerFactory {
     ])
 
     public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
-        let configuration = ModelConfiguration(isStoredInMemoryOnly: inMemory)
+        let configuration: ModelConfiguration
+        if inMemory {
+            configuration = ModelConfiguration(isStoredInMemoryOnly: true)
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let storeDir = appSupport.appendingPathComponent("Ducko", isDirectory: true)
+            try FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
+            let storeURL = storeDir.appendingPathComponent("default.store")
+            configuration = ModelConfiguration(url: storeURL)
+        }
         return try ModelContainer(for: schema, configurations: [configuration])
     }
 }
