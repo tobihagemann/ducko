@@ -1,4 +1,4 @@
 import Testing
 @testable import DuckoCLI
 
-struct DuckoCLITests {}
+// Tests are in dedicated files per formatter/helper.

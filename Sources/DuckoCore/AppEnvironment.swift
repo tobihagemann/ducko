@@ -1,3 +1,4 @@
+import DuckoXMPP
 import Foundation
 
 @MainActor @Observable
@@ -9,7 +10,11 @@ public final class AppEnvironment {
     public let linkPreviewService: LinkPreviewService
     public let messageFilterPipeline: MessageFilterPipeline
 
-    public init(store: any PersistenceStore, linkPreviewFetcher: any LinkPreviewFetcher = NoOpLinkPreviewFetcher()) {
+    public init(
+        store: any PersistenceStore,
+        linkPreviewFetcher: any LinkPreviewFetcher = NoOpLinkPreviewFetcher(),
+        onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)? = nil
+    ) {
         let pipeline = MessageFilterPipeline()
         let chatService = ChatService(store: store, filterPipeline: pipeline)
         let presenceService = PresenceService()
@@ -22,6 +27,7 @@ public final class AppEnvironment {
                 await chatService?.handleEvent(event, accountID: accountID)
                 presenceService?.handleEvent(event, accountID: accountID)
             }
+            onExternalEvent?(event, accountID)
         }
 
         chatService.setAccountService(accountService)
