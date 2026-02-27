@@ -10,18 +10,22 @@ public struct ModuleContext: Sendable {
     public let generateID: @Sendable () -> String
     /// Returns the connected full JID, or `nil` if not connected.
     public let connectedJID: @Sendable () -> FullJID?
+    /// The XMPP domain the client is connected to.
+    public let domain: String
 
     public init(
         sendStanza: @Sendable @escaping (any XMPPStanza) async throws -> Void,
         sendIQ: @Sendable @escaping (XMPPIQ) async throws -> XMLElement?,
         emitEvent: @Sendable @escaping (XMPPEvent) -> Void,
         generateID: @Sendable @escaping () -> String,
-        connectedJID: @Sendable @escaping () -> FullJID?
+        connectedJID: @Sendable @escaping () -> FullJID?,
+        domain: String
     ) {
         self.sendStanza = sendStanza
         self.sendIQ = sendIQ
         self.emitEvent = emitEvent
         self.generateID = generateID
         self.connectedJID = connectedJID
+        self.domain = domain
     }
 }

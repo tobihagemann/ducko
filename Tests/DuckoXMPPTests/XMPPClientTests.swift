@@ -1,3 +1,4 @@
+import os
 import Testing
 @testable import DuckoXMPP
 
@@ -553,5 +554,301 @@ enum XMPPClientTests {
 
             await client.disconnect()
         }
+    }
+
+    // MARK: - IQ Timeout
+
+    struct IQTimeoutTests {
+        @Test("IQ times out when no response arrives")
+        func iqTimesOut() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnectFlow(mock)
+            try await connectTask.value
+
+            let iqTask = Task {
+                let iq = XMPPIQ(type: .get, id: "test-timeout")
+                return try await client.sendIQ(iq, timeout: .milliseconds(200))
+            }
+
+            // Don't respond — let the timeout expire
+            do {
+                _ = try await iqTask.value
+                throw XMPPClientError.unexpectedStreamState("Should have thrown timeout")
+            } catch let error as XMPPClientError {
+                guard case .timeout = error else {
+                    throw XMPPClientError.unexpectedStreamState("Expected timeout, got \(error)")
+                }
+            }
+
+            await client.disconnect()
+        }
+
+        @Test("IQ from wrong JID does not match pending request")
+        func iqFromWrongJIDDoesNotMatch() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnectFlow(mock)
+            try await connectTask.value
+
+            let iqTask = Task {
+                var iq = XMPPIQ(type: .get, id: "test-jid-match")
+                iq.to = .bare(BareJID(localPart: "alice", domainPart: "example.com")!)
+                return try await client.sendIQ(iq, timeout: .seconds(5))
+            }
+
+            try? await Task.sleep(for: .milliseconds(100))
+
+            // Response from wrong JID — should NOT satisfy the pending IQ
+            await mock.simulateReceive(
+                "<iq type='result' id='test-jid-match' from='eve@evil.com'><wrong/></iq>"
+            )
+            try? await Task.sleep(for: .milliseconds(100))
+
+            // Response from correct JID — should satisfy the pending IQ
+            await mock.simulateReceive(
+                "<iq type='result' id='test-jid-match' from='alice@example.com'><query/></iq>"
+            )
+
+            let result = try await iqTask.value
+            #expect(result?.name == "query")
+
+            await client.disconnect()
+        }
+
+        @Test("Server-directed IQ accepts response with no from")
+        func serverDirectedIQAcceptsNoFrom() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnectFlow(mock)
+            try await connectTask.value
+
+            let iqTask = Task {
+                // No `to` — server-directed IQ
+                let iq = XMPPIQ(type: .get, id: "test-server-iq")
+                return try await client.sendIQ(iq, timeout: .seconds(5))
+            }
+
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(
+                "<iq type='result' id='test-server-iq'><query xmlns='jabber:iq:roster'/></iq>"
+            )
+
+            let result = try await iqTask.value
+            #expect(result?.name == "query")
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Stanza Interceptor
+
+    struct StanzaInterceptorTests {
+        @Test("Consuming interceptor blocks message dispatch")
+        func consumingInterceptorBlocksDispatch() async throws {
+            let mock = MockTransport()
+            let interceptor = MessageConsumingInterceptor()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+            await client.addInterceptor(interceptor)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnectFlow(mock)
+            try await connectTask.value
+
+            // Collect events until a presence arrives
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .presenceReceived = event { return true }
+                    return false
+                }
+            }
+
+            // Send a message (should be consumed) then a presence (should pass through)
+            await mock.simulateReceive(
+                "<message type='chat' from='contact@example.com/res'><body>Blocked!</body></message>"
+            )
+            await mock.simulateReceive(
+                "<presence from='contact@example.com/res'/>"
+            )
+
+            let events = try await eventsTask.value
+            // Should have presenceReceived but NOT messageReceived
+            let hasMessage = events.contains { if case .messageReceived = $0 { return true }; return false }
+            let hasPresence = events.contains { if case .presenceReceived = $0 { return true }; return false }
+            #expect(!hasMessage)
+            #expect(hasPresence)
+
+            await client.disconnect()
+        }
+
+        @Test("Non-consuming interceptor allows normal dispatch")
+        func nonConsumingInterceptorAllowsDispatch() async throws {
+            let mock = MockTransport()
+            let interceptor = PassthroughInterceptor()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+            await client.addInterceptor(interceptor)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnectFlow(mock)
+            try await connectTask.value
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .messageReceived = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(
+                "<message type='chat' from='contact@example.com/res'><body>Allowed!</body></message>"
+            )
+
+            let events = try await eventsTask.value
+            guard case let .messageReceived(message) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected messageReceived event")
+            }
+            #expect(message.body == "Allowed!")
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Module Features
+
+    struct ModuleFeatureTests {
+        @Test("availableFeatures aggregates from registered modules")
+        func availableFeaturesAggregates() async {
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass")
+            )
+            await client.register(FeatureModuleA())
+            await client.register(FeatureModuleB())
+
+            let features = await client.availableFeatures
+            #expect(features.count == 3)
+            #expect(features.contains("urn:xmpp:feature-a1"))
+            #expect(features.contains("urn:xmpp:feature-a2"))
+            #expect(features.contains("urn:xmpp:feature-b1"))
+
+            await client.disconnect()
+        }
+
+        @Test("Module with no features returns empty set")
+        func noFeaturesReturnsEmpty() async {
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass")
+            )
+            await client.register(ChatModule())
+
+            let features = await client.availableFeatures
+            #expect(features.isEmpty)
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Module Disconnect Hook
+
+    struct DisconnectHookTests {
+        @Test("handleDisconnect is called on clean disconnect")
+        func handleDisconnectCalledOnDisconnect() async throws {
+            let mock = MockTransport()
+            let module = DisconnectTrackingModule()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+            await client.register(module)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnectFlow(mock)
+            try await connectTask.value
+
+            #expect(!module.wasDisconnected)
+            await client.disconnect()
+            #expect(module.wasDisconnected)
+        }
+    }
+}
+
+// MARK: - Test Mocks
+
+/// Interceptor that consumes all `<message>` stanzas, passes everything else through.
+private final class MessageConsumingInterceptor: StanzaInterceptor {
+    func processIncoming(_ element: XMLElement) -> Bool {
+        element.name == "message"
+    }
+
+    func processOutgoing(_ element: XMLElement) {}
+}
+
+/// Interceptor that never consumes anything.
+private final class PassthroughInterceptor: StanzaInterceptor {
+    func processIncoming(_ element: XMLElement) -> Bool {
+        false
+    }
+
+    func processOutgoing(_ element: XMLElement) {}
+}
+
+/// Module that declares features for testing `availableFeatures` aggregation.
+private final class FeatureModuleA: XMPPModule {
+    var features: [String] {
+        ["urn:xmpp:feature-a1", "urn:xmpp:feature-a2"]
+    }
+
+    func setUp(_ context: ModuleContext) {}
+}
+
+/// Module that declares features for testing `availableFeatures` aggregation.
+private final class FeatureModuleB: XMPPModule {
+    var features: [String] {
+        ["urn:xmpp:feature-b1"]
+    }
+
+    func setUp(_ context: ModuleContext) {}
+}
+
+/// Module that tracks whether `handleDisconnect()` was called.
+private final class DisconnectTrackingModule: XMPPModule, @unchecked Sendable {
+    private let _disconnected = OSAllocatedUnfairLock(initialState: false)
+
+    var wasDisconnected: Bool {
+        _disconnected.withLock { $0 }
+    }
+
+    func setUp(_ context: ModuleContext) {}
+
+    func handleDisconnect() async {
+        _disconnected.withLock { $0 = true }
     }
 }

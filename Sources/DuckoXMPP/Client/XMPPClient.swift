@@ -13,11 +13,18 @@ public actor XMPPClient {
     private let domain: String
     private let credentials: Credentials
     private var modules: [ObjectIdentifier: any XMPPModule] = [:]
+    private var interceptors: [any StanzaInterceptor] = []
     private var state: ConnectionState = .disconnected
     private var readerTask: Task<Void, Never>?
-    private var pendingIQs: [String: CheckedContinuation<XMLElement?, any Error>] = [:]
+    private var pendingIQs: [String: PendingIQ] = [:]
     private let idCounter = Atomic<UInt64>(0)
     private let connectedJIDLock = OSAllocatedUnfairLock<FullJID?>(initialState: nil)
+
+    private struct PendingIQ {
+        let continuation: CheckedContinuation<XMLElement?, any Error>
+        let expectedFrom: BareJID?
+        let timeoutTask: Task<Void, Never>
+    }
 
     private let eventContinuation: AsyncStream<XMPPEvent>.Continuation
 
@@ -66,6 +73,19 @@ public actor XMPPClient {
 
     public func module<M: XMPPModule>(ofType type: M.Type) -> M? {
         modules[ObjectIdentifier(type)] as? M
+    }
+
+    // MARK: - Interceptor Registration
+
+    public func addInterceptor(_ interceptor: any StanzaInterceptor) {
+        interceptors.append(interceptor)
+    }
+
+    // MARK: - Features
+
+    /// Union of all feature namespaces declared by registered modules.
+    public var availableFeatures: Set<String> {
+        Set(modules.values.flatMap(\.features))
     }
 
     // MARK: - ID Generation
@@ -170,7 +190,7 @@ public actor XMPPClient {
     // MARK: - Disconnect
 
     public func disconnect() async {
-        cleanUp(reason: .requested)
+        await cleanUp(reason: .requested)
         await connection.disconnect()
     }
 
@@ -180,27 +200,54 @@ public actor XMPPClient {
         guard case .connected = state else {
             throw XMPPClientError.notConnected
         }
+        for interceptor in interceptors {
+            interceptor.processOutgoing(stanza.element)
+        }
         try await connection.send(XMPPStreamWriter.stanza(stanza.element))
     }
 
     /// Sends an IQ and awaits the matching result/error response.
     /// Returns the result's child element, or `nil` for IQ errors.
-    public func sendIQ(_ iq: XMPPIQ) async throws -> XMLElement? {
+    /// Throws ``XMPPClientError/timeout`` if no response arrives within `timeout`.
+    public func sendIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
         var iq = iq
         let stanzaID = iq.id ?? generateID()
         iq.id = stanzaID
+        let expectedFrom = iq.to?.bareJID
 
         return try await withCheckedThrowingContinuation { continuation in
-            pendingIQs[stanzaID] = continuation
+            for interceptor in interceptors {
+                interceptor.processOutgoing(iq.element)
+            }
+
+            let timeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: timeout)
+                guard !Task.isCancelled else { return }
+                await self?.expirePendingIQ(id: stanzaID)
+            }
+
+            pendingIQs[stanzaID] = PendingIQ(
+                continuation: continuation,
+                expectedFrom: expectedFrom,
+                timeoutTask: timeoutTask
+            )
+
             Task { [connection] in
                 do {
                     try await connection.send(XMPPStreamWriter.stanza(iq.element))
                 } catch {
-                    if let continuation = self.pendingIQs.removeValue(forKey: stanzaID) {
-                        continuation.resume(throwing: error)
+                    if let pending = self.pendingIQs.removeValue(forKey: stanzaID) {
+                        pending.timeoutTask.cancel()
+                        pending.continuation.resume(throwing: error)
                     }
                 }
             }
+        }
+    }
+
+    private func expirePendingIQ(id: String) {
+        if let pending = pendingIQs.removeValue(forKey: id) {
+            pending.continuation.resume(throwing: XMPPClientError.timeout)
         }
     }
 
@@ -357,20 +404,25 @@ public actor XMPPClient {
         }
     }
 
-    private func handleEvent(_ event: XMLStreamEvent) {
+    private func handleEvent(_ event: XMLStreamEvent) async {
         switch event {
         case .streamOpened:
             break
         case let .stanzaReceived(element):
             dispatchStanza(element)
         case .streamClosed:
-            cleanUp(reason: .streamError("Stream closed by server"))
+            await cleanUp(reason: .streamError("Stream closed by server"))
         case let .error(error):
-            cleanUp(reason: .connectionLost(error.message))
+            await cleanUp(reason: .connectionLost(error.message))
         }
     }
 
     private func dispatchStanza(_ element: XMLElement) {
+        // Run incoming interceptors first; if any consumes the stanza, stop.
+        for interceptor in interceptors {
+            if interceptor.processIncoming(element) { return }
+        }
+
         switch element.name {
         case "message":
             let message = XMPPMessage(element: element)
@@ -386,9 +438,14 @@ public actor XMPPClient {
             }
         case "iq":
             let iq = XMPPIQ(element: element)
-            if let stanzaID = iq.id, let continuation = pendingIQs.removeValue(forKey: stanzaID) {
-                continuation.resume(returning: iq.isResult ? iq.childElement : nil)
-                return
+            if let stanzaID = iq.id, let pending = pendingIQs[stanzaID] {
+                let senderBare = iq.from?.bareJID
+                if pending.expectedFrom == nil || senderBare == pending.expectedFrom {
+                    pendingIQs.removeValue(forKey: stanzaID)
+                    pending.timeoutTask.cancel()
+                    pending.continuation.resume(returning: iq.isResult ? iq.childElement : nil)
+                    return
+                }
             }
             eventContinuation.yield(.iqReceived(iq))
             for module in modules.values {
@@ -399,21 +456,27 @@ public actor XMPPClient {
         }
     }
 
-    private func handleStreamEnd() {
+    private func handleStreamEnd() async {
         guard case .connected = state else { return }
-        cleanUp(reason: .connectionLost("Stream ended"))
+        await cleanUp(reason: .connectionLost("Stream ended"))
     }
 
     // MARK: - Private: Cleanup
 
-    private func cleanUp(reason: DisconnectReason) {
+    private func cleanUp(reason: DisconnectReason) async {
         readerTask?.cancel()
         readerTask = nil
+
+        for module in modules.values {
+            await module.handleDisconnect()
+        }
+
         state = .disconnected
         connectedJIDLock.withLock { $0 = nil }
 
-        for continuation in pendingIQs.values {
-            continuation.resume(throwing: XMPPClientError.notConnected)
+        for pending in pendingIQs.values {
+            pending.timeoutTask.cancel()
+            pending.continuation.resume(throwing: XMPPClientError.notConnected)
         }
         pendingIQs.removeAll()
 
@@ -438,7 +501,8 @@ public actor XMPPClient {
             },
             connectedJID: { [connectedJIDLock] in
                 connectedJIDLock.withLock { $0 }
-            }
+            },
+            domain: domain
         )
     }
 }
