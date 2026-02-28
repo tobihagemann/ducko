@@ -1,0 +1,178 @@
+import Testing
+@testable import DuckoXMPP
+
+// MARK: - Helpers
+
+private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient {
+    let client = XMPPClient(
+        domain: "example.com",
+        credentials: .init(username: "user", password: "pass"),
+        transport: mock
+    )
+    await client.register(PresenceModule())
+
+    let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+    await simulateNoTLSConnect(mock)
+    try await connectTask.value
+
+    return client
+}
+
+// MARK: - Tests
+
+enum PresenceModuleTests {
+    struct InitialPresence {
+        @Test("Sends initial available presence on connect")
+        func sendsInitialPresence() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // After connect, PresenceModule should have sent an available presence.
+            // The mock records all sent bytes — find the presence stanza.
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let hasPresence = sentStrings.contains { $0.contains("<presence/>") || $0.contains("<presence ") }
+            #expect(hasPresence)
+
+            await client.disconnect()
+        }
+    }
+
+    struct PresenceTracking {
+        @Test("Available presence is tracked in map")
+        func availablePresenceTracked() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: PresenceModule.self))
+
+            await mock.simulateReceive(
+                "<presence from='contact@example.com/mobile'><show>away</show></presence>"
+            )
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let fullJID = try #require(FullJID.parse("contact@example.com/mobile"))
+            let presence = module.presence(for: fullJID)
+            #expect(presence != nil)
+            #expect(presence?.show == .away)
+
+            await client.disconnect()
+        }
+
+        @Test("Unavailable presence removes entry from map")
+        func unavailableRemovesEntry() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: PresenceModule.self))
+
+            // First make contact available
+            await mock.simulateReceive(
+                "<presence from='contact@example.com/mobile'/>"
+            )
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let fullJID = try #require(FullJID.parse("contact@example.com/mobile"))
+            #expect(module.presence(for: fullJID) != nil)
+
+            // Now make unavailable
+            await mock.simulateReceive(
+                "<presence type='unavailable' from='contact@example.com/mobile'/>"
+            )
+            try? await Task.sleep(for: .milliseconds(100))
+
+            #expect(module.presence(for: fullJID) == nil)
+
+            await client.disconnect()
+        }
+
+        @Test("presenceUpdated event is emitted")
+        func presenceUpdatedEventEmitted() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .presenceUpdated = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(
+                "<presence from='contact@example.com/res'><show>dnd</show></presence>"
+            )
+
+            let events = try await eventsTask.value
+            guard case let .presenceUpdated(from, presence) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected presenceUpdated event")
+            }
+            #expect(from.description == "contact@example.com/res")
+            #expect(presence.show == .dnd)
+
+            await client.disconnect()
+        }
+
+        @Test("presenceSubscriptionRequest emitted for subscribe type")
+        func subscriptionRequestEmitted() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .presenceSubscriptionRequest = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(
+                "<presence type='subscribe' from='stranger@example.com'/>"
+            )
+
+            let events = try await eventsTask.value
+            guard case let .presenceSubscriptionRequest(from) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected presenceSubscriptionRequest")
+            }
+            #expect(from.description == "stranger@example.com")
+
+            await client.disconnect()
+        }
+
+        @Test("handleDisconnect clears presence map")
+        func disconnectClearsMap() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: PresenceModule.self))
+
+            await mock.simulateReceive(
+                "<presence from='contact@example.com/mobile'/>"
+            )
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let bareJID = try #require(BareJID.parse("contact@example.com"))
+            #expect(!module.presences(for: bareJID).isEmpty)
+
+            await client.disconnect()
+
+            #expect(module.presences(for: bareJID).isEmpty)
+        }
+
+        @Test("presences(for:) returns all resources for a bare JID")
+        func presencesForBareJID() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: PresenceModule.self))
+
+            await mock.simulateReceive(
+                "<presence from='contact@example.com/mobile'/>"
+            )
+            await mock.simulateReceive(
+                "<presence from='contact@example.com/desktop'><show>chat</show></presence>"
+            )
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let bareJID = try #require(BareJID.parse("contact@example.com"))
+            let presences = module.presences(for: bareJID)
+            #expect(presences.count == 2)
+
+            await client.disconnect()
+        }
+    }
+}

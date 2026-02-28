@@ -1,0 +1,271 @@
+import Testing
+@testable import DuckoXMPP
+
+// MARK: - Helpers
+
+/// Empty roster response for tests that don't need roster items pre-loaded.
+private let emptyRosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'/></iq>"
+
+/// Creates a connected client with RosterModule registered.
+/// A roster response must always be provided since RosterModule blocks on connect waiting for it.
+private func makeConnectedClient(mock: MockTransport, rosterResponse: String = emptyRosterResponse) async throws -> XMPPClient {
+    let client = XMPPClient(
+        domain: "example.com",
+        credentials: .init(username: "user", password: "pass"),
+        transport: mock
+    )
+    await client.register(RosterModule())
+
+    let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+    await simulateNoTLSConnect(mock, rosterResponse: rosterResponse)
+    try await connectTask.value
+
+    return client
+}
+
+// MARK: - Tests
+
+enum RosterModuleTests {
+    struct RosterLoad {
+        @Test("Roster GET on connect parses items and emits rosterLoaded")
+        func rosterGetOnConnect() async throws {
+            let mock = MockTransport()
+
+            let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' name='Alice' subscription='both'/><item jid='bob@example.com' subscription='to'><group>Friends</group></item></query></iq>"
+
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+            await client.register(RosterModule())
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .rosterLoaded = event { return true }
+                    return false
+                }
+            }
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock, rosterResponse: rosterResponse)
+            try await connectTask.value
+
+            let events = try await eventsTask.value
+            guard case let .rosterLoaded(items) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected rosterLoaded event")
+            }
+            #expect(items.count == 2)
+
+            let alice = items.first { $0.jid.description == "alice@example.com" }
+            #expect(alice?.name == "Alice")
+            #expect(alice?.subscription == .both)
+
+            let bob = items.first { $0.jid.description == "bob@example.com" }
+            #expect(bob?.subscription == .to)
+            #expect(bob?.groups == ["Friends"])
+
+            let module = try #require(await client.module(ofType: RosterModule.self))
+            let roster = module.currentRoster
+            #expect(roster.count == 2)
+
+            await client.disconnect()
+        }
+    }
+
+    struct RosterPush {
+        @Test("Roster push updates map and emits rosterItemChanged")
+        func rosterPushUpdates() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .rosterItemChanged = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(
+                "<iq type='set' id='push-1'><query xmlns='jabber:iq:roster'><item jid='new@example.com' name='New' subscription='both'/></query></iq>"
+            )
+
+            let events = try await eventsTask.value
+            guard case let .rosterItemChanged(item) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected rosterItemChanged event")
+            }
+            #expect(item.jid.description == "new@example.com")
+            #expect(item.name == "New")
+            #expect(item.subscription == .both)
+
+            #expect(module.currentRoster.count == 1)
+
+            await client.disconnect()
+        }
+
+        @Test("Roster push with subscription=remove removes item")
+        func rosterPushRemoves() async throws {
+            let mock = MockTransport()
+            let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='both'/></query></iq>"
+            let client = try await makeConnectedClient(mock: mock, rosterResponse: rosterResponse)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            try? await Task.sleep(for: .milliseconds(100))
+            #expect(module.currentRoster.count == 1)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .rosterItemChanged = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(
+                "<iq type='set' id='push-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='remove'/></query></iq>"
+            )
+
+            _ = try await eventsTask.value
+            try? await Task.sleep(for: .milliseconds(50))
+
+            #expect(module.currentRoster.isEmpty)
+
+            await client.disconnect()
+        }
+
+        @Test("Roster push from foreign JID is rejected")
+        func rejectsForeignPush() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            await mock.simulateReceive(
+                "<iq type='set' from='evil@attacker.com' id='push-3'><query xmlns='jabber:iq:roster'><item jid='injected@evil.com' subscription='both'/></query></iq>"
+            )
+            try? await Task.sleep(for: .milliseconds(100))
+
+            #expect(module.currentRoster.isEmpty)
+
+            await client.disconnect()
+        }
+    }
+
+    struct RosterManagement {
+        @Test("addContact sends correct IQ")
+        func addContactSendsIQ() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            await mock.clearSentBytes()
+
+            let jid = try #require(BareJID.parse("newcontact@example.com"))
+            let addTask = Task {
+                try await module.addContact(jid: jid, name: "New Contact", groups: ["Work"])
+            }
+
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let addIQ = sentStrings.first { $0.contains("newcontact@example.com") }
+            #expect(addIQ != nil)
+            #expect(addIQ?.contains("name=\"New Contact\"") == true)
+            #expect(addIQ?.contains("<group>Work</group>") == true)
+
+            // Respond with result to unblock the await
+            if let iqStr = addIQ, let iqID = extractIQID(from: iqStr) {
+                await mock.simulateReceive("<iq type='result' id='\(iqID)'/>")
+            }
+
+            try await addTask.value
+
+            await client.disconnect()
+        }
+
+        @Test("removeContact sends correct IQ")
+        func removeContactSendsIQ() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            await mock.clearSentBytes()
+
+            let jid = try #require(BareJID.parse("contact@example.com"))
+            let removeTask = Task {
+                try await module.removeContact(jid: jid)
+            }
+
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let removeIQ = sentStrings.first { $0.contains("subscription=\"remove\"") }
+            #expect(removeIQ != nil)
+            #expect(removeIQ?.contains("contact@example.com") == true)
+
+            if let iqStr = removeIQ, let iqID = extractIQID(from: iqStr) {
+                await mock.simulateReceive("<iq type='result' id='\(iqID)'/>")
+            }
+
+            try await removeTask.value
+
+            await client.disconnect()
+        }
+    }
+
+    struct SubscriptionManagement {
+        @Test("Subscription methods send correct presence types")
+        func subscriptionMethodsSendCorrectTypes() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            let jid = try #require(BareJID.parse("contact@example.com"))
+
+            await mock.clearSentBytes()
+            try await module.subscribe(to: jid)
+            var sentData = await mock.sentBytes
+            var sentString = String(decoding: sentData.last ?? [], as: UTF8.self)
+            #expect(sentString.contains("type=\"subscribe\""))
+            #expect(sentString.contains("to=\"contact@example.com\""))
+
+            await mock.clearSentBytes()
+            try await module.approveSubscription(from: jid)
+            sentData = await mock.sentBytes
+            sentString = String(decoding: sentData.last ?? [], as: UTF8.self)
+            #expect(sentString.contains("type=\"subscribed\""))
+
+            await mock.clearSentBytes()
+            try await module.denySubscription(from: jid)
+            sentData = await mock.sentBytes
+            sentString = String(decoding: sentData.last ?? [], as: UTF8.self)
+            #expect(sentString.contains("type=\"unsubscribed\""))
+
+            await mock.clearSentBytes()
+            try await module.unsubscribe(from: jid)
+            sentData = await mock.sentBytes
+            sentString = String(decoding: sentData.last ?? [], as: UTF8.self)
+            #expect(sentString.contains("type=\"unsubscribe\""))
+
+            await client.disconnect()
+        }
+    }
+
+    struct DisconnectBehavior {
+        @Test("handleDisconnect clears roster")
+        func disconnectClearsRoster() async throws {
+            let mock = MockTransport()
+            let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='both'/></query></iq>"
+            let client = try await makeConnectedClient(mock: mock, rosterResponse: rosterResponse)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            try? await Task.sleep(for: .milliseconds(100))
+            #expect(!module.currentRoster.isEmpty)
+
+            await client.disconnect()
+
+            #expect(module.currentRoster.isEmpty)
+        }
+    }
+}

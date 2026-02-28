@@ -142,6 +142,11 @@ public final class AccountService {
             password: passwords[accountID] ?? ""
         )
         builder.withModule(ChatModule())
+        builder.withModule(RosterModule())
+        builder.withModule(PresenceModule())
+        builder.withModule(ServiceDiscoveryModule())
+        builder.withModule(CapsModule())
+        builder.withModule(VCardModule())
 
         let client = await builder.build()
         clients[accountID] = client

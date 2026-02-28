@@ -19,6 +19,7 @@ public actor XMPPClient {
     private var pendingIQs: [String: PendingIQ] = [:]
     private let idCounter = Atomic<UInt64>(0)
     private let connectedJIDLock = OSAllocatedUnfairLock<FullJID?>(initialState: nil)
+    private let featuresLock = OSAllocatedUnfairLock<Set<String>>(initialState: [])
 
     private struct PendingIQ {
         let continuation: CheckedContinuation<XMLElement?, any Error>
@@ -69,6 +70,8 @@ public actor XMPPClient {
         let key = ObjectIdentifier(type(of: module))
         modules[key] = module
         module.setUp(makeModuleContext())
+        let allFeatures = Set(modules.values.flatMap(\.features))
+        featuresLock.withLock { $0 = allFeatures }
     }
 
     public func module<M: XMPPModule>(ofType type: M.Type) -> M? {
@@ -130,6 +133,9 @@ public actor XMPPClient {
         do {
             try await performHandshake(reader: reader)
             startReader(reader: reader)
+            for module in modules.values {
+                try await module.handleConnect()
+            }
         } catch {
             log.error("Handshake failed: \(String(describing: error), privacy: .public)")
             state = .disconnected
@@ -181,10 +187,6 @@ public actor XMPPClient {
         connectedJIDLock.withLock { $0 = fullJID }
         state = .connected(fullJID)
         eventContinuation.yield(.connected(fullJID))
-
-        for module in modules.values {
-            try await module.handleConnect()
-        }
     }
 
     // MARK: - Disconnect
@@ -510,7 +512,10 @@ public actor XMPPClient {
             connectedJID: { [connectedJIDLock] in
                 connectedJIDLock.withLock { $0 }
             },
-            domain: domain
+            domain: domain,
+            availableFeatures: { [featuresLock] in
+                featuresLock.withLock { $0 }
+            }
         )
     }
 }

@@ -64,7 +64,9 @@ struct ANSIFormatter: CLIFormatter {
             guard let from = message.from?.bareJID, let body = message.body else { return nil }
             let timestamp = iso8601(Date())
             return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(from): \(body)\(Color.reset)"
-        case .presenceReceived, .iqReceived:
+        case .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest:
             return nil
         }
     }

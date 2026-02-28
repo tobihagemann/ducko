@@ -101,7 +101,9 @@ struct JSONFormatter: CLIFormatter {
                 "account": accountID.uuidString,
                 "timestamp": formatTimestamp(Date())
             ])
-        case .presenceReceived, .iqReceived:
+        case .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest:
             return nil
         }
     }

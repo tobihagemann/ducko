@@ -63,12 +63,14 @@ actor MockTransport: XMPPTransport {
     func simulateDisconnect() {
         receivedContinuation.finish()
     }
+
+    /// Clears the recorded sent bytes for isolation in tests.
+    func clearSentBytes() {
+        sentBytes.removeAll()
+    }
 }
 
 // MARK: - Helpers
-
-private let streamOpenTag =
-    "<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' from='example.com' version='1.0'>"
 
 /// Collects events from a connection until `predicate` returns `true`, with a timeout.
 private func collectEvents(
@@ -145,7 +147,7 @@ enum XMPPConnectionTests {
             try await connection.connect(host: "example.com", port: 5222)
 
             // Simulate server sending stream open + a stanza
-            await mock.simulateReceive(streamOpenTag)
+            await mock.simulateReceive(testServerStreamOpen)
             await mock.simulateReceive("<message><body>Hello</body></message>")
             await mock.simulateDisconnect()
 
@@ -173,7 +175,7 @@ enum XMPPConnectionTests {
             try await connection.connect(host: "example.com", port: 5222)
 
             // Send stream open + a stanza split across chunks
-            await mock.simulateReceive(streamOpenTag)
+            await mock.simulateReceive(testServerStreamOpen)
             await mock.simulateReceive("<message><bo")
             await mock.simulateReceive("dy>Split</body></message>")
             await mock.simulateDisconnect()
@@ -218,7 +220,7 @@ enum XMPPConnectionTests {
             try await connection.connect(host: "example.com", port: 5222)
             try await connection.upgradeTLS(serverName: "example.com")
 
-            await mock.simulateReceive(streamOpenTag)
+            await mock.simulateReceive(testServerStreamOpen)
             await mock.simulateReceive("<message><body>After TLS</body></message>")
 
             let events = try await collectEvents(from: connection) {

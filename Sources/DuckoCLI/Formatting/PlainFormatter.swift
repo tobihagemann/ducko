@@ -48,7 +48,9 @@ struct PlainFormatter: CLIFormatter {
             guard let from = message.from?.bareJID, let body = message.body else { return nil }
             let timestamp = iso8601(Date())
             return "[\(timestamp)] <- \(from): \(body)"
-        case .presenceReceived, .iqReceived:
+        case .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest:
             return nil
         }
     }

@@ -12,6 +12,8 @@ public struct ModuleContext: Sendable {
     public let connectedJID: @Sendable () -> FullJID?
     /// The XMPP domain the client is connected to.
     public let domain: String
+    /// Returns the union of all feature namespaces from registered modules.
+    public let availableFeatures: @Sendable () -> Set<String>
 
     public init(
         sendStanza: @Sendable @escaping (any XMPPStanza) async throws -> Void,
@@ -19,7 +21,8 @@ public struct ModuleContext: Sendable {
         emitEvent: @Sendable @escaping (XMPPEvent) -> Void,
         generateID: @Sendable @escaping () -> String,
         connectedJID: @Sendable @escaping () -> FullJID?,
-        domain: String
+        domain: String,
+        availableFeatures: @Sendable @escaping () -> Set<String> = { [] }
     ) {
         self.sendStanza = sendStanza
         self.sendIQ = sendIQ
@@ -27,5 +30,6 @@ public struct ModuleContext: Sendable {
         self.generateID = generateID
         self.connectedJID = connectedJID
         self.domain = domain
+        self.availableFeatures = availableFeatures
     }
 }
