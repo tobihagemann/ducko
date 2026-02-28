@@ -16,6 +16,7 @@ struct MessageInputView: View {
                 .textFieldStyle(.plain)
                 .lineLimit(1 ... 5)
                 .onSubmit { sendMessage() }
+                .accessibilityIdentifier("message-field")
 
             Button {
                 sendMessage()
@@ -25,6 +26,7 @@ struct MessageInputView: View {
             }
             .buttonStyle(.plain)
             .disabled(trimmedText.isEmpty)
+            .accessibilityIdentifier("send-button")
         }
         .padding(12)
     }

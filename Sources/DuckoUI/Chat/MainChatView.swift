@@ -33,6 +33,13 @@ struct MainChatView: View {
         .task {
             guard let accountID = account?.id else { return }
             try? await environment.chatService.loadConversations(for: accountID)
+            // Auto-connect if disconnected and Keychain password exists
+            switch environment.accountService.connectionStates[accountID] {
+            case .connected:
+                break
+            default:
+                try? await environment.accountService.connect(accountID: accountID)
+            }
         }
         .onChange(of: selectedConversationID) {
             Task {

@@ -21,10 +21,12 @@ struct AccountSetupView: View {
                 TextField("JID (e.g. alice@example.com)", text: $jidString)
                     .textFieldStyle(.roundedBorder)
                     .textContentType(.username)
+                    .accessibilityIdentifier("jid-field")
 
                 SecureField("Password", text: $password)
                     .textFieldStyle(.roundedBorder)
                     .textContentType(.password)
+                    .accessibilityIdentifier("password-field")
             }
             .frame(maxWidth: 300)
 
@@ -46,6 +48,7 @@ struct AccountSetupView: View {
             }
             .buttonStyle(.borderedProminent)
             .disabled(jidString.isEmpty || password.isEmpty || isConnecting)
+            .accessibilityIdentifier("connect-button")
         }
         .padding(40)
         .frame(minWidth: 400, minHeight: 300)

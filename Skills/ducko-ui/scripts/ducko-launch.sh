@@ -1,9 +1,14 @@
 #!/bin/bash
 # Build and launch DuckoApp, output the window ID.
+# Kills any existing instances first to avoid duplicates.
 # Usage: ducko-launch.sh
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Kill any existing instances
+"$SCRIPTS_DIR/ducko-stop.sh" >/dev/null 2>&1 || true
+sleep 0.5
 
 swift build 2>&1 | tail -1 >&2
 swift run DuckoApp &>/dev/null &

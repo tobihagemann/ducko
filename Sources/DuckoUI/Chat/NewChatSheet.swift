@@ -20,6 +20,7 @@ struct NewChatSheet: View {
             TextField("JID (e.g. bob@example.com)", text: $jidString)
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 300)
+                .accessibilityIdentifier("new-chat-jid-field")
 
             if let errorMessage {
                 Text(errorMessage)
@@ -39,6 +40,7 @@ struct NewChatSheet: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(jidString.isEmpty)
+                .accessibilityIdentifier("start-chat-button")
             }
         }
         .padding(20)

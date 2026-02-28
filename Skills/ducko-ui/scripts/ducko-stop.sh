@@ -1,12 +1,13 @@
 #!/bin/bash
-# Kill the DuckoApp process.
+# Kill all DuckoApp processes.
 # Usage: ducko-stop.sh
 set -euo pipefail
 
-PID=$(pgrep -x DuckoApp 2>/dev/null || true)
-if [[ -n "$PID" ]]; then
-    kill "$PID"
-    echo "DuckoApp (PID $PID) stopped"
+# Match both "DuckoApp" (direct launch) and the full .build path (swift run)
+PIDS=$(pgrep -f DuckoApp 2>/dev/null || true)
+if [[ -n "$PIDS" ]]; then
+    kill $PIDS
+    echo "DuckoApp stopped (PIDs: $(echo $PIDS | tr '\n' ' '))"
 else
     echo "DuckoApp is not running"
 fi
