@@ -42,6 +42,33 @@ struct JSONFormatter: CLIFormatter {
         ])
     }
 
+    func formatContactWithPresence(_ contact: Contact, presence: PresenceService.PresenceStatus?) -> String {
+        var dict: [String: String] = [
+            "type": "contact",
+            "jid": contact.jid.description,
+            "subscription": contact.subscription.rawValue,
+            "presence": (presence ?? .offline).rawValue
+        ]
+        if let name = contact.name {
+            dict["name"] = name
+        }
+        if let localAlias = contact.localAlias {
+            dict["localAlias"] = localAlias
+        }
+        if !contact.groups.isEmpty {
+            dict["groups"] = contact.groups.joined(separator: ",")
+        }
+        return encode(dict)
+    }
+
+    func formatGroupHeader(_ group: ContactGroup) -> String {
+        encode([
+            "type": "group_header",
+            "name": group.name,
+            "count": "\(group.contacts.count)"
+        ])
+    }
+
     func formatPresence(jid: BareJID, status: String, message: String?) -> String {
         var dict: [String: String] = [
             "type": "presence",

@@ -18,6 +18,25 @@ struct PlainFormatter: CLIFormatter {
         "\(account.jid) (\(account.id))"
     }
 
+    func formatContactWithPresence(_ contact: Contact, presence: PresenceService.PresenceStatus?) -> String {
+        let indicator = switch presence {
+        case .available:
+            "[+]"
+        case .away, .xa:
+            "[~]"
+        case .dnd:
+            "[-]"
+        case .offline, .none:
+            "[ ]"
+        }
+        let displayName = contact.localAlias ?? contact.name ?? contact.jid.description
+        return "\(indicator) \(displayName) (\(contact.jid)) [\(contact.subscription.rawValue)]"
+    }
+
+    func formatGroupHeader(_ group: ContactGroup) -> String {
+        "--- \(group.name) (\(group.contacts.count)) ---"
+    }
+
     func formatPresence(jid: BareJID, status: String, message: String?) -> String {
         if let message {
             return "\(jid) is \(status): \(message)"

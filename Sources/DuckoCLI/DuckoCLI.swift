@@ -127,14 +127,15 @@ extension DuckoCLI {
 
             // Run readLine loop in Task.detached (blocking I/O must not run on cooperative thread)
             let accountID = selectedAccount.id
+            let accountJID = selectedAccount.jid
             await Task.detached {
-                await runREPL(formatter: formatter, environment: env, accountID: accountID)
+                await runREPL(formatter: formatter, environment: env, accountID: accountID, accountJID: accountJID)
             }.value
         }
     }
 }
 
-// MARK: - Stubs
+// MARK: - Roster
 
 extension DuckoCLI {
     struct Roster: AsyncParsableCommand {
@@ -151,12 +152,51 @@ extension DuckoCLI {
 
             @OptionGroup var global: GlobalOptions
 
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
             func run() async throws {
-                print("roster list: not yet implemented")
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+                try await waitForRosterLoaded(environment: env)
+
+                // Wait for initial presence stanzas
+                try await Task.sleep(for: .seconds(1.5))
+
+                let (groups, presences) = await MainActor.run {
+                    (env.rosterService.groups, env.presenceService.contactPresences)
+                }
+
+                guard !groups.isEmpty else {
+                    print("No contacts in roster.")
+                    await env.accountService.disconnect(accountID: selectedAccount.id)
+                    return
+                }
+
+                printRoster(groups: groups, presences: presences, formatter: formatter)
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
     }
+}
 
+// MARK: - Presence
+
+extension DuckoCLI {
     struct Presence: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Get or set presence status"
@@ -164,11 +204,53 @@ extension DuckoCLI {
 
         @OptionGroup var global: GlobalOptions
 
+        @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+        var account: String?
+
+        @Argument(help: "Status: available, away, xa, dnd, offline")
+        var status: String?
+
+        @Argument(help: "Optional status message")
+        var message: String?
+
         func run() async throws {
-            print("presence: not yet implemented")
+            let formatter = global.resolvedFormat.makeFormatter()
+
+            let context = try await MainActor.run {
+                try CLIBootstrap.setUp(formatter: formatter)
+            }
+            let env = context.environment
+
+            let selectedAccount = try await resolveAccount(account, environment: env)
+
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+                throw CLIError.noPassword
+            }
+
+            try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+            try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+            if let status {
+                guard let presenceStatus = PresenceService.PresenceStatus(rawValue: status) else {
+                    throw CLIError.invalidPresenceStatus(status)
+                }
+                await applyPresence(presenceStatus, message: message, environment: env, accountID: selectedAccount.id)
+                print(formatter.formatPresence(jid: selectedAccount.jid, status: presenceStatus.rawValue, message: message))
+            } else {
+                let (myPresence, myMessage) = await MainActor.run {
+                    (env.presenceService.myPresence, env.presenceService.myStatusMessage)
+                }
+                print(formatter.formatPresence(jid: selectedAccount.jid, status: myPresence.rawValue, message: myMessage))
+            }
+
+            await env.accountService.disconnect(accountID: selectedAccount.id)
         }
     }
+}
 
+// MARK: - Stubs
+
+extension DuckoCLI {
     struct History: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "View message history"
@@ -312,7 +394,7 @@ extension DuckoCLI {
 
 // MARK: - REPL
 
-private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID) async {
+private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID, accountJID: BareJID) async {
     while let line = readLine() {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { continue }
@@ -324,14 +406,32 @@ private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, a
 
         if trimmed == "help" {
             print("Commands:")
-            print("  send <jid> <message>  Send a message")
-            print("  help                  Show this help")
-            print("  quit                  Disconnect and exit")
+            print("  send <jid> <message>     Send a message")
+            print("  /roster                  Show contacts with presence")
+            print("  /status [status] [msg]   Get or set presence")
+            print("  /who                     Show online contacts")
+            print("  help                     Show this help")
+            print("  quit                     Disconnect and exit")
             continue
         }
 
         if trimmed.hasPrefix("send ") {
             await handleSendCommand(trimmed, formatter: formatter, environment: environment, accountID: accountID)
+            continue
+        }
+
+        if trimmed == "/roster" {
+            await handleRosterCommand(formatter: formatter, environment: environment)
+            continue
+        }
+
+        if trimmed == "/status" || trimmed.hasPrefix("/status ") {
+            await handleStatusCommand(trimmed, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
+            continue
+        }
+
+        if trimmed == "/who" {
+            await handleWhoCommand(formatter: formatter, environment: environment)
             continue
         }
 
@@ -363,6 +463,96 @@ private func handleSendCommand(
         try await environment.chatService.sendMessage(to: recipientJID, body: messageBody, accountID: accountID)
     } catch {
         print(formatter.formatError(error))
+    }
+}
+
+private func handleRosterCommand(formatter: any CLIFormatter, environment: AppEnvironment) async {
+    let (groups, presences) = await MainActor.run {
+        (environment.rosterService.groups, environment.presenceService.contactPresences)
+    }
+
+    guard !groups.isEmpty else {
+        print("No contacts in roster.")
+        return
+    }
+
+    printRoster(groups: groups, presences: presences, formatter: formatter)
+}
+
+private func handleStatusCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID, accountJID: BareJID
+) async {
+    let args = input.dropFirst("/status".count).trimmingCharacters(in: .whitespaces)
+
+    if args.isEmpty {
+        let (myPresence, myMessage) = await MainActor.run {
+            (environment.presenceService.myPresence, environment.presenceService.myStatusMessage)
+        }
+        print(formatter.formatPresence(jid: accountJID, status: myPresence.rawValue, message: myMessage))
+        return
+    }
+
+    let parts = args.split(separator: " ", maxSplits: 1)
+    let statusString = String(parts[0])
+    let message: String? = parts.count > 1 ? String(parts[1]) : nil
+
+    guard let presenceStatus = PresenceService.PresenceStatus(rawValue: statusString) else {
+        print(formatter.formatError(CLIError.invalidPresenceStatus(statusString)))
+        return
+    }
+
+    await applyPresence(presenceStatus, message: message, environment: environment, accountID: accountID)
+
+    print(formatter.formatPresence(jid: accountJID, status: presenceStatus.rawValue, message: message))
+}
+
+private func handleWhoCommand(formatter: any CLIFormatter, environment: AppEnvironment) async {
+    let (groups, presences) = await MainActor.run {
+        (environment.rosterService.groups, environment.presenceService.contactPresences)
+    }
+
+    // Deduplicate contacts that appear in multiple groups
+    var seen = Set<String>()
+    let uniqueContacts = groups.flatMap(\.contacts).filter { seen.insert($0.jid.description).inserted }
+    let onlineContacts = uniqueContacts
+        .compactMap { contact -> (Contact, PresenceService.PresenceStatus)? in
+            guard let presence = presences[contact.jid], presence != .offline else { return nil }
+            return (contact, presence)
+        }
+        .sorted { $0.0.jid.description < $1.0.jid.description }
+
+    guard !onlineContacts.isEmpty else {
+        print("No contacts online.")
+        return
+    }
+
+    for (contact, presence) in onlineContacts {
+        print(formatter.formatContactWithPresence(contact, presence: presence))
+    }
+}
+
+private func printRoster(groups: [ContactGroup], presences: [BareJID: PresenceService.PresenceStatus], formatter: any CLIFormatter) {
+    for group in groups {
+        print(formatter.formatGroupHeader(group))
+        for contact in group.contacts {
+            let presence = presences[contact.jid]
+            print(formatter.formatContactWithPresence(contact, presence: presence))
+        }
+    }
+}
+
+private func applyPresence(
+    _ presenceStatus: PresenceService.PresenceStatus,
+    message: String?,
+    environment: AppEnvironment,
+    accountID: UUID
+) async {
+    if presenceStatus == .offline {
+        await MainActor.run {
+            environment.presenceService.goOffline(accountID: accountID)
+        }
+    } else {
+        await environment.presenceService.setPresence(presenceStatus, message: message, accountID: accountID)
     }
 }
 
@@ -400,4 +590,16 @@ private func waitForConnected(accountID: UUID, environment: AppEnvironment) asyn
         }
     }
     throw CLIError.connectionTimeout
+}
+
+private func waitForRosterLoaded(environment: AppEnvironment) async throws {
+    let deadline = ContinuousClock.now + .seconds(15)
+    while ContinuousClock.now < deadline {
+        let groups = await MainActor.run { environment.rosterService.groups }
+        if !groups.isEmpty {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(200))
+    }
+    // Empty roster — timeout expires gracefully
 }

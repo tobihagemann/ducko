@@ -33,8 +33,36 @@ struct ANSIFormatter: CLIFormatter {
         "\(Color.bold)\(account.jid)\(Color.reset) \(Color.dim)(\(account.id))\(Color.reset)"
     }
 
+    func formatContactWithPresence(_ contact: Contact, presence: PresenceService.PresenceStatus?) -> String {
+        let isOffline = presence == .offline || presence == nil
+        let dot = isOffline ? "○" : "●"
+        let color = switch presence {
+        case .available:
+            Color.green
+        case .away, .xa:
+            Color.yellow
+        case .dnd:
+            Color.red
+        case .offline, .none:
+            Color.dim
+        }
+        let displayName = contact.localAlias ?? contact.name ?? contact.jid.description
+        return "\(color)\(dot)\(Color.reset) \(Color.bold)\(displayName)\(Color.reset) (\(contact.jid)) \(Color.dim)[\(contact.subscription.rawValue)]\(Color.reset)"
+    }
+
+    func formatGroupHeader(_ group: ContactGroup) -> String {
+        "\(Color.bold)--- \(group.name) (\(group.contacts.count)) ---\(Color.reset)"
+    }
+
     func formatPresence(jid: BareJID, status: String, message: String?) -> String {
-        let color = status == "available" || status == "chat" ? Color.green : Color.yellow
+        let color: String = switch status {
+        case "available", "chat":
+            Color.green
+        case "dnd":
+            Color.red
+        default:
+            Color.yellow
+        }
         if let message {
             return "\(color)\(jid)\(Color.reset) is \(color)\(status)\(Color.reset): \(message)"
         }

@@ -48,6 +48,89 @@ struct JSONFormatterTests {
         #expect(json["isEnabled"] == "true")
     }
 
+    // MARK: - formatContactWithPresence
+
+    @Test func contactWithPresenceIsValidJSON() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Alice",
+            subscription: .both,
+            groups: ["Friends"],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .available)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "contact")
+        #expect(json["jid"] == "alice@example.com")
+        #expect(json["presence"] == "available")
+        #expect(json["name"] == "Alice")
+        #expect(json["groups"] == "Friends")
+    }
+
+    @Test func contactNilPresenceShowsOffline() throws {
+        let jid = try #require(BareJID.parse("bob@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            subscription: .to,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: nil)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["presence"] == "offline")
+    }
+
+    // MARK: - formatGroupHeader
+
+    @Test func groupHeaderIsValidJSON() throws {
+        let group = try ContactGroup(id: "friends", name: "Friends", contacts: [
+            Contact(
+                id: UUID(),
+                accountID: UUID(),
+                jid: #require(BareJID.parse("a@example.com")),
+                subscription: .both,
+                groups: [],
+                isBlocked: false,
+                createdAt: Date()
+            ),
+            Contact(
+                id: UUID(),
+                accountID: UUID(),
+                jid: #require(BareJID.parse("b@example.com")),
+                subscription: .both,
+                groups: [],
+                isBlocked: false,
+                createdAt: Date()
+            ),
+            Contact(
+                id: UUID(),
+                accountID: UUID(),
+                jid: #require(BareJID.parse("c@example.com")),
+                subscription: .both,
+                groups: [],
+                isBlocked: false,
+                createdAt: Date()
+            )
+        ])
+        let output = formatter.formatGroupHeader(group)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "group_header")
+        #expect(json["name"] == "Friends")
+        #expect(json["count"] == "3")
+    }
+
+    // MARK: - formatEvent
+
     @Test func eventConnectedContainsAccountField() throws {
         let accountID = UUID()
         let jid = try #require(FullJID.parse("alice@example.com/res"))

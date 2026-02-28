@@ -100,6 +100,130 @@ struct PlainFormatterTests {
         #expect(output.contains(accountID.uuidString))
     }
 
+    // MARK: - formatContactWithPresence
+
+    @Test func formatContactWithPresenceAvailable() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Alice",
+            subscription: .both,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .available)
+        #expect(output.contains("[+]"))
+        #expect(output.contains("Alice"))
+        #expect(output.contains("alice@example.com"))
+        #expect(output.contains("[both]"))
+    }
+
+    @Test func formatContactWithPresenceAway() throws {
+        let jid = try #require(BareJID.parse("bob@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Bob",
+            subscription: .to,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .away)
+        #expect(output.contains("[~]"))
+    }
+
+    @Test func formatContactWithPresenceDND() throws {
+        let jid = try #require(BareJID.parse("carol@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Carol",
+            subscription: .both,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .dnd)
+        #expect(output.contains("[-]"))
+    }
+
+    @Test func formatContactWithPresenceOffline() throws {
+        let jid = try #require(BareJID.parse("dave@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Dave",
+            subscription: .both,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: nil)
+        #expect(output.contains("[ ]"))
+    }
+
+    @Test func formatContactWithPresenceUsesLocalAlias() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Alice",
+            localAlias: "Ally",
+            subscription: .both,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .available)
+        #expect(output.contains("Ally"))
+        #expect(!output.hasPrefix("[+] Alice"))
+    }
+
+    // MARK: - formatGroupHeader
+
+    @Test func formatGroupHeader() throws {
+        let group = try ContactGroup(id: "friends", name: "Friends", contacts: [
+            Contact(
+                id: UUID(),
+                accountID: UUID(),
+                jid: #require(BareJID.parse("a@example.com")),
+                subscription: .both,
+                groups: [],
+                isBlocked: false,
+                createdAt: Date()
+            ),
+            Contact(
+                id: UUID(),
+                accountID: UUID(),
+                jid: #require(BareJID.parse("b@example.com")),
+                subscription: .both,
+                groups: [],
+                isBlocked: false,
+                createdAt: Date()
+            ),
+            Contact(
+                id: UUID(),
+                accountID: UUID(),
+                jid: #require(BareJID.parse("c@example.com")),
+                subscription: .both,
+                groups: [],
+                isBlocked: false,
+                createdAt: Date()
+            )
+        ])
+        let output = formatter.formatGroupHeader(group)
+        #expect(output.contains("Friends"))
+        #expect(output.contains("3"))
+    }
+
     // MARK: - formatPresence
 
     @Test func formatPresenceWithMessage() throws {

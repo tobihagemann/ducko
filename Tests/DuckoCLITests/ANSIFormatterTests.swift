@@ -61,6 +61,74 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}[32m"))
     }
 
+    // MARK: - formatContactWithPresence
+
+    @Test func contactAvailableUsesGreen() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Alice",
+            subscription: .both,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .available)
+        #expect(output.contains("\u{001B}[32m")) // green
+        #expect(output.contains("●"))
+    }
+
+    @Test func contactAwayUsesYellow() throws {
+        let jid = try #require(BareJID.parse("bob@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Bob",
+            subscription: .to,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .away)
+        #expect(output.contains("\u{001B}[33m")) // yellow
+    }
+
+    @Test func contactDNDUsesRed() throws {
+        let jid = try #require(BareJID.parse("carol@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Carol",
+            subscription: .both,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: .dnd)
+        #expect(output.contains("\u{001B}[31m")) // red
+    }
+
+    @Test func contactOfflineUsesDim() throws {
+        let jid = try #require(BareJID.parse("dave@example.com"))
+        let contact = Contact(
+            id: UUID(),
+            accountID: UUID(),
+            jid: jid,
+            name: "Dave",
+            subscription: .both,
+            groups: [],
+            isBlocked: false,
+            createdAt: Date()
+        )
+        let output = formatter.formatContactWithPresence(contact, presence: nil)
+        #expect(output.contains("\u{001B}[2m")) // dim
+        #expect(output.contains("○"))
+    }
+
     @Test func outgoingMessageUsesCyan() {
         let message = ChatMessage(
             id: UUID(),

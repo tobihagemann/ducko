@@ -47,6 +47,9 @@ ducko send alice@example.com "Hello"
 REPL mode. Connects once, then accepts commands on stdin:
 
 - `send <jid> <message>` — send a message
+- `/roster` — show contacts grouped with presence indicators
+- `/status [status] [message]` — get or set presence status
+- `/who` — show online contacts only
 - `help` — show available commands
 - `quit` / `exit` — disconnect and exit
 
@@ -71,12 +74,35 @@ Add a new XMPP account. Prompts for password, connects to verify credentials, sa
 ducko account add alice@example.com
 ```
 
+### `roster list`
+
+List contacts grouped by roster group, with presence indicators. Connects, waits for roster and initial presence, then displays.
+
+```
+ducko roster list
+ducko roster list --output json
+ducko roster list --account <uuid>
+```
+
+Plain output shows `[+]` available, `[~]` away/xa, `[-]` dnd, `[ ]` offline. ANSI uses colored dots. JSON outputs one line per contact/group header.
+
+### `presence [status] [message]`
+
+Get or set presence status. Without arguments, shows current presence. With a status argument, sets presence.
+
+Valid statuses: `available`, `away`, `xa`, `dnd`, `offline`.
+
+```
+ducko presence                    # show current
+ducko presence away "brb"         # set away with message
+ducko presence available          # set available
+ducko presence --output json      # JSON output
+```
+
 ### Stubs (not yet implemented)
 
 | Subcommand | Description |
 |---|---|
-| `roster list` | List contacts |
-| `presence` | Get or set presence status |
 | `history <jid>` | View message history |
 | `room join <jid>` | Join a MUC room |
 | `room leave <jid>` | Leave a MUC room |

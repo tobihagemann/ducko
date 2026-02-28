@@ -7,6 +7,7 @@ enum CLIError: Error, LocalizedError {
     case invalidJID(String)
     case connectionFailed(String)
     case connectionTimeout
+    case invalidPresenceStatus(String)
 
     var errorDescription: String? {
         switch self {
@@ -22,6 +23,8 @@ enum CLIError: Error, LocalizedError {
             "Connection failed: \(message)"
         case .connectionTimeout:
             "Connection timed out after 30 seconds"
+        case let .invalidPresenceStatus(status):
+            "Invalid presence status: \(status). Valid values: available, away, xa, dnd, offline"
         }
     }
 }
