@@ -105,6 +105,18 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         try modelContext.save()
     }
 
+    public func deleteContact(_ id: UUID) throws {
+        var descriptor = FetchDescriptor<ContactRecord>(
+            predicate: #Predicate { $0.id == id }
+        )
+        descriptor.fetchLimit = 1
+
+        if let record = try modelContext.fetch(descriptor).first {
+            modelContext.delete(record)
+            try modelContext.save()
+        }
+    }
+
     // MARK: - Conversations
 
     public func fetchConversations(for accountID: UUID) throws -> [Conversation] {

@@ -40,6 +40,10 @@ actor MockPersistenceStore: PersistenceStore {
         }
     }
 
+    func deleteContact(_ id: UUID) async throws {
+        contacts.removeAll { $0.id == id }
+    }
+
     // MARK: - Conversations
 
     func fetchConversations(for accountID: UUID) async throws -> [Conversation] {

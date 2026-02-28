@@ -11,6 +11,7 @@ public protocol PersistenceStore: Sendable {
 
     func fetchContacts(for accountID: UUID) async throws -> [Contact]
     func upsertContact(_ contact: Contact) async throws
+    func deleteContact(_ id: UUID) async throws
 
     // MARK: - Conversations
 
