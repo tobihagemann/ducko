@@ -129,6 +129,14 @@ struct ANSIFormatterTests {
         #expect(output.contains("○"))
     }
 
+    @Test func subscriptionRequestUsesYellow() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = try #require(formatter.formatEvent(.presenceSubscriptionRequest(from: jid), accountID: UUID()))
+        #expect(output.contains("\u{001B}[33m")) // yellow
+        #expect(output.contains("alice@example.com"))
+        #expect(output.contains("/approve"))
+    }
+
     @Test func outgoingMessageUsesCyan() {
         let message = ChatMessage(
             id: UUID(),

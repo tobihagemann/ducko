@@ -7,6 +7,7 @@ public final class RosterService {
 
     private let store: any PersistenceStore
     private weak var accountService: AccountService?
+    private weak var presenceService: PresenceService?
 
     public init(store: any PersistenceStore) {
         self.store = store
@@ -16,6 +17,10 @@ public final class RosterService {
 
     func setAccountService(_ service: AccountService) {
         accountService = service
+    }
+
+    func setPresenceService(_ service: PresenceService) {
+        presenceService = service
     }
 
     // MARK: - Public API
@@ -35,6 +40,56 @@ public final class RosterService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.removeContact(jid: contact.jid)
+    }
+
+    public func addContact(jidString: String, name: String?, groups: [String], accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else { return }
+        try await addContact(jid: jid, name: name, groups: groups, accountID: accountID)
+    }
+
+    public func removeContact(jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else { return }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
+        try await rosterModule.removeContact(jid: jid)
+    }
+
+    public func approveSubscription(jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else { return }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
+        try await rosterModule.approveSubscription(from: jid)
+        presenceService?.removeSubscriptionRequest(jid)
+    }
+
+    public func denySubscription(jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else { return }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
+        try await rosterModule.denySubscription(from: jid)
+        presenceService?.removeSubscriptionRequest(jid)
+    }
+
+    public func fetchAvatars(accountID: UUID) async {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
+
+        // Deduplicate contacts across groups
+        var seen = Set<BareJID>()
+        let uniqueContacts = groups.flatMap(\.contacts).filter { seen.insert($0.jid).inserted }
+
+        for contact in uniqueContacts {
+            guard contact.avatarData == nil else { continue }
+            guard let vcard = try? await vcardModule.fetchVCard(for: contact.jid) else { continue }
+            guard let photoData = vcard.photoData else { continue }
+
+            var updated = contact
+            updated.avatarData = Data(photoData)
+            updated.avatarHash = vcard.photoHash
+            try? await store.upsertContact(updated)
+        }
+
+        try? await loadContacts(for: accountID)
     }
 
     public func renameContact(_ contact: Contact, newAlias: String, accountID: UUID) async throws {

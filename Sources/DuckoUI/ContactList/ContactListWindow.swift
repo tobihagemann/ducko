@@ -6,6 +6,7 @@ struct ContactListWindow: View {
     @Environment(\.openWindow) private var openWindow
     @State private var searchText = ""
     @State private var isShowingNewChat = false
+    @State private var isShowingAddContact = false
 
     private var account: Account? {
         environment.accountService.accounts.first
@@ -17,10 +18,20 @@ struct ContactListWindow: View {
 
             Divider()
 
+            SubscriptionRequestBanner()
+
             ContactListView(searchText: searchText)
         }
         .searchable(text: $searchText, placement: .toolbar)
         .toolbar {
+            ToolbarItem {
+                Button {
+                    isShowingAddContact = true
+                } label: {
+                    Label("Add Contact", systemImage: "person.badge.plus")
+                }
+            }
+
             ToolbarItem {
                 Button {
                     isShowingNewChat = true
@@ -44,11 +55,15 @@ struct ContactListWindow: View {
             try? await environment.chatService.loadConversations(for: accountID)
             try? await environment.rosterService.loadContacts(for: accountID)
             environment.presenceService.startIdleMonitoring(accountID: accountID)
+            await environment.rosterService.fetchAvatars(accountID: accountID)
         }
         .sheet(isPresented: $isShowingNewChat) {
             NewChatSheet { jidString in
                 openWindow(id: "chat", value: jidString)
             }
+        }
+        .sheet(isPresented: $isShowingAddContact) {
+            AddContactSheet()
         }
     }
 }

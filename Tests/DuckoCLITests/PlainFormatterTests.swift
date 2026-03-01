@@ -261,6 +261,13 @@ struct PlainFormatterTests {
         #expect(output.contains("disconnected"))
     }
 
+    @Test func formatEventSubscriptionRequest() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = try #require(formatter.formatEvent(.presenceSubscriptionRequest(from: jid), accountID: UUID()))
+        #expect(output.contains("Subscription request from"))
+        #expect(output.contains("alice@example.com"))
+    }
+
     @Test func formatEventIQReturnsNil() {
         let iq = XMPPIQ(type: .result)
         let output = formatter.formatEvent(.iqReceived(iq), accountID: UUID())

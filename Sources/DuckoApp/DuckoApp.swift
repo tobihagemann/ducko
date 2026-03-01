@@ -37,5 +37,10 @@ struct DuckoApp: App {
             MenuBarStatusView()
                 .environment(environment)
         }
+
+        Settings {
+            Text("Preferences will be available in a future update.")
+                .frame(width: 300, height: 100)
+        }
     }
 }

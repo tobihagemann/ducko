@@ -105,6 +105,33 @@ enum PresenceServiceTests {
         }
     }
 
+    struct RemoveSubscriptionRequest {
+        @Test("removeSubscriptionRequest removes matching JID")
+        @MainActor
+        func removesMatchingJID() {
+            let service = makePresenceService()
+
+            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            #expect(service.pendingSubscriptionRequests.count == 1)
+
+            service.removeSubscriptionRequest(contactJID)
+            #expect(service.pendingSubscriptionRequests.isEmpty)
+        }
+
+        @Test("removeSubscriptionRequest does nothing for unknown JID")
+        @MainActor
+        func doesNothingForUnknownJID() throws {
+            let service = makePresenceService()
+            let otherJID = try #require(BareJID(localPart: "other", domainPart: "example.com"))
+
+            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            #expect(service.pendingSubscriptionRequests.count == 1)
+
+            service.removeSubscriptionRequest(otherJID)
+            #expect(service.pendingSubscriptionRequests.count == 1)
+        }
+    }
+
     struct Disconnect {
         @Test("Disconnect event clears contactPresences and pendingSubscriptionRequests")
         @MainActor

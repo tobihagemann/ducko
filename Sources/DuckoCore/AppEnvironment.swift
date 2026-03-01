@@ -36,6 +36,7 @@ public final class AppEnvironment {
         chatService.setAccountService(accountService)
         presenceService.setAccountService(accountService)
         rosterService.setAccountService(accountService)
+        rosterService.setPresenceService(presenceService)
 
         self.accountService = accountService
         self.chatService = chatService

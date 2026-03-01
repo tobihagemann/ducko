@@ -147,6 +147,15 @@ struct JSONFormatterTests {
         #expect(output == nil)
     }
 
+    @Test func subscriptionRequestIsValidJSON() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = try #require(formatter.formatEvent(.presenceSubscriptionRequest(from: jid), accountID: UUID()))
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "subscription_request")
+        #expect(json["from"] == "alice@example.com")
+    }
+
     @Test func presenceEventReturnsNil() {
         let presence = XMPPPresence()
         let output = formatter.formatEvent(.presenceReceived(presence), accountID: UUID())

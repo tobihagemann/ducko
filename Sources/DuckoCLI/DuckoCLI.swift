@@ -141,7 +141,7 @@ extension DuckoCLI {
     struct Roster: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage the contact roster",
-            subcommands: [List.self],
+            subcommands: [List.self, Add.self, Remove.self],
             defaultSubcommand: List.self
         )
 
@@ -187,6 +187,98 @@ extension DuckoCLI {
                 }
 
                 printRoster(groups: groups, presences: presences, formatter: formatter)
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a contact to the roster"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The JID to add")
+            var jid: String
+
+            @Option(name: .long, help: "Display name for the contact")
+            var name: String?
+
+            @Option(name: .long, help: "Group for the contact")
+            var group: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                guard let bareJID = BareJID.parse(jid) else {
+                    throw CLIError.invalidJID(jid)
+                }
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let groups = group.map { [$0] } ?? []
+                try await env.rosterService.addContact(jid: bareJID, name: name, groups: groups, accountID: selectedAccount.id)
+
+                print("Added \(jid) to roster.")
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Remove: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Remove a contact from the roster"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The JID to remove")
+            var jid: String
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                guard let bareJID = BareJID.parse(jid) else {
+                    throw CLIError.invalidJID(jid)
+                }
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+                try await waitForRosterLoaded(environment: env)
+
+                try await env.rosterService.removeContact(jidString: bareJID.description, accountID: selectedAccount.id)
+
+                print("Removed \(jid) from roster.")
 
                 await env.accountService.disconnect(accountID: selectedAccount.id)
             }
@@ -405,42 +497,77 @@ private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, a
         }
 
         if trimmed == "help" {
-            print("Commands:")
-            print("  send <jid> <message>     Send a message")
-            print("  /roster                  Show contacts with presence")
-            print("  /status [status] [msg]   Get or set presence")
-            print("  /who                     Show online contacts")
-            print("  help                     Show this help")
-            print("  quit                     Disconnect and exit")
+            printREPLHelp()
             continue
         }
 
-        if trimmed.hasPrefix("send ") {
-            await handleSendCommand(trimmed, formatter: formatter, environment: environment, accountID: accountID)
-            continue
+        let handled = await dispatchREPLCommand(
+            trimmed, formatter: formatter, environment: environment,
+            accountID: accountID, accountJID: accountJID
+        )
+        if !handled {
+            print("Unknown command: \(trimmed). Type 'help' for commands.")
         }
-
-        if trimmed == "/roster" {
-            await handleRosterCommand(formatter: formatter, environment: environment)
-            continue
-        }
-
-        if trimmed == "/status" || trimmed.hasPrefix("/status ") {
-            await handleStatusCommand(trimmed, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
-            continue
-        }
-
-        if trimmed == "/who" {
-            await handleWhoCommand(formatter: formatter, environment: environment)
-            continue
-        }
-
-        print("Unknown command: \(trimmed). Type 'help' for commands.")
     }
 
     // stdin closed
     await environment.accountService.disconnect(accountID: accountID)
     Foundation.exit(0)
+}
+
+private func printREPLHelp() {
+    print("Commands:")
+    print("  send <jid> <message>     Send a message")
+    print("  /roster                  Show contacts with presence")
+    print("  /status [status] [msg]   Get or set presence")
+    print("  /who                     Show online contacts")
+    print("  /add <jid> [name]        Add contact to roster")
+    print("  /remove <jid>            Remove contact from roster")
+    print("  /approve <jid>           Approve subscription request")
+    print("  /deny <jid>              Deny subscription request")
+    print("  help                     Show this help")
+    print("  quit                     Disconnect and exit")
+}
+
+private func dispatchREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, accountJID: BareJID
+) async -> Bool {
+    if input.hasPrefix("send ") {
+        await handleSendCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+    } else if input == "/roster" {
+        await handleRosterCommand(formatter: formatter, environment: environment)
+    } else if input == "/status" || input.hasPrefix("/status ") {
+        await handleStatusCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
+    } else if input == "/who" {
+        await handleWhoCommand(formatter: formatter, environment: environment)
+    } else if input.hasPrefix("/add ") {
+        await handleAddCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+    } else if input.hasPrefix("/remove ") {
+        await handleJIDCommand(
+            input, prefix: "/remove ", successMessage: "Removed {jid} from roster.",
+            formatter: formatter
+        ) { jid in
+            try await environment.rosterService.removeContact(jidString: jid, accountID: accountID)
+        }
+    } else if input.hasPrefix("/approve ") {
+        await handleJIDCommand(
+            input, prefix: "/approve ", successMessage: "Approved subscription from {jid}.",
+            formatter: formatter
+        ) { jid in
+            try await environment.rosterService.approveSubscription(jidString: jid, accountID: accountID)
+        }
+    } else if input.hasPrefix("/deny ") {
+        await handleJIDCommand(
+            input, prefix: "/deny ", successMessage: "Denied subscription from {jid}.",
+            formatter: formatter
+        ) { jid in
+            try await environment.rosterService.denySubscription(jidString: jid, accountID: accountID)
+        }
+    } else {
+        return false
+    }
+    return true
 }
 
 private func handleSendCommand(
@@ -528,6 +655,47 @@ private func handleWhoCommand(formatter: any CLIFormatter, environment: AppEnvir
 
     for (contact, presence) in onlineContacts {
         print(formatter.formatContactWithPresence(contact, presence: presence))
+    }
+}
+
+private func handleAddCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID
+) async {
+    let args = input.dropFirst("/add ".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard let jidPart = parts.first else {
+        print(formatter.formatError(CLIError.invalidJID("usage: /add <jid> [name]")))
+        return
+    }
+    let jidString = String(jidPart)
+    guard let bareJID = BareJID.parse(jidString) else {
+        print(formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+    let name: String? = parts.count > 1 ? String(parts[1]) : nil
+
+    do {
+        try await environment.rosterService.addContact(jid: bareJID, name: name, groups: [], accountID: accountID)
+        print("Added \(jidString) to roster.")
+    } catch {
+        print(formatter.formatError(error))
+    }
+}
+
+private func handleJIDCommand(
+    _ input: String, prefix: String, successMessage: String,
+    formatter: any CLIFormatter, action: (String) async throws -> Void
+) async {
+    let jidString = input.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+    guard BareJID.parse(jidString) != nil else {
+        print(formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+    do {
+        try await action(jidString)
+        print(successMessage.replacingOccurrences(of: "{jid}", with: jidString))
+    } catch {
+        print(formatter.formatError(error))
     }
 }
 

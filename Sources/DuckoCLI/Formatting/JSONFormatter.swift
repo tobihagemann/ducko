@@ -128,9 +128,14 @@ struct JSONFormatter: CLIFormatter {
                 "account": accountID.uuidString,
                 "timestamp": formatTimestamp(Date())
             ])
+        case let .presenceSubscriptionRequest(from: jid):
+            return encode([
+                "type": "subscription_request",
+                "from": jid.description
+            ])
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
-             .presenceUpdated, .presenceSubscriptionRequest:
+             .presenceUpdated:
             return nil
         }
     }

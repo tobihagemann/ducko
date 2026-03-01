@@ -72,6 +72,10 @@ public final class PresenceService {
         await sendPresence(accountID: accountID)
     }
 
+    public func removeSubscriptionRequest(_ jid: BareJID) {
+        pendingSubscriptionRequests.removeAll { $0 == jid }
+    }
+
     public func goOffline(accountID: UUID) {
         myPresence = .offline
         myStatusMessage = nil

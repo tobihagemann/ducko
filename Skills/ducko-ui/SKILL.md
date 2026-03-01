@@ -42,6 +42,8 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `send-button` | Send message button | Chat |
 | `new-chat-jid-field` | JID field in New Chat sheet | Contacts |
 | `start-chat-button` | Start Chat button in sheet | Contacts |
+| `add-contact-jid-field` | JID field in Add Contact sheet | Contacts |
+| `add-contact-button` | Add Contact button in sheet | Contacts |
 | `jid-field` | JID field in account setup | Contacts |
 | `password-field` | Password field in account setup | Contacts |
 | `connect-button` | Connect button in account setup | Contacts |
@@ -53,6 +55,7 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `ducko-launch.sh` | Build and launch DuckoApp, output window ID | none |
 | `ducko-login.sh` | Fill JID + password, click Connect | `JID PASSWORD` |
 | `ducko-new-chat.sh` | Open New Chat sheet from contact list, fill JID, start chat | `JID` |
+| `ducko-add-contact.sh` | Open Add Contact sheet from contact list, fill JID, submit | `JID` |
 | `ducko-send.sh` | Type a message and send it in the active chat window | `MESSAGE` |
 | `ducko-screenshot.sh` | Capture window screenshot | `[FILENAME]` (optional, absolute path or relative to `/private/tmp/claude/`) |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |

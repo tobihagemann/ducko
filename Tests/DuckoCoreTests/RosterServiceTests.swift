@@ -248,6 +248,73 @@ enum RosterServiceTests {
         }
     }
 
+    struct StringBasedMethods {
+        @Test("addContact(jidString:) delegates to addContact(jid:)")
+        @MainActor
+        func addContactByString() async throws {
+            // Without an account service wired, the guard returns early — no crash
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // Should not throw even without wired account service
+            try await service.addContact(jidString: "alice@example.com", name: "Alice", groups: ["Friends"], accountID: testAccountID)
+        }
+
+        @Test("addContact(jidString:) silently ignores invalid JID")
+        @MainActor
+        func addContactInvalidJID() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // Invalid JID — should return without error
+            try await service.addContact(jidString: "invalid", name: nil, groups: [], accountID: testAccountID)
+        }
+
+        @Test("removeContact(jidString:) finds contact by JID string")
+        @MainActor
+        func removeContactByString() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // Load a roster so groups are populated
+            let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
+            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+
+            // Without account service, the guard returns early — no crash
+            try await service.removeContact(jidString: contactJID1.description, accountID: testAccountID)
+        }
+
+        @Test("removeContact(jidString:) silently ignores unknown JID")
+        @MainActor
+        func removeContactUnknownJID() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // No contacts loaded — should return without error
+            try await service.removeContact(jidString: "unknown@example.com", accountID: testAccountID)
+        }
+
+        @Test("approveSubscription(jidString:) silently returns without account service")
+        @MainActor
+        func approveSubscriptionNoService() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // Without account service, the guard returns early
+            try await service.approveSubscription(jidString: "alice@example.com", accountID: testAccountID)
+        }
+
+        @Test("denySubscription(jidString:) silently returns without account service")
+        @MainActor
+        func denySubscriptionNoService() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // Without account service, the guard returns early
+            try await service.denySubscription(jidString: "alice@example.com", accountID: testAccountID)
+        }
+    }
+
     struct ContactDisplayName {
         @Test("displayName prefers localAlias over name")
         func displayNamePrefersLocalAlias() {
