@@ -3,19 +3,21 @@ import SwiftUI
 
 struct ChatView: View {
     @Environment(AppEnvironment.self) private var environment
-    let conversation: Conversation
+    let windowState: ChatWindowState
 
     var body: some View {
         VStack(spacing: 0) {
-            ChatHeaderView(conversation: conversation)
+            if let conversation = windowState.conversation {
+                ChatHeaderView(conversation: conversation)
+
+                Divider()
+            }
+
+            MessageListView(messages: windowState.messages)
 
             Divider()
 
-            MessageListView()
-
-            Divider()
-
-            MessageInputView(conversation: conversation)
+            MessageInputView(windowState: windowState)
         }
     }
 }

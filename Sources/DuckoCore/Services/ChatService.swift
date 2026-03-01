@@ -71,13 +71,28 @@ public final class ChatService {
         }
     }
 
-    public func startConversation(jidString: String, accountID: UUID) async throws -> UUID {
+    public func openConversation(for jid: BareJID, accountID: UUID) async throws -> Conversation {
+        let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
+        openConversations = try await store.fetchConversations(for: accountID)
+        return conversation
+    }
+
+    public func openConversation(jidString: String, accountID: UUID) async throws -> Conversation {
         guard let jid = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
-        let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
-        openConversations = try await store.fetchConversations(for: accountID)
-        return conversation.id
+        return try await openConversation(for: jid, accountID: accountID)
+    }
+
+    public func startConversation(jidString: String, accountID: UUID) async throws -> UUID {
+        try await openConversation(jidString: jidString, accountID: accountID).id
+    }
+
+    public func sendMessage(toJIDString jidString: String, body: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        try await sendMessage(to: jid, body: body, accountID: accountID)
     }
 
     public enum ChatServiceError: Error, LocalizedError {
@@ -177,7 +192,7 @@ public final class ChatService {
         return existing?.contains { $0.stanzaID == stanzaID } ?? false
     }
 
-    private func loadMessages(for conversationID: UUID) async -> [ChatMessage] {
+    public func loadMessages(for conversationID: UUID) async -> [ChatMessage] {
         let fetched = try? await store.fetchMessages(for: conversationID, before: nil, limit: 50)
         return (fetched ?? []).reversed()
     }

@@ -4,13 +4,9 @@ import SwiftUI
 struct NewChatSheet: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
-    @Binding var selectedConversationID: UUID?
+    var onStartChat: (String) -> Void
     @State private var jidString = ""
     @State private var errorMessage: String?
-
-    private var account: Account? {
-        environment.accountService.accounts.first
-    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -35,7 +31,7 @@ struct NewChatSheet: View {
                 .keyboardShortcut(.cancelAction)
 
                 Button("Start Chat") {
-                    Task { await startChat() }
+                    startChat()
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
@@ -47,19 +43,15 @@ struct NewChatSheet: View {
         .frame(minWidth: 350)
     }
 
-    private func startChat() async {
-        guard let accountID = account?.id else { return }
-        errorMessage = nil
-
-        do {
-            let conversationID = try await environment.chatService.startConversation(
-                jidString: jidString,
-                accountID: accountID
-            )
-            selectedConversationID = conversationID
-            dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
+    private func startChat() {
+        let trimmed = jidString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard trimmed.contains("@") else {
+            errorMessage = "Invalid JID: \(trimmed)"
+            return
         }
+        errorMessage = nil
+        onStartChat(trimmed)
+        dismiss()
     }
 }

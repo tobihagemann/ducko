@@ -179,6 +179,56 @@ enum ChatServiceTests {
         }
     }
 
+    struct OpenConversation {
+        @Test("openConversation creates and returns conversation")
+        @MainActor
+        func openConversationCreatesConversation() async throws {
+            let store = makeStore()
+            let service = makeChatService(store: store)
+
+            let conversation = try await service.openConversation(for: contactJID, accountID: testAccountID)
+
+            #expect(conversation.jid == contactJID)
+            #expect(conversation.accountID == testAccountID)
+            #expect(service.openConversations.count == 1)
+        }
+
+        @Test("openConversation returns existing conversation")
+        @MainActor
+        func openConversationReturnsExisting() async throws {
+            let store = makeStore()
+            let service = makeChatService(store: store)
+
+            let first = try await service.openConversation(for: contactJID, accountID: testAccountID)
+            let second = try await service.openConversation(for: contactJID, accountID: testAccountID)
+
+            #expect(first.id == second.id)
+            #expect(service.openConversations.count == 1)
+        }
+    }
+
+    struct LoadMessages {
+        @Test("loadMessages returns messages in chronological order")
+        @MainActor
+        func loadMessagesReturnsChronological() async throws {
+            let store = makeStore()
+            let service = makeChatService(store: store)
+
+            // Create messages via incoming events
+            let msg1 = makeIncomingMessage(from: contactJID, body: "First")
+            await service.handleEvent(.messageReceived(msg1), accountID: testAccountID)
+            let msg2 = makeIncomingMessage(from: contactJID, body: "Second")
+            await service.handleEvent(.messageReceived(msg2), accountID: testAccountID)
+
+            let conversations = try await store.fetchConversations(for: testAccountID)
+            let messages = await service.loadMessages(for: conversations[0].id)
+
+            #expect(messages.count == 2)
+            #expect(messages[0].body == "First")
+            #expect(messages[1].body == "Second")
+        }
+    }
+
     struct FilterPipelineTests {
         @Test("Message content passes through filter pipeline")
         @MainActor

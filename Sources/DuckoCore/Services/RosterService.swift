@@ -140,7 +140,7 @@ public final class RosterService {
 
         // Sort contacts within each group by display name
         for key in grouped.keys {
-            grouped[key]?.sort { displayName(for: $0).localizedCaseInsensitiveCompare(displayName(for: $1)) == .orderedAscending }
+            grouped[key]?.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         }
 
         // Sort groups alphabetically, ContactGroup.ungroupedName last
@@ -153,9 +153,5 @@ public final class RosterService {
         return sortedKeys.map { key in
             ContactGroup(id: key, name: key, contacts: grouped[key] ?? [])
         }
-    }
-
-    private func displayName(for contact: Contact) -> String {
-        contact.localAlias ?? contact.name ?? contact.jid.description
     }
 }

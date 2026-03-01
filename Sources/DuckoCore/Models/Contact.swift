@@ -20,6 +20,10 @@ public struct Contact: Sendable, Identifiable {
         case none, to, from, both
     }
 
+    public var displayName: String {
+        localAlias ?? name ?? jid.description
+    }
+
     public init(
         id: UUID,
         accountID: UUID,

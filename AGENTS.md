@@ -23,7 +23,7 @@ DuckoCLI    # depends on DuckoCore, DuckoData, DuckoXMPP + swift-argument-parser
 These boundaries are strict:
 - DuckoXMPP must never import other Ducko modules
 - DuckoCore must never import DuckoData or DuckoUI
-- DuckoUI must never import DuckoData
+- DuckoUI must never import DuckoData or DuckoXMPP
 - DuckoCLI must never import DuckoUI or Sparkle
 
 ## Build & Test

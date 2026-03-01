@@ -11,7 +11,7 @@ public struct ContentView: View {
             if environment.accountService.accounts.isEmpty {
                 AccountSetupView()
             } else {
-                MainChatView()
+                ContactListWindow()
             }
         }
         .task {

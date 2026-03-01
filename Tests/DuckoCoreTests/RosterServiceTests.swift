@@ -248,6 +248,26 @@ enum RosterServiceTests {
         }
     }
 
+    struct ContactDisplayName {
+        @Test("displayName prefers localAlias over name")
+        func displayNamePrefersLocalAlias() {
+            let contact = makeContact(jid: contactJID1, name: "Alice", localAlias: "Ally")
+            #expect(contact.displayName == "Ally")
+        }
+
+        @Test("displayName falls back to name when no localAlias")
+        func displayNameFallsBackToName() {
+            let contact = makeContact(jid: contactJID1, name: "Alice")
+            #expect(contact.displayName == "Alice")
+        }
+
+        @Test("displayName falls back to JID when no name or alias")
+        func displayNameFallsBackToJID() {
+            let contact = makeContact(jid: contactJID1)
+            #expect(contact.displayName == contactJID1.description)
+        }
+    }
+
     struct RenameContact {
         @Test("Rename updates localAlias in store and rebuilds groups")
         @MainActor

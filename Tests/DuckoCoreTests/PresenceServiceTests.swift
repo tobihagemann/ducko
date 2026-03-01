@@ -126,6 +126,22 @@ enum PresenceServiceTests {
         }
     }
 
+    struct StatusDisplayName {
+        @Test(
+            "PresenceStatus displayName returns human-readable string",
+            arguments: [
+                (PresenceService.PresenceStatus.available, "Available"),
+                (PresenceService.PresenceStatus.away, "Away"),
+                (PresenceService.PresenceStatus.xa, "Extended Away"),
+                (PresenceService.PresenceStatus.dnd, "Do Not Disturb"),
+                (PresenceService.PresenceStatus.offline, "Offline")
+            ] as [(PresenceService.PresenceStatus, String)]
+        )
+        func statusDisplayName(status: PresenceService.PresenceStatus, expected: String) {
+            #expect(status.displayName == expected)
+        }
+    }
+
     struct MyPresence {
         @Test("goOffline sets status to offline")
         @MainActor

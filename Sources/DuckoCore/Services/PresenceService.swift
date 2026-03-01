@@ -11,6 +11,16 @@ public final class PresenceService {
 
     public enum PresenceStatus: String, Sendable {
         case available, away, xa, dnd, offline
+
+        public var displayName: String {
+            switch self {
+            case .available: "Available"
+            case .away: "Away"
+            case .xa: "Extended Away"
+            case .dnd: "Do Not Disturb"
+            case .offline: "Offline"
+            }
+        }
     }
 
     private weak var accountService: AccountService?
@@ -35,6 +45,25 @@ public final class PresenceService {
         myPresence = status
         myStatusMessage = message
         await sendPresence(accountID: accountID)
+    }
+
+    public func applyPresence(
+        _ status: PresenceStatus,
+        message: String?,
+        accountID: UUID,
+        connect: @escaping (UUID) async throws -> Void,
+        disconnect: @escaping (UUID) async -> Void
+    ) async {
+        let wasOffline = myPresence == .offline
+        if status == .offline {
+            goOffline(accountID: accountID)
+            await disconnect(accountID)
+        } else {
+            if wasOffline {
+                try? await connect(accountID)
+            }
+            await setPresence(status, message: message, accountID: accountID)
+        }
     }
 
     public func goOnline(accountID: UUID) async {

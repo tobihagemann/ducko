@@ -21,8 +21,20 @@ struct DuckoApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        Window("Contacts", id: "contacts") {
             ContentView()
+                .environment(environment)
+        }
+        .defaultSize(width: 280, height: 600)
+
+        WindowGroup("Chat", id: "chat", for: String.self) { $jidString in
+            ChatWindow(jidString: $jidString)
+                .environment(environment)
+        }
+        .defaultSize(width: 500, height: 450)
+
+        MenuBarExtra("Ducko", systemImage: "bubble.left.and.bubble.right.fill") {
+            MenuBarStatusView()
                 .environment(environment)
         }
     }
