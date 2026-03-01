@@ -35,6 +35,7 @@ actor POSIXTransport: XMPPTransport {
         guard fd >= 0 else { throw XMPPConnectionError.notConnected }
 
         receiveTask?.cancel()
+        await receiveTask?.value
         receiveTask = nil
 
         // SSLHandshake requires a blocking socket
@@ -45,7 +46,6 @@ actor POSIXTransport: XMPPTransport {
 
         do {
             let ctx = try configureSSL(fdPtr: fdPtr, serverName: serverName)
-            sslContext = ctx
 
             // Run the blocking TLS handshake on a non-cooperative thread
             try await Task.detached {
@@ -57,6 +57,10 @@ actor POSIXTransport: XMPPTransport {
                     throw XMPPConnectionError.tlsUpgradeFailed("TLS handshake failed: OSStatus \(status)")
                 }
             }.value
+
+            // Publish sslContext only after handshake succeeds to prevent
+            // the receive task from calling SSLRead during the handshake
+            sslContext = ctx
         } catch {
             sslContext = nil
             fdPtr.deallocate()
@@ -256,43 +260,80 @@ actor POSIXTransport: XMPPTransport {
 
 // MARK: - SSL I/O Callbacks
 
+/// Reads exactly the requested number of bytes from the socket.
+///
+/// Secure Transport expects the read callback to fill the entire buffer on success.
+/// A single `recv()` call may return fewer bytes than requested (partial read), so
+/// we loop until the buffer is full or an error occurs.
 private func posixSSLRead(
     connection: SSLConnectionRef,
     data: UnsafeMutableRawPointer,
     dataLength: UnsafeMutablePointer<Int>
 ) -> OSStatus {
     let fd = connection.assumingMemoryBound(to: Int32.self).pointee
-    let result = recv(fd, data, dataLength.pointee, 0)
-    if result > 0 {
-        dataLength.pointee = result
-        return errSecSuccess
-    } else if result == 0 {
-        dataLength.pointee = 0
-        return errSSLClosedGraceful
-    } else {
-        dataLength.pointee = 0
-        if errno == EAGAIN || errno == EWOULDBLOCK {
-            return errSSLWouldBlock
+    let requested = dataLength.pointee
+    var totalRead = 0
+
+    while totalRead < requested {
+        let result = recv(fd, data + totalRead, requested - totalRead, 0)
+        if result > 0 {
+            totalRead += result
+        } else if result == 0 {
+            dataLength.pointee = totalRead
+            return totalRead > 0 ? errSecSuccess : errSSLClosedGraceful
+        } else {
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                if totalRead > 0 {
+                    // Partial data already buffered — report what we have.
+                    // On a blocking socket this shouldn't happen, but handle
+                    // it gracefully: return partial data and signal would-block
+                    // so the caller can retry.
+                    dataLength.pointee = totalRead
+                    return errSSLWouldBlock
+                }
+                dataLength.pointee = 0
+                return errSSLWouldBlock
+            }
+            dataLength.pointee = totalRead
+            return errSecIO
         }
-        return errSecIO
     }
+
+    dataLength.pointee = totalRead
+    return errSecSuccess
 }
 
+/// Writes exactly the requested number of bytes to the socket.
+///
+/// A single `send()` call may write fewer bytes than requested (partial write), so
+/// we loop until all bytes are sent or an error occurs.
 private func posixSSLWrite(
     connection: SSLConnectionRef,
     data: UnsafeRawPointer,
     dataLength: UnsafeMutablePointer<Int>
 ) -> OSStatus {
     let fd = connection.assumingMemoryBound(to: Int32.self).pointee
-    let result = Darwin.send(fd, data, dataLength.pointee, 0)
-    if result > 0 {
-        dataLength.pointee = result
-        return errSecSuccess
-    } else {
-        dataLength.pointee = 0
-        if errno == EAGAIN || errno == EWOULDBLOCK {
-            return errSSLWouldBlock
+    let requested = dataLength.pointee
+    var totalWritten = 0
+
+    while totalWritten < requested {
+        let result = Darwin.send(fd, data + totalWritten, requested - totalWritten, 0)
+        if result > 0 {
+            totalWritten += result
+        } else { // send() returning 0 or negative — treat as error
+            if errno == EAGAIN || errno == EWOULDBLOCK {
+                if totalWritten > 0 {
+                    dataLength.pointee = totalWritten
+                    return errSSLWouldBlock
+                }
+                dataLength.pointee = 0
+                return errSSLWouldBlock
+            }
+            dataLength.pointee = totalWritten
+            return errSecIO
         }
-        return errSecIO
     }
+
+    dataLength.pointee = totalWritten
+    return errSecSuccess
 }
