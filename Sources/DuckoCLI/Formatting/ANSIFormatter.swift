@@ -96,7 +96,9 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
-             .presenceUpdated:
+             .presenceUpdated,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded:
             return nil
         }
     }

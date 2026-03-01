@@ -515,6 +515,9 @@ public actor XMPPClient {
             domain: domain,
             availableFeatures: { [featuresLock] in
                 featuresLock.withLock { $0 }
+            },
+            sendElement: { [weak self] element in
+                try await self?.connection.send(XMPPStreamWriter.stanza(element))
             }
         )
     }

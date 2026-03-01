@@ -14,6 +14,9 @@ public struct ModuleContext: Sendable {
     public let domain: String
     /// Returns the union of all feature namespaces from registered modules.
     public let availableFeatures: @Sendable () -> Set<String>
+    /// Sends a raw XML element over the connection, bypassing interceptors.
+    /// Used by StreamManagementModule for protocol-level elements.
+    public let sendElement: @Sendable (XMLElement) async throws -> Void
 
     public init(
         sendStanza: @Sendable @escaping (any XMPPStanza) async throws -> Void,
@@ -22,7 +25,8 @@ public struct ModuleContext: Sendable {
         generateID: @Sendable @escaping () -> String,
         connectedJID: @Sendable @escaping () -> FullJID?,
         domain: String,
-        availableFeatures: @Sendable @escaping () -> Set<String> = { [] }
+        availableFeatures: @Sendable @escaping () -> Set<String> = { [] },
+        sendElement: @Sendable @escaping (XMLElement) async throws -> Void = { _ in }
     ) {
         self.sendStanza = sendStanza
         self.sendIQ = sendIQ
@@ -31,5 +35,6 @@ public struct ModuleContext: Sendable {
         self.connectedJID = connectedJID
         self.domain = domain
         self.availableFeatures = availableFeatures
+        self.sendElement = sendElement
     }
 }

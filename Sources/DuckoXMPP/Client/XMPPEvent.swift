@@ -10,6 +10,9 @@ public enum XMPPEvent: Sendable {
     case rosterItemChanged(RosterItem)
     case presenceUpdated(from: JID, presence: XMPPPresence)
     case presenceSubscriptionRequest(from: BareJID)
+    case messageCarbonReceived(ForwardedMessage)
+    case messageCarbonSent(ForwardedMessage)
+    case archivedMessagesLoaded([ArchivedMessage], fin: MAMFin)
 }
 
 /// Reason the client disconnected.

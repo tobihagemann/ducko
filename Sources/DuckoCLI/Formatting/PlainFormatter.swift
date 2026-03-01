@@ -71,7 +71,9 @@ struct PlainFormatter: CLIFormatter {
             return "Subscription request from \(jid)"
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
-             .presenceUpdated:
+             .presenceUpdated,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded:
             return nil
         }
     }

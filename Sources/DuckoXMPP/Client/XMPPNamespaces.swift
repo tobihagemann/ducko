@@ -9,4 +9,12 @@ public enum XMPPNamespaces {
     public static let discoItems = "http://jabber.org/protocol/disco#items"
     public static let caps = "http://jabber.org/protocol/caps"
     public static let vcard = "vcard-temp"
+    public static let carbons = "urn:xmpp:carbons:2"
+    public static let forward = "urn:xmpp:forward:0"
+    public static let mam = "urn:xmpp:mam:2"
+    public static let sm = "urn:xmpp:sm:3"
+    public static let ping = "urn:xmpp:ping"
+    public static let delay = "urn:xmpp:delay"
+    public static let rsm = "http://jabber.org/protocol/rsm"
+    public static let stanzaID = "urn:xmpp:sid:0"
 }
