@@ -17,4 +17,9 @@ public enum XMPPNamespaces {
     public static let delay = "urn:xmpp:delay"
     public static let rsm = "http://jabber.org/protocol/rsm"
     public static let stanzaID = "urn:xmpp:sid:0"
+    public static let receipts = "urn:xmpp:receipts"
+    public static let chatMarkers = "urn:xmpp:chat-markers:0"
+    public static let chatStates = "http://jabber.org/protocol/chatstates"
+    public static let messageCorrect = "urn:xmpp:message-correct:0"
+    public static let messageReply = "urn:xmpp:reply:0"
 }

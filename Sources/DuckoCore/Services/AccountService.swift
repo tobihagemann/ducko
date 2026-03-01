@@ -147,6 +147,14 @@ public final class AccountService {
         builder.withModule(ServiceDiscoveryModule())
         builder.withModule(CapsModule())
         builder.withModule(VCardModule())
+        builder.withModule(ReceiptsModule())
+        builder.withModule(ChatStatesModule())
+        builder.withModule(CarbonsModule())
+        builder.withModule(MAMModule())
+        builder.withModule(PingModule())
+        let sm = StreamManagementModule()
+        builder.withModule(sm)
+        builder.withInterceptor(sm)
 
         let client = await builder.build()
         clients[accountID] = client

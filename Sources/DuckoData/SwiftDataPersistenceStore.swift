@@ -246,6 +246,46 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         try modelContext.save()
     }
 
+    // MARK: - Message Updates
+
+    public func updateMessageDeliveryStatus(stanzaID: String, isDelivered: Bool) throws {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.stanzaID == stanzaID }
+        )
+        descriptor.fetchLimit = 1
+
+        if let record = try modelContext.fetch(descriptor).first {
+            record.isDelivered = isDelivered
+            try modelContext.save()
+        }
+    }
+
+    public func updateMessageBody(stanzaID: String, newBody: String, isEdited: Bool, editedAt: Date) throws {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.stanzaID == stanzaID }
+        )
+        descriptor.fetchLimit = 1
+
+        if let record = try modelContext.fetch(descriptor).first {
+            record.body = newBody
+            record.isEdited = isEdited
+            record.editedAt = editedAt
+            try modelContext.save()
+        }
+    }
+
+    public func updateMessageError(stanzaID: String, errorText: String) throws {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.stanzaID == stanzaID }
+        )
+        descriptor.fetchLimit = 1
+
+        if let record = try modelContext.fetch(descriptor).first {
+            record.errorText = errorText
+            try modelContext.save()
+        }
+    }
+
     // MARK: - Attachments
 
     public func insertAttachment(_ attachment: Attachment, for messageID: UUID) throws {

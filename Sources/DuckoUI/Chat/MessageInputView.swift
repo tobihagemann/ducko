@@ -15,6 +15,10 @@ struct MessageInputView: View {
                 .textFieldStyle(.plain)
                 .lineLimit(1 ... 5)
                 .onSubmit { sendMessage() }
+                .onChange(of: text) {
+                    guard !text.isEmpty else { return }
+                    Task { await windowState.userIsTyping() }
+                }
                 .accessibilityIdentifier("message-field")
 
             Button {

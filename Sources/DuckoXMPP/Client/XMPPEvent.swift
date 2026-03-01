@@ -13,6 +13,11 @@ public enum XMPPEvent: Sendable {
     case messageCarbonReceived(ForwardedMessage)
     case messageCarbonSent(ForwardedMessage)
     case archivedMessagesLoaded([ArchivedMessage], fin: MAMFin)
+    case chatStateChanged(from: BareJID, state: ChatState)
+    case deliveryReceiptReceived(messageID: String, from: JID)
+    case chatMarkerReceived(messageID: String, type: ChatMarkerType, from: JID)
+    case messageCorrected(originalID: String, newBody: String, from: JID)
+    case messageError(messageID: String?, from: JID, errorText: String)
 }
 
 /// Reason the client disconnected.
@@ -20,4 +25,20 @@ public enum DisconnectReason: Sendable {
     case requested
     case streamError(String)
     case connectionLost(String)
+}
+
+/// Chat state notification per XEP-0085.
+public enum ChatState: String, Sendable, CaseIterable {
+    case active
+    case composing
+    case paused
+    case inactive
+    case gone
+}
+
+/// Chat marker type per XEP-0333.
+public enum ChatMarkerType: String, Sendable, CaseIterable {
+    case received
+    case displayed
+    case acknowledged
 }

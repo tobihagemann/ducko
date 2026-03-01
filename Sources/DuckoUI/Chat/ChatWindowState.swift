@@ -46,4 +46,14 @@ final class ChatWindowState {
             // Send failed — messages stay as-is
         }
     }
+
+    func userIsTyping() async {
+        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        await environment.chatService.userIsTyping(inJIDString: jidString, accountID: accountID)
+    }
+
+    /// Whether the chat partner is currently composing.
+    var isPartnerTyping: Bool {
+        environment.chatService.isPartnerTyping(jidString: jidString)
+    }
 }

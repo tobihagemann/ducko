@@ -8,6 +8,16 @@ actor MockPersistenceStore: PersistenceStore {
     var messages: [ChatMessage] = []
     var attachments: [Attachment] = []
 
+    // MARK: - Test Helpers
+
+    func addConversation(_ conversation: Conversation) {
+        conversations.append(conversation)
+    }
+
+    func addMessage(_ message: ChatMessage) {
+        messages.append(message)
+    }
+
     // MARK: - Accounts
 
     func fetchAccounts() async throws -> [Account] {
@@ -75,6 +85,28 @@ actor MockPersistenceStore: PersistenceStore {
     func markMessagesRead(in conversationID: UUID) async throws {
         for index in messages.indices where messages[index].conversationID == conversationID {
             messages[index].isRead = true
+        }
+    }
+
+    // MARK: - Message Updates
+
+    func updateMessageDeliveryStatus(stanzaID: String, isDelivered: Bool) async throws {
+        for index in messages.indices where messages[index].stanzaID == stanzaID {
+            messages[index].isDelivered = isDelivered
+        }
+    }
+
+    func updateMessageBody(stanzaID: String, newBody: String, isEdited: Bool, editedAt: Date) async throws {
+        for index in messages.indices where messages[index].stanzaID == stanzaID {
+            messages[index].body = newBody
+            messages[index].isEdited = isEdited
+            messages[index].editedAt = editedAt
+        }
+    }
+
+    func updateMessageError(stanzaID: String, errorText: String) async throws {
+        for index in messages.indices where messages[index].stanzaID == stanzaID {
+            messages[index].errorText = errorText
         }
     }
 

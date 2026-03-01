@@ -24,6 +24,12 @@ public protocol PersistenceStore: Sendable {
     func insertMessage(_ message: ChatMessage) async throws
     func markMessagesRead(in conversationID: UUID) async throws
 
+    // MARK: - Message Updates
+
+    func updateMessageDeliveryStatus(stanzaID: String, isDelivered: Bool) async throws
+    func updateMessageBody(stanzaID: String, newBody: String, isEdited: Bool, editedAt: Date) async throws
+    func updateMessageError(stanzaID: String, errorText: String) async throws
+
     // MARK: - Attachments
 
     func insertAttachment(_ attachment: Attachment, for messageID: UUID) async throws

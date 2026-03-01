@@ -131,7 +131,9 @@ struct JSONFormatter: CLIFormatter {
         case let .presenceSubscriptionRequest(from: jid):
             return encode(["type": "subscription_request", "from": jid.description])
         case .presenceReceived, .iqReceived, .rosterLoaded, .rosterItemChanged, .presenceUpdated,
-             .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded:
+             .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected, .messageError:
             return nil
         }
     }

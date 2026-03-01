@@ -98,7 +98,10 @@ struct ANSIFormatter: CLIFormatter {
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded:
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected,
+             .messageError:
             return nil
         }
     }
