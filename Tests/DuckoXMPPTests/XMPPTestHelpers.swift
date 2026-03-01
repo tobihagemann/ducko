@@ -23,6 +23,14 @@ let testFeaturesBind = """
 </features>
 """
 
+/// Post-auth features with bind and Stream Management.
+let testFeaturesBindWithSM = """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
+<sm xmlns='urn:xmpp:sm:3'/>\
+</features>
+"""
+
 /// Bind result with a full JID.
 let testBindResult = """
 <iq type='result' id='ducko-1'>\
@@ -35,7 +43,7 @@ let testBindResult = """
 // MARK: - Connect Flow Simulation
 
 /// Simulates a connect handshake without TLS.
-func simulateNoTLSConnect(_ mock: MockTransport) async {
+func simulateNoTLSConnect(_ mock: MockTransport, postAuthFeatures: String = testFeaturesBind) async {
     try? await Task.sleep(for: .milliseconds(50))
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(testFeaturesNoTLS)
@@ -43,7 +51,7 @@ func simulateNoTLSConnect(_ mock: MockTransport) async {
     await mock.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
     try? await Task.sleep(for: .milliseconds(50))
     await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testFeaturesBind)
+    await mock.simulateReceive(postAuthFeatures)
     try? await Task.sleep(for: .milliseconds(50))
     await mock.simulateReceive(testBindResult)
 }

@@ -17,6 +17,8 @@ public struct ModuleContext: Sendable {
     /// Sends a raw XML element over the connection, bypassing interceptors.
     /// Used by StreamManagementModule for protocol-level elements.
     public let sendElement: @Sendable (XMLElement) async throws -> Void
+    /// Returns the server's post-auth stream features, or `nil` if not yet available.
+    public let serverStreamFeatures: @Sendable () -> XMLElement?
 
     public init(
         sendStanza: @Sendable @escaping (any XMPPStanza) async throws -> Void,
@@ -26,7 +28,8 @@ public struct ModuleContext: Sendable {
         connectedJID: @Sendable @escaping () -> FullJID?,
         domain: String,
         availableFeatures: @Sendable @escaping () -> Set<String> = { [] },
-        sendElement: @Sendable @escaping (XMLElement) async throws -> Void = { _ in }
+        sendElement: @Sendable @escaping (XMLElement) async throws -> Void = { _ in },
+        serverStreamFeatures: @Sendable @escaping () -> XMLElement? = { nil }
     ) {
         self.sendStanza = sendStanza
         self.sendIQ = sendIQ
@@ -36,5 +39,6 @@ public struct ModuleContext: Sendable {
         self.domain = domain
         self.availableFeatures = availableFeatures
         self.sendElement = sendElement
+        self.serverStreamFeatures = serverStreamFeatures
     }
 }

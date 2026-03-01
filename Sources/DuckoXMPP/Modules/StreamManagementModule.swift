@@ -38,6 +38,12 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
     public func handleConnect() async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
+        guard let features = context.serverStreamFeatures(),
+              features.child(named: "sm", namespace: XMPPNamespaces.sm) != nil else {
+            log.info("Server does not advertise Stream Management support")
+            return
+        }
+
         let enableElement = XMLElement(
             name: "enable",
             namespace: XMPPNamespaces.sm,

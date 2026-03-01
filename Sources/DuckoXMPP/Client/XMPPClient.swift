@@ -20,6 +20,7 @@ public actor XMPPClient {
     private let idCounter = Atomic<UInt64>(0)
     private let connectedJIDLock = OSAllocatedUnfairLock<FullJID?>(initialState: nil)
     private let featuresLock = OSAllocatedUnfairLock<Set<String>>(initialState: [])
+    private let serverFeaturesLock = OSAllocatedUnfairLock<XMLElement?>(initialState: nil)
 
     private struct PendingIQ {
         let continuation: CheckedContinuation<XMLElement?, any Error>
@@ -138,6 +139,7 @@ public actor XMPPClient {
             }
         } catch {
             log.error("Handshake failed: \(String(describing: error), privacy: .public)")
+            serverFeaturesLock.withLock { $0 = nil }
             state = .disconnected
             await connection.disconnect()
             throw error
@@ -171,6 +173,7 @@ public actor XMPPClient {
         await connection.resetStream()
         try await openStream()
         let features3 = try await reader.awaitFeatures()
+        serverFeaturesLock.withLock { $0 = features3 }
 
         // 5. Resource binding
         state = .bindingResource
@@ -483,6 +486,7 @@ public actor XMPPClient {
 
         state = .disconnected
         connectedJIDLock.withLock { $0 = nil }
+        serverFeaturesLock.withLock { $0 = nil }
 
         for pending in pendingIQs.values {
             pending.timeoutTask.cancel()
@@ -518,6 +522,9 @@ public actor XMPPClient {
             },
             sendElement: { [weak self] element in
                 try await self?.connection.send(XMPPStreamWriter.stanza(element))
+            },
+            serverStreamFeatures: { [serverFeaturesLock] in
+                serverFeaturesLock.withLock { $0 }
             }
         )
     }

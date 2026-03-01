@@ -15,7 +15,7 @@ private func makeConnectedClient(mock: MockTransport) async throws -> (XMPPClien
 
     let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
 
-    await simulateNoTLSConnect(mock)
+    await simulateNoTLSConnect(mock, postAuthFeatures: testFeaturesBindWithSM)
     try? await Task.sleep(for: .milliseconds(100))
 
     // Respond to SM <enable> with <enabled>
@@ -54,7 +54,7 @@ enum StreamManagementModuleTests {
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
 
-            await simulateNoTLSConnect(mock)
+            await simulateNoTLSConnect(mock, postAuthFeatures: testFeaturesBindWithSM)
             try? await Task.sleep(for: .milliseconds(100))
 
             // Respond with <failed> instead of <enabled>
@@ -63,6 +63,36 @@ enum StreamManagementModuleTests {
             try await connectTask.value
 
             #expect(!sm.isEnabled)
+
+            await client.disconnect()
+        }
+
+        @Test("Does not send enable when server features lack SM")
+        func doesNotEnableWithoutServerSupport() async throws {
+            let mock = MockTransport()
+            let sm = StreamManagementModule()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+            await client.register(sm)
+            await client.addInterceptor(sm)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+
+            // Use standard connect (no SM in post-auth features)
+            await simulateNoTLSConnect(mock)
+
+            try await connectTask.value
+
+            #expect(!sm.isEnabled)
+
+            // Verify no <enable> was sent
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let enableSent = sentStrings.contains { $0.contains("<enable") && $0.contains("urn:xmpp:sm:3") }
+            #expect(!enableSent)
 
             await client.disconnect()
         }
