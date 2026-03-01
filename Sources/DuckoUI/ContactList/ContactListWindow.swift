@@ -7,6 +7,7 @@ struct ContactListWindow: View {
     @State private var searchText = ""
     @State private var isShowingNewChat = false
     @State private var isShowingAddContact = false
+    @State private var preferences = ContactListPreferences()
 
     private var account: Account? {
         environment.accountService.accounts.first
@@ -20,10 +21,27 @@ struct ContactListWindow: View {
 
             SubscriptionRequestBanner()
 
-            ContactListView(searchText: searchText)
+            ContactListView(searchText: searchText, preferences: preferences)
         }
         .searchable(text: $searchText, placement: .toolbar)
         .toolbar {
+            ToolbarItem {
+                Menu {
+                    Picker("Sort by", selection: Bindable(preferences).sortMode) {
+                        ForEach(ContactListSortMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+
+                    Divider()
+
+                    Toggle("Hide Offline", isOn: Bindable(preferences).hideOffline)
+                } label: {
+                    Label("View Options", systemImage: "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityIdentifier("sort-mode-menu")
+            }
+
             ToolbarItem {
                 Button {
                     isShowingAddContact = true

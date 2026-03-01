@@ -47,6 +47,12 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `jid-field` | JID field in account setup | Contacts |
 | `password-field` | Password field in account setup | Contacts |
 | `connect-button` | Connect button in account setup | Contacts |
+| `chat-tab-bar` | Tab bar (visible when >1 tab) | Chat |
+| `chat-tab-{jid}` | Individual chat tab | Chat |
+| `typing-indicator` | Typing indicator dots | Chat |
+| `reply-compose-bar` | Reply/edit compose bar above input | Chat |
+| `message-search-bar` | Cmd+F search bar in chat | Chat |
+| `sort-mode-menu` | View options menu (sort/filter) | Contacts |
 
 ### Script Reference
 

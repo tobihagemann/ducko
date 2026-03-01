@@ -13,11 +13,25 @@ struct ChatView: View {
                 Divider()
             }
 
-            MessageListView(messages: windowState.messages)
+            if windowState.isSearching {
+                MessageSearchBar(windowState: windowState)
+
+                Divider()
+            }
+
+            MessageListView(windowState: windowState)
+
+            if windowState.isPartnerTyping {
+                TypingIndicatorView()
+                    .padding(.horizontal)
+                    .padding(.vertical, 4)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
 
             Divider()
 
             MessageInputView(windowState: windowState)
         }
+        .animation(.easeInOut(duration: 0.2), value: windowState.isPartnerTyping)
     }
 }

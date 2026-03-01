@@ -10,28 +10,43 @@ struct MessageInputView: View {
     }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message", text: $text, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1 ... 5)
-                .onSubmit { sendMessage() }
-                .onChange(of: text) {
-                    guard !text.isEmpty else { return }
-                    Task { await windowState.userIsTyping() }
-                }
-                .accessibilityIdentifier("message-field")
+        VStack(spacing: 0) {
+            ReplyComposeBar(windowState: windowState)
 
-            Button {
-                sendMessage()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.title2)
+            HStack(alignment: .bottom, spacing: 8) {
+                TextField("Message", text: $text, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .lineLimit(1 ... 5)
+                    .onKeyPress(.return, phases: .down) { keyPress in
+                        if keyPress.modifiers.contains(.shift) {
+                            return .ignored
+                        }
+                        sendMessage()
+                        return .handled
+                    }
+                    .onChange(of: text) {
+                        guard !text.isEmpty else { return }
+                        Task { await windowState.userIsTyping() }
+                    }
+                    .onChange(of: windowState.editingMessage?.id) {
+                        if let editing = windowState.editingMessage {
+                            text = editing.body
+                        }
+                    }
+                    .accessibilityIdentifier("message-field")
+
+                Button {
+                    sendMessage()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.title2)
+                }
+                .buttonStyle(.plain)
+                .disabled(trimmedText.isEmpty)
+                .accessibilityIdentifier("send-button")
             }
-            .buttonStyle(.plain)
-            .disabled(trimmedText.isEmpty)
-            .accessibilityIdentifier("send-button")
+            .padding(12)
         }
-        .padding(12)
     }
 
     private func sendMessage() {

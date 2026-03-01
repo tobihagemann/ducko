@@ -7,6 +7,7 @@ public final class ChatService {
     public private(set) var activeConversationID: UUID?
     public private(set) var messages: [ChatMessage] = []
     public private(set) var typingStates: [BareJID: ChatState] = [:]
+    public var onIncomingMessage: ((ChatMessage, Conversation) -> Void)?
 
     private let store: any PersistenceStore
     private let filterPipeline: MessageFilterPipeline
@@ -236,6 +237,27 @@ public final class ChatService {
         try await sendDisplayedMarker(to: jid, messageStanzaID: messageStanzaID, accountID: accountID)
     }
 
+    // MARK: - Pin/Mute
+
+    public func togglePin(conversationID: UUID, accountID: UUID) async throws {
+        try await mutateConversation(conversationID, accountID: accountID) { $0.isPinned.toggle() }
+    }
+
+    public func toggleMute(conversationID: UUID, accountID: UUID) async throws {
+        try await mutateConversation(conversationID, accountID: accountID) { $0.isMuted.toggle() }
+    }
+
+    private func mutateConversation(
+        _ conversationID: UUID,
+        accountID: UUID,
+        _ mutate: (inout Conversation) -> Void
+    ) async throws {
+        guard var conversation = openConversations.first(where: { $0.id == conversationID }) else { return }
+        mutate(&conversation)
+        try await store.upsertConversation(conversation)
+        openConversations = try await store.fetchConversations(for: accountID)
+    }
+
     public enum ChatServiceError: Error, LocalizedError {
         case invalidJID(String)
 
@@ -352,6 +374,8 @@ public final class ChatService {
             replyToID: replyToID
         )
         try? await persistMessage(message, in: conversation, incrementUnread: true, accountID: accountID)
+
+        onIncomingMessage?(message, conversation)
     }
 
     private func persistMessage(

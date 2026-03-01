@@ -3,12 +3,23 @@ import SwiftUI
 
 struct MessageBubbleView: View {
     let message: ChatMessage
+    let position: MessagePosition
+    let isHovered: Bool
+    let repliedMessage: ChatMessage?
+    let windowState: ChatWindowState
 
     var body: some View {
         HStack {
             if message.isOutgoing { Spacer(minLength: 60) }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
+                if let replied = repliedMessage {
+                    ReplyQuoteView(
+                        senderName: replied.isOutgoing ? "You" : replied.fromJID,
+                        bodyPreview: replied.body
+                    )
+                }
+
                 Text(message.body)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -18,29 +29,13 @@ struct MessageBubbleView: View {
                     )
                     .foregroundStyle(message.isOutgoing ? .white : .primary)
 
-                HStack(spacing: 4) {
-                    Text(message.timestamp, style: .time)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-
-                    if message.isOutgoing, message.isDelivered {
-                        Image(systemName: "checkmark")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if message.isEdited {
-                        Text("(edited)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    if message.errorText != nil {
-                        Image(systemName: "exclamationmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                    }
-                }
+                MessageMetadataView(
+                    message: message,
+                    isVisible: position.isLastInGroup || isHovered
+                )
+            }
+            .contextMenu {
+                MessageContextMenu(message: message, windowState: windowState)
             }
 
             if !message.isOutgoing { Spacer(minLength: 60) }
