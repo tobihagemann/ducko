@@ -273,4 +273,112 @@ struct PlainFormatterTests {
         let output = formatter.formatEvent(.iqReceived(iq), accountID: UUID())
         #expect(output == nil)
     }
+
+    @Test func formatEventDeliveryReceipt() throws {
+        let jid = try #require(JID.parse("alice@example.com/res"))
+        let output = try #require(formatter.formatEvent(.deliveryReceiptReceived(messageID: "msg-1", from: jid), accountID: UUID()))
+        #expect(output.contains("delivery receipt"))
+        #expect(output.contains("msg-1"))
+        #expect(output.contains("alice@example.com"))
+    }
+
+    @Test func formatEventMessageCorrected() throws {
+        let jid = try #require(JID.parse("alice@example.com/res"))
+        let output = try #require(formatter.formatEvent(.messageCorrected(originalID: "msg-1", newBody: "fixed", from: jid), accountID: UUID()))
+        #expect(output.contains("corrected"))
+        #expect(output.contains("fixed"))
+    }
+
+    @Test func formatEventMessageError() throws {
+        let jid = try #require(JID.parse("alice@example.com/res"))
+        let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, errorText: "not allowed"), accountID: UUID()))
+        #expect(output.contains("error"))
+        #expect(output.contains("not allowed"))
+    }
+
+    // MARK: - formatMessage Markers
+
+    @Test func formatMessageDelivered() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "bob@example.com",
+            body: "Hi",
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: true,
+            isEdited: false,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("[delivered]"))
+    }
+
+    @Test func formatMessageDeliveredNotShownForIncoming() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "bob@example.com",
+            body: "Hi",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: true,
+            isEdited: false,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(!output.contains("[delivered]"))
+    }
+
+    @Test func formatMessageEdited() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "corrected text",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: true,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("[edited]"))
+    }
+
+    @Test func formatMessageError() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "failed message",
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            errorText: "service unavailable"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("[error: service unavailable]"))
+    }
+
+    // MARK: - formatTypingIndicator
+
+    @Test func formatTypingIndicatorTyping() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = try #require(formatter.formatTypingIndicator(from: jid, state: .composing))
+        #expect(output.contains("typing"))
+        #expect(output.contains("alice@example.com"))
+    }
+
+    @Test func formatTypingIndicatorNotTyping() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = formatter.formatTypingIndicator(from: jid, state: .paused)
+        #expect(output == nil)
+    }
 }

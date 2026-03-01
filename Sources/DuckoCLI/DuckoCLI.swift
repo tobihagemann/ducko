@@ -110,7 +110,7 @@ extension DuckoCLI {
             let formatter = global.resolvedFormat.makeFormatter()
 
             let context = try await MainActor.run {
-                try CLIBootstrap.setUp(formatter: formatter)
+                try CLIBootstrap.setUp(formatter: formatter, isInteractive: true)
             }
             let env = context.environment
 
@@ -340,7 +340,7 @@ extension DuckoCLI {
     }
 }
 
-// MARK: - Stubs
+// MARK: - History
 
 extension DuckoCLI {
     struct History: AsyncParsableCommand {
@@ -350,14 +350,45 @@ extension DuckoCLI {
 
         @OptionGroup var global: GlobalOptions
 
+        @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+        var account: String?
+
         @Argument(help: "The JID to view history for")
         var jid: String
 
+        @Option(name: .long, help: "Maximum number of messages (default: 20)")
+        var limit: Int = 20
+
+        @Option(name: .long, help: "Show messages before this ISO 8601 date")
+        var before: String?
+
         func run() async throws {
-            print("history: not yet implemented")
+            let formatter = global.resolvedFormat.makeFormatter()
+
+            guard let bareJID = BareJID.parse(jid) else {
+                throw CLIError.invalidJID(jid)
+            }
+
+            let context = try await MainActor.run {
+                try CLIBootstrap.setUp(formatter: formatter)
+            }
+            let env = context.environment
+
+            let selectedAccount = try await resolveAccount(account, environment: env)
+
+            let beforeDate = try parseBeforeDate(before)
+            let messages = try await fetchHistory(
+                jid: bareJID, before: beforeDate, limit: limit,
+                environment: env, accountID: selectedAccount.id
+            )
+            printHistory(messages, formatter: formatter)
         }
     }
+}
 
+// MARK: - Stubs
+
+extension DuckoCLI {
     struct Room: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage multi-user chat rooms",
@@ -523,6 +554,7 @@ private func printREPLHelp() {
     print("  /who                     Show online contacts")
     print("  /add <jid> [name]        Add contact to roster")
     print("  /remove <jid>            Remove contact from roster")
+    print("  /history <jid> [limit]   Show message history")
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
     print("  help                     Show this help")
@@ -564,6 +596,8 @@ private func dispatchREPLCommand(
         ) { jid in
             try await environment.rosterService.denySubscription(jidString: jid, accountID: accountID)
         }
+    } else if input == "/history" || input.hasPrefix("/history ") {
+        await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
     } else {
         return false
     }
@@ -677,6 +711,43 @@ private func handleAddCommand(
     do {
         try await environment.rosterService.addContact(jid: bareJID, name: name, groups: [], accountID: accountID)
         print("Added \(jidString) to roster.")
+    } catch {
+        print(formatter.formatError(error))
+    }
+}
+
+private func handleHistoryCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID
+) async {
+    let args = input.dropFirst("/history".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+
+    guard let jidPart = parts.first else {
+        print(formatter.formatError(CLIError.invalidJID("usage: /history <jid> [limit]")))
+        return
+    }
+
+    let jidString = String(jidPart)
+    guard let bareJID = BareJID.parse(jidString) else {
+        print(formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+
+    var limit = 20
+    if parts.count > 1 {
+        guard let parsed = Int(parts[1]), parsed > 0 else {
+            print(formatter.formatError(CLIError.invalidJID("usage: /history <jid> [limit]")))
+            return
+        }
+        limit = parsed
+    }
+
+    do {
+        let messages = try await fetchHistory(
+            jid: bareJID, before: nil, limit: limit,
+            environment: environment, accountID: accountID
+        )
+        printHistory(messages, formatter: formatter)
     } catch {
         print(formatter.formatError(error))
     }

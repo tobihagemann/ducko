@@ -50,11 +50,33 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/roster` — show contacts grouped with presence indicators
 - `/status [status] [message]` — get or set presence status
 - `/who` — show online contacts only
+- `/history <jid> [limit]` — show message history (default 20 messages)
 - `help` — show available commands
 - `quit` / `exit` — disconnect and exit
 
+Real-time indicators in interactive mode:
+- Typing indicators from contacts are displayed as they arrive
+- Delivery receipts and message corrections appear in the event stream
+- Terminal bell rings on incoming messages
+
 ```
 ducko interactive
+```
+
+### `history <jid>`
+
+View message history for a conversation. Connects, fetches messages, then disconnects.
+
+| Option | Description |
+|---|---|
+| `--limit <n>` | Maximum number of messages (default: 20) |
+| `--before <date>` | Show messages before this ISO 8601 date (pagination) |
+
+```
+ducko history alice@example.com
+ducko history alice@example.com --limit 5
+ducko history alice@example.com --before 2026-03-01T00:00:00Z
+ducko history alice@example.com --output json --limit 10
 ```
 
 ### `account list`
@@ -103,7 +125,6 @@ ducko presence --output json      # JSON output
 
 | Subcommand | Description |
 |---|---|
-| `history <jid>` | View message history |
 | `room join <jid>` | Join a MUC room |
 | `room leave <jid>` | Leave a MUC room |
 | `room list` | List joined rooms |
@@ -115,14 +136,15 @@ ducko presence --output json      # JSON output
 
 ```
 [2026-02-27T10:00:00Z] <- alice@example.com: Hello
-[2026-02-27T10:00:05Z] -> alice@example.com: Hi there
+[2026-02-27T10:00:05Z] -> alice@example.com: Hi there [delivered]
+[2026-02-27T10:00:10Z] <- alice@example.com: corrected text [edited]
 ```
 
-`<-` = incoming, `->` = outgoing.
+`<-` = incoming, `->` = outgoing. Markers: `[delivered]` for delivery receipts, `[edited]` for corrected messages, `[error: ...]` for errors.
 
 ### ANSI
 
-Same as plain with color codes (green incoming, cyan outgoing, red errors). Default in terminal.
+Same as plain with color codes (green incoming, cyan outgoing, red errors, dim timestamps). Delivery shown as green checkmark, edited as dim `[edited]`. Default in terminal.
 
 ### JSON
 
@@ -130,7 +152,7 @@ Same as plain with color codes (green incoming, cyan outgoing, red errors). Defa
 {"body":"Hello","direction":"incoming","from":"alice@example.com","timestamp":"2026-02-27T10:00:00Z","type":"message"}
 ```
 
-Keys are sorted alphabetically. Use `--output json` when piping to `jq` or processing programmatically.
+Optional keys: `"delivered":"true"`, `"edited":"true"`, `"error":"..."`. Keys are sorted alphabetically. Use `--output json` when piping to `jq` or processing programmatically.
 
 ## Examples
 
@@ -140,6 +162,9 @@ ducko send alice@example.com "Hello"
 
 # Send with JSON output
 ducko send --output json alice@example.com "Hello" | jq .
+
+# View recent history
+ducko history alice@example.com --limit 10
 
 # Start interactive session
 ducko interactive

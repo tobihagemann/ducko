@@ -12,13 +12,23 @@ struct JSONFormatter: CLIFormatter {
     // MARK: - CLIFormatter
 
     func formatMessage(_ message: ChatMessage) -> String {
-        encode([
+        var dict: [String: String] = [
             "type": "message",
             "direction": message.isOutgoing ? "outgoing" : "incoming",
             "from": message.fromJID,
             "body": message.body,
             "timestamp": formatTimestamp(message.timestamp)
-        ])
+        ]
+        if message.isDelivered {
+            dict["delivered"] = "true"
+        }
+        if message.isEdited {
+            dict["edited"] = "true"
+        }
+        if let errorText = message.errorText {
+            dict["error"] = errorText
+        }
+        return encode(dict)
     }
 
     func formatContact(_ contact: Contact) -> String {
@@ -89,53 +99,63 @@ struct JSONFormatter: CLIFormatter {
     }
 
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String? {
+        let account = accountID.uuidString
         switch event {
         case let .connected(jid):
-            return encode([
-                "type": "connected",
-                "jid": jid.description,
-                "account": accountID.uuidString
-            ])
+            return encode(["type": "connected", "jid": jid.description, "account": account])
         case let .disconnected(reason):
-            var dict: [String: String] = [
-                "type": "disconnected",
-                "account": accountID.uuidString
-            ]
-            switch reason {
-            case .requested:
-                dict["reason"] = "requested"
-            case let .streamError(message):
-                dict["reason"] = "stream_error"
-                dict["message"] = message
-            case let .connectionLost(message):
-                dict["reason"] = "connection_lost"
-                dict["message"] = message
-            }
-            return encode(dict)
+            return formatDisconnect(reason, account: account)
         case let .authenticationFailed(message):
-            return encode([
-                "type": "authentication_failed",
-                "message": message,
-                "account": accountID.uuidString
-            ])
+            return encode(["type": "authentication_failed", "message": message, "account": account])
         case let .messageReceived(message):
-            guard let from = message.from?.bareJID, let body = message.body else { return nil }
-            return encode([
-                "type": "message",
-                "direction": "incoming",
-                "from": from.description,
-                "body": body,
-                "account": accountID.uuidString,
-                "timestamp": formatTimestamp(Date())
-            ])
+            return formatIncomingMessage(message, account: account)
         case let .presenceSubscriptionRequest(from: jid):
             return encode(["type": "subscription_request", "from": jid.description])
-        case .presenceReceived, .iqReceived, .rosterLoaded, .rosterItemChanged, .presenceUpdated,
-             .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
-             .messageCorrected, .messageError:
+        case let .deliveryReceiptReceived(messageID, from):
+            return encode(["type": "delivery_receipt", "messageID": messageID, "from": from.bareJID.description, "account": account])
+        case let .messageCorrected(originalID, newBody, from):
+            return encode(["type": "message_corrected", "originalID": originalID, "newBody": newBody, "from": from.bareJID.description, "account": account])
+        case let .messageError(_, from, errorText):
+            return encode(["type": "message_error", "from": from.bareJID.description, "error": errorText, "account": account])
+        case .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .chatMarkerReceived:
             return nil
         }
+    }
+
+    private func formatDisconnect(_ reason: DisconnectReason, account: String) -> String {
+        var dict: [String: String] = ["type": "disconnected", "account": account]
+        switch reason {
+        case .requested:
+            dict["reason"] = "requested"
+        case let .streamError(message):
+            dict["reason"] = "stream_error"
+            dict["message"] = message
+        case let .connectionLost(message):
+            dict["reason"] = "connection_lost"
+            dict["message"] = message
+        }
+        return encode(dict)
+    }
+
+    private func formatIncomingMessage(_ message: XMPPMessage, account: String) -> String? {
+        guard let from = message.from?.bareJID, let body = message.body else { return nil }
+        return encode([
+            "type": "message", "direction": "incoming", "from": from.description,
+            "body": body, "account": account, "timestamp": formatTimestamp(Date())
+        ])
+    }
+
+    func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
+        encode([
+            "type": "typing",
+            "jid": jid.description,
+            "state": state.rawValue
+        ])
     }
 
     func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String {

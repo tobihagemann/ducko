@@ -161,4 +161,76 @@ struct JSONFormatterTests {
         let output = formatter.formatEvent(.presenceReceived(presence), accountID: UUID())
         #expect(output == nil)
     }
+
+    // MARK: - Message Markers
+
+    @Test func messageIncludesDelivered() throws {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "bob@example.com",
+            body: "Hi",
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: true,
+            isEdited: false,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["delivered"] == "true")
+    }
+
+    @Test func messageIncludesEdited() throws {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "corrected",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: true,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["edited"] == "true")
+    }
+
+    // MARK: - New Event Types
+
+    @Test func deliveryReceiptEventIsValidJSON() throws {
+        let jid = try #require(JID.parse("alice@example.com/res"))
+        let output = try #require(formatter.formatEvent(.deliveryReceiptReceived(messageID: "msg-1", from: jid), accountID: UUID()))
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "delivery_receipt")
+        #expect(json["messageID"] == "msg-1")
+        #expect(json["from"] == "alice@example.com")
+    }
+
+    // MARK: - Typing Indicator
+
+    @Test func typingIndicatorComposing() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = try #require(formatter.formatTypingIndicator(from: jid, state: .composing))
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "typing")
+        #expect(json["state"] == "composing")
+    }
+
+    @Test func typingIndicatorPaused() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = try #require(formatter.formatTypingIndicator(from: jid, state: .paused))
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "typing")
+        #expect(json["state"] == "paused")
+    }
 }

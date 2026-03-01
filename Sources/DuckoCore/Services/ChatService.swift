@@ -387,8 +387,16 @@ public final class ChatService {
     }
 
     public func loadMessages(for conversationID: UUID) async -> [ChatMessage] {
-        let fetched = try? await store.fetchMessages(for: conversationID, before: nil, limit: 50)
-        return (fetched ?? []).reversed()
+        await (try? fetchMessageHistory(for: conversationID, before: nil, limit: 50)) ?? []
+    }
+
+    public func fetchMessageHistory(
+        for conversationID: UUID,
+        before: Date?,
+        limit: Int
+    ) async throws -> [ChatMessage] {
+        let messages = try await store.fetchMessages(for: conversationID, before: before, limit: limit)
+        return messages.reversed()
     }
 
     private func findOrCreateConversation(for jid: BareJID, accountID: UUID) async throws -> Conversation {

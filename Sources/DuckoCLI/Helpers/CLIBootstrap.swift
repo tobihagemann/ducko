@@ -8,10 +8,10 @@ struct CLIContext: Sendable {
 
 @MainActor
 enum CLIBootstrap {
-    static func setUp(formatter: any CLIFormatter) throws -> CLIContext {
+    static func setUp(formatter: any CLIFormatter, isInteractive: Bool = false) throws -> CLIContext {
         let container = try ModelContainerFactory.makeContainer()
         let store = SwiftDataPersistenceStore(modelContainer: container)
-        let eventHandler = CLIEventHandler(formatter: formatter)
+        let eventHandler = CLIEventHandler(formatter: formatter, isInteractive: isInteractive)
 
         let environment = AppEnvironment(
             store: store,

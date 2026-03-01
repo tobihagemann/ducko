@@ -11,6 +11,7 @@ protocol CLIFormatter: Sendable {
     func formatGroupHeader(_ group: ContactGroup) -> String
     func formatError(_ error: any Error) -> String
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String?
+    func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String?
     func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String
 }
 

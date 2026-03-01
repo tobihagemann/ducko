@@ -3,12 +3,28 @@ import Foundation
 
 actor CLIEventHandler {
     private let formatter: any CLIFormatter
+    private let isInteractive: Bool
 
-    init(formatter: any CLIFormatter) {
+    init(formatter: any CLIFormatter, isInteractive: Bool = false) {
         self.formatter = formatter
+        self.isInteractive = isInteractive
     }
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) {
+        switch event {
+        case .messageReceived:
+            if isInteractive, !(formatter is JSONFormatter) {
+                print("\u{07}", terminator: "")
+            }
+        case let .chatStateChanged(from, state):
+            guard isInteractive else { return }
+            if let output = formatter.formatTypingIndicator(from: from, state: state) {
+                print(output)
+            }
+            return
+        default:
+            break
+        }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }
         print(output)
     }

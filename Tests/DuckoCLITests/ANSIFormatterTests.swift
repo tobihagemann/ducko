@@ -153,4 +153,64 @@ struct ANSIFormatterTests {
         let output = formatter.formatMessage(message)
         #expect(output.contains("\u{001B}[36m"))
     }
+
+    // MARK: - Message Markers
+
+    @Test func deliveredShowsCheckmark() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "bob@example.com",
+            body: "Hi",
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: true,
+            isEdited: false,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("\u{2713}"))
+    }
+
+    @Test func editedShowsDimMarker() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "corrected",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: true,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("[edited]"))
+        #expect(output.contains("\u{001B}[2m")) // dim
+    }
+
+    // MARK: - Event Markers
+
+    @Test func deliveryReceiptEventUsesDim() throws {
+        let jid = try #require(JID.parse("alice@example.com/res"))
+        let output = try #require(formatter.formatEvent(.deliveryReceiptReceived(messageID: "msg-1", from: jid), accountID: UUID()))
+        #expect(output.contains("\u{001B}[2m")) // dim
+    }
+
+    @Test func messageErrorEventUsesRed() throws {
+        let jid = try #require(JID.parse("alice@example.com/res"))
+        let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, errorText: "failed"), accountID: UUID()))
+        #expect(output.contains("\u{001B}[31m")) // red
+    }
+
+    // MARK: - Typing Indicator
+
+    @Test func typingIndicatorUsesDim() throws {
+        let jid = try #require(BareJID.parse("alice@example.com"))
+        let output = try #require(formatter.formatTypingIndicator(from: jid, state: .composing))
+        #expect(output.contains("\u{001B}[2m")) // dim
+        #expect(output.contains("typing"))
+    }
 }

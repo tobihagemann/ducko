@@ -6,7 +6,17 @@ struct PlainFormatter: CLIFormatter {
     func formatMessage(_ message: ChatMessage) -> String {
         let timestamp = iso8601(message.timestamp)
         let direction = message.isOutgoing ? "->" : "<-"
-        return "[\(timestamp)] \(direction) \(message.fromJID): \(message.body)"
+        var line = "[\(timestamp)] \(direction) \(message.fromJID): \(message.body)"
+        if message.isEdited {
+            line += " [edited]"
+        }
+        if message.isOutgoing, message.isDelivered {
+            line += " [delivered]"
+        }
+        if let errorText = message.errorText {
+            line += " [error: \(errorText)]"
+        }
+        return line
     }
 
     func formatContact(_ contact: Contact) -> String {
@@ -53,14 +63,7 @@ struct PlainFormatter: CLIFormatter {
         case let .connected(jid):
             return "connected as \(jid)"
         case let .disconnected(reason):
-            switch reason {
-            case .requested:
-                return "disconnected"
-            case let .streamError(message):
-                return "disconnected: stream error: \(message)"
-            case let .connectionLost(message):
-                return "disconnected: connection lost: \(message)"
-            }
+            return formatDisconnect(reason)
         case let .authenticationFailed(message):
             return "authentication failed: \(message)"
         case let .messageReceived(message):
@@ -69,16 +72,35 @@ struct PlainFormatter: CLIFormatter {
             return "[\(timestamp)] <- \(from): \(body)"
         case let .presenceSubscriptionRequest(from: jid):
             return "Subscription request from \(jid)"
+        case let .deliveryReceiptReceived(messageID, from):
+            return "delivery receipt: \(messageID) from \(from.bareJID)"
+        case let .messageCorrected(_, newBody, from):
+            return "message corrected by \(from.bareJID): \(newBody)"
+        case let .messageError(_, from, errorText):
+            return "message error from \(from.bareJID): \(errorText)"
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected,
-             .messageError:
+             .chatStateChanged, .chatMarkerReceived:
             return nil
         }
+    }
+
+    private func formatDisconnect(_ reason: DisconnectReason) -> String {
+        switch reason {
+        case .requested:
+            return "disconnected"
+        case let .streamError(message):
+            return "disconnected: stream error: \(message)"
+        case let .connectionLost(message):
+            return "disconnected: connection lost: \(message)"
+        }
+    }
+
+    func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
+        state == .composing ? "[\(jid) is typing...]" : nil
     }
 
     func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String {

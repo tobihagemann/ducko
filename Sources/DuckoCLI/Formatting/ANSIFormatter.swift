@@ -21,7 +21,17 @@ struct ANSIFormatter: CLIFormatter {
         let timestamp = iso8601(message.timestamp)
         let direction = message.isOutgoing ? "->" : "<-"
         let color = message.isOutgoing ? Color.cyan : Color.green
-        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(message.fromJID): \(message.body)\(Color.reset)"
+        var line = "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(message.fromJID): \(message.body)\(Color.reset)"
+        if message.isEdited {
+            line += " \(Color.dim)[edited]\(Color.reset)"
+        }
+        if message.isOutgoing, message.isDelivered {
+            line += " \(Color.green)\u{2713}\(Color.reset)"
+        }
+        if let errorText = message.errorText {
+            line += " \(Color.red)[error: \(errorText)]\(Color.reset)"
+        }
+        return line
     }
 
     func formatContact(_ contact: Contact) -> String {
@@ -78,14 +88,7 @@ struct ANSIFormatter: CLIFormatter {
         case let .connected(jid):
             return "\(Color.green)connected as \(jid)\(Color.reset)"
         case let .disconnected(reason):
-            switch reason {
-            case .requested:
-                return "\(Color.yellow)disconnected\(Color.reset)"
-            case let .streamError(message):
-                return "\(Color.red)disconnected: stream error: \(message)\(Color.reset)"
-            case let .connectionLost(message):
-                return "\(Color.red)disconnected: connection lost: \(message)\(Color.reset)"
-            }
+            return formatDisconnect(reason)
         case let .authenticationFailed(message):
             return "\(Color.red)authentication failed: \(message)\(Color.reset)"
         case let .messageReceived(message):
@@ -94,16 +97,35 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(from): \(body)\(Color.reset)"
         case let .presenceSubscriptionRequest(from: jid):
             return "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
+        case let .deliveryReceiptReceived(messageID, from):
+            return "\(Color.dim)\u{2713} delivery receipt: \(messageID) from \(from.bareJID)\(Color.reset)"
+        case let .messageCorrected(_, newBody, from):
+            return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
+        case let .messageError(_, from, errorText):
+            return "\(Color.red)message error from \(from.bareJID): \(errorText)\(Color.reset)"
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected,
-             .messageError:
+             .chatStateChanged, .chatMarkerReceived:
             return nil
         }
+    }
+
+    private func formatDisconnect(_ reason: DisconnectReason) -> String {
+        switch reason {
+        case .requested:
+            return "\(Color.yellow)disconnected\(Color.reset)"
+        case let .streamError(message):
+            return "\(Color.red)disconnected: stream error: \(message)\(Color.reset)"
+        case let .connectionLost(message):
+            return "\(Color.red)disconnected: connection lost: \(message)\(Color.reset)"
+        }
+    }
+
+    func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
+        state == .composing ? "\(Color.dim)[\(jid) is typing...]\(Color.reset)" : nil
     }
 
     func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String {
