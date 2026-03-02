@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-public enum KeychainHelper {
+enum KeychainHelper {
     private static let serviceName = "de.tobiha.ducko"
 
     private static func baseQuery(for jid: String) -> [String: Any] {
@@ -12,7 +12,7 @@ public enum KeychainHelper {
         ]
     }
 
-    public static func savePassword(_ password: String, for jid: String) {
+    static func savePassword(_ password: String, for jid: String) {
         let data = Data(password.utf8)
         let query = baseQuery(for: jid)
 
@@ -27,7 +27,7 @@ public enum KeychainHelper {
         }
     }
 
-    public static func loadPassword(for jid: String) -> String? {
+    static func loadPassword(for jid: String) -> String? {
         var query = baseQuery(for: jid)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -38,7 +38,7 @@ public enum KeychainHelper {
         return String(data: data, encoding: .utf8)
     }
 
-    public static func deletePassword(for jid: String) {
+    static func deletePassword(for jid: String) {
         SecItemDelete(baseQuery(for: jid) as CFDictionary)
     }
 }

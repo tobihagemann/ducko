@@ -66,7 +66,7 @@ extension DuckoCLI {
 
             let selectedAccount = try await resolveAccount(account, environment: env)
 
-            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
                 throw CLIError.noPassword
             }
 
@@ -116,7 +116,7 @@ extension DuckoCLI {
 
             let selectedAccount = try await resolveAccount(account, environment: env)
 
-            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
                 throw CLIError.noPassword
             }
 
@@ -165,7 +165,7 @@ extension DuckoCLI {
 
                 let selectedAccount = try await resolveAccount(account, environment: env)
 
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
                     throw CLIError.noPassword
                 }
 
@@ -225,7 +225,7 @@ extension DuckoCLI {
 
                 let selectedAccount = try await resolveAccount(account, environment: env)
 
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
                     throw CLIError.noPassword
                 }
 
@@ -268,7 +268,7 @@ extension DuckoCLI {
 
                 let selectedAccount = try await resolveAccount(account, environment: env)
 
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
                     throw CLIError.noPassword
                 }
 
@@ -315,7 +315,7 @@ extension DuckoCLI {
 
             let selectedAccount = try await resolveAccount(account, environment: env)
 
-            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description) else {
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
                 throw CLIError.noPassword
             }
 
@@ -502,7 +502,7 @@ extension DuckoCLI {
                 do {
                     try await env.accountService.connect(accountID: accountID, password: password)
                     try await waitForConnected(accountID: accountID, environment: env)
-                    await env.accountService.savePasswordToKeychain(accountID: accountID)
+                    await env.accountService.savePassword(accountID: accountID)
                     await env.accountService.disconnect(accountID: accountID)
                 } catch {
                     try? await env.accountService.deleteAccount(accountID)

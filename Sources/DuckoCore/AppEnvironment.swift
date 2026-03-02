@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor @Observable
 public final class AppEnvironment {
+    public nonisolated let credentialStore: any CredentialStore
     public let accountService: AccountService
     public let chatService: ChatService
     public let presenceService: PresenceService
@@ -13,14 +14,17 @@ public final class AppEnvironment {
 
     public init(
         store: any PersistenceStore,
+        credentialStore: (any CredentialStore)? = nil,
         linkPreviewFetcher: any LinkPreviewFetcher = NoOpLinkPreviewFetcher(),
         onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)? = nil
     ) {
+        let resolvedCredentialStore = credentialStore ?? CredentialStoreFactory.makeDefault()
+
         let pipeline = MessageFilterPipeline()
         let chatService = ChatService(store: store, filterPipeline: pipeline)
         let presenceService = PresenceService()
         let rosterService = RosterService(store: store)
-        let accountService = AccountService(store: store)
+        let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore)
         let fileTransferService = FileTransferService()
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
 
@@ -38,6 +42,7 @@ public final class AppEnvironment {
         rosterService.setAccountService(accountService)
         rosterService.setPresenceService(presenceService)
 
+        self.credentialStore = resolvedCredentialStore
         self.accountService = accountService
         self.chatService = chatService
         self.presenceService = presenceService

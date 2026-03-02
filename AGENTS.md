@@ -40,6 +40,18 @@ After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., 
 
 Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` commands.
 
+## Dev/Prod Isolation
+
+`BuildEnvironment` (in DuckoCore) centralizes `#if DEBUG` config. Debug builds use separate storage to avoid polluting production data:
+
+| Component | Prod | Dev |
+|-----------|------|-----|
+| SwiftData | `~/Library/Application Support/Ducko/` | `~/Library/Application Support/Ducko-Dev/` |
+| Credentials | macOS Keychain | `Ducko-Dev/credentials.json` (file-based) |
+| UserDefaults | `.standard` | `UserDefaults(suiteName: "de.tobiha.ducko.dev")` |
+
+Set `DUCKO_USE_KEYCHAIN=1` to use real Keychain in debug builds.
+
 ## Lint & Format
 
 SwiftFormat and SwiftLint are installed via Homebrew. Run via the orchestrator script:

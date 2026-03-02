@@ -63,7 +63,7 @@ struct AccountSetupView: View {
             let accountID = try await environment.accountService.createAccount(jidString: jidString)
             do {
                 try await environment.accountService.connect(accountID: accountID, password: password)
-                await environment.accountService.savePasswordToKeychain(accountID: accountID)
+                await environment.accountService.savePassword(accountID: accountID)
                 try await environment.accountService.loadAccounts()
             } catch {
                 try? await environment.accountService.deleteAccount(accountID)

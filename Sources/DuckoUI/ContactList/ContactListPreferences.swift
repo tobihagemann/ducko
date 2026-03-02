@@ -1,3 +1,4 @@
+import DuckoCore
 import Foundation
 import SwiftUI
 
@@ -8,6 +9,13 @@ final class ContactListPreferences {
         static let hideOffline = "contactListHideOffline"
         static let collapsedGroups = "contactListCollapsedGroups"
     }
+
+    private static let defaults: UserDefaults = {
+        if let suite = BuildEnvironment.userDefaultsSuiteName {
+            return UserDefaults(suiteName: suite) ?? .standard
+        }
+        return .standard
+    }()
 
     var sortMode: ContactListSortMode {
         didSet { sortModeStorage = sortMode.rawValue }
@@ -22,17 +30,17 @@ final class ContactListPreferences {
     }
 
     @ObservationIgnored
-    @AppStorage(Keys.sortMode) private var sortModeStorage = ContactListSortMode.alphabetical.rawValue
+    @AppStorage(Keys.sortMode, store: ContactListPreferences.defaults) private var sortModeStorage = ContactListSortMode.alphabetical.rawValue
 
     @ObservationIgnored
-    @AppStorage(Keys.hideOffline) private var hideOfflineStorage = false
+    @AppStorage(Keys.hideOffline, store: ContactListPreferences.defaults) private var hideOfflineStorage = false
 
     @ObservationIgnored
-    @AppStorage(Keys.collapsedGroups) private var collapsedGroupsStorage = "[]"
+    @AppStorage(Keys.collapsedGroups, store: ContactListPreferences.defaults) private var collapsedGroupsStorage = "[]"
 
     init() {
-        self.sortMode = ContactListSortMode(rawValue: UserDefaults.standard.string(forKey: Keys.sortMode) ?? "") ?? .alphabetical
-        self.hideOffline = UserDefaults.standard.bool(forKey: Keys.hideOffline)
+        self.sortMode = ContactListSortMode(rawValue: ContactListPreferences.defaults.string(forKey: Keys.sortMode) ?? "") ?? .alphabetical
+        self.hideOffline = ContactListPreferences.defaults.bool(forKey: Keys.hideOffline)
         self.collapsedGroups = Self.loadCollapsedGroups()
     }
 
@@ -58,7 +66,7 @@ final class ContactListPreferences {
     }
 
     private static func loadCollapsedGroups() -> Set<String> {
-        let json = UserDefaults.standard.string(forKey: Keys.collapsedGroups) ?? "[]"
+        let json = defaults.string(forKey: Keys.collapsedGroups) ?? "[]"
         guard let data = json.data(using: .utf8),
               let array = try? JSONDecoder().decode([String].self, from: data)
         else { return [] }

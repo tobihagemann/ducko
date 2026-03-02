@@ -1,3 +1,4 @@
+import DuckoCore
 import Foundation
 import SwiftData
 
@@ -16,8 +17,7 @@ public enum ModelContainerFactory {
         if inMemory {
             configuration = ModelConfiguration(isStoredInMemoryOnly: true)
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            let storeDir = appSupport.appendingPathComponent("Ducko", isDirectory: true)
+            let storeDir = BuildEnvironment.appSupportDirectory
             try FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
             let storeURL = storeDir.appendingPathComponent("default.store")
             configuration = ModelConfiguration(url: storeURL)
