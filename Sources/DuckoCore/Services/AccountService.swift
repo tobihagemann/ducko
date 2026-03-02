@@ -154,6 +154,7 @@ public final class AccountService {
         builder.withModule(CarbonsModule())
         builder.withModule(MAMModule())
         builder.withModule(PingModule())
+        builder.withModule(MUCModule())
         let sm = StreamManagementModule()
         builder.withModule(sm)
         builder.withInterceptor(sm)

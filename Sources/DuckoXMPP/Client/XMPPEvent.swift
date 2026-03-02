@@ -18,6 +18,14 @@ public enum XMPPEvent: Sendable {
     case chatMarkerReceived(messageID: String, type: ChatMarkerType, from: JID)
     case messageCorrected(originalID: String, newBody: String, from: JID)
     case messageError(messageID: String?, from: JID, errorText: String)
+
+    // MUC (XEP-0045)
+    case roomJoined(room: BareJID, occupancy: RoomOccupancy)
+    case roomOccupantJoined(room: BareJID, occupant: RoomOccupant)
+    case roomOccupantLeft(room: BareJID, occupant: RoomOccupant)
+    case roomSubjectChanged(room: BareJID, subject: String?, setter: JID?)
+    case roomInviteReceived(RoomInvite)
+    case roomMessageReceived(XMPPMessage)
 }
 
 /// Reason the client disconnected.

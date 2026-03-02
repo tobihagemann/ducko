@@ -22,4 +22,9 @@ public enum XMPPNamespaces {
     public static let chatStates = "http://jabber.org/protocol/chatstates"
     public static let messageCorrect = "urn:xmpp:message-correct:0"
     public static let messageReply = "urn:xmpp:reply:0"
+    public static let muc = "http://jabber.org/protocol/muc"
+    public static let mucUser = "http://jabber.org/protocol/muc#user"
+    public static let mucAdmin = "http://jabber.org/protocol/muc#admin"
+    public static let mucOwner = "http://jabber.org/protocol/muc#owner"
+    public static let mucDirectInvite = "jabber:x:conference"
 }

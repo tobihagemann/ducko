@@ -237,6 +237,69 @@ public final class ChatService {
         try await sendDisplayedMarker(to: jid, messageStanzaID: messageStanzaID, accountID: accountID)
     }
 
+    // MARK: - MUC
+
+    public func joinRoom(jid: BareJID, nickname: String, password: String? = nil, accountID: UUID) async throws {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+
+        try await mucModule.joinRoom(jid, nickname: nickname, password: password)
+        _ = try await findOrCreateGroupConversation(for: jid, nickname: nickname, accountID: accountID)
+    }
+
+    public func leaveRoom(jid: BareJID, accountID: UUID) async throws {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        try await mucModule.leaveRoom(jid)
+    }
+
+    public func sendGroupMessage(to room: BareJID, body: String, accountID: UUID) async throws {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+
+        let stanzaID = client.generateID()
+        try await mucModule.sendMessage(to: room, body: body, id: stanzaID)
+
+        // Persist outgoing group message
+        let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
+
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: conversation.id,
+            stanzaID: stanzaID,
+            fromJID: room.description,
+            body: body,
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: "groupchat"
+        )
+        try await persistMessage(message, in: conversation, accountID: accountID)
+    }
+
+    public func joinRoom(jidString: String, nickname: String, password: String? = nil, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        try await joinRoom(jid: jid, nickname: nickname, password: password, accountID: accountID)
+    }
+
+    public func leaveRoom(jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        try await leaveRoom(jid: jid, accountID: accountID)
+    }
+
+    public func sendGroupMessage(toJIDString jidString: String, body: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        try await sendGroupMessage(to: jid, body: body, accountID: accountID)
+    }
+
     // MARK: - Pin/Mute
 
     public func togglePin(conversationID: UUID, accountID: UUID) async throws {
@@ -284,6 +347,12 @@ public final class ChatService {
             await handleMessageCorrected(originalID: originalID, newBody: newBody)
         case let .messageError(messageID, _, errorText):
             await handleMessageError(messageID: messageID, errorText: errorText)
+        case let .roomJoined(room, occupancy):
+            await handleRoomJoined(room: room, occupancy: occupancy, accountID: accountID)
+        case let .roomMessageReceived(xmppMessage):
+            await handleRoomMessageReceived(xmppMessage, accountID: accountID)
+        case let .roomSubjectChanged(room, subject, _):
+            await handleRoomSubjectChanged(room: room, subject: subject, accountID: accountID)
         default:
             break
         }
@@ -315,6 +384,73 @@ public final class ChatService {
         guard let messageID else { return }
         try? await store.updateMessageError(stanzaID: messageID, errorText: errorText)
         await reloadActiveMessages()
+    }
+
+    private func handleRoomJoined(room: BareJID, occupancy: RoomOccupancy, accountID: UUID) async {
+        _ = try? await findOrCreateGroupConversation(for: room, nickname: occupancy.nickname, accountID: accountID)
+    }
+
+    private func handleRoomMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
+        guard let body = xmppMessage.body,
+              let from = xmppMessage.from else { return }
+
+        let roomJID = from.bareJID
+
+        let senderNickname: String? = if case let .full(fullJID) = from {
+            fullJID.resourcePart
+        } else {
+            nil
+        }
+
+        // Skip own messages (the server echoes them back)
+        if let senderNickname,
+           let client = accountService?.client(for: accountID),
+           let mucModule = await client.module(ofType: MUCModule.self) {
+            let ownNickname = mucModule.nickname(in: roomJID)
+            if senderNickname == ownNickname {
+                return
+            }
+        }
+
+        // Deduplicate replayed stanzas (stream recovery, MAM catchup)
+        if await isDuplicate(stanzaID: xmppMessage.id, from: roomJID, accountID: accountID) {
+            return
+        }
+
+        let conversation: Conversation
+        do {
+            conversation = try await findOrCreateGroupConversation(for: roomJID, nickname: nil, accountID: accountID)
+        } catch {
+            return
+        }
+
+        let fromLabel = senderNickname ?? roomJID.description
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: conversation.id,
+            stanzaID: xmppMessage.id,
+            fromJID: fromLabel,
+            body: body,
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "groupchat"
+        )
+        try? await persistMessage(message, in: conversation, incrementUnread: true, accountID: accountID)
+
+        onIncomingMessage?(message, conversation)
+    }
+
+    private func handleRoomSubjectChanged(room: BareJID, subject: String?, accountID: UUID) async {
+        let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
+        guard var conversation = conversations.first(where: { $0.jid == room && $0.type == .groupchat }) else { return }
+        conversation.roomSubject = subject
+        try? await store.upsertConversation(conversation)
+        if let index = openConversations.firstIndex(where: { $0.id == conversation.id }) {
+            openConversations[index] = conversation
+        }
     }
 
     // MARK: - Private
@@ -437,6 +573,35 @@ public final class ChatService {
             isPinned: false,
             isMuted: false,
             unreadCount: 0,
+            createdAt: Date()
+        )
+        try await store.upsertConversation(conversation)
+        return conversation
+    }
+
+    private func findOrCreateGroupConversation(
+        for room: BareJID,
+        nickname: String?,
+        accountID: UUID
+    ) async throws -> Conversation {
+        let conversations = try await store.fetchConversations(for: accountID)
+        if var existing = conversations.first(where: { $0.jid == room && $0.type == .groupchat }) {
+            if let nickname, existing.roomNickname != nickname {
+                existing.roomNickname = nickname
+                try await store.upsertConversation(existing)
+            }
+            return existing
+        }
+
+        let conversation = Conversation(
+            id: UUID(),
+            accountID: accountID,
+            jid: room,
+            type: .groupchat,
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            roomNickname: nickname,
             createdAt: Date()
         )
         try await store.upsertConversation(conversation)

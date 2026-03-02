@@ -83,7 +83,9 @@ struct PlainFormatter: CLIFormatter {
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived:
+             .chatStateChanged, .chatMarkerReceived,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
             return nil
         }
     }
