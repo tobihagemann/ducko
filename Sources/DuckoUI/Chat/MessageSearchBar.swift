@@ -2,11 +2,14 @@ import SwiftUI
 
 struct MessageSearchBar: View {
     let windowState: ChatWindowState
+    @FocusState private var isTextFieldFocused: Bool
 
     var body: some View {
         HStack(spacing: 8) {
             TextField("Search messages", text: Bindable(windowState).searchText)
                 .textFieldStyle(.roundedBorder)
+                .focused($isTextFieldFocused)
+                .onAppear { isTextFieldFocused = true }
                 .onSubmit { windowState.performSearch() }
 
             if !windowState.searchResults.isEmpty {

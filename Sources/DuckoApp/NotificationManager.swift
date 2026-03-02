@@ -8,14 +8,21 @@ import UserNotifications
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     var onNotificationTapped: ((String) -> Void)?
 
+    /// UNUserNotificationCenter.current() crashes when running via `swift run`
+    /// (no app bundle → bundleProxyForCurrentProcess is nil). Guard with bundle check.
+    private let center: UNUserNotificationCenter? = {
+        guard Bundle.main.bundleIdentifier != nil else { return nil }
+        return UNUserNotificationCenter.current()
+    }()
+
     override init() {
         super.init()
-        UNUserNotificationCenter.current().delegate = self
+        center?.delegate = self
     }
 
     func requestAuthorization() {
         Task {
-            try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            try? await center?.requestAuthorization(options: [.alert, .sound, .badge])
         }
     }
 
@@ -31,7 +38,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
 
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        center?.add(request)
     }
 
     func updateDockBadge(totalUnread: Int) {

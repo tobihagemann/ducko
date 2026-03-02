@@ -21,7 +21,6 @@ DuckoApp uses separate windows instead of a single NavigationSplitView:
 
 - Peekaboo CLI installed (`/opt/homebrew/bin/peekaboo`)
 - Accessibility permissions granted for Terminal/Claude
-- Test credentials stored in memory (never in committable files)
 
 ## Scripts
 
@@ -64,6 +63,9 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `ducko-add-contact.sh` | Open Add Contact sheet from contact list, fill JID, submit | `JID` |
 | `ducko-send.sh` | Type a message and send it in the active chat window | `MESSAGE` |
 | `ducko-screenshot.sh` | Capture window screenshot | `[FILENAME]` (optional, absolute path or relative to `/private/tmp/claude/`) |
+| `ducko-search.sh` | Toggle Cmd+F search bar in chat, optionally search | `[QUERY]` (optional) |
+| `ducko-reply.sh` | Right-click a message and select Reply | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
+| `ducko-sort.sh` | Open View Options menu, optionally select sort/filter | `[alphabetical\|byStatus\|recentConversation\|hideOffline]` (optional) |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
@@ -128,6 +130,67 @@ $SCRIPTS/ducko-stop.sh
 SCRIPTS="Skills/ducko-ui/scripts"
 $SCRIPTS/ducko-send.sh "Quick test message"
 $SCRIPTS/ducko-screenshot.sh
+```
+
+### Chat UI polish test (message grouping, search, reply)
+
+Tests features from Prompt 18 — message grouping, search bar, reply compose bar, and context menu:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and open a chat
+WID=$($SCRIPTS/ducko-launch.sh)
+sleep 3
+$SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
+sleep 2
+
+# 2. Send grouped messages (within 2-min window → single timestamp)
+$SCRIPTS/ducko-send.sh "Message one"
+sleep 1
+$SCRIPTS/ducko-send.sh "Message two"
+sleep 1
+$SCRIPTS/ducko-send.sh "Message three"
+$SCRIPTS/ducko-screenshot.sh "grouped-messages.png"
+
+# 3. Test Cmd+F search
+$SCRIPTS/ducko-search.sh "Message two"
+$SCRIPTS/ducko-screenshot.sh "search-results.png"
+$SCRIPTS/ducko-search.sh  # toggle search off
+
+# 4. Test reply compose bar
+$SCRIPTS/ducko-reply.sh "Message one"
+$SCRIPTS/ducko-screenshot.sh "reply-bar.png"
+
+# 5. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Contact list sort/filter test
+
+Tests sort modes and hide-offline toggle:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch
+WID=$($SCRIPTS/ducko-launch.sh)
+sleep 3
+
+# 2. Open sort menu (visual verification)
+$SCRIPTS/ducko-sort.sh
+$SCRIPTS/ducko-screenshot.sh "sort-menu.png"
+
+# 3. Select a sort mode
+$SCRIPTS/ducko-sort.sh byStatus
+$SCRIPTS/ducko-screenshot.sh "sorted-by-status.png"
+
+# 4. Toggle hide offline
+$SCRIPTS/ducko-sort.sh hideOffline
+$SCRIPTS/ducko-screenshot.sh "hide-offline.png"
+
+# 5. Cleanup
+$SCRIPTS/ducko-stop.sh
 ```
 
 ### Reconnect (app disconnected)
