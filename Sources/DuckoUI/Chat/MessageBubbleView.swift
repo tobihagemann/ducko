@@ -12,6 +12,10 @@ struct MessageBubbleView: View {
         message.type == "groupchat" && !message.isOutgoing
     }
 
+    private var isImageOnlyMessage: Bool {
+        message.body.isEmpty && message.attachments.count == 1 && message.attachments[0].isImage
+    }
+
     var body: some View {
         HStack {
             if message.isOutgoing { Spacer(minLength: 60) }
@@ -32,7 +36,22 @@ struct MessageBubbleView: View {
                     )
                 }
 
-                Text(message.body)
+                if isImageOnlyMessage {
+                    AttachmentView(attachment: message.attachments[0], isOutgoing: message.isOutgoing)
+                } else {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(message.attachments) { attachment in
+                            AttachmentView(attachment: attachment, isOutgoing: message.isOutgoing)
+                        }
+
+                        if !message.body.isEmpty {
+                            Text(message.body)
+                        }
+
+                        if let preview = windowState.linkPreview(for: message) {
+                            LinkPreviewCard(preview: preview)
+                        }
+                    }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
@@ -40,6 +59,7 @@ struct MessageBubbleView: View {
                         in: .rect(cornerRadius: 12)
                     )
                     .foregroundStyle(message.isOutgoing ? .white : .primary)
+                }
 
                 MessageMetadataView(
                     message: message,

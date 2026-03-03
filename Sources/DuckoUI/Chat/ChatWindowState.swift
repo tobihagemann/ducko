@@ -1,5 +1,6 @@
 import DuckoCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor @Observable
 final class ChatWindowState {
@@ -11,6 +12,10 @@ final class ChatWindowState {
 
     var replyingTo: ChatMessage?
     var editingMessage: ChatMessage?
+
+    // MARK: - Attachments
+
+    var pendingAttachments: [DraftAttachment] = []
 
     // MARK: - Groupchat
 
@@ -52,6 +57,7 @@ final class ChatWindowState {
             let conv = try await environment.chatService.openConversation(jidString: jidString, accountID: accountID)
             conversation = conv
             messages = await environment.chatService.loadMessages(for: conv.id)
+            prefetchLinkPreviews()
             await environment.chatService.selectConversation(conv.id, accountID: accountID)
         } catch {
             // Conversation creation failed — leave state empty
@@ -61,6 +67,7 @@ final class ChatWindowState {
     func refreshMessages() async {
         guard let conversationID = conversation?.id else { return }
         messages = await environment.chatService.loadMessages(for: conversationID)
+        prefetchLinkPreviews()
     }
 
     func sendMessage(_ body: String) async {
@@ -180,5 +187,98 @@ final class ChatWindowState {
         searchText = ""
         searchResults = []
         currentSearchIndex = 0
+    }
+
+    // MARK: - Link Previews
+
+    func linkPreview(for message: ChatMessage) -> LinkPreview? {
+        guard let url = Self.extractFirstURL(from: message.body) else { return nil }
+        return environment.linkPreviewService.cachedPreview(for: url)
+    }
+
+    private static let linkDetector: NSDataDetector = {
+        do {
+            return try NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        } catch {
+            fatalError("Failed to create link detector: \(error)")
+        }
+    }()
+
+    private static func extractFirstURL(from body: String) -> String? {
+        let range = NSRange(body.startIndex..., in: body)
+        return linkDetector.firstMatch(in: body, range: range)?.url?.absoluteString
+    }
+
+    /// Fetches link previews for message URLs not yet in the in-memory cache.
+    private func prefetchLinkPreviews() {
+        let service = environment.linkPreviewService
+        for message in messages {
+            guard let urlString = Self.extractFirstURL(from: message.body),
+                  service.cachedPreview(for: urlString) == nil,
+                  let url = URL(string: urlString) else { continue }
+            Task {
+                _ = try? await service.fetchPreview(for: url)
+            }
+        }
+    }
+
+    // MARK: - Attachments
+
+    func addAttachment(url: URL) {
+        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        let fileSize = (attributes?[.size] as? Int64) ?? 0
+        let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+
+        let draft = DraftAttachment(
+            url: url,
+            fileName: url.lastPathComponent,
+            fileSize: fileSize,
+            mimeType: mimeType
+        )
+        pendingAttachments.append(draft)
+    }
+
+    func loadFileURL(from provider: NSItemProvider) {
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier) { item, _ in
+            let url: URL? = if let data = item as? Data {
+                URL(dataRepresentation: data, relativeTo: nil)
+            } else if let nsURL = item as? URL {
+                nsURL
+            } else {
+                nil
+            }
+            guard let url else { return }
+            Task { @MainActor in
+                self.addAttachment(url: url)
+            }
+        }
+    }
+
+    func removeAttachment(id: UUID) {
+        pendingAttachments.removeAll { $0.id == id }
+    }
+
+    func clearAttachments() {
+        pendingAttachments = []
+    }
+
+    func sendAttachments() async {
+        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        guard let conversation else { return }
+
+        let attachmentsToSend = pendingAttachments
+        clearAttachments()
+
+        for attachment in attachmentsToSend {
+            do {
+                try await environment.fileTransferService.sendFile(
+                    url: attachment.url,
+                    in: conversation,
+                    accountID: accountID
+                )
+            } catch {
+                // Transfer failed — tracked in FileTransferService.activeTransfers
+            }
+        }
     }
 }

@@ -17,6 +17,7 @@ public struct ChatMessage: Sendable, Identifiable {
     public var type: String
     public var replyToID: String?
     public var errorText: String?
+    public var attachments: [Attachment]
 
     public init(
         id: UUID,
@@ -34,7 +35,8 @@ public struct ChatMessage: Sendable, Identifiable {
         editedAt: Date? = nil,
         type: String,
         replyToID: String? = nil,
-        errorText: String? = nil
+        errorText: String? = nil,
+        attachments: [Attachment] = []
     ) {
         self.id = id
         self.conversationID = conversationID
@@ -52,5 +54,6 @@ public struct ChatMessage: Sendable, Identifiable {
         self.type = type
         self.replyToID = replyToID
         self.errorText = errorText
+        self.attachments = attachments
     }
 }

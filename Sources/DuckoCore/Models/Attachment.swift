@@ -35,4 +35,22 @@ public struct Attachment: Sendable, Identifiable {
         self.thumbnailData = thumbnailData
         self.localPath = localPath
     }
+
+    // MARK: - Computed Helpers
+
+    public var isImage: Bool {
+        mimeType?.hasPrefix("image/") == true
+    }
+
+    public var displayFileName: String {
+        if let fileName, !fileName.isEmpty {
+            return fileName
+        }
+        return URL(string: url)?.lastPathComponent ?? url
+    }
+
+    public var formattedFileSize: String? {
+        guard let fileSize else { return nil }
+        return ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+    }
 }

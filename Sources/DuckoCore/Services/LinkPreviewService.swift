@@ -14,6 +14,10 @@ public final class LinkPreviewService: Sendable {
         self.cache = OSAllocatedUnfairLock(initialState: [:])
     }
 
+    public func cachedPreview(for urlString: String) -> LinkPreview? {
+        cache.withLock { $0[urlString] }
+    }
+
     public func fetchPreview(for url: URL) async throws -> LinkPreview? {
         let key = url.absoluteString
 

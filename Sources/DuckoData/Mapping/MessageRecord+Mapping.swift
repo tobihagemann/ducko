@@ -20,7 +20,8 @@ extension MessageRecord {
             editedAt: editedAt,
             type: type,
             replyToID: replyToID,
-            errorText: errorText
+            errorText: errorText,
+            attachments: attachments.compactMap { $0.toDomain() }
         )
     }
 

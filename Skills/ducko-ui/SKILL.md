@@ -64,6 +64,12 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `room-subject-view` | Room topic banner (editable) | Chat |
 | `participant-sidebar` | Participant sidebar list | Chat |
 | `toggle-participant-sidebar` | Sidebar toggle button (person.2 icon) | Chat |
+| `attachment-button` | Paperclip file picker button | Chat |
+| `pending-attachments` | Pending attachment bar above input | Chat |
+| `file-drop-overlay` | Drag-and-drop overlay | Chat |
+| `attachment-view` | Attachment in message bubble | Chat |
+| `image-preview` | Full-size image preview sheet | Chat |
+| `link-preview` | Link preview card in message bubble | Chat |
 
 ### Script Reference
 
@@ -236,6 +242,28 @@ $SCRIPTS/ducko-focus-contacts.sh
 $SCRIPTS/ducko-screenshot.sh "muc-rooms-section.png"
 
 # 7. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### File attachment test
+
+Tests file attachment features — paperclip picker, pending bar, and attachment rendering:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and open a chat
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
+
+# 2. Screenshot to verify attachment button (paperclip) is visible
+$SCRIPTS/ducko-screenshot.sh "attachment-button.png"
+
+# 3. Send a message with a URL to verify link preview
+$SCRIPTS/ducko-send.sh "Check out https://example.com"
+$SCRIPTS/ducko-screenshot.sh "link-preview.png"
+
+# 4. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 

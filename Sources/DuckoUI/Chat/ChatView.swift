@@ -53,6 +53,7 @@ struct ChatView: View {
                 }
             }
         }
+        .fileDropTarget(windowState: windowState)
         .animation(.easeInOut(duration: 0.2), value: windowState.isPartnerTyping)
         .animation(.easeInOut(duration: 0.2), value: windowState.showParticipantSidebar)
     }
