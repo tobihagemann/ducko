@@ -17,9 +17,9 @@ private func makeChatService(store: MockPersistenceStore) -> ChatService {
 
 enum ChatServiceErrorTests {
     struct MessageError {
-        @Test("Message error updates errorText")
+        @Test
         @MainActor
-        func messageErrorUpdatesErrorText() async throws {
+        func `Message error updates errorText`() async throws {
             let store = MockPersistenceStore()
             let service = makeChatService(store: store)
 
@@ -46,9 +46,9 @@ enum ChatServiceErrorTests {
             #expect(messages[0].errorText == "service-unavailable")
         }
 
-        @Test("Message error without ID is ignored")
+        @Test
         @MainActor
-        func messageErrorWithoutIDIgnored() async throws {
+        func `Message error without ID is ignored`() async throws {
             let store = MockPersistenceStore()
             let service = makeChatService(store: store)
 

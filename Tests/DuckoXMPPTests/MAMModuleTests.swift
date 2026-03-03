@@ -56,8 +56,8 @@ private func sendEmptyFin(mock: MockTransport, iqID: String) async {
 
 enum MAMModuleTests {
     struct QueryConstruction {
-        @Test("queryMessages sends correct IQ with filters and RSM pagination")
-        func queryMessagesSendsCorrectIQ() async throws {
+        @Test
+        func `queryMessages sends correct IQ with filters and RSM pagination`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MAMModule.self))
@@ -90,8 +90,8 @@ enum MAMModuleTests {
     }
 
     struct ResultParsing {
-        @Test("Parses result messages with timestamp and stanza-id")
-        func parsesResultMessages() async throws {
+        @Test
+        func `Parses result messages with timestamp and stanza-id`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MAMModule.self))
@@ -115,8 +115,8 @@ enum MAMModuleTests {
     }
 
     struct EmptyArchive {
-        @Test("Handles empty archive with no results")
-        func handlesEmptyArchive() async throws {
+        @Test
+        func `Handles empty archive with no results`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MAMModule.self))
@@ -139,8 +139,8 @@ enum MAMModuleTests {
     }
 
     struct EventEmission {
-        @Test("Emits archivedMessagesLoaded event")
-        func emitsEvent() async throws {
+        @Test
+        func `Emits archivedMessagesLoaded event`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MAMModule.self))

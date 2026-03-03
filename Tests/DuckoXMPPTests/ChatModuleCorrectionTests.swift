@@ -22,8 +22,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
 
 enum ChatModuleCorrectionTests {
     struct IncomingCorrection {
-        @Test("Emits messageCorrected for incoming correction")
-        func emitsCorrectionEvent() async throws {
+        @Test
+        func `Emits messageCorrected for incoming correction`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -54,8 +54,8 @@ enum ChatModuleCorrectionTests {
     }
 
     struct SendCorrection {
-        @Test("Sends correction XML with replace element")
-        func sendsCorrectionXML() async throws {
+        @Test
+        func `Sends correction XML with replace element`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: ChatModule.self))
@@ -80,8 +80,8 @@ enum ChatModuleCorrectionTests {
     }
 
     struct SendReply {
-        @Test("Sends reply XML with reply element")
-        func sendsReplyXML() async throws {
+        @Test
+        func `Sends reply XML with reply element`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: ChatModule.self))
@@ -111,8 +111,8 @@ enum ChatModuleCorrectionTests {
     }
 
     struct MessageError {
-        @Test("Emits messageError for error-type message")
-        func emitsErrorEvent() async throws {
+        @Test
+        func `Emits messageError for error-type message`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 

@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 struct ChatTabManagerTests {
-    @Test func openTabCreatesTab() {
+    @Test func `open tab creates tab`() {
         let manager = ChatTabManager()
         #expect(manager.tabs.isEmpty)
 
@@ -20,7 +20,7 @@ struct ChatTabManagerTests {
         #expect(manager.selectedTab?.jidString == "alice@example.com")
     }
 
-    @Test func closeTabSelectsAdjacent() {
+    @Test func `close tab selects adjacent`() {
         let manager = ChatTabManager()
 
         let tab1 = ChatTabManager.Tab(id: UUID(), jidString: "alice@example.com", windowState: nil)
@@ -35,7 +35,7 @@ struct ChatTabManagerTests {
         #expect(manager.selectedTabID == tab3.id)
     }
 
-    @Test func closeLastTabClearsSelection() {
+    @Test func `close last tab clears selection`() {
         let manager = ChatTabManager()
 
         let tab = ChatTabManager.Tab(id: UUID(), jidString: "alice@example.com", windowState: nil)
@@ -48,7 +48,7 @@ struct ChatTabManagerTests {
         #expect(manager.selectedTabID == nil)
     }
 
-    @Test func selectNextTabWrapsAround() {
+    @Test func `select next tab wraps around`() {
         let manager = ChatTabManager()
 
         let tab1 = ChatTabManager.Tab(id: UUID(), jidString: "alice@example.com", windowState: nil)
@@ -60,7 +60,7 @@ struct ChatTabManagerTests {
         #expect(manager.selectedTabID == tab1.id)
     }
 
-    @Test func selectPreviousTabWrapsAround() {
+    @Test func `select previous tab wraps around`() {
         let manager = ChatTabManager()
 
         let tab1 = ChatTabManager.Tab(id: UUID(), jidString: "alice@example.com", windowState: nil)
@@ -72,7 +72,7 @@ struct ChatTabManagerTests {
         #expect(manager.selectedTabID == tab2.id)
     }
 
-    @Test func selectTabByIndex() {
+    @Test func `select tab by index`() {
         let manager = ChatTabManager()
 
         let tab1 = ChatTabManager.Tab(id: UUID(), jidString: "alice@example.com", windowState: nil)
@@ -85,7 +85,7 @@ struct ChatTabManagerTests {
         #expect(manager.selectedTabID == tab3.id)
     }
 
-    @Test func selectTabOutOfBoundsIgnored() {
+    @Test func `select tab out of bounds ignored`() {
         let manager = ChatTabManager()
 
         let tab = ChatTabManager.Tab(id: UUID(), jidString: "alice@example.com", windowState: nil)
@@ -96,7 +96,7 @@ struct ChatTabManagerTests {
         #expect(manager.selectedTabID == tab.id)
     }
 
-    @Test func closeNonSelectedTabKeepsSelection() {
+    @Test func `close non selected tab keeps selection`() {
         let manager = ChatTabManager()
 
         let tab1 = ChatTabManager.Tab(id: UUID(), jidString: "alice@example.com", windowState: nil)

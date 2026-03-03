@@ -22,8 +22,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
 
 enum PresenceModuleTests {
     struct InitialPresence {
-        @Test("Sends initial available presence on connect")
-        func sendsInitialPresence() async throws {
+        @Test
+        func `Sends initial available presence on connect`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -39,8 +39,8 @@ enum PresenceModuleTests {
     }
 
     struct PresenceTracking {
-        @Test("Available presence is tracked in map")
-        func availablePresenceTracked() async throws {
+        @Test
+        func `Available presence is tracked in map`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: PresenceModule.self))
@@ -58,8 +58,8 @@ enum PresenceModuleTests {
             await client.disconnect()
         }
 
-        @Test("Unavailable presence removes entry from map")
-        func unavailableRemovesEntry() async throws {
+        @Test
+        func `Unavailable presence removes entry from map`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: PresenceModule.self))
@@ -84,8 +84,8 @@ enum PresenceModuleTests {
             await client.disconnect()
         }
 
-        @Test("presenceUpdated event is emitted")
-        func presenceUpdatedEventEmitted() async throws {
+        @Test
+        func `presenceUpdated event is emitted`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -110,8 +110,8 @@ enum PresenceModuleTests {
             await client.disconnect()
         }
 
-        @Test("presenceSubscriptionRequest emitted for subscribe type")
-        func subscriptionRequestEmitted() async throws {
+        @Test
+        func `presenceSubscriptionRequest emitted for subscribe type`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -135,8 +135,8 @@ enum PresenceModuleTests {
             await client.disconnect()
         }
 
-        @Test("handleDisconnect clears presence map")
-        func disconnectClearsMap() async throws {
+        @Test
+        func `handleDisconnect clears presence map`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: PresenceModule.self))
@@ -154,8 +154,8 @@ enum PresenceModuleTests {
             #expect(module.presences(for: bareJID).isEmpty)
         }
 
-        @Test("presences(for:) returns all resources for a bare JID")
-        func presencesForBareJID() async throws {
+        @Test
+        func `presences(for:) returns all resources for a bare JID`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: PresenceModule.self))

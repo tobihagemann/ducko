@@ -24,12 +24,12 @@ struct MessageGroupingTests {
         )
     }
 
-    @Test func emptyArray() {
+    @Test func `empty array`() {
         let positions = computeMessagePositions([])
         #expect(positions.isEmpty)
     }
 
-    @Test func singleMessage() throws {
+    @Test func `single message`() throws {
         let msg = makeMessage()
         let positions = computeMessagePositions([msg])
 
@@ -38,7 +38,7 @@ struct MessageGroupingTests {
         #expect(pos.isLastInGroup)
     }
 
-    @Test func sameSenderWithinGroupingInterval() throws {
+    @Test func `same sender within grouping interval`() throws {
         let now = Date()
         let msg1 = makeMessage(timestamp: now)
         let msg2 = makeMessage(timestamp: now.addingTimeInterval(30))
@@ -59,7 +59,7 @@ struct MessageGroupingTests {
         #expect(pos3.isLastInGroup)
     }
 
-    @Test func sameSenderOverGroupingInterval() throws {
+    @Test func `same sender over grouping interval`() throws {
         let now = Date()
         let msg1 = makeMessage(timestamp: now)
         let msg2 = makeMessage(timestamp: now.addingTimeInterval(150))
@@ -75,7 +75,7 @@ struct MessageGroupingTests {
         #expect(pos2.isLastInGroup)
     }
 
-    @Test func alternatingSenders() throws {
+    @Test func `alternating senders`() throws {
         let now = Date()
         let msg1 = makeMessage(fromJID: "alice@example.com", timestamp: now)
         let msg2 = makeMessage(fromJID: "bob@example.com", timestamp: now.addingTimeInterval(10))
@@ -90,7 +90,7 @@ struct MessageGroupingTests {
         }
     }
 
-    @Test func outgoingIncomingGroupsSeparately() throws {
+    @Test func `outgoing incoming groups separately`() throws {
         let now = Date()
         let msg1 = makeMessage(fromJID: "me@example.com", isOutgoing: true, timestamp: now)
         let msg2 = makeMessage(fromJID: "me@example.com", isOutgoing: false, timestamp: now.addingTimeInterval(10))

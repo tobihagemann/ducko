@@ -5,13 +5,13 @@ import Testing
 
 enum CapsModuleTests {
     struct VerificationString {
-        @Test("Generates correct verification string from XEP-0115 example")
-        func generatesCorrectVerificationString() {
+        @Test
+        func `Generates correct verification string from XEP-0115 example`() {
             // XEP-0115 §5.2 test vector (simplified)
             let identities = [
                 ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Exodus 0.9.1")
             ]
-            let features: Set<String> = [
+            let features: Set = [
                 "http://jabber.org/protocol/caps",
                 "http://jabber.org/protocol/disco#info",
                 "http://jabber.org/protocol/disco#items",
@@ -29,14 +29,14 @@ enum CapsModuleTests {
             #expect(ver == ver2)
         }
 
-        @Test("Empty identities and features produce valid hash")
-        func emptyInputsProduceValidHash() {
+        @Test
+        func `Empty identities and features produce valid hash`() {
             let ver = CapsModule.generateVerificationString(identities: [], features: [])
             #expect(!ver.isEmpty)
         }
 
-        @Test("Different features produce different hashes")
-        func differentFeaturesProduceDifferentHashes() {
+        @Test
+        func `Different features produce different hashes`() {
             let identities = [
                 ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Test")
             ]
@@ -47,8 +47,8 @@ enum CapsModuleTests {
     }
 
     struct PresenceHandling {
-        @Test("handleConnect sends presence with caps element")
-        func handleConnectSendsPresenceWithCaps() async throws {
+        @Test
+        func `handleConnect sends presence with caps element`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -74,11 +74,11 @@ enum CapsModuleTests {
     }
 
     struct CacheTests {
-        @Test("Cache stores and retrieves features by hash")
-        func cacheStoresAndRetrieves() {
+        @Test
+        func `Cache stores and retrieves features by hash`() {
             let module = CapsModule()
             let testHash = "abc123"
-            let features: Set<String> = ["feature-a", "feature-b"]
+            let features: Set = ["feature-a", "feature-b"]
 
             #expect(module.cachedFeatures(for: testHash) == nil)
 
@@ -88,8 +88,8 @@ enum CapsModuleTests {
             #expect(cached == features)
         }
 
-        @Test("handlePresence records ver hash")
-        func handlePresenceRecordsVerHash() async throws {
+        @Test
+        func `handlePresence records ver hash`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",

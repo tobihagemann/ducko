@@ -27,8 +27,8 @@ private func makeConnectedClient(mock: MockTransport, rosterResponse: String = e
 
 enum RosterModuleTests {
     struct RosterLoad {
-        @Test("Roster GET on connect parses items and emits rosterLoaded")
-        func rosterGetOnConnect() async throws {
+        @Test
+        func `Roster GET on connect parses items and emits rosterLoaded`() async throws {
             let mock = MockTransport()
 
             let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' name='Alice' subscription='both'/><item jid='bob@example.com' subscription='to'><group>Friends</group></item></query></iq>"
@@ -74,8 +74,8 @@ enum RosterModuleTests {
     }
 
     struct RosterPush {
-        @Test("Roster push updates map and emits rosterItemChanged")
-        func rosterPushUpdates() async throws {
+        @Test
+        func `Roster push updates map and emits rosterItemChanged`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: RosterModule.self))
@@ -104,8 +104,8 @@ enum RosterModuleTests {
             await client.disconnect()
         }
 
-        @Test("Roster push with subscription=remove removes item")
-        func rosterPushRemoves() async throws {
+        @Test
+        func `Roster push with subscription=remove removes item`() async throws {
             let mock = MockTransport()
             let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='both'/></query></iq>"
             let client = try await makeConnectedClient(mock: mock, rosterResponse: rosterResponse)
@@ -133,8 +133,8 @@ enum RosterModuleTests {
             await client.disconnect()
         }
 
-        @Test("Roster push from foreign JID is rejected")
-        func rejectsForeignPush() async throws {
+        @Test
+        func `Roster push from foreign JID is rejected`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: RosterModule.self))
@@ -151,8 +151,8 @@ enum RosterModuleTests {
     }
 
     struct RosterManagement {
-        @Test("addContact sends correct IQ")
-        func addContactSendsIQ() async throws {
+        @Test
+        func `addContact sends correct IQ`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: RosterModule.self))
@@ -183,8 +183,8 @@ enum RosterModuleTests {
             await client.disconnect()
         }
 
-        @Test("removeContact sends correct IQ")
-        func removeContactSendsIQ() async throws {
+        @Test
+        func `removeContact sends correct IQ`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: RosterModule.self))
@@ -215,8 +215,8 @@ enum RosterModuleTests {
     }
 
     struct SubscriptionManagement {
-        @Test("Subscription methods send correct presence types")
-        func subscriptionMethodsSendCorrectTypes() async throws {
+        @Test
+        func `Subscription methods send correct presence types`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: RosterModule.self))
@@ -253,8 +253,8 @@ enum RosterModuleTests {
     }
 
     struct DisconnectBehavior {
-        @Test("handleDisconnect clears roster")
-        func disconnectClearsRoster() async throws {
+        @Test
+        func `handleDisconnect clears roster`() async throws {
             let mock = MockTransport()
             let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='both'/></query></iq>"
             let client = try await makeConnectedClient(mock: mock, rosterResponse: rosterResponse)

@@ -88,6 +88,8 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `ducko-toggle-sidebar.sh` | Toggle participant sidebar in active groupchat window | none |
 | `ducko-focus-contacts.sh` | Raise the Contacts window to the front | none |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
+| `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
+| `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Appearance\|Notifications\|Advanced>` |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
 
@@ -264,6 +266,40 @@ $SCRIPTS/ducko-send.sh "Check out https://example.com"
 $SCRIPTS/ducko-screenshot.sh "link-preview.png"
 
 # 4. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Preferences window test
+
+Tests the Preferences window — open via Cmd+,, navigate tabs, verify account management:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch
+$SCRIPTS/ducko-launch.sh
+
+# 2. Open Preferences (Cmd+,)
+$SCRIPTS/ducko-preferences.sh
+
+# 3. Screenshot to verify preferences window (General tab by default)
+$SCRIPTS/ducko-screenshot.sh "preferences-general.png"
+
+# 4. Navigate to Accounts tab
+$SCRIPTS/ducko-preferences-tab.sh Accounts
+$SCRIPTS/ducko-screenshot.sh "preferences-accounts.png"
+
+# 5. Navigate to Appearance tab (theme grid with live preview bubbles)
+$SCRIPTS/ducko-preferences-tab.sh Appearance
+$SCRIPTS/ducko-screenshot.sh "preferences-appearance.png"
+
+# 6. Navigate to Notifications and Advanced tabs
+$SCRIPTS/ducko-preferences-tab.sh Notifications
+$SCRIPTS/ducko-screenshot.sh "preferences-notifications.png"
+$SCRIPTS/ducko-preferences-tab.sh Advanced
+$SCRIPTS/ducko-screenshot.sh "preferences-advanced.png"
+
+# 7. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 

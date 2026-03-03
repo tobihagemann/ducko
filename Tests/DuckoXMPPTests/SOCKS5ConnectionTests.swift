@@ -5,8 +5,8 @@ import Testing
 
 enum SOCKS5ConnectionTests {
     struct DestinationAddressHash {
-        @Test("SHA-1 hash is 40-char lowercase hex")
-        func hashFormat() {
+        @Test
+        func `SHA-1 hash is 40-char lowercase hex`() {
             let result = SOCKS5Connection.destinationAddress(sid: "abc", initiatorJID: "a@b/c", targetJID: "d@e/f")
             #expect(result.count == 40)
             #expect(result == result.lowercased())
@@ -14,22 +14,22 @@ enum SOCKS5ConnectionTests {
             #expect(allHex)
         }
 
-        @Test("Deterministic — same inputs produce same output")
-        func deterministic() {
+        @Test
+        func `Deterministic — same inputs produce same output`() {
             let a = SOCKS5Connection.destinationAddress(sid: "sid-1", initiatorJID: "alice@example.com/res", targetJID: "bob@example.com/res")
             let b = SOCKS5Connection.destinationAddress(sid: "sid-1", initiatorJID: "alice@example.com/res", targetJID: "bob@example.com/res")
             #expect(a == b)
         }
 
-        @Test("Different inputs produce different hashes")
-        func differentInputs() {
+        @Test
+        func `Different inputs produce different hashes`() {
             let a = SOCKS5Connection.destinationAddress(sid: "sid-1", initiatorJID: "alice@a.com/r", targetJID: "bob@b.com/r")
             let b = SOCKS5Connection.destinationAddress(sid: "sid-2", initiatorJID: "alice@a.com/r", targetJID: "bob@b.com/r")
             #expect(a != b)
         }
 
-        @Test("Cross-check with CryptoKit SHA-1")
-        func crossCheck() {
+        @Test
+        func `Cross-check with CryptoKit SHA-1`() {
             let sid = "test-sid"
             let initiator = "user@example.com/abc"
             let target = "peer@example.com/xyz"
@@ -45,16 +45,16 @@ enum SOCKS5ConnectionTests {
     }
 
     struct HandshakeByteSequence {
-        @Test("Greeting bytes are correct")
-        func greetingBytes() {
+        @Test
+        func `Greeting bytes are correct`() {
             let expected: [UInt8] = [0x05, 0x01, 0x00]
             #expect(SOCKS5Connection.greetingBytes == expected)
         }
     }
 
     struct ConnectRequestBytes {
-        @Test("Connect request has correct structure")
-        func structure() {
+        @Test
+        func `Connect request has correct structure`() {
             let addr = "abcdef0123456789abcdef0123456789abcdef01"
             let request = SOCKS5Connection.connectRequest(destinationAddress: addr)
 
@@ -80,32 +80,32 @@ enum SOCKS5ConnectionTests {
     }
 
     struct ResponseValidation {
-        @Test("validateGreetingResponse accepts valid response")
-        func validGreeting() throws {
+        @Test
+        func `validateGreetingResponse accepts valid response`() throws {
             try SOCKS5Connection.validateGreetingResponse([0x05, 0x00])
         }
 
-        @Test("validateGreetingResponse throws on rejected method")
-        func rejectedMethod() {
+        @Test
+        func `validateGreetingResponse throws on rejected method`() {
             #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
                 try SOCKS5Connection.validateGreetingResponse([0x05, 0xFF])
             }
         }
 
-        @Test("validateGreetingResponse throws on wrong length")
-        func wrongLength() {
+        @Test
+        func `validateGreetingResponse throws on wrong length`() {
             #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
                 try SOCKS5Connection.validateGreetingResponse([0x05])
             }
         }
 
-        @Test("validateConnectResponse accepts success reply")
-        func validConnect() throws {
+        @Test
+        func `validateConnectResponse accepts success reply`() throws {
             try SOCKS5Connection.validateConnectResponse([0x05, 0x00, 0x00, 0x01])
         }
 
-        @Test("validateConnectResponse throws on failure reply")
-        func failedConnect() {
+        @Test
+        func `validateConnectResponse throws on failure reply`() {
             #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
                 try SOCKS5Connection.validateConnectResponse([0x05, 0x01, 0x00, 0x01])
             }
@@ -113,8 +113,8 @@ enum SOCKS5ConnectionTests {
     }
 
     struct AdoptFileDescriptor {
-        @Test("Send and receive work after adopt(fd:)")
-        func adoptAndTransfer() async throws {
+        @Test
+        func `Send and receive work after adopt(fd:)`() async throws {
             var fds: [Int32] = [0, 0]
             guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
                 Issue.record("socketpair() failed")
@@ -136,8 +136,8 @@ enum SOCKS5ConnectionTests {
             await connB.close()
         }
 
-        @Test("adopt(fd:) throws when already connected")
-        func alreadyConnected() async throws {
+        @Test
+        func `adopt(fd:) throws when already connected`() async throws {
             var fds: [Int32] = [0, 0]
             guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
                 Issue.record("socketpair() failed")
@@ -159,8 +159,8 @@ enum SOCKS5ConnectionTests {
     }
 
     struct CandidateSorting {
-        @Test("Candidates sorted by priority descending")
-        func sortByPriority() {
+        @Test
+        func `Candidates sorted by priority descending`() {
             let candidates = [
                 SOCKS5Transport.Candidate(cid: "low", host: "a", port: 1, jid: "a@b", priority: 10, type: .proxy),
                 SOCKS5Transport.Candidate(cid: "high", host: "b", port: 2, jid: "b@c", priority: 100, type: .proxy),
@@ -172,8 +172,8 @@ enum SOCKS5ConnectionTests {
             #expect(sorted[2].cid == "low")
         }
 
-        @Test("Direct candidates have higher priority than proxy")
-        func directHigherThanProxy() {
+        @Test
+        func `Direct candidates have higher priority than proxy`() {
             let direct = SOCKS5Transport.Candidate(cid: "d1", host: "192.168.1.1", port: 5000, jid: "me@example.com", priority: 101, type: .direct)
             let proxy = SOCKS5Transport.Candidate(cid: "p1", host: "proxy.example.com", port: 1080, jid: "proxy@example.com", priority: 10, type: .proxy)
             let sorted = [proxy, direct].sorted { $0.priority > $1.priority }

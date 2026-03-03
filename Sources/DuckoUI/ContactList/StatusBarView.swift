@@ -6,7 +6,7 @@ struct StatusBarView: View {
     @State private var statusMessage = ""
 
     private var account: Account? {
-        environment.accountService.accounts.first
+        environment.accountService.accounts.first { $0.isEnabled }
     }
 
     var body: some View {

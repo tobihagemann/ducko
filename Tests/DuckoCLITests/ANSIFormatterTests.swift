@@ -7,7 +7,7 @@ import Testing
 struct ANSIFormatterTests {
     let formatter = ANSIFormatter()
 
-    @Test func outputContainsANSIEscapeCodes() {
+    @Test func `output contains ANSI escape codes`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -24,7 +24,7 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}["))
     }
 
-    @Test func accountUsesBoldAndDim() throws {
+    @Test func `account uses bold and dim`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let account = Account(
             id: UUID(),
@@ -39,12 +39,12 @@ struct ANSIFormatterTests {
         #expect(output.contains("alice@example.com"))
     }
 
-    @Test func errorUsesRedCode() {
+    @Test func `error uses red code`() {
         let output = formatter.formatError(CLIError.connectionTimeout)
         #expect(output.contains("\u{001B}[31m"))
     }
 
-    @Test func incomingMessageUsesGreen() {
+    @Test func `incoming message uses green`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -63,7 +63,7 @@ struct ANSIFormatterTests {
 
     // MARK: - formatContactWithPresence
 
-    @Test func contactAvailableUsesGreen() throws {
+    @Test func `contact available uses green`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -80,7 +80,7 @@ struct ANSIFormatterTests {
         #expect(output.contains("●"))
     }
 
-    @Test func contactAwayUsesYellow() throws {
+    @Test func `contact away uses yellow`() throws {
         let jid = try #require(BareJID.parse("bob@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -96,7 +96,7 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}[33m")) // yellow
     }
 
-    @Test func contactDNDUsesRed() throws {
+    @Test func `contact DND uses red`() throws {
         let jid = try #require(BareJID.parse("carol@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -112,7 +112,7 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}[31m")) // red
     }
 
-    @Test func contactOfflineUsesDim() throws {
+    @Test func `contact offline uses dim`() throws {
         let jid = try #require(BareJID.parse("dave@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -129,7 +129,7 @@ struct ANSIFormatterTests {
         #expect(output.contains("○"))
     }
 
-    @Test func subscriptionRequestUsesYellow() throws {
+    @Test func `subscription request uses yellow`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatEvent(.presenceSubscriptionRequest(from: jid), accountID: UUID()))
         #expect(output.contains("\u{001B}[33m")) // yellow
@@ -137,7 +137,7 @@ struct ANSIFormatterTests {
         #expect(output.contains("/approve"))
     }
 
-    @Test func outgoingMessageUsesCyan() {
+    @Test func `outgoing message uses cyan`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -156,7 +156,7 @@ struct ANSIFormatterTests {
 
     // MARK: - Message Markers
 
-    @Test func deliveredShowsCheckmark() {
+    @Test func `delivered shows checkmark`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -173,7 +173,7 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{2713}"))
     }
 
-    @Test func editedShowsDimMarker() {
+    @Test func `edited shows dim marker`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -193,13 +193,13 @@ struct ANSIFormatterTests {
 
     // MARK: - Event Markers
 
-    @Test func deliveryReceiptEventUsesDim() throws {
+    @Test func `delivery receipt event uses dim`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.deliveryReceiptReceived(messageID: "msg-1", from: jid), accountID: UUID()))
         #expect(output.contains("\u{001B}[2m")) // dim
     }
 
-    @Test func messageErrorEventUsesRed() throws {
+    @Test func `message error event uses red`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, errorText: "failed"), accountID: UUID()))
         #expect(output.contains("\u{001B}[31m")) // red
@@ -207,7 +207,7 @@ struct ANSIFormatterTests {
 
     // MARK: - Typing Indicator
 
-    @Test func typingIndicatorUsesDim() throws {
+    @Test func `typing indicator uses dim`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatTypingIndicator(from: jid, state: .composing))
         #expect(output.contains("\u{001B}[2m")) // dim

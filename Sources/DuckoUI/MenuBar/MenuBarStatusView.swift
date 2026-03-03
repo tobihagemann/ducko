@@ -51,7 +51,7 @@ public struct MenuBarStatusView: View {
     }
 
     private func setPresence(_ status: PresenceService.PresenceStatus) {
-        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        guard let accountID = environment.accountService.accounts.first(where: { $0.isEnabled })?.id else { return }
         let message = environment.presenceService.myStatusMessage
         Task {
             await environment.presenceService.applyPresence(status, message: message, accountID: accountID) { id in

@@ -3,14 +3,14 @@ import Testing
 
 enum NetworkInterfacesTests {
     struct LocalAddresses {
-        @Test("Returns non-empty list on dev machine")
-        func nonEmpty() {
+        @Test
+        func `Returns non-empty list on dev machine`() {
             let addresses = NetworkInterfaces.localAddresses()
             #expect(!addresses.isEmpty)
         }
 
-        @Test("No loopback addresses in results")
-        func noLoopback() {
+        @Test
+        func `No loopback addresses in results`() {
             let addresses = NetworkInterfaces.localAddresses()
             for address in addresses {
                 #expect(address.ip != "127.0.0.1")
@@ -18,8 +18,8 @@ enum NetworkInterfacesTests {
             }
         }
 
-        @Test("No link-local IPv6 addresses in results")
-        func noLinkLocal() {
+        @Test
+        func `No link-local IPv6 addresses in results`() {
             let addresses = NetworkInterfaces.localAddresses()
             for address in addresses {
                 let hasPrefix = address.ip.hasPrefix("fe80")
@@ -27,8 +27,8 @@ enum NetworkInterfacesTests {
             }
         }
 
-        @Test("All addresses have valid IP strings")
-        func validIPStrings() {
+        @Test
+        func `All addresses have valid IP strings`() {
             let addresses = NetworkInterfaces.localAddresses()
             for address in addresses {
                 #expect(!address.ip.isEmpty)
@@ -39,8 +39,8 @@ enum NetworkInterfacesTests {
             }
         }
 
-        @Test("IPv4 flag is correct for known IPv4 patterns")
-        func ipv4Flag() {
+        @Test
+        func `IPv4 flag is correct for known IPv4 patterns`() {
             let addresses = NetworkInterfaces.localAddresses()
             let ipv4 = addresses.filter(\.isIPv4)
             for address in ipv4 {

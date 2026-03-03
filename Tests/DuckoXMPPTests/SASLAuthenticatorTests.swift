@@ -20,8 +20,8 @@ private func features(mechanisms: [String]) -> XMLElement {
 
 enum SASLAuthenticatorTests {
     struct MechanismSelection {
-        @Test("Selects SCRAM-SHA-256 when all offered")
-        func selectsSCRAMSHA256() throws {
+        @Test
+        func `Selects SCRAM-SHA-256 when all offered`() throws {
             var auth = SASLAuthenticator()
             let element = try auth.begin(
                 features: features(mechanisms: ["PLAIN", "SCRAM-SHA-1", "SCRAM-SHA-256"]),
@@ -31,8 +31,8 @@ enum SASLAuthenticatorTests {
             #expect(element.attribute("mechanism") == "SCRAM-SHA-256")
         }
 
-        @Test("Selects SCRAM-SHA-1 when SHA-256 unavailable")
-        func selectsSCRAMSHA1() throws {
+        @Test
+        func `Selects SCRAM-SHA-1 when SHA-256 unavailable`() throws {
             var auth = SASLAuthenticator()
             let element = try auth.begin(
                 features: features(mechanisms: ["PLAIN", "SCRAM-SHA-1"]),
@@ -42,8 +42,8 @@ enum SASLAuthenticatorTests {
             #expect(element.attribute("mechanism") == "SCRAM-SHA-1")
         }
 
-        @Test("Falls back to PLAIN when no SCRAM available")
-        func fallsBackToPlain() throws {
+        @Test
+        func `Falls back to PLAIN when no SCRAM available`() throws {
             var auth = SASLAuthenticator()
             let element = try auth.begin(
                 features: features(mechanisms: ["PLAIN"]),
@@ -53,8 +53,8 @@ enum SASLAuthenticatorTests {
             #expect(element.attribute("mechanism") == "PLAIN")
         }
 
-        @Test("Matches mechanism names case-insensitively")
-        func caseInsensitiveMatch() throws {
+        @Test
+        func `Matches mechanism names case-insensitively`() throws {
             var auth = SASLAuthenticator()
             let element = try auth.begin(
                 features: features(mechanisms: ["plain", "scram-sha-1"]),
@@ -64,8 +64,8 @@ enum SASLAuthenticatorTests {
             #expect(element.attribute("mechanism") == "SCRAM-SHA-1")
         }
 
-        @Test("Throws when no supported mechanism")
-        func throwsNoSupportedMechanism() {
+        @Test
+        func `Throws when no supported mechanism`() {
             var auth = SASLAuthenticator()
             #expect(throws: SASLAuthError.self) {
                 try auth.begin(
@@ -76,8 +76,8 @@ enum SASLAuthenticatorTests {
             }
         }
 
-        @Test("Throws when no mechanisms element")
-        func throwsNoMechanisms() {
+        @Test
+        func `Throws when no mechanisms element`() {
             var auth = SASLAuthenticator()
             let emptyFeatures = XMLElement(name: "stream:features")
             #expect(throws: SASLAuthError.self) {
@@ -87,8 +87,8 @@ enum SASLAuthenticatorTests {
     }
 
     struct PLAINFlow {
-        @Test("Full PLAIN flow: begin → success")
-        func fullPlainFlow() throws {
+        @Test
+        func `Full PLAIN flow: begin → success`() throws {
             var auth = SASLAuthenticator()
             let authElement = try auth.begin(
                 features: features(mechanisms: ["PLAIN"]),
@@ -109,8 +109,8 @@ enum SASLAuthenticatorTests {
     }
 
     struct FailureHandling {
-        @Test("Server failure with condition and text")
-        func serverFailureWithConditionAndText() throws {
+        @Test
+        func `Server failure with condition and text`() throws {
             var auth = SASLAuthenticator()
             _ = try auth.begin(
                 features: features(mechanisms: ["PLAIN"]),
@@ -133,8 +133,8 @@ enum SASLAuthenticatorTests {
             #expect(errorText == "Invalid credentials")
         }
 
-        @Test("Server failure with condition only")
-        func serverFailureConditionOnly() throws {
+        @Test
+        func `Server failure with condition only`() throws {
             var auth = SASLAuthenticator()
             _ = try auth.begin(
                 features: features(mechanisms: ["PLAIN"]),
@@ -154,8 +154,8 @@ enum SASLAuthenticatorTests {
             #expect(errorText == nil)
         }
 
-        @Test("Receive without begin returns invalidState")
-        func receiveWithoutBegin() {
+        @Test
+        func `Receive without begin returns invalidState`() {
             var auth = SASLAuthenticator()
             let response = auth.receive(XMLElement(name: "success", namespace: saslNamespace))
             guard case .failure(.invalidState) = response else {
@@ -164,8 +164,8 @@ enum SASLAuthenticatorTests {
             }
         }
 
-        @Test("Unexpected element name returns invalidState")
-        func unexpectedElement() throws {
+        @Test
+        func `Unexpected element name returns invalidState`() throws {
             var auth = SASLAuthenticator()
             _ = try auth.begin(
                 features: features(mechanisms: ["PLAIN"]),
@@ -182,8 +182,8 @@ enum SASLAuthenticatorTests {
     }
 
     struct SCRAMFlow {
-        @Test("Full SCRAM-SHA-256 flow through authenticator")
-        func fullSCRAMSHA256Flow() {
+        @Test
+        func `Full SCRAM-SHA-256 flow through authenticator`() {
             let clientNonce = "rOprNGfwEbeRWgbNEkqO"
             var mech = SCRAMSHA256(nonceGenerator: { clientNonce })
             let authElement = mech.start(authcid: "user", password: "pencil")

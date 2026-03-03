@@ -123,7 +123,8 @@ struct JSONFormatter: CLIFormatter {
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived:
+             .chatStateChanged, .chatMarkerReceived,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
     }
@@ -148,7 +149,8 @@ struct JSONFormatter: CLIFormatter {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress:
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
     }
@@ -211,7 +213,8 @@ struct JSONFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
     }
@@ -379,7 +382,8 @@ struct JSONFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress:
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
     }

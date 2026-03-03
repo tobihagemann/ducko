@@ -35,9 +35,9 @@ private func makeGroupMessage(
 
 enum ChatServiceMUCTests {
     struct RoomJoined {
-        @Test("roomJoined creates groupchat conversation")
+        @Test
         @MainActor
-        func roomJoinedCreatesConversation() async throws {
+        func `roomJoined creates groupchat conversation`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -58,9 +58,9 @@ enum ChatServiceMUCTests {
     }
 
     struct GroupMessagePersistence {
-        @Test("roomMessageReceived persists incoming group message")
+        @Test
         @MainActor
-        func incomingGroupMessagePersisted() async throws {
+        func `roomMessageReceived persists incoming group message`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -81,9 +81,9 @@ enum ChatServiceMUCTests {
             #expect(messages[0].isOutgoing == false)
         }
 
-        @Test("Own groupchat echo is persisted without a wired-up client")
+        @Test
         @MainActor
-        func ownGroupMessagePersistedWithoutClient() async throws {
+        func `Own groupchat echo is persisted without a wired-up client`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -105,9 +105,9 @@ enum ChatServiceMUCTests {
     }
 
     struct SubjectChanged {
-        @Test("roomSubjectChanged updates conversation")
+        @Test
         @MainActor
-        func subjectUpdatesConversation() async throws {
+        func `roomSubjectChanged updates conversation`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -126,9 +126,9 @@ enum ChatServiceMUCTests {
     }
 
     struct ConversationReuse {
-        @Test("Multiple events for same room reuse existing conversation")
+        @Test
         @MainActor
-        func reuseExistingConversation() async throws {
+        func `Multiple events for same room reuse existing conversation`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 

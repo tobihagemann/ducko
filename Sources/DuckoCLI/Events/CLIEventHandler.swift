@@ -35,7 +35,8 @@ actor CLIEventHandler {
              .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomSubjectChanged,
-             .jingleFileTransferCompleted, .jingleFileTransferFailed:
+             .jingleFileTransferCompleted, .jingleFileTransferFailed,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             break
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }

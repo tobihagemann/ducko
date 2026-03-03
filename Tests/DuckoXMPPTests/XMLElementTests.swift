@@ -3,21 +3,21 @@ import Testing
 
 enum XMLElementTests {
     struct Serialization {
-        @Test("Self-closing element")
-        func selfClosing() {
+        @Test
+        func `Self-closing element`() {
             let element = XMLElement(name: "br")
             #expect(element.xmlString == "<br/>")
         }
 
-        @Test("Element with text content")
-        func textContent() {
+        @Test
+        func `Element with text content`() {
             var element = XMLElement(name: "body")
             element.addText("Hello")
             #expect(element.xmlString == "<body>Hello</body>")
         }
 
-        @Test("Nested elements")
-        func nested() {
+        @Test
+        func `Nested elements`() {
             var child = XMLElement(name: "body")
             child.addText("Hello")
             var parent = XMLElement(name: "message")
@@ -25,29 +25,29 @@ enum XMLElementTests {
             #expect(parent.xmlString == "<message><body>Hello</body></message>")
         }
 
-        @Test("XML special character escaping")
-        func escaping() {
+        @Test
+        func `XML special character escaping`() {
             var element = XMLElement(name: "body")
             element.addText("a < b & c > d \"e\" 'f'")
             #expect(element.xmlString == "<body>a &lt; b &amp; c &gt; d &quot;e&quot; &apos;f&apos;</body>")
         }
 
-        @Test("Namespace rendered as xmlns")
-        func namespace() {
+        @Test
+        func `Namespace rendered as xmlns`() {
             let element = XMLElement(name: "query", namespace: "jabber:iq:roster")
             #expect(element.xmlString == #"<query xmlns="jabber:iq:roster"/>"#)
         }
 
-        @Test("Attributes sorted by key")
-        func attributesSorted() {
+        @Test
+        func `Attributes sorted by key`() {
             let element = XMLElement(name: "iq", attributes: ["type": "get", "id": "1"])
             #expect(element.xmlString == #"<iq id="1" type="get"/>"#)
         }
     }
 
     struct Lookup {
-        @Test("Find child by name")
-        func childByName() {
+        @Test
+        func `Find child by name`() {
             var parent = XMLElement(name: "message")
             var body = XMLElement(name: "body")
             body.addText("Hello")
@@ -58,8 +58,8 @@ enum XMLElementTests {
             #expect(found?.textContent == "Hello")
         }
 
-        @Test("Find child by name and namespace")
-        func childByNameAndNamespace() {
+        @Test
+        func `Find child by name and namespace`() {
             var parent = XMLElement(name: "iq")
             parent.addChild(XMLElement(name: "query", namespace: "jabber:iq:roster"))
             parent.addChild(XMLElement(name: "query", namespace: "jabber:iq:disco"))
@@ -68,16 +68,16 @@ enum XMLElementTests {
             #expect(found?.namespace == "jabber:iq:roster")
         }
 
-        @Test("Attribute value lookup")
-        func attributeValue() {
+        @Test
+        func `Attribute value lookup`() {
             let element = XMLElement(name: "iq", attributes: ["type": "get", "id": "abc"])
             #expect(element.attribute("type") == "get")
             #expect(element.attribute("id") == "abc")
             #expect(element.attribute("missing") == nil)
         }
 
-        @Test("Find multiple children by name")
-        func childrenByName() {
+        @Test
+        func `Find multiple children by name`() {
             var parent = XMLElement(name: "query")
             parent.addChild(XMLElement(name: "item", attributes: ["jid": "a@b"]))
             parent.addChild(XMLElement(name: "item", attributes: ["jid": "c@d"]))
@@ -89,30 +89,30 @@ enum XMLElementTests {
     }
 
     struct Mutation {
-        @Test("Add text child")
-        func addTextChild() {
+        @Test
+        func `Add text child`() {
             var element = XMLElement(name: "body")
             element.addText("Hello")
             #expect(element.textContent == "Hello")
         }
 
-        @Test("Add element child")
-        func addElementChild() {
+        @Test
+        func `Add element child`() {
             var parent = XMLElement(name: "message")
             let child = XMLElement(name: "body")
             parent.addChild(child)
             #expect(parent.child(named: "body") != nil)
         }
 
-        @Test("Set attribute")
-        func setAttribute() {
+        @Test
+        func `Set attribute`() {
             var element = XMLElement(name: "iq")
             element.setAttribute("type", value: "get")
             #expect(element.attribute("type") == "get")
         }
 
-        @Test("Overwrite attribute")
-        func overwriteAttribute() {
+        @Test
+        func `Overwrite attribute`() {
             var element = XMLElement(name: "iq", attributes: ["type": "get"])
             element.setAttribute("type", value: "set")
             #expect(element.attribute("type") == "set")
@@ -120,16 +120,16 @@ enum XMLElementTests {
     }
 
     struct TextContent {
-        @Test("Concatenates multiple text nodes")
-        func multipleTextNodes() {
+        @Test
+        func `Concatenates multiple text nodes`() {
             var element = XMLElement(name: "body")
             element.addText("Hello ")
             element.addText("World")
             #expect(element.textContent == "Hello World")
         }
 
-        @Test("Returns nil for no text content")
-        func noTextContent() {
+        @Test
+        func `Returns nil for no text content`() {
             let element = XMLElement(name: "empty")
             #expect(element.textContent == nil)
         }

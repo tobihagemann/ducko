@@ -2,14 +2,14 @@
 let saslNamespace = "urn:ietf:params:xml:ns:xmpp-sasl"
 
 /// Result of a SASL exchange step.
-enum SASLAuthResponse: Sendable {
+enum SASLAuthResponse {
     case continueWith(XMLElement)
     case success
     case failure(SASLAuthError)
 }
 
 /// Errors that can occur during SASL authentication.
-enum SASLAuthError: Error, Sendable {
+enum SASLAuthError: Error {
     case noSupportedMechanism
     case invalidBase64
     case malformedChallenge(String)

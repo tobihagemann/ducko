@@ -81,8 +81,8 @@ private actor HandshakeActor {
     }
 }
 
-@Test("Parser reset enables post-SASL stream re-open")
-func parserResetEnablesPostSASLRestream() async throws {
+@Test
+func `Parser reset enables post-SASL stream re-open`() async throws {
     let mock = MockTransport()
     let actor = HandshakeActor(transport: mock)
 

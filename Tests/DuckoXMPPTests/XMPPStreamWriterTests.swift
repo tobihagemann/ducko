@@ -3,8 +3,8 @@ import Testing
 
 enum XMPPStreamWriterTests {
     struct StreamOpening {
-        @Test("Generates valid stream opening with required attributes")
-        func basic() {
+        @Test
+        func `Generates valid stream opening with required attributes`() {
             let bytes = XMPPStreamWriter.streamOpening(to: "example.com")
             let xml = String(decoding: bytes, as: UTF8.self)
             #expect(xml.hasPrefix("<?xml version='1.0'?>"))
@@ -16,22 +16,22 @@ enum XMPPStreamWriterTests {
             #expect(xml.hasSuffix(">"))
         }
 
-        @Test("Includes from attribute when provided")
-        func withFrom() {
+        @Test
+        func `Includes from attribute when provided`() {
             let bytes = XMPPStreamWriter.streamOpening(to: "example.com", from: "user@example.com")
             let xml = String(decoding: bytes, as: UTF8.self)
             #expect(xml.contains("from=\"user@example.com\""))
         }
 
-        @Test("Omits from attribute when nil")
-        func withoutFrom() {
+        @Test
+        func `Omits from attribute when nil`() {
             let bytes = XMPPStreamWriter.streamOpening(to: "example.com")
             let xml = String(decoding: bytes, as: UTF8.self)
             #expect(!xml.contains("from="))
         }
 
-        @Test("Escapes special characters in domain")
-        func escapedDomain() {
+        @Test
+        func `Escapes special characters in domain`() {
             let bytes = XMPPStreamWriter.streamOpening(to: "a&b.com")
             let xml = String(decoding: bytes, as: UTF8.self)
             #expect(xml.contains("to=\"a&amp;b.com\""))
@@ -39,8 +39,8 @@ enum XMPPStreamWriterTests {
     }
 
     struct StanzaSerialization {
-        @Test("Serializes message stanza to UTF-8 bytes")
-        func message() {
+        @Test
+        func `Serializes message stanza to UTF-8 bytes`() {
             var element = XMLElement(name: "message", attributes: ["type": "chat"])
             var body = XMLElement(name: "body")
             body.addText("Hello")
@@ -51,8 +51,8 @@ enum XMPPStreamWriterTests {
             #expect(xml == element.xmlString)
         }
 
-        @Test("Serializes self-closing element")
-        func selfClosing() {
+        @Test
+        func `Serializes self-closing element`() {
             let element = XMLElement(name: "presence")
             let bytes = XMPPStreamWriter.stanza(element)
             #expect(String(decoding: bytes, as: UTF8.self) == "<presence/>")
@@ -60,16 +60,16 @@ enum XMPPStreamWriterTests {
     }
 
     struct StreamClosing {
-        @Test("Generates valid stream closing tag")
-        func closing() {
+        @Test
+        func `Generates valid stream closing tag`() {
             let bytes = XMPPStreamWriter.streamClosing()
             #expect(String(decoding: bytes, as: UTF8.self) == "</stream:stream>")
         }
     }
 
     struct RoundTrip {
-        @Test("Writer output can be parsed by parser")
-        func roundTrip() async throws {
+        @Test
+        func `Writer output can be parsed by parser`() async throws {
             var msg = XMLElement(name: "message", attributes: ["type": "chat"])
             var body = XMLElement(name: "body")
             body.addText("Hello")

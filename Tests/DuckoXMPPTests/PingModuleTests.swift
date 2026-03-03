@@ -22,8 +22,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
 
 enum PingModuleTests {
     struct IncomingPing {
-        @Test("Responds to incoming ping IQ with result")
-        func respondsToIncomingPing() async throws {
+        @Test
+        func `Responds to incoming ping IQ with result`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -46,8 +46,8 @@ enum PingModuleTests {
     }
 
     struct Keepalive {
-        @Test("Sends keepalive pings on interval")
-        func sendsKeepalivePings() async throws {
+        @Test
+        func `Sends keepalive pings on interval`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -69,8 +69,8 @@ enum PingModuleTests {
             await client.disconnect()
         }
 
-        @Test("Stops keepalive on disconnect")
-        func stopsKeepaliveOnDisconnect() async throws {
+        @Test
+        func `Stops keepalive on disconnect`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -88,8 +88,8 @@ enum PingModuleTests {
     }
 
     struct PublicAPI {
-        @Test("ping(jid:) returns on success")
-        func pingReturnsOnSuccess() async throws {
+        @Test
+        func `ping(jid:) returns on success`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: PingModule.self))

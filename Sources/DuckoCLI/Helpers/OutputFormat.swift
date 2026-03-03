@@ -6,7 +6,7 @@ import ArgumentParser
     import Glibc
 #endif
 
-enum OutputFormat: String, ExpressibleByArgument, CaseIterable, Sendable {
+enum OutputFormat: String, ExpressibleByArgument, CaseIterable {
     case plain
     case ansi
     case json

@@ -4,8 +4,8 @@ import Testing
 
 enum LinkPreviewServiceTests {
     struct CachedPreview {
-        @Test("Returns nil for uncached URL")
-        func uncachedReturnsNil() {
+        @Test
+        func `Returns nil for uncached URL`() {
             let store = MockPersistenceStore()
             let service = LinkPreviewService(fetcher: NoOpLinkPreviewFetcher(), store: store)
 
@@ -13,8 +13,8 @@ enum LinkPreviewServiceTests {
             #expect(result == nil)
         }
 
-        @Test("Returns cached preview after fetch")
-        func cachedAfterFetch() async throws {
+        @Test
+        func `Returns cached preview after fetch`() async throws {
             let store = MockPersistenceStore()
             let fetcher = StubLinkPreviewFetcher()
             let service = LinkPreviewService(fetcher: fetcher, store: store)

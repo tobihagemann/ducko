@@ -1,5 +1,5 @@
 /// Events emitted by the XML stream parser during XMPP stream processing.
-enum XMLStreamEvent: Sendable {
+enum XMLStreamEvent {
     /// The opening `<stream:stream>` tag has been received.
     case streamOpened(attributes: [String: String])
     /// A complete top-level stanza has been received.
@@ -11,6 +11,6 @@ enum XMLStreamEvent: Sendable {
 }
 
 /// An error encountered during XML stream parsing.
-struct XMLStreamParseError: Error, Sendable {
+struct XMLStreamParseError: Error {
     let message: String
 }

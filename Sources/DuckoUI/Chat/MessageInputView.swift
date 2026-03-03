@@ -6,6 +6,7 @@ struct MessageInputView: View {
     let windowState: ChatWindowState
     @State private var text = ""
     @State private var showFileImporter = false
+    @FocusState private var isInputFocused: Bool
 
     private var trimmedText: String {
         text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -53,7 +54,9 @@ struct MessageInputView: View {
                     .onPasteCommand(of: [.image, .fileURL]) { providers in
                         handlePaste(providers)
                     }
+                    .focused($isInputFocused)
                     .accessibilityIdentifier("message-field")
+                    .onAppear { isInputFocused = true }
 
                 Button {
                     sendMessage()

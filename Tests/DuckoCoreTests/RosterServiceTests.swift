@@ -51,9 +51,9 @@ private func makeContact(
 
 enum RosterServiceTests {
     struct RosterLoaded {
-        @Test("Roster loaded event persists contacts to store")
+        @Test
         @MainActor
-        func rosterLoadedPersistsContacts() async throws {
+        func `Roster loaded event persists contacts to store`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -67,9 +67,9 @@ enum RosterServiceTests {
             #expect(contacts.count == 2)
         }
 
-        @Test("Roster loaded builds correct groups")
+        @Test
         @MainActor
-        func rosterLoadedBuildsGroups() async {
+        func `Roster loaded builds correct groups`() async {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -84,9 +84,9 @@ enum RosterServiceTests {
             #expect(service.groups[1].name == "Work")
         }
 
-        @Test("Contacts without groups go into Ungrouped")
+        @Test
         @MainActor
-        func ungroupedContacts() async {
+        func `Contacts without groups go into Ungrouped`() async {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -103,9 +103,9 @@ enum RosterServiceTests {
             #expect(service.groups[1].contacts[0].jid == contactJID1)
         }
 
-        @Test("Existing contacts preserve localAlias on roster reload")
+        @Test
         @MainActor
-        func preservesLocalAlias() async throws {
+        func `Existing contacts preserve localAlias on roster reload`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -122,9 +122,9 @@ enum RosterServiceTests {
             #expect(contacts[0].localAlias == "My Friend")
         }
 
-        @Test("Contacts removed from roster are deleted from store")
+        @Test
         @MainActor
-        func removesDeletedContacts() async throws {
+        func `Contacts removed from roster are deleted from store`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -143,9 +143,9 @@ enum RosterServiceTests {
     }
 
     struct RosterItemChanged {
-        @Test("New roster item creates contact")
+        @Test
         @MainActor
-        func newItemCreatesContact() async throws {
+        func `New roster item creates contact`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -158,9 +158,9 @@ enum RosterServiceTests {
             #expect(contacts[0].name == "Alice")
         }
 
-        @Test("Updated roster item updates contact fields")
+        @Test
         @MainActor
-        func updatedItemUpdatesFields() async throws {
+        func `Updated roster item updates contact fields`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -177,9 +177,9 @@ enum RosterServiceTests {
             #expect(contacts[0].name == "Alice Smith")
         }
 
-        @Test("Roster item with subscription=remove deletes contact")
+        @Test
         @MainActor
-        func removeSubscriptionDeletesContact() async throws {
+        func `Roster item with subscription=remove deletes contact`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -195,9 +195,9 @@ enum RosterServiceTests {
     }
 
     struct GroupBuilding {
-        @Test("Groups sorted alphabetically, Ungrouped last")
+        @Test
         @MainActor
-        func groupsSortedAlphabetically() async {
+        func `Groups sorted alphabetically, Ungrouped last`() async {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -214,9 +214,9 @@ enum RosterServiceTests {
             #expect(service.groups[2].name == "Ungrouped")
         }
 
-        @Test("Contacts sorted by display name within groups")
+        @Test
         @MainActor
-        func contactsSortedByDisplayName() async {
+        func `Contacts sorted by display name within groups`() async {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -231,9 +231,9 @@ enum RosterServiceTests {
             #expect(service.groups[0].contacts[1].name == "Bob")
         }
 
-        @Test("Contact in multiple groups appears in each")
+        @Test
         @MainActor
-        func contactInMultipleGroups() async {
+        func `Contact in multiple groups appears in each`() async {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -249,9 +249,9 @@ enum RosterServiceTests {
     }
 
     struct StringBasedMethods {
-        @Test("addContact(jidString:) delegates to addContact(jid:)")
+        @Test
         @MainActor
-        func addContactByString() async throws {
+        func `addContact(jidString:) delegates to addContact(jid:)`() async throws {
             // Without an account service wired, the guard returns early — no crash
             let store = makeStore()
             let service = makeRosterService(store: store)
@@ -260,9 +260,9 @@ enum RosterServiceTests {
             try await service.addContact(jidString: "alice@example.com", name: "Alice", groups: ["Friends"], accountID: testAccountID)
         }
 
-        @Test("addContact(jidString:) silently ignores invalid JID")
+        @Test
         @MainActor
-        func addContactInvalidJID() async throws {
+        func `addContact(jidString:) silently ignores invalid JID`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -270,9 +270,9 @@ enum RosterServiceTests {
             try await service.addContact(jidString: "invalid", name: nil, groups: [], accountID: testAccountID)
         }
 
-        @Test("removeContact(jidString:) finds contact by JID string")
+        @Test
         @MainActor
-        func removeContactByString() async throws {
+        func `removeContact(jidString:) finds contact by JID string`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -284,9 +284,9 @@ enum RosterServiceTests {
             try await service.removeContact(jidString: contactJID1.description, accountID: testAccountID)
         }
 
-        @Test("removeContact(jidString:) silently ignores unknown JID")
+        @Test
         @MainActor
-        func removeContactUnknownJID() async throws {
+        func `removeContact(jidString:) silently ignores unknown JID`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -294,9 +294,9 @@ enum RosterServiceTests {
             try await service.removeContact(jidString: "unknown@example.com", accountID: testAccountID)
         }
 
-        @Test("approveSubscription(jidString:) silently returns without account service")
+        @Test
         @MainActor
-        func approveSubscriptionNoService() async throws {
+        func `approveSubscription(jidString:) silently returns without account service`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -304,9 +304,9 @@ enum RosterServiceTests {
             try await service.approveSubscription(jidString: "alice@example.com", accountID: testAccountID)
         }
 
-        @Test("denySubscription(jidString:) silently returns without account service")
+        @Test
         @MainActor
-        func denySubscriptionNoService() async throws {
+        func `denySubscription(jidString:) silently returns without account service`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -316,29 +316,29 @@ enum RosterServiceTests {
     }
 
     struct ContactDisplayName {
-        @Test("displayName prefers localAlias over name")
-        func displayNamePrefersLocalAlias() {
+        @Test
+        func `displayName prefers localAlias over name`() {
             let contact = makeContact(jid: contactJID1, name: "Alice", localAlias: "Ally")
             #expect(contact.displayName == "Ally")
         }
 
-        @Test("displayName falls back to name when no localAlias")
-        func displayNameFallsBackToName() {
+        @Test
+        func `displayName falls back to name when no localAlias`() {
             let contact = makeContact(jid: contactJID1, name: "Alice")
             #expect(contact.displayName == "Alice")
         }
 
-        @Test("displayName falls back to JID when no name or alias")
-        func displayNameFallsBackToJID() {
+        @Test
+        func `displayName falls back to JID when no name or alias`() {
             let contact = makeContact(jid: contactJID1)
             #expect(contact.displayName == contactJID1.description)
         }
     }
 
     struct RenameContact {
-        @Test("Rename updates localAlias in store and rebuilds groups")
+        @Test
         @MainActor
-        func renameUpdatesAlias() async throws {
+        func `Rename updates localAlias in store and rebuilds groups`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 

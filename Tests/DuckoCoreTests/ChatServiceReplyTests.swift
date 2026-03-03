@@ -18,9 +18,9 @@ private func makeChatService(store: MockPersistenceStore) -> ChatService {
 
 enum ChatServiceReplyTests {
     struct IncomingReply {
-        @Test("Incoming message with reply element sets replyToID")
+        @Test
         @MainActor
-        func incomingReplySetReplyToID() async throws {
+        func `Incoming message with reply element sets replyToID`() async throws {
             let store = MockPersistenceStore()
             let service = makeChatService(store: store)
 
@@ -42,9 +42,9 @@ enum ChatServiceReplyTests {
             #expect(messages[0].body == "This is a reply")
         }
 
-        @Test("Incoming message without reply element has nil replyToID")
+        @Test
         @MainActor
-        func incomingWithoutReplyHasNilReplyToID() async throws {
+        func `Incoming message without reply element has nil replyToID`() async throws {
             let store = MockPersistenceStore()
             let service = makeChatService(store: store)
 

@@ -102,8 +102,8 @@ private func transportInfoCandidateErrorXML(
 
 enum JingleSOCKS5Tests {
     struct TransportInfoCandidateUsed {
-        @Test("Handles transport-info with candidate-used")
-        func candidateUsed() async throws {
+        @Test
+        func `Handles transport-info with candidate-used`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -130,8 +130,8 @@ enum JingleSOCKS5Tests {
     }
 
     struct TransportInfoCandidateError {
-        @Test("Emits jingleFileTransferFailed on candidate-error")
-        func candidateError() async throws {
+        @Test
+        func `Emits jingleFileTransferFailed on candidate-error`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -163,8 +163,8 @@ enum JingleSOCKS5Tests {
     }
 
     struct ProxyActivationIQ {
-        @Test("Proxy activation IQ has correct structure")
-        func activationIQStructure() {
+        @Test
+        func `Proxy activation IQ has correct structure`() {
             // Verify the proxy activation IQ would have the right namespace and elements
             var query = XMLElement(name: "query", namespace: XMPPNamespaces.bytestreams, attributes: ["sid": "transport-sid"])
             var activate = XMLElement(name: "activate")
@@ -181,8 +181,8 @@ enum JingleSOCKS5Tests {
     }
 
     struct TransportState {
-        @Test("TransportState.pending is default")
-        func defaultState() throws {
+        @Test
+        func `TransportState.pending is default`() throws {
             let bareJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
             let peer = try #require(FullJID(bareJID: bareJID, resourcePart: "res"))
             let desc = JingleFileDescription(name: "f.txt", size: 100)

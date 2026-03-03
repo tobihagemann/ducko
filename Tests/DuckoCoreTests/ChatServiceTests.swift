@@ -37,9 +37,9 @@ private func makeIncomingMessage(
 
 enum ChatServiceTests {
     struct IncomingMessages {
-        @Test("Incoming message creates conversation and persists message")
+        @Test
         @MainActor
-        func incomingMessageCreatesConversation() async throws {
+        func `Incoming message creates conversation and persists message`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -58,9 +58,9 @@ enum ChatServiceTests {
             #expect(messages[0].isRead == false)
         }
 
-        @Test("Incoming message upserts existing conversation")
+        @Test
         @MainActor
-        func incomingMessageUpsertsConversation() async throws {
+        func `Incoming message upserts existing conversation`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -79,9 +79,9 @@ enum ChatServiceTests {
             #expect(messages.count == 2)
         }
 
-        @Test("Duplicate stanza ID is ignored")
+        @Test
         @MainActor
-        func duplicateStanzaIDIgnored() async throws {
+        func `Duplicate stanza ID is ignored`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -100,9 +100,9 @@ enum ChatServiceTests {
             #expect(messages.count == 1)
         }
 
-        @Test("Messages without body are ignored")
+        @Test
         @MainActor
-        func messagesWithoutBodyIgnored() async throws {
+        func `Messages without body are ignored`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -115,9 +115,9 @@ enum ChatServiceTests {
             #expect(conversations.isEmpty)
         }
 
-        @Test("Non-chat messages are ignored")
+        @Test
         @MainActor
-        func nonChatMessagesIgnored() async throws {
+        func `Non-chat messages are ignored`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -132,9 +132,9 @@ enum ChatServiceTests {
     }
 
     struct ConversationMetadata {
-        @Test("Conversation metadata is updated on incoming message")
+        @Test
         @MainActor
-        func conversationMetadataUpdated() async throws {
+        func `Conversation metadata is updated on incoming message`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -147,9 +147,9 @@ enum ChatServiceTests {
             #expect(conversations[0].unreadCount == 1)
         }
 
-        @Test("Unread count increments with each message")
+        @Test
         @MainActor
-        func unreadCountIncrements() async throws {
+        func `Unread count increments with each message`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -165,9 +165,9 @@ enum ChatServiceTests {
     }
 
     struct NonMessageEvents {
-        @Test("Non-message events are ignored")
+        @Test
         @MainActor
-        func nonMessageEventsIgnored() async throws {
+        func `Non-message events are ignored`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -180,9 +180,9 @@ enum ChatServiceTests {
     }
 
     struct OpenConversation {
-        @Test("openConversation creates and returns conversation")
+        @Test
         @MainActor
-        func openConversationCreatesConversation() async throws {
+        func `openConversation creates and returns conversation`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -193,9 +193,9 @@ enum ChatServiceTests {
             #expect(service.openConversations.count == 1)
         }
 
-        @Test("openConversation returns existing conversation")
+        @Test
         @MainActor
-        func openConversationReturnsExisting() async throws {
+        func `openConversation returns existing conversation`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -208,9 +208,9 @@ enum ChatServiceTests {
     }
 
     struct LoadMessages {
-        @Test("loadMessages returns messages in chronological order")
+        @Test
         @MainActor
-        func loadMessagesReturnsChronological() async throws {
+        func `loadMessages returns messages in chronological order`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -230,9 +230,9 @@ enum ChatServiceTests {
     }
 
     struct FilterPipelineTests {
-        @Test("Message content passes through filter pipeline")
+        @Test
         @MainActor
-        func filterPipelineApplied() async throws {
+        func `Message content passes through filter pipeline`() async throws {
             let store = makeStore()
             let pipeline = MessageFilterPipeline()
             await pipeline.register(UppercaseFilter())

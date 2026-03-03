@@ -5,30 +5,30 @@ import Testing
 // MARK: - Base64 Tests
 
 struct Base64Tests {
-    @Test("Encode empty")
-    func encodeEmpty() {
+    @Test
+    func `Encode empty`() {
         #expect(Base64.encode([]) == "")
     }
 
-    @Test("Decode empty")
-    func decodeEmpty() {
+    @Test
+    func `Decode empty`() {
         #expect(Base64.decode("") == [])
     }
 
-    @Test("Encode/decode round-trip", arguments: [
+    @Test(arguments: [
         "Hello, World!",
         "user",
         "pencil",
         "\0user\0pencil",
         "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL"
     ])
-    func roundTrip(input: String) {
+    func `Encode/decode round-trip`(input: String) {
         let encoded = Base64.encode(input)
         let decoded = Base64.decodeString(encoded)
         #expect(decoded == input)
     }
 
-    @Test("Encode known vectors", arguments: [
+    @Test(arguments: [
         ("", ""),
         ("f", "Zg=="),
         ("fo", "Zm8="),
@@ -37,23 +37,23 @@ struct Base64Tests {
         ("fooba", "Zm9vYmE="),
         ("foobar", "Zm9vYmFy")
     ])
-    func encodeKnownVectors(input: String, expected: String) {
+    func `Encode known vectors`(input: String, expected: String) {
         #expect(Base64.encode(input) == expected)
     }
 
-    @Test("Decode rejects invalid input")
-    func decodeRejectsInvalid() {
+    @Test
+    func `Decode rejects invalid input`() {
         #expect(Base64.decode("!!!") == nil)
         #expect(Base64.decode("A") == nil) // not multiple of 4
     }
 
-    @Test("Decode rejects non-final padding")
-    func decodeRejectsNonFinalPadding() {
+    @Test
+    func `Decode rejects non-final padding`() {
         #expect(Base64.decode("AB==CD==") == nil) // padding in non-final quartet
     }
 
-    @Test("Decode rejects mismatched padding")
-    func decodeRejectsMismatchedPadding() {
+    @Test
+    func `Decode rejects mismatched padding`() {
         #expect(Base64.decode("AB=A") == nil) // 3rd is = but 4th is not
     }
 }
@@ -61,8 +61,8 @@ struct Base64Tests {
 // MARK: - SASL PLAIN Tests
 
 struct SASLPlainTests {
-    @Test("Start produces correct auth element")
-    func startProducesCorrectAuth() throws {
+    @Test
+    func `Start produces correct auth element`() throws {
         var mechanism = SASLPlain()
         let auth = mechanism.start(authcid: "user", password: "pencil")
 
@@ -76,8 +76,8 @@ struct SASLPlainTests {
         #expect(decoded == expected)
     }
 
-    @Test("Handle challenge returns failure")
-    func handleChallengeReturnsFails() {
+    @Test
+    func `Handle challenge returns failure`() {
         var mechanism = SASLPlain()
         _ = mechanism.start(authcid: "user", password: "pencil")
         let response = mechanism.handleChallenge(XMLElement(name: "challenge", namespace: saslNamespace))
@@ -87,8 +87,8 @@ struct SASLPlainTests {
         }
     }
 
-    @Test("Handle success returns success")
-    func handleSuccessReturnsSuccess() {
+    @Test
+    func `Handle success returns success`() {
         var mechanism = SASLPlain()
         _ = mechanism.start(authcid: "user", password: "pencil")
         let response = mechanism.handleSuccess(XMLElement(name: "success", namespace: saslNamespace))
@@ -107,8 +107,8 @@ struct SCRAMSHA1Tests {
     private static let serverFirstMessage = "r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,s=QSXCR+Q6sek8bf92,i=4096"
     private static let expectedServerSignature = "rmF9pqV8S7suAoZWja4dJRkFsKQ="
 
-    @Test("Full SCRAM-SHA-1 exchange with RFC 5802 test vector")
-    func fullExchange() throws {
+    @Test
+    func `Full SCRAM-SHA-1 exchange with RFC 5802 test vector`() throws {
         var mechanism = SCRAMSHA1(nonceGenerator: { Self.clientNonce })
         let auth = mechanism.start(authcid: "user", password: "pencil")
 
@@ -143,15 +143,15 @@ struct SCRAMSHA1Tests {
         }
     }
 
-    @Test("Client-first-message bare matches RFC 5802 §5")
-    func clientFirstMessageBare() {
+    @Test
+    func `Client-first-message bare matches RFC 5802 §5`() {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         let message = state.clientFirstMessage(authcid: "user", password: "pencil")
         #expect(message == "n,,n=user,r=fyko+d2lbbFgONRv9qkxdawL")
     }
 
-    @Test("Client-final-message proof matches RFC 5802 §5")
-    func clientFinalMessageProof() throws {
+    @Test
+    func `Client-final-message proof matches RFC 5802 §5`() throws {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         let result = state.clientFinalMessage(serverFirstMessage: Self.serverFirstMessage)
@@ -159,8 +159,8 @@ struct SCRAMSHA1Tests {
         #expect(clientFinal == "c=biws,r=fyko+d2lbbFgONRv9qkxdawL3rfcNHYJY1ZVvWVs7j,p=v0X8v3Bz2T0CJGbJQyF0X+HI4Ts=")
     }
 
-    @Test("Server signature verification matches RFC 5802 §5")
-    func serverSignatureVerification() throws {
+    @Test
+    func `Server signature verification matches RFC 5802 §5`() throws {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         _ = state.clientFinalMessage(serverFirstMessage: Self.serverFirstMessage)
@@ -168,8 +168,8 @@ struct SCRAMSHA1Tests {
         try result.get()
     }
 
-    @Test("Invalid server nonce rejected")
-    func invalidServerNonce() {
+    @Test
+    func `Invalid server nonce rejected`() {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         let result = state.clientFinalMessage(serverFirstMessage: "r=WRONG_NONCE,s=QSXCR+Q6sek8bf92,i=4096")
@@ -179,8 +179,8 @@ struct SCRAMSHA1Tests {
         }
     }
 
-    @Test("Iteration count below minimum rejected")
-    func iterationCountTooLow() {
+    @Test
+    func `Iteration count below minimum rejected`() {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         let result = state.clientFinalMessage(
@@ -192,8 +192,8 @@ struct SCRAMSHA1Tests {
         }
     }
 
-    @Test("Wrong server signature rejected")
-    func wrongServerSignature() {
+    @Test
+    func `Wrong server signature rejected`() {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         _ = state.clientFinalMessage(serverFirstMessage: Self.serverFirstMessage)
@@ -204,8 +204,8 @@ struct SCRAMSHA1Tests {
         }
     }
 
-    @Test("Username escaping: = becomes =3D, comma becomes =2C")
-    func usernameEscaping() {
+    @Test
+    func `Username escaping: = becomes =3D, comma becomes =2C`() {
         var state = SCRAMState<Insecure.SHA1>(nonceGenerator: { "testnonce" })
         let message = state.clientFirstMessage(authcid: "user=name,test", password: "pass")
         #expect(message.contains("n=user=3Dname=2Ctest"))
@@ -221,8 +221,8 @@ struct SCRAMSHA256Tests {
         "r=rOprNGfwEbeRWgbNEkqO%hvYDpWUa2RaTCAfuxFIlj)hNlF$k0,s=W22ZaJ0SNY7soEsUEjb6gQ==,i=4096"
     private static let expectedServerSignature = "6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4="
 
-    @Test("Full SCRAM-SHA-256 exchange with RFC 7677 test vector")
-    func fullExchange() throws {
+    @Test
+    func `Full SCRAM-SHA-256 exchange with RFC 7677 test vector`() throws {
         var mechanism = SCRAMSHA256(nonceGenerator: { Self.clientNonce })
         let auth = mechanism.start(authcid: "user", password: "pencil")
 
@@ -257,8 +257,8 @@ struct SCRAMSHA256Tests {
         }
     }
 
-    @Test("Client-final-message proof matches RFC 7677 §3")
-    func clientFinalMessageProof() throws {
+    @Test
+    func `Client-final-message proof matches RFC 7677 §3`() throws {
         var state = SCRAMState<SHA256>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         let result = state.clientFinalMessage(serverFirstMessage: Self.serverFirstMessage)
@@ -269,8 +269,8 @@ struct SCRAMSHA256Tests {
         )
     }
 
-    @Test("Invalid base64 in challenge rejected")
-    func invalidBase64InChallenge() {
+    @Test
+    func `Invalid base64 in challenge rejected`() {
         var mechanism = SCRAMSHA256(nonceGenerator: { Self.clientNonce })
         _ = mechanism.start(authcid: "user", password: "pencil")
 
@@ -284,8 +284,8 @@ struct SCRAMSHA256Tests {
         }
     }
 
-    @Test("Malformed challenge rejected")
-    func malformedChallenge() {
+    @Test
+    func `Malformed challenge rejected`() {
         var state = SCRAMState<SHA256>(nonceGenerator: { Self.clientNonce })
         _ = state.clientFirstMessage(authcid: "user", password: "pencil")
         let result = state.clientFinalMessage(serverFirstMessage: "garbage")

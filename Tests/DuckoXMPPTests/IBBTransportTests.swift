@@ -4,10 +4,9 @@ import Testing
 enum IBBTransportTests {
     struct Base64RoundTrip {
         @Test(
-            "Base64 encode/decode round-trip for IBB block sizes",
             arguments: [1, 100, 4096, 65535]
         )
-        func roundTrip(size: Int) {
+        func `Base64 encode/decode round-trip for IBB block sizes`(size: Int) {
             var data = [UInt8](repeating: 0, count: size)
             for i in 0 ..< size {
                 data[i] = UInt8(i % 256)
@@ -19,8 +18,8 @@ enum IBBTransportTests {
     }
 
     struct SequenceNumberWrapping {
-        @Test("IBB sequence number wraps from UInt16.max to 0")
-        func wrapsCorrectly() {
+        @Test
+        func `IBB sequence number wraps from UInt16.max to 0`() {
             var seq: UInt16 = 65534
             seq &+= 1
             #expect(seq == 65535)
@@ -30,8 +29,8 @@ enum IBBTransportTests {
     }
 
     struct IBBXMLParsing {
-        @Test("IBBTransport parses sid and block-size from XML")
-        func parsesAttributes() {
+        @Test
+        func `IBBTransport parses sid and block-size from XML`() {
             let element = XMLElement(
                 name: "transport",
                 namespace: XMPPNamespaces.jingleIBB,
@@ -43,8 +42,8 @@ enum IBBTransportTests {
             #expect(transport?.blockSize == 8192)
         }
 
-        @Test("IBBTransport returns nil for missing sid")
-        func rejectsNoSID() {
+        @Test
+        func `IBBTransport returns nil for missing sid`() {
             let element = XMLElement(
                 name: "transport",
                 namespace: XMPPNamespaces.jingleIBB,
@@ -53,8 +52,8 @@ enum IBBTransportTests {
             #expect(IBBTransport(from: element) == nil)
         }
 
-        @Test("IBBTransport returns nil for missing block-size")
-        func rejectsNoBlockSize() {
+        @Test
+        func `IBBTransport returns nil for missing block-size`() {
             let element = XMLElement(
                 name: "transport",
                 namespace: XMPPNamespaces.jingleIBB,
@@ -65,8 +64,8 @@ enum IBBTransportTests {
     }
 
     struct IBBSessionStateAccumulation {
-        @Test("IBBSessionState accumulates received data")
-        func accumulatesData() throws {
+        @Test
+        func `IBBSessionState accumulates received data`() throws {
             let peer = try #require(FullJID.parse("peer@example.com/res"))
             var ibbState = IBBSessionState(ibbSID: "ibb-1", blockSize: 4096, peer: peer, expectedSize: 10)
 

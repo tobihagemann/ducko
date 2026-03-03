@@ -20,8 +20,8 @@ enum AttachmentModelTests {
     }
 
     struct IsImage {
-        @Test("Returns true for image MIME types")
-        func imageTypes() {
+        @Test
+        func `Returns true for image MIME types`() {
             let png = makeAttachment(mimeType: "image/png")
             let jpeg = makeAttachment(mimeType: "image/jpeg")
             let gif = makeAttachment(mimeType: "image/gif")
@@ -31,8 +31,8 @@ enum AttachmentModelTests {
             #expect(gif.isImage)
         }
 
-        @Test("Returns false for non-image MIME types")
-        func nonImageTypes() {
+        @Test
+        func `Returns false for non-image MIME types`() {
             let pdf = makeAttachment(mimeType: "application/pdf")
             let text = makeAttachment(mimeType: "text/plain")
 
@@ -40,43 +40,43 @@ enum AttachmentModelTests {
             #expect(!text.isImage)
         }
 
-        @Test("Returns false when MIME type is nil")
-        func nilMimeType() {
+        @Test
+        func `Returns false when MIME type is nil`() {
             let attachment = makeAttachment(mimeType: nil)
             #expect(!attachment.isImage)
         }
     }
 
     struct DisplayFileName {
-        @Test("Returns fileName when set")
-        func usesFileName() {
+        @Test
+        func `Returns fileName when set`() {
             let attachment = makeAttachment(fileName: "report.pdf")
             #expect(attachment.displayFileName == "report.pdf")
         }
 
-        @Test("Falls back to URL last path component")
-        func fallsBackToURL() {
+        @Test
+        func `Falls back to URL last path component`() {
             let attachment = makeAttachment(url: "https://example.com/files/photo.jpg", fileName: nil)
             #expect(attachment.displayFileName == "photo.jpg")
         }
 
-        @Test("Falls back to URL when empty fileName")
-        func emptyFileName() {
+        @Test
+        func `Falls back to URL when empty fileName`() {
             let attachment = makeAttachment(url: "https://example.com/document.pdf", fileName: "")
             #expect(attachment.displayFileName == "document.pdf")
         }
     }
 
     struct FormattedFileSize {
-        @Test("Returns nil when fileSize is nil")
-        func nilSize() {
+        @Test
+        func `Returns nil when fileSize is nil`() {
             let noSize: Int64? = nil
             let attachment = makeAttachment(fileSize: noSize)
             #expect(attachment.formattedFileSize == nil)
         }
 
-        @Test("Returns formatted string for known sizes")
-        func formatsSize() {
+        @Test
+        func `Returns formatted string for known sizes`() {
             let attachment = makeAttachment(fileSize: 5_242_880) // 5 MB
             let result = attachment.formattedFileSize
             #expect(result != nil)
@@ -84,8 +84,8 @@ enum AttachmentModelTests {
             #expect(resultContainsMB)
         }
 
-        @Test("Returns formatted string for zero bytes")
-        func zeroBytes() {
+        @Test
+        func `Returns formatted string for zero bytes`() {
             let attachment = makeAttachment(fileSize: 0)
             let result = attachment.formattedFileSize
             #expect(result != nil)
@@ -93,8 +93,8 @@ enum AttachmentModelTests {
     }
 
     struct ChatMessageAttachments {
-        @Test("ChatMessage defaults to empty attachments")
-        func defaultEmpty() {
+        @Test
+        func `ChatMessage defaults to empty attachments`() {
             let message = ChatMessage(
                 id: UUID(),
                 conversationID: UUID(),
@@ -110,8 +110,8 @@ enum AttachmentModelTests {
             #expect(message.attachments.isEmpty)
         }
 
-        @Test("ChatMessage can be created with attachments")
-        func withAttachments() {
+        @Test
+        func `ChatMessage can be created with attachments`() {
             let attachment = makeAttachment(mimeType: "image/png")
             let message = ChatMessage(
                 id: UUID(),

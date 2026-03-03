@@ -19,8 +19,8 @@ enum FileTransferServiceTests {
 
     @MainActor
     struct Initialization {
-        @Test("Starts with empty active transfers")
-        func startsEmpty() {
+        @Test
+        func `Starts with empty active transfers`() {
             let store = MockPersistenceStore()
             let service = FileTransferService(store: store)
             #expect(service.activeTransfers.isEmpty)
@@ -29,8 +29,8 @@ enum FileTransferServiceTests {
 
     @MainActor
     struct SendFileErrors {
-        @Test("Throws fileReadFailed for missing file")
-        func throwsFileReadFailed() async throws {
+        @Test
+        func `Throws fileReadFailed for missing file`() async throws {
             let store = MockPersistenceStore()
             let service = FileTransferService(store: store)
 
@@ -52,8 +52,8 @@ enum FileTransferServiceTests {
 
     @MainActor
     struct SendFileNoClient {
-        @Test("Throws noClient when no account service is set")
-        func throwsNoClient() async throws {
+        @Test
+        func `Throws noClient when no account service is set`() async throws {
             let store = MockPersistenceStore()
             let service = FileTransferService(store: store)
 
@@ -79,8 +79,8 @@ enum FileTransferServiceTests {
 
     @MainActor
     struct ActiveTransferTracking {
-        @Test("Transfer appears in activeTransfers during send attempt")
-        func tracksTransfer() async throws {
+        @Test
+        func `Transfer appears in activeTransfers during send attempt`() async throws {
             let store = MockPersistenceStore()
             let service = FileTransferService(store: store)
 
@@ -106,8 +106,8 @@ enum FileTransferServiceTests {
 
     @MainActor
     struct TransferStateJingleCases {
-        @Test("Jingle transfer states can be pattern-matched")
-        func jingleStates() {
+        @Test
+        func `Jingle transfer states can be pattern-matched`() {
             let states: [FileTransferService.TransferState] = [
                 .negotiating,
                 .connectingTransport,
@@ -131,8 +131,8 @@ enum FileTransferServiceTests {
 
     @MainActor
     struct IncomingOfferTracking {
-        @Test("handleJingleEvent tracks incoming file offers")
-        func tracksIncomingOffer() throws {
+        @Test
+        func `handleJingleEvent tracks incoming file offers`() throws {
             let store = MockPersistenceStore()
             let service = FileTransferService(store: store)
 
@@ -166,8 +166,8 @@ enum FileTransferServiceTests {
 
     @MainActor
     struct JingleProgressTracking {
-        @Test("handleJingleEvent updates transfer progress")
-        func updatesProgress() throws {
+        @Test
+        func `handleJingleEvent updates transfer progress`() throws {
             let store = MockPersistenceStore()
             let service = FileTransferService(store: store)
 

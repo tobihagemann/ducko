@@ -6,17 +6,17 @@ import Testing
 // MARK: - ThemeColor Tests
 
 struct ThemeColorTests {
-    @Test func hexColorParsingWithHash() {
+    @Test func `hex color parsing with hash`() {
         let color = Color(hex: "#FF0000")
         #expect(color != Color.clear)
     }
 
-    @Test func hexColorParsingWithoutHash() {
+    @Test func `hex color parsing without hash`() {
         let color = Color(hex: "00FF00")
         #expect(color != Color.clear)
     }
 
-    @Test func lightDarkResolution() {
+    @Test func `light dark resolution`() {
         let themeColor = ThemeColor(light: "#FF0000", dark: "#0000FF")
         let lightResolved = themeColor.resolved(for: .light)
         let darkResolved = themeColor.resolved(for: .dark)
@@ -27,13 +27,13 @@ struct ThemeColorTests {
 // MARK: - ThemeFont Tests
 
 struct ThemeFontTests {
-    @Test func systemFontResolution() {
+    @Test func `system font resolution`() {
         let font = ThemeFont(size: 14, weight: "regular")
         let resolved = font.resolved
         #expect(resolved == Font.system(size: 14, weight: .regular))
     }
 
-    @Test func customFontResolution() {
+    @Test func `custom font resolution`() {
         let font = ThemeFont(family: "Menlo", size: 13, weight: "bold")
         let resolved = font.resolved
         #expect(resolved == Font.custom("Menlo", size: 13).weight(.bold))
@@ -50,13 +50,13 @@ struct ThemeFontTests {
         ("heavy", Font.Weight.heavy),
         ("black", Font.Weight.black)
     ])
-    func knownWeights(weight: String, expected: Font.Weight) {
+    func `known weights`(weight: String, expected: Font.Weight) {
         let font = ThemeFont(size: 14, weight: weight)
         let resolved = font.resolved
         #expect(resolved == Font.system(size: 14, weight: expected))
     }
 
-    @Test func unknownWeightFallsBackToRegular() {
+    @Test func `unknown weight falls back to regular`() {
         let font = ThemeFont(size: 14, weight: "extraBold")
         let resolved = font.resolved
         #expect(resolved == Font.system(size: 14, weight: .regular))
@@ -95,7 +95,7 @@ struct DuckoThemeTests {
         linkPreviewStyle: .full
     )
 
-    @Test func jsonRoundTrip() throws {
+    @Test func `json round trip`() throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(DuckoThemeTests.sampleTheme)
@@ -103,7 +103,7 @@ struct DuckoThemeTests {
         #expect(decoded == DuckoThemeTests.sampleTheme)
     }
 
-    @Test func metadataFields() {
+    @Test func `metadata fields`() {
         #expect(DuckoThemeTests.sampleTheme.id == "test")
         #expect(DuckoThemeTests.sampleTheme.name == "Test Theme")
         #expect(DuckoThemeTests.sampleTheme.author == "Tester")
@@ -115,7 +115,7 @@ struct DuckoThemeTests {
         ("roundedRect", DuckoTheme.AvatarShape.roundedRect),
         ("squircle", DuckoTheme.AvatarShape.squircle)
     ])
-    func avatarShapeDecoding(raw: String, expected: DuckoTheme.AvatarShape) throws {
+    func `avatar shape decoding`(raw: String, expected: DuckoTheme.AvatarShape) throws {
         let json = "\"\(raw)\""
         let decoded = try JSONDecoder().decode(DuckoTheme.AvatarShape.self, from: Data(json.utf8))
         #expect(decoded == expected)
@@ -125,7 +125,7 @@ struct DuckoThemeTests {
         ("leading", DuckoTheme.AvatarPosition.leading),
         ("hidden", DuckoTheme.AvatarPosition.hidden)
     ])
-    func avatarPositionDecoding(raw: String, expected: DuckoTheme.AvatarPosition) throws {
+    func `avatar position decoding`(raw: String, expected: DuckoTheme.AvatarPosition) throws {
         let json = "\"\(raw)\""
         let decoded = try JSONDecoder().decode(DuckoTheme.AvatarPosition.self, from: Data(json.utf8))
         #expect(decoded == expected)
@@ -135,7 +135,7 @@ struct DuckoThemeTests {
         ("inline", DuckoTheme.TimestampStyle.inline),
         ("grouped", DuckoTheme.TimestampStyle.grouped)
     ])
-    func timestampStyleDecoding(raw: String, expected: DuckoTheme.TimestampStyle) throws {
+    func `timestamp style decoding`(raw: String, expected: DuckoTheme.TimestampStyle) throws {
         let json = "\"\(raw)\""
         let decoded = try JSONDecoder().decode(DuckoTheme.TimestampStyle.self, from: Data(json.utf8))
         #expect(decoded == expected)
@@ -145,7 +145,7 @@ struct DuckoThemeTests {
         ("full", DuckoTheme.LinkPreviewStyle.full),
         ("compact", DuckoTheme.LinkPreviewStyle.compact)
     ])
-    func linkPreviewStyleDecoding(raw: String, expected: DuckoTheme.LinkPreviewStyle) throws {
+    func `link preview style decoding`(raw: String, expected: DuckoTheme.LinkPreviewStyle) throws {
         let json = "\"\(raw)\""
         let decoded = try JSONDecoder().decode(DuckoTheme.LinkPreviewStyle.self, from: Data(json.utf8))
         #expect(decoded == expected)
@@ -156,13 +156,13 @@ struct DuckoThemeTests {
 
 @MainActor
 struct ThemeEngineTests {
-    @Test func initLoadsBuiltInThemes() {
+    @Test func `init loads built in themes`() {
         let engine = ThemeEngine()
         let count = engine.availableThemes.count
         #expect(count >= 4)
     }
 
-    @Test func selectThemePersistsAndUpdatesCurrent() {
+    @Test func `select theme persists and updates current`() {
         let engine = ThemeEngine()
         defer { engine.selectTheme(engine.availableThemes[0]) }
         guard engine.availableThemes.count >= 2 else { return }
@@ -175,7 +175,7 @@ struct ThemeEngineTests {
         #expect(engine2.current.id == second.id)
     }
 
-    @Test func unknownSavedIDFallsBackToFirst() {
+    @Test func `unknown saved ID falls back to first`() {
         let engine = ThemeEngine()
         defer { engine.selectTheme(engine.availableThemes[0]) }
         let defaults: UserDefaults = {

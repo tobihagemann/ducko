@@ -4,7 +4,7 @@ import CryptoKit
 ///
 /// Parameterized over a hash function (`SHA256`, `Insecure.SHA1`) so that
 /// `SCRAMSHA256` and `SCRAMSHA1` are thin wrappers.
-struct SCRAMState<H: HashFunction>: Sendable where H.Digest: Sendable {
+struct SCRAMState<H: HashFunction> where H.Digest: Sendable {
     private var phase: Phase = .initial
     private var authcid = ""
     private var password = ""
@@ -120,7 +120,7 @@ struct SCRAMState<H: HashFunction>: Sendable where H.Digest: Sendable {
 
     // MARK: - Private
 
-    private enum Phase: Sendable {
+    private enum Phase {
         case initial
         case waitingForServerFirst
         case waitingForServerFinal

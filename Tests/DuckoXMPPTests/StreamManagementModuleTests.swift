@@ -30,8 +30,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> (XMPPClien
 
 enum StreamManagementModuleTests {
     struct EnableFlow {
-        @Test("Sends <enable> on handleConnect and processes <enabled> response")
-        func sendsEnableAndProcessesEnabled() async throws {
+        @Test
+        func `Sends <enable> on handleConnect and processes <enabled> response`() async throws {
             let mock = MockTransport()
             let (client, sm) = try await makeConnectedClient(mock: mock)
 
@@ -40,8 +40,8 @@ enum StreamManagementModuleTests {
             await client.disconnect()
         }
 
-        @Test("Handles <failed> response and resets state")
-        func handlesFailedResponse() async throws {
+        @Test
+        func `Handles <failed> response and resets state`() async throws {
             let mock = MockTransport()
             let sm = StreamManagementModule()
             let client = XMPPClient(
@@ -67,8 +67,8 @@ enum StreamManagementModuleTests {
             await client.disconnect()
         }
 
-        @Test("Does not send enable when server features lack SM")
-        func doesNotEnableWithoutServerSupport() async throws {
+        @Test
+        func `Does not send enable when server features lack SM`() async throws {
             let mock = MockTransport()
             let sm = StreamManagementModule()
             let client = XMPPClient(
@@ -99,8 +99,8 @@ enum StreamManagementModuleTests {
     }
 
     struct IncomingCounter {
-        @Test("Increments incoming counter on received stanzas")
-        func incrementsIncomingCounter() async throws {
+        @Test
+        func `Increments incoming counter on received stanzas`() async throws {
             let mock = MockTransport()
             let (client, _) = try await makeConnectedClient(mock: mock)
 
@@ -136,8 +136,8 @@ enum StreamManagementModuleTests {
     }
 
     struct OutgoingCounter {
-        @Test("Increments outgoing counter on sent stanzas")
-        func incrementsOutgoingCounter() async throws {
+        @Test
+        func `Increments outgoing counter on sent stanzas`() async throws {
             let mock = MockTransport()
             let (client, sm) = try await makeConnectedClient(mock: mock)
 
@@ -153,8 +153,8 @@ enum StreamManagementModuleTests {
     }
 
     struct AckProcessing {
-        @Test("Responds to <r> with <a h='N'>")
-        func respondsToRWithA() async throws {
+        @Test
+        func `Responds to <r> with <a h='N'>`() async throws {
             let mock = MockTransport()
             let (client, _) = try await makeConnectedClient(mock: mock)
 
@@ -179,8 +179,8 @@ enum StreamManagementModuleTests {
             await client.disconnect()
         }
 
-        @Test("Processes <a h='N'> and dequeues acknowledged stanzas")
-        func processesAckAndDequeues() async throws {
+        @Test
+        func `Processes <a h='N'> and dequeues acknowledged stanzas`() async throws {
             let mock = MockTransport()
             let (client, sm) = try await makeConnectedClient(mock: mock)
 
@@ -203,8 +203,8 @@ enum StreamManagementModuleTests {
     }
 
     struct StanzaFiltering {
-        @Test("Counter only counts iq/message/presence, not SM elements")
-        func counterOnlyCountsStanzas() async throws {
+        @Test
+        func `Counter only counts iq/message/presence, not SM elements`() async throws {
             let mock = MockTransport()
             let (client, _) = try await makeConnectedClient(mock: mock)
 
@@ -227,8 +227,8 @@ enum StreamManagementModuleTests {
             await client.disconnect()
         }
 
-        @Test("SM-namespace elements are consumed and not dispatched to modules")
-        func smElementsConsumed() async throws {
+        @Test
+        func `SM-namespace elements are consumed and not dispatched to modules`() async throws {
             let mock = MockTransport()
             let (client, _) = try await makeConnectedClient(mock: mock)
 

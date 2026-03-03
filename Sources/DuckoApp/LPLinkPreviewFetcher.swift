@@ -3,7 +3,7 @@ import Foundation
 import LinkPresentation
 
 /// Extracted metadata values that are Sendable (unlike LPLinkMetadata itself).
-private struct ExtractedMetadata: Sendable {
+private struct ExtractedMetadata {
     let title: String?
     let siteName: String?
 }

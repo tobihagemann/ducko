@@ -87,8 +87,8 @@ struct SwiftDataPersistenceStoreTests {
     struct Accounts {
         private let outer = SwiftDataPersistenceStoreTests()
 
-        @Test("Save and fetch account")
-        func saveAndFetch() async throws {
+        @Test
+        func `Save and fetch account`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
 
@@ -100,8 +100,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.jid == account.jid)
         }
 
-        @Test("Update existing account")
-        func updateExisting() async throws {
+        @Test
+        func `Update existing account`() async throws {
             let store = try outer.makeStore()
             var account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -116,8 +116,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.connectOnLaunch == true)
         }
 
-        @Test("Delete account")
-        func delete() async throws {
+        @Test
+        func `Delete account`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -127,8 +127,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.isEmpty)
         }
 
-        @Test("Delete cascades contacts and conversations")
-        func deleteCascades() async throws {
+        @Test
+        func `Delete cascades contacts and conversations`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -153,8 +153,8 @@ struct SwiftDataPersistenceStoreTests {
     struct Contacts {
         private let outer = SwiftDataPersistenceStoreTests()
 
-        @Test("Upsert and fetch contacts by account")
-        func upsertAndFetch() async throws {
+        @Test
+        func `Upsert and fetch contacts by account`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -167,8 +167,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.jid.description == "alice@example.com")
         }
 
-        @Test("Update existing contact")
-        func updateExisting() async throws {
+        @Test
+        func `Update existing contact`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -186,8 +186,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.subscription == .both)
         }
 
-        @Test("Groups array round-trips")
-        func groupsRoundTrip() async throws {
+        @Test
+        func `Groups array round-trips`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -200,8 +200,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.groups == groups)
         }
 
-        @Test("Fetch scoped to account")
-        func fetchScopedToAccount() async throws {
+        @Test
+        func `Fetch scoped to account`() async throws {
             let store = try outer.makeStore()
             let account1 = outer.makeAccount(jid: "user1@example.com")
             let account2 = outer.makeAccount(jid: "user2@example.com")
@@ -227,8 +227,8 @@ struct SwiftDataPersistenceStoreTests {
     struct Conversations {
         private let outer = SwiftDataPersistenceStoreTests()
 
-        @Test("Upsert and fetch conversations")
-        func upsertAndFetch() async throws {
+        @Test
+        func `Upsert and fetch conversations`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -241,11 +241,11 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.id == conversation.id)
         }
 
-        @Test("Conversation type round-trips", arguments: [
+        @Test(arguments: [
             Conversation.ConversationType.chat,
             Conversation.ConversationType.groupchat
         ])
-        func typeRoundTrip(type: Conversation.ConversationType) async throws {
+        func `Conversation type round-trips`(type: Conversation.ConversationType) async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -257,8 +257,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.type == type)
         }
 
-        @Test("Last message date and preview update")
-        func lastMessageUpdate() async throws {
+        @Test
+        func `Last message date and preview update`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -290,8 +290,8 @@ struct SwiftDataPersistenceStoreTests {
             return (store, conversation.id)
         }
 
-        @Test("Insert and fetch ordered by timestamp descending")
-        func insertAndFetch() async throws {
+        @Test
+        func `Insert and fetch ordered by timestamp descending`() async throws {
             let (store, conversationID) = try await makeStoreWithConversation()
 
             let now = Date()
@@ -314,8 +314,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.last?.body == "First")
         }
 
-        @Test("Pagination with before and limit")
-        func pagination() async throws {
+        @Test
+        func `Pagination with before and limit`() async throws {
             let (store, conversationID) = try await makeStoreWithConversation()
 
             let now = Date()
@@ -338,8 +338,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(page.last?.body == "Message 1")
         }
 
-        @Test("Mark messages read resets unread count")
-        func markRead() async throws {
+        @Test
+        func `Mark messages read resets unread count`() async throws {
             let (store, conversationID) = try await makeStoreWithConversation()
 
             let msg1 = outer.makeMessage(conversationID: conversationID, body: "Unread 1")
@@ -363,8 +363,8 @@ struct SwiftDataPersistenceStoreTests {
     struct Attachments {
         private let outer = SwiftDataPersistenceStoreTests()
 
-        @Test("Insert attachment for message")
-        func insertForMessage() async throws {
+        @Test
+        func `Insert attachment for message`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -399,8 +399,8 @@ struct SwiftDataPersistenceStoreTests {
     struct CascadeDeletes {
         private let outer = SwiftDataPersistenceStoreTests()
 
-        @Test("Account deletion cascades through conversations to messages")
-        func accountCascade() async throws {
+        @Test
+        func `Account deletion cascades through conversations to messages`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -435,8 +435,8 @@ struct SwiftDataPersistenceStoreTests {
     struct EdgeCases {
         private let outer = SwiftDataPersistenceStoreTests()
 
-        @Test("Fetch on empty store returns empty array")
-        func fetchEmpty() async throws {
+        @Test
+        func `Fetch on empty store returns empty array`() async throws {
             let store = try outer.makeStore()
             let accounts = try await store.fetchAccounts()
             let contacts = try await store.fetchContacts(for: UUID())
@@ -448,8 +448,8 @@ struct SwiftDataPersistenceStoreTests {
             #expect(messages.isEmpty)
         }
 
-        @Test("Delete nonexistent account is no-op")
-        func deleteNonexistent() async throws {
+        @Test
+        func `Delete nonexistent account is no-op`() async throws {
             let store = try outer.makeStore()
             try await store.deleteAccount(UUID())
             // No error thrown

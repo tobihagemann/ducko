@@ -22,9 +22,9 @@ private func makeChatService(store: MockPersistenceStore) -> ChatService {
 
 enum ChatServiceMUCUITests {
     struct RoomParticipantsSeeding {
-        @Test("roomJoined seeds roomParticipants")
+        @Test
         @MainActor
-        func seedsParticipants() async {
+        func `roomJoined seeds roomParticipants`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -47,9 +47,9 @@ enum ChatServiceMUCUITests {
     }
 
     struct OccupantJoined {
-        @Test("roomOccupantJoined adds to roomParticipants")
+        @Test
         @MainActor
-        func addsParticipant() async {
+        func `roomOccupantJoined adds to roomParticipants`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -78,9 +78,9 @@ enum ChatServiceMUCUITests {
     }
 
     struct OccupantLeft {
-        @Test("roomOccupantLeft removes from roomParticipants")
+        @Test
         @MainActor
-        func removesParticipant() async {
+        func `roomOccupantLeft removes from roomParticipants`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -107,9 +107,9 @@ enum ChatServiceMUCUITests {
     }
 
     struct ParticipantGrouping {
-        @Test("participantGroups groups and sorts by affiliation")
+        @Test
         @MainActor
-        func groupsAndSorts() async {
+        func `participantGroups groups and sorts by affiliation`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -136,9 +136,9 @@ enum ChatServiceMUCUITests {
     }
 
     struct InviteReceived {
-        @Test("roomInviteReceived appends to pendingInvites")
+        @Test
         @MainActor
-        func appendsInvite() async {
+        func `roomInviteReceived appends to pendingInvites`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -155,9 +155,9 @@ enum ChatServiceMUCUITests {
             #expect(service.pendingInvites[0].reason == "Join us!")
         }
 
-        @Test("Duplicate invites are deduplicated")
+        @Test
         @MainActor
-        func deduplicatesInvites() async {
+        func `Duplicate invites are deduplicated`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -170,9 +170,9 @@ enum ChatServiceMUCUITests {
     }
 
     struct DeclineInvite {
-        @Test("declineInvite removes from pendingInvites")
+        @Test
         @MainActor
-        func removesInvite() async {
+        func `declineInvite removes from pendingInvites`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -186,9 +186,9 @@ enum ChatServiceMUCUITests {
     }
 
     struct MapOccupantValues {
-        @Test("mapOccupant correctly maps all affiliation/role values")
+        @Test
         @MainActor
-        func mapsAllValues() async {
+        func `mapOccupant correctly maps all affiliation/role values`() async {
             let store = makeStore()
             let service = makeChatService(store: store)
 

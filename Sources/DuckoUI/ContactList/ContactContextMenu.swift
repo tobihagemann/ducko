@@ -46,6 +46,16 @@ struct ContactContextMenu: View {
 
         Divider()
 
+        Button(contact.isBlocked ? "Unblock" : "Block") {
+            Task {
+                if contact.isBlocked {
+                    try? await environment.rosterService.unblockContact(jidString: contact.jid.description, accountID: contact.accountID)
+                } else {
+                    try? await environment.rosterService.blockContact(jidString: contact.jid.description, accountID: contact.accountID)
+                }
+            }
+        }
+
         Button("Remove Contact", role: .destructive) {
             Task {
                 try? await environment.rosterService.removeContact(contact, accountID: contact.accountID)

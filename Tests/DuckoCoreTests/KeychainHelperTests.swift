@@ -7,7 +7,7 @@ struct KeychainHelperTests {
         "test-\(UUID().uuidString)@example.com"
     }
 
-    @Test func saveAndLoad() {
+    @Test func `save and load`() {
         let jid = makeJID()
         defer { KeychainHelper.deletePassword(for: jid) }
 
@@ -16,7 +16,7 @@ struct KeychainHelperTests {
         #expect(loaded == "secret123")
     }
 
-    @Test func updateOverwrites() {
+    @Test func `update overwrites`() {
         let jid = makeJID()
         defer { KeychainHelper.deletePassword(for: jid) }
 
@@ -26,13 +26,13 @@ struct KeychainHelperTests {
         #expect(loaded == "second")
     }
 
-    @Test func loadNonExistentReturnsNil() {
+    @Test func `load non existent returns nil`() {
         let jid = makeJID()
         let loaded = KeychainHelper.loadPassword(for: jid)
         #expect(loaded == nil)
     }
 
-    @Test func deleteRemovesEntry() {
+    @Test func `delete removes entry`() {
         let jid = makeJID()
 
         KeychainHelper.savePassword("toDelete", for: jid)
@@ -41,12 +41,12 @@ struct KeychainHelperTests {
         #expect(loaded == nil)
     }
 
-    @Test func deleteNonExistentDoesNotThrow() {
+    @Test func `delete non existent does not throw`() {
         let jid = makeJID()
         KeychainHelper.deletePassword(for: jid)
     }
 
-    @Test func specialCharactersRoundTrip() {
+    @Test func `special characters round trip`() {
         let jid = makeJID()
         defer { KeychainHelper.deletePassword(for: jid) }
 

@@ -220,7 +220,8 @@ public final class FileTransferService {
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             break
         }
     }

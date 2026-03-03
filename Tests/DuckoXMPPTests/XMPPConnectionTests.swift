@@ -101,8 +101,8 @@ private func collectEvents(
 
 enum XMPPConnectionTests {
     struct ConnectionLifecycle {
-        @Test("Connect establishes transport")
-        func connectEstablishesTransport() async throws {
+        @Test
+        func `Connect establishes transport`() async throws {
             let mock = MockTransport()
             let connection = XMPPConnection(transport: mock)
 
@@ -118,8 +118,8 @@ enum XMPPConnectionTests {
             await connection.disconnect()
         }
 
-        @Test("Disconnect stops transport and finishes events")
-        func disconnectStopsAndFinishes() async throws {
+        @Test
+        func `Disconnect stops transport and finishes events`() async throws {
             let mock = MockTransport()
             let connection = XMPPConnection(transport: mock)
 
@@ -139,8 +139,8 @@ enum XMPPConnectionTests {
     }
 
     struct DataReceiving {
-        @Test("Received bytes emit XML stream events")
-        func receivedBytesEmitXMLStreamEvents() async throws {
+        @Test
+        func `Received bytes emit XML stream events`() async throws {
             let mock = MockTransport()
             let connection = XMPPConnection(transport: mock)
 
@@ -167,8 +167,8 @@ enum XMPPConnectionTests {
             await connection.disconnect()
         }
 
-        @Test("Incremental chunks produce correct stanzas")
-        func incrementalChunksProduceCorrectStanzas() async throws {
+        @Test
+        func `Incremental chunks produce correct stanzas`() async throws {
             let mock = MockTransport()
             let connection = XMPPConnection(transport: mock)
 
@@ -194,8 +194,8 @@ enum XMPPConnectionTests {
     }
 
     struct TLSUpgrade {
-        @Test("Upgrade resets parser and resumes receiving")
-        func upgradeResetsParserAndResumesReceiving() async throws {
+        @Test
+        func `Upgrade resets parser and resumes receiving`() async throws {
             let mock = MockTransport()
             let connection = XMPPConnection(transport: mock)
 
@@ -212,8 +212,8 @@ enum XMPPConnectionTests {
             await connection.disconnect()
         }
 
-        @Test("Events flow after TLS upgrade")
-        func eventsFlowAfterTLSUpgrade() async throws {
+        @Test
+        func `Events flow after TLS upgrade`() async throws {
             let mock = MockTransport()
             let connection = XMPPConnection(transport: mock)
 
@@ -235,8 +235,8 @@ enum XMPPConnectionTests {
     }
 
     struct Sending {
-        @Test("Send forwards bytes to transport")
-        func sendForwardsBytesToTransport() async throws {
+        @Test
+        func `Send forwards bytes to transport`() async throws {
             let mock = MockTransport()
             let connection = XMPPConnection(transport: mock)
 
@@ -257,8 +257,8 @@ enum XMPPConnectionTests {
 // MARK: - SRV Record Tests
 
 struct SRVRecordTests {
-    @Test("Sorts by priority then weight")
-    func sortsByPriorityThenWeight() {
+    @Test
+    func `Sorts by priority then weight`() {
         let records = [
             SRVRecord(priority: 20, weight: 50, port: 5222, target: "low-pri.example.com"),
             SRVRecord(priority: 10, weight: 30, port: 5222, target: "high-pri-low-weight.example.com"),
@@ -271,8 +271,8 @@ struct SRVRecordTests {
         #expect(sorted[2].target == "low-pri.example.com")
     }
 
-    @Test("Fallback on empty results returns domain:5222")
-    func fallbackOnEmptyResults() async {
+    @Test
+    func `Fallback on empty results returns domain:5222`() async {
         // Use an invalid domain that will definitely fail SRV lookup
         let records = await XMPPSRVLookup.resolve(
             domain: "this-domain-does-not-exist-12345.invalid",

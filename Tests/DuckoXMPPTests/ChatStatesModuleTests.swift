@@ -22,8 +22,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
 
 enum ChatStatesModuleTests {
     struct IncomingStates {
-        @Test("Emits chatStateChanged for composing")
-        func composingEvent() async throws {
+        @Test
+        func `Emits chatStateChanged for composing`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -50,8 +50,8 @@ enum ChatStatesModuleTests {
             await client.disconnect()
         }
 
-        @Test("Emits chatStateChanged for active")
-        func activeEvent() async throws {
+        @Test
+        func `Emits chatStateChanged for active`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -77,8 +77,8 @@ enum ChatStatesModuleTests {
             await client.disconnect()
         }
 
-        @Test("Emits chatStateChanged for paused")
-        func pausedEvent() async throws {
+        @Test
+        func `Emits chatStateChanged for paused`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -106,8 +106,8 @@ enum ChatStatesModuleTests {
     }
 
     struct SendState {
-        @Test("Sends composing chat state XML")
-        func sendsComposingXML() async throws {
+        @Test
+        func `Sends composing chat state XML`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: ChatStatesModule.self))
@@ -129,8 +129,8 @@ enum ChatStatesModuleTests {
     }
 
     struct StandaloneVsWithBody {
-        @Test("Standalone chat state (no body) still emits event")
-        func standaloneEmitsEvent() async throws {
+        @Test
+        func `Standalone chat state (no body) still emits event`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 

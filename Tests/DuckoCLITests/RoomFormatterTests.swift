@@ -11,14 +11,14 @@ struct PlainRoomFormatterTests {
 
     // MARK: - formatRoom
 
-    @Test func formatRoomWithName() {
+    @Test func `format room with name`() {
         let room = DiscoveredRoom(jidString: "chat@conference.example.com", name: "Chat Room")
         let output = formatter.formatRoom(room)
         #expect(output.contains("Chat Room"))
         #expect(output.contains("chat@conference.example.com"))
     }
 
-    @Test func formatRoomWithoutName() {
+    @Test func `format room without name`() {
         let room = DiscoveredRoom(jidString: "chat@conference.example.com", name: nil)
         let output = formatter.formatRoom(room)
         #expect(output == "chat@conference.example.com")
@@ -26,7 +26,7 @@ struct PlainRoomFormatterTests {
 
     // MARK: - formatRoomParticipant
 
-    @Test func formatRoomParticipantWithJID() {
+    @Test func `format room participant with JID`() {
         let participant = RoomParticipant(nickname: "alice", jidString: "alice@example.com", affiliation: .member, role: .participant)
         let output = formatter.formatRoomParticipant(participant)
         #expect(output.contains("alice"))
@@ -34,7 +34,7 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("[participant]"))
     }
 
-    @Test func formatRoomParticipantWithoutJID() {
+    @Test func `format room participant without JID`() {
         let participant = RoomParticipant(nickname: "bob", affiliation: .none, role: .visitor)
         let output = formatter.formatRoomParticipant(participant)
         #expect(output.contains("bob"))
@@ -44,7 +44,7 @@ struct PlainRoomFormatterTests {
 
     // MARK: - formatRoomParticipantGroupHeader
 
-    @Test func formatRoomParticipantGroupHeader() {
+    @Test func `format room participant group header`() {
         let group = RoomParticipantGroup(affiliation: .owner, participants: [
             RoomParticipant(nickname: "admin", affiliation: .owner, role: .moderator)
         ])
@@ -55,7 +55,7 @@ struct PlainRoomFormatterTests {
 
     // MARK: - formatRoomJoinedConfirmation
 
-    @Test func formatRoomJoinedConfirmationWithSubject() {
+    @Test func `format room joined confirmation with subject`() {
         let output = formatter.formatRoomJoinedConfirmation(room: "chat@conference.example.com", nickname: "alice", participantCount: 5, subject: "Welcome!")
         #expect(output.contains("Joined"))
         #expect(output.contains("chat@conference.example.com"))
@@ -64,7 +64,7 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("Welcome!"))
     }
 
-    @Test func formatRoomJoinedConfirmationWithoutSubject() {
+    @Test func `format room joined confirmation without subject`() {
         let output = formatter.formatRoomJoinedConfirmation(room: "chat@conference.example.com", nickname: "alice", participantCount: 3, subject: nil)
         #expect(output.contains("Joined"))
         #expect(output.contains("3 participants"))
@@ -73,7 +73,7 @@ struct PlainRoomFormatterTests {
 
     // MARK: - MUC Events
 
-    @Test func formatEventRoomJoined() throws {
+    @Test func `format event room joined`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let occupancy = RoomOccupancy(room: room, nickname: "alice", occupants: [
             RoomOccupant(nickname: "alice", affiliation: .member, role: .participant),
@@ -86,7 +86,7 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("Hello"))
     }
 
-    @Test func formatEventRoomOccupantJoined() throws {
+    @Test func `format event room occupant joined`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let occupant = RoomOccupant(nickname: "charlie", affiliation: .member, role: .participant)
         let output = try #require(formatter.formatEvent(.roomOccupantJoined(room: room, occupant: occupant), accountID: UUID()))
@@ -94,7 +94,7 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("joined"))
     }
 
-    @Test func formatEventRoomOccupantLeft() throws {
+    @Test func `format event room occupant left`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let occupant = RoomOccupant(nickname: "charlie", affiliation: .member, role: .participant)
         let output = try #require(formatter.formatEvent(.roomOccupantLeft(room: room, occupant: occupant), accountID: UUID()))
@@ -102,7 +102,7 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("left"))
     }
 
-    @Test func formatEventRoomSubjectChanged() throws {
+    @Test func `format event room subject changed`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let setter = JID.parse("alice@example.com")
         let output = try #require(formatter.formatEvent(.roomSubjectChanged(room: room, subject: "New topic", setter: setter), accountID: UUID()))
@@ -111,7 +111,7 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("alice@example.com"))
     }
 
-    @Test func formatEventRoomInviteReceived() throws {
+    @Test func `format event room invite received`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let from = try #require(JID.parse("bob@example.com"))
         let invite = RoomInvite(room: room, from: from, reason: "Come join us!")
@@ -122,7 +122,7 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("Come join us!"))
     }
 
-    @Test func formatEventRoomMessageReceived() throws {
+    @Test func `format event room message received`() throws {
         var message = XMPPMessage(type: .groupchat)
         message.from = JID.parse("chat@conference.example.com/alice")
         message.body = "Hello everyone!"
@@ -138,21 +138,21 @@ struct PlainRoomFormatterTests {
 struct ANSIRoomFormatterTests {
     let formatter = ANSIFormatter()
 
-    @Test func formatRoomWithNameUsesBold() {
+    @Test func `format room with name uses bold`() {
         let room = DiscoveredRoom(jidString: "chat@conference.example.com", name: "Chat Room")
         let output = formatter.formatRoom(room)
         #expect(output.contains("\u{001B}[1m")) // bold
         #expect(output.contains("Chat Room"))
     }
 
-    @Test func formatRoomParticipantUsesGreen() {
+    @Test func `format room participant uses green`() {
         let participant = RoomParticipant(nickname: "alice", jidString: "alice@example.com", affiliation: .member, role: .participant)
         let output = formatter.formatRoomParticipant(participant)
         #expect(output.contains("\u{001B}[32m")) // green
         #expect(output.contains("alice"))
     }
 
-    @Test func formatRoomParticipantGroupHeaderUsesBold() {
+    @Test func `format room participant group header uses bold`() {
         let group = RoomParticipantGroup(affiliation: .admin, participants: [
             RoomParticipant(nickname: "mod", affiliation: .admin, role: .moderator)
         ])
@@ -161,14 +161,14 @@ struct ANSIRoomFormatterTests {
         #expect(output.contains("Admin"))
     }
 
-    @Test func formatEventRoomOccupantJoinedUsesYellow() throws {
+    @Test func `format event room occupant joined uses yellow`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let occupant = RoomOccupant(nickname: "charlie", affiliation: .member, role: .participant)
         let output = try #require(formatter.formatEvent(.roomOccupantJoined(room: room, occupant: occupant), accountID: UUID()))
         #expect(output.contains("\u{001B}[33m")) // yellow
     }
 
-    @Test func formatEventRoomInviteUsesYellowWithBoldRoom() throws {
+    @Test func `format event room invite uses yellow with bold room`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let from = try #require(JID.parse("bob@example.com"))
         let invite = RoomInvite(room: room, from: from)
@@ -177,7 +177,7 @@ struct ANSIRoomFormatterTests {
         #expect(output.contains("\u{001B}[1m")) // bold
     }
 
-    @Test func formatEventRoomMessageUsesGreen() throws {
+    @Test func `format event room message uses green`() throws {
         var message = XMPPMessage(type: .groupchat)
         message.from = JID.parse("chat@conference.example.com/alice")
         message.body = "Hi"
@@ -193,7 +193,7 @@ struct JSONRoomFormatterTests {
 
     // MARK: - formatRoom
 
-    @Test func formatRoomIsValidJSON() throws {
+    @Test func `format room is valid JSON`() throws {
         let room = DiscoveredRoom(jidString: "chat@conference.example.com", name: "Chat Room")
         let output = formatter.formatRoom(room)
         let data = try #require(output.data(using: .utf8))
@@ -203,7 +203,7 @@ struct JSONRoomFormatterTests {
         #expect(json["name"] == "Chat Room")
     }
 
-    @Test func formatRoomWithoutNameOmitsName() throws {
+    @Test func `format room without name omits name`() throws {
         let room = DiscoveredRoom(jidString: "chat@conference.example.com", name: nil)
         let output = formatter.formatRoom(room)
         let data = try #require(output.data(using: .utf8))
@@ -214,7 +214,7 @@ struct JSONRoomFormatterTests {
 
     // MARK: - formatRoomParticipant
 
-    @Test func formatRoomParticipantIsValidJSON() throws {
+    @Test func `format room participant is valid JSON`() throws {
         let participant = RoomParticipant(nickname: "alice", jidString: "alice@example.com", affiliation: .member, role: .participant)
         let output = formatter.formatRoomParticipant(participant)
         let data = try #require(output.data(using: .utf8))
@@ -228,7 +228,7 @@ struct JSONRoomFormatterTests {
 
     // MARK: - formatRoomParticipantGroupHeader
 
-    @Test func formatRoomParticipantGroupHeaderIsValidJSON() throws {
+    @Test func `format room participant group header is valid JSON`() throws {
         let group = RoomParticipantGroup(affiliation: .owner, participants: [
             RoomParticipant(nickname: "admin", affiliation: .owner, role: .moderator),
             RoomParticipant(nickname: "admin2", affiliation: .owner, role: .moderator)
@@ -243,7 +243,7 @@ struct JSONRoomFormatterTests {
 
     // MARK: - formatRoomJoinedConfirmation
 
-    @Test func formatRoomJoinedConfirmationIsValidJSON() throws {
+    @Test func `format room joined confirmation is valid JSON`() throws {
         let output = formatter.formatRoomJoinedConfirmation(room: "chat@conference.example.com", nickname: "alice", participantCount: 5, subject: "Hello")
         let data = try #require(output.data(using: .utf8))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
@@ -256,7 +256,7 @@ struct JSONRoomFormatterTests {
 
     // MARK: - MUC Events
 
-    @Test func formatEventRoomJoinedIsValidJSON() throws {
+    @Test func `format event room joined is valid JSON`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let occupancy = RoomOccupancy(room: room, nickname: "alice", occupants: [
             RoomOccupant(nickname: "alice", affiliation: .member, role: .participant)
@@ -270,7 +270,7 @@ struct JSONRoomFormatterTests {
         #expect(json["subject"] == "Topic")
     }
 
-    @Test func formatEventRoomOccupantJoinedIsValidJSON() throws {
+    @Test func `format event room occupant joined is valid JSON`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let occupant = RoomOccupant(nickname: "charlie", affiliation: .member, role: .participant)
         let output = try #require(formatter.formatEvent(.roomOccupantJoined(room: room, occupant: occupant), accountID: UUID()))
@@ -280,7 +280,7 @@ struct JSONRoomFormatterTests {
         #expect(json["nickname"] == "charlie")
     }
 
-    @Test func formatEventRoomOccupantLeftIsValidJSON() throws {
+    @Test func `format event room occupant left is valid JSON`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let occupant = RoomOccupant(nickname: "charlie", affiliation: .member, role: .participant)
         let output = try #require(formatter.formatEvent(.roomOccupantLeft(room: room, occupant: occupant), accountID: UUID()))
@@ -290,7 +290,7 @@ struct JSONRoomFormatterTests {
         #expect(json["nickname"] == "charlie")
     }
 
-    @Test func formatEventRoomSubjectChangedIsValidJSON() throws {
+    @Test func `format event room subject changed is valid JSON`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let setter = JID.parse("alice@example.com")
         let output = try #require(formatter.formatEvent(.roomSubjectChanged(room: room, subject: "New topic", setter: setter), accountID: UUID()))
@@ -301,7 +301,7 @@ struct JSONRoomFormatterTests {
         #expect(json["setter"] == "alice@example.com")
     }
 
-    @Test func formatEventRoomInviteIsValidJSON() throws {
+    @Test func `format event room invite is valid JSON`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
         let from = try #require(JID.parse("bob@example.com"))
         let invite = RoomInvite(room: room, from: from, reason: "Join us")
@@ -314,7 +314,7 @@ struct JSONRoomFormatterTests {
         #expect(json["reason"] == "Join us")
     }
 
-    @Test func formatEventRoomMessageIsValidJSON() throws {
+    @Test func `format event room message is valid JSON`() throws {
         var message = XMPPMessage(type: .groupchat)
         message.from = JID.parse("chat@conference.example.com/alice")
         message.body = "Hello everyone!"

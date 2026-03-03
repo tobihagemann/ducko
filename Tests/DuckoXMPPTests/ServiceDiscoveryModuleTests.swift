@@ -22,8 +22,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
 
 enum ServiceDiscoveryModuleTests {
     struct DiscoInfoResponse {
-        @Test("Responds to disco#info GET with identity and features")
-        func respondsToDiscoInfoGet() async throws {
+        @Test
+        func `Responds to disco#info GET with identity and features`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -50,8 +50,8 @@ enum ServiceDiscoveryModuleTests {
     }
 
     struct DiscoInfoQuery {
-        @Test("queryInfo parses identities and features")
-        func queryInfoParsesResponse() async throws {
+        @Test
+        func `queryInfo parses identities and features`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: ServiceDiscoveryModule.self))
@@ -93,8 +93,8 @@ enum ServiceDiscoveryModuleTests {
     }
 
     struct DiscoItemsQuery {
-        @Test("queryItems parses items")
-        func queryItemsParsesResponse() async throws {
+        @Test
+        func `queryItems parses items`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: ServiceDiscoveryModule.self))

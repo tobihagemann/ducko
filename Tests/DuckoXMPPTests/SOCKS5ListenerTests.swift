@@ -4,16 +4,16 @@ import Testing
 
 enum SOCKS5ListenerTests {
     struct StartListening {
-        @Test("Listener starts on ephemeral port")
-        func ephemeralPort() async throws {
+        @Test
+        func `Listener starts on ephemeral port`() async throws {
             let listener = SOCKS5Listener()
             let port = try await listener.start()
             #expect(port > 0)
             await listener.close()
         }
 
-        @Test("Listener rejects double start")
-        func doubleStart() async throws {
+        @Test
+        func `Listener rejects double start`() async throws {
             let listener = SOCKS5Listener()
             _ = try await listener.start()
             await #expect(throws: SOCKS5Listener.ListenerError.self) {
@@ -24,8 +24,8 @@ enum SOCKS5ListenerTests {
     }
 
     struct Handshake {
-        @Test("Server handshake with correct DST.ADDR succeeds")
-        func correctDstAddr() async throws {
+        @Test
+        func `Server handshake with correct DST.ADDR succeeds`() async throws {
             let listener = SOCKS5Listener()
             let port = try await listener.start()
 
@@ -57,8 +57,8 @@ enum SOCKS5ListenerTests {
             await listener.close()
         }
 
-        @Test("Server handshake with wrong DST.ADDR fails")
-        func wrongDstAddr() async throws {
+        @Test
+        func `Server handshake with wrong DST.ADDR fails`() async throws {
             let listener = SOCKS5Listener()
             let port = try await listener.start()
 
@@ -102,8 +102,8 @@ enum SOCKS5ListenerTests {
     }
 
     struct DataTransfer {
-        @Test("Data round-trip through listener-accepted connection")
-        func roundTrip() async throws {
+        @Test
+        func `Data round-trip through listener-accepted connection`() async throws {
             let listener = SOCKS5Listener()
             let port = try await listener.start()
 
@@ -145,8 +145,8 @@ enum SOCKS5ListenerTests {
     }
 
     struct CleanUp {
-        @Test("Close listener before accept returns")
-        func closeBeforeAccept() async throws {
+        @Test
+        func `Close listener before accept returns`() async throws {
             let listener = SOCKS5Listener()
             _ = try await listener.start()
 

@@ -113,6 +113,14 @@ Add a new XMPP account. Prompts for password, connects to verify credentials, sa
 ducko account add alice@example.com
 ```
 
+### `account delete <jid>`
+
+Delete an XMPP account by JID. Disconnects if connected, removes the account from the local database, and deletes stored credentials.
+
+```
+ducko account delete alice@example.com
+```
+
 ### `roster list`
 
 List contacts grouped by roster group, with presence indicators. Connects, waits for roster and initial presence, then displays.

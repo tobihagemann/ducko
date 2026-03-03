@@ -2,7 +2,7 @@
 ///
 /// Picks the strongest mechanism from the server's offered list,
 /// drives the `<auth>` → `<challenge>` → `<response>` → `<success>` exchange.
-struct SASLAuthenticator: Sendable {
+struct SASLAuthenticator {
     private var activeMechanism: ActiveMechanism?
 
     /// Mechanisms in preference order (strongest first).
@@ -98,7 +98,7 @@ struct SASLAuthenticator: Sendable {
     // MARK: - Active Mechanism
 
     /// Enum-based wrapper to avoid `any SASLMechanism` existential.
-    enum ActiveMechanism: Sendable {
+    enum ActiveMechanism {
         case scramSHA256(SCRAMSHA256)
         case scramSHA1(SCRAMSHA1)
         case plain(SASLPlain)

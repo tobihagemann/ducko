@@ -21,9 +21,9 @@ private func makeChatService(store: MockPersistenceStore) -> ChatService {
 
 enum ChatServiceReceiptsTests {
     struct DeliveryReceipt {
-        @Test("Delivery receipt updates isDelivered")
+        @Test
         @MainActor
-        func deliveryReceiptUpdatesStatus() async throws {
+        func `Delivery receipt updates isDelivered`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -52,9 +52,9 @@ enum ChatServiceReceiptsTests {
     }
 
     struct ChatMarker {
-        @Test("Displayed chat marker updates isDelivered")
+        @Test
         @MainActor
-        func displayedMarkerUpdatesStatus() async throws {
+        func `Displayed chat marker updates isDelivered`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 

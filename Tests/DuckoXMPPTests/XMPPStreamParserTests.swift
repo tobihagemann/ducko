@@ -43,8 +43,8 @@ extension XMLStreamEvent {
 
 enum XMPPStreamParserTests {
     struct StreamLifecycle {
-        @Test("Stream open emits streamOpened with attributes")
-        func streamOpen() async throws {
+        @Test
+        func `Stream open emits streamOpened with attributes`() async throws {
             let events = await parseChunks([
                 "<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' to='example.com' from='example.com' version='1.0'>"
             ])
@@ -57,8 +57,8 @@ enum XMPPStreamParserTests {
             #expect(attrs["version"] == "1.0")
         }
 
-        @Test("Stream close emits streamClosed")
-        func streamClose() async throws {
+        @Test
+        func `Stream close emits streamClosed`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "</stream:stream>"
@@ -68,8 +68,8 @@ enum XMPPStreamParserTests {
             #expect(events[1].isStreamClosed)
         }
 
-        @Test("Full lifecycle: open, stanza, close")
-        func fullLifecycle() async throws {
+        @Test
+        func `Full lifecycle: open, stanza, close`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><body>Hi</body></message>",
@@ -83,8 +83,8 @@ enum XMPPStreamParserTests {
     }
 
     struct StanzaParsing {
-        @Test("Simple message stanza")
-        func simpleMessage() async throws {
+        @Test
+        func `Simple message stanza`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message type='chat' to='user@example.com'><body>Hello</body></message>"
@@ -97,8 +97,8 @@ enum XMPPStreamParserTests {
             #expect(element.child(named: "body")?.textContent == "Hello")
         }
 
-        @Test("Stanza with nested elements")
-        func nestedElements() async throws {
+        @Test
+        func `Stanza with nested elements`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<iq type='result' id='1'><query><item jid='a@b'/><item jid='c@d'/></query></iq>"
@@ -113,8 +113,8 @@ enum XMPPStreamParserTests {
             #expect(items[1].attribute("jid") == "c@d")
         }
 
-        @Test("Stanza with text content")
-        func textContent() async throws {
+        @Test
+        func `Stanza with text content`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><body>Hello &amp; goodbye</body></message>"
@@ -124,8 +124,8 @@ enum XMPPStreamParserTests {
             #expect(element.child(named: "body")?.textContent == "Hello & goodbye")
         }
 
-        @Test("Stanza with namespace")
-        func namespace() async throws {
+        @Test
+        func `Stanza with namespace`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<iq type='result'><query xmlns='jabber:iq:roster'><item jid='a@b'/></query></iq>"
@@ -136,8 +136,8 @@ enum XMPPStreamParserTests {
             #expect(query.namespace == "jabber:iq:roster")
         }
 
-        @Test("Self-closing stanza")
-        func selfClosing() async throws {
+        @Test
+        func `Self-closing stanza`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<presence/>"
@@ -148,8 +148,8 @@ enum XMPPStreamParserTests {
             #expect(element.children.isEmpty)
         }
 
-        @Test("Multiple stanzas in sequence")
-        func multipleStanzas() async throws {
+        @Test
+        func `Multiple stanzas in sequence`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><body>One</body></message>",
@@ -163,8 +163,8 @@ enum XMPPStreamParserTests {
             }
         }
 
-        @Test("Stanza elements in content namespace have nil namespace")
-        func contentNamespaceOmitted() async throws {
+        @Test
+        func `Stanza elements in content namespace have nil namespace`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><body>Hi</body></message>"
@@ -177,8 +177,8 @@ enum XMPPStreamParserTests {
     }
 
     struct IncrementalParsing {
-        @Test("Stanza split across two chunks")
-        func splitStanza() async throws {
+        @Test
+        func `Stanza split across two chunks`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><bo",
@@ -189,8 +189,8 @@ enum XMPPStreamParserTests {
             #expect(element.child(named: "body")?.textContent == "Hello")
         }
 
-        @Test("Stanza split mid-attribute-value")
-        func splitMidAttributeValue() async throws {
+        @Test
+        func `Stanza split mid-attribute-value`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message type='ch",
@@ -202,8 +202,8 @@ enum XMPPStreamParserTests {
             #expect(element.attribute("to") == "user@example.com")
         }
 
-        @Test("Stream open and stanza in same chunk")
-        func streamOpenAndStanzaSameChunk() async throws {
+        @Test
+        func `Stream open and stanza in same chunk`() async throws {
             let events = await parseChunks([
                 streamOpenTag + "<presence/>"
             ])
@@ -213,8 +213,8 @@ enum XMPPStreamParserTests {
             #expect(element.name == "presence")
         }
 
-        @Test("Byte-by-byte feeding")
-        func byteByByte() async throws {
+        @Test
+        func `Byte-by-byte feeding`() async throws {
             let xml = streamOpenTag + "<message><body>Hi</body></message>"
             let parser = XMPPStreamParser()
             for byte in xml.utf8 {
@@ -230,8 +230,8 @@ enum XMPPStreamParserTests {
             #expect(element.child(named: "body")?.textContent == "Hi")
         }
 
-        @Test("Multiple stanzas in one chunk")
-        func multipleStanzasOneChunk() async throws {
+        @Test
+        func `Multiple stanzas in one chunk`() async throws {
             let events = await parseChunks([
                 streamOpenTag,
                 "<presence/><message><body>Hi</body></message><iq type='get'/>"
@@ -247,8 +247,8 @@ enum XMPPStreamParserTests {
     }
 
     struct ErrorHandling {
-        @Test("Malformed XML emits error event")
-        func malformedXML() async {
+        @Test
+        func `Malformed XML emits error event`() async {
             let events = await parseChunks([
                 streamOpenTag,
                 "<message><body>unclosed",

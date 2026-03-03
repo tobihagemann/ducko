@@ -4,30 +4,30 @@ import Testing
 
 enum JIDTests {
     struct BareJIDParsing {
-        @Test("Valid bare JIDs", arguments: [
+        @Test(arguments: [
             ("user@example.com", "user", "example.com"),
             ("example.com", nil as String?, "example.com"),
             ("user@chat.example.com", "user", "chat.example.com"),
             ("user@192.168.1.1", "user", "192.168.1.1")
         ])
-        func validBareJID(input: String, expectedLocal: String?, expectedDomain: String) throws {
+        func `Valid bare JIDs`(input: String, expectedLocal: String?, expectedDomain: String) throws {
             let jid = try #require(BareJID.parse(input))
             #expect(jid.localPart == expectedLocal)
             #expect(jid.domainPart == expectedDomain)
         }
 
-        @Test("Invalid bare JIDs", arguments: ["", "@example.com", "user@", "user@domain/res"])
-        func invalidBareJID(input: String) {
+        @Test(arguments: ["", "@example.com", "user@", "user@domain/res"])
+        func `Invalid bare JIDs`(input: String) {
             #expect(BareJID.parse(input) == nil)
         }
     }
 
     struct FullJIDParsing {
-        @Test("Valid full JIDs", arguments: [
+        @Test(arguments: [
             ("user@example.com/resource", "user", "example.com", "resource"),
             ("example.com/resource", nil as String?, "example.com", "resource")
         ])
-        func validFullJID(
+        func `Valid full JIDs`(
             input: String, expectedLocal: String?, expectedDomain: String, expectedResource: String
         ) throws {
             let jid = try #require(FullJID.parse(input))
@@ -36,23 +36,23 @@ enum JIDTests {
             #expect(jid.resourcePart == expectedResource)
         }
 
-        @Test("Resource may contain slashes")
-        func resourceWithSlashes() throws {
+        @Test
+        func `Resource may contain slashes`() throws {
             let jid = try #require(FullJID.parse("user@example.com/res/with/slashes"))
             #expect(jid.bareJID.localPart == "user")
             #expect(jid.bareJID.domainPart == "example.com")
             #expect(jid.resourcePart == "res/with/slashes")
         }
 
-        @Test("Invalid full JIDs", arguments: ["", "user@example.com", "user@example.com/", "@domain/res"])
-        func invalidFullJID(input: String) {
+        @Test(arguments: ["", "user@example.com", "user@example.com/", "@domain/res"])
+        func `Invalid full JIDs`(input: String) {
             #expect(FullJID.parse(input) == nil)
         }
     }
 
     struct JIDParsing {
-        @Test("Bare JID parsed as .bare")
-        func parseBare() throws {
+        @Test
+        func `Bare JID parsed as .bare`() throws {
             let jid = try #require(JID.parse("user@example.com"))
             guard case let .bare(bareJID) = jid else {
                 Issue.record("Expected .bare, got \(jid)")
@@ -62,8 +62,8 @@ enum JIDTests {
             #expect(bareJID.domainPart == "example.com")
         }
 
-        @Test("Full JID parsed as .full")
-        func parseFull() throws {
+        @Test
+        func `Full JID parsed as .full`() throws {
             let jid = try #require(JID.parse("user@example.com/resource"))
             guard case let .full(fullJID) = jid else {
                 Issue.record("Expected .full, got \(jid)")
@@ -73,30 +73,30 @@ enum JIDTests {
             #expect(fullJID.resourcePart == "resource")
         }
 
-        @Test("bareJID property extracts bare from full")
-        func bareJIDFromFull() throws {
+        @Test
+        func `bareJID property extracts bare from full`() throws {
             let jid = try #require(JID.parse("user@example.com/resource"))
             #expect(jid.bareJID == BareJID.parse("user@example.com"))
         }
     }
 
     struct Equality {
-        @Test("BareJIDs with same parts are equal")
-        func bareJIDEquality() throws {
+        @Test
+        func `BareJIDs with same parts are equal`() throws {
             let a = try #require(BareJID.parse("user@example.com"))
             let b = try #require(BareJID.parse("user@example.com"))
             #expect(a == b)
         }
 
-        @Test("BareJIDs with different parts are not equal")
-        func bareJIDInequality() throws {
+        @Test
+        func `BareJIDs with different parts are not equal`() throws {
             let a = try #require(BareJID.parse("user@example.com"))
             let b = try #require(BareJID.parse("other@example.com"))
             #expect(a != b)
         }
 
-        @Test("FullJIDs with same parts are equal")
-        func fullJIDEquality() throws {
+        @Test
+        func `FullJIDs with same parts are equal`() throws {
             let a = try #require(FullJID.parse("user@example.com/res"))
             let b = try #require(FullJID.parse("user@example.com/res"))
             #expect(a == b)
@@ -104,24 +104,24 @@ enum JIDTests {
     }
 
     struct CodableRoundTrip {
-        @Test("BareJID encodes as string and round-trips")
-        func bareJIDCodable() throws {
+        @Test
+        func `BareJID encodes as string and round-trips`() throws {
             let jid = try #require(BareJID.parse("user@example.com"))
             let data = try JSONEncoder().encode(jid)
             let decoded = try JSONDecoder().decode(BareJID.self, from: data)
             #expect(jid == decoded)
         }
 
-        @Test("FullJID encodes as string and round-trips")
-        func fullJIDCodable() throws {
+        @Test
+        func `FullJID encodes as string and round-trips`() throws {
             let jid = try #require(FullJID.parse("user@example.com/resource"))
             let data = try JSONEncoder().encode(jid)
             let decoded = try JSONDecoder().decode(FullJID.self, from: data)
             #expect(jid == decoded)
         }
 
-        @Test("JID encodes as string and round-trips")
-        func jidCodable() throws {
+        @Test
+        func `JID encodes as string and round-trips`() throws {
             let jid = try #require(JID.parse("user@example.com/resource"))
             let data = try JSONEncoder().encode(jid)
             let decoded = try JSONDecoder().decode(JID.self, from: data)
@@ -130,23 +130,23 @@ enum JIDTests {
     }
 
     struct Description {
-        @Test("BareJID description formats correctly", arguments: [
+        @Test(arguments: [
             ("user@example.com", "user@example.com"),
             ("example.com", "example.com")
         ])
-        func bareJIDDescription(input: String, expected: String) throws {
+        func `BareJID description formats correctly`(input: String, expected: String) throws {
             let jid = try #require(BareJID.parse(input))
             #expect(jid.description == expected)
         }
 
-        @Test("FullJID description formats correctly")
-        func fullJIDDescription() throws {
+        @Test
+        func `FullJID description formats correctly`() throws {
             let jid = try #require(FullJID.parse("user@example.com/resource"))
             #expect(jid.description == "user@example.com/resource")
         }
 
-        @Test("JID description matches variant")
-        func jidDescription() throws {
+        @Test
+        func `JID description matches variant`() throws {
             let bare = try #require(JID.parse("example.com"))
             #expect(bare.description == "example.com")
 

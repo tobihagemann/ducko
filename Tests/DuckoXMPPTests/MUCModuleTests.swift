@@ -24,8 +24,8 @@ private let testRoomJID = BareJID(localPart: "room", domainPart: "conference.exa
 
 enum MUCModuleTests {
     struct JoinFlow {
-        @Test("Self-presence with status 110 emits roomJoined")
-        func selfPresenceEmitsRoomJoined() async throws {
+        @Test
+        func `Self-presence with status 110 emits roomJoined`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -71,8 +71,8 @@ enum MUCModuleTests {
     }
 
     struct OccupantJoin {
-        @Test("Available presence emits roomOccupantJoined")
-        func occupantJoinedEvent() async throws {
+        @Test
+        func `Available presence emits roomOccupantJoined`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -107,8 +107,8 @@ enum MUCModuleTests {
     }
 
     struct OccupantLeave {
-        @Test("Unavailable presence emits roomOccupantLeft")
-        func occupantLeftEvent() async throws {
+        @Test
+        func `Unavailable presence emits roomOccupantLeft`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -153,8 +153,8 @@ enum MUCModuleTests {
     }
 
     struct GroupMessage {
-        @Test("Groupchat message emits roomMessageReceived")
-        func groupMessageEvent() async throws {
+        @Test
+        func `Groupchat message emits roomMessageReceived`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -186,8 +186,8 @@ enum MUCModuleTests {
     }
 
     struct SubjectChange {
-        @Test("Subject message emits roomSubjectChanged")
-        func subjectChangedEvent() async throws {
+        @Test
+        func `Subject message emits roomSubjectChanged`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -219,8 +219,8 @@ enum MUCModuleTests {
     }
 
     struct MediatedInvite {
-        @Test("Mediated invite emits roomInviteReceived")
-        func mediatedInviteEvent() async throws {
+        @Test
+        func `Mediated invite emits roomInviteReceived`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -253,8 +253,8 @@ enum MUCModuleTests {
     }
 
     struct DirectInvite {
-        @Test("Direct invite (XEP-0249) emits roomInviteReceived")
-        func directInviteEvent() async throws {
+        @Test
+        func `Direct invite (XEP-0249) emits roomInviteReceived`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -283,8 +283,8 @@ enum MUCModuleTests {
     }
 
     struct KickBan {
-        @Test("Kick status code 307 emits occupant left")
-        func kickEmitsOccupantLeft() async throws {
+        @Test
+        func `Kick status code 307 emits occupant left`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -330,8 +330,8 @@ enum MUCModuleTests {
     }
 
     struct OwnMessageHandling {
-        @Test("Messages from own nickname still emit roomMessageReceived")
-        func ownMessageEmitsEvent() async throws {
+        @Test
+        func `Messages from own nickname still emit roomMessageReceived`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -363,8 +363,8 @@ enum MUCModuleTests {
     }
 
     struct OccupantSnapshot {
-        @Test("occupants returns current list")
-        func occupantSnapshotReturned() async throws {
+        @Test
+        func `occupants returns current list`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -398,8 +398,8 @@ enum MUCModuleTests {
             await client.disconnect()
         }
 
-        @Test("joinedRooms returns rooms where join was confirmed")
-        func joinedRoomsReturnsJoined() async throws {
+        @Test
+        func `joinedRooms returns rooms where join was confirmed`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
@@ -430,8 +430,8 @@ enum MUCModuleTests {
     }
 
     struct RoomDiscovery {
-        @Test("discoverRooms parses disco#items response")
-        func discoverRoomsParseItems() async throws {
+        @Test
+        func `discoverRooms parses disco#items response`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))

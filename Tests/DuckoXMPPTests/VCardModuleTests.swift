@@ -22,8 +22,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
 
 enum VCardModuleTests {
     struct VCardParsing {
-        @Test("Parses FN and NICKNAME from vCard response")
-        func parsesFNAndNickname() async throws {
+        @Test
+        func `Parses FN and NICKNAME from vCard response`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: VCardModule.self))
@@ -57,8 +57,8 @@ enum VCardModuleTests {
             await client.disconnect()
         }
 
-        @Test("Parses PHOTO/BINVAL and computes SHA-1 hash")
-        func parsesPhotoAndHash() async throws {
+        @Test
+        func `Parses PHOTO/BINVAL and computes SHA-1 hash`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: VCardModule.self))
@@ -101,8 +101,8 @@ enum VCardModuleTests {
     }
 
     struct VCardCaching {
-        @Test("Cache hit returns without IQ")
-        func cacheHitReturnsWithoutIQ() async throws {
+        @Test
+        func `Cache hit returns without IQ`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: VCardModule.self))
@@ -143,8 +143,8 @@ enum VCardModuleTests {
             await client.disconnect()
         }
 
-        @Test("forceRefresh bypasses cache")
-        func forceRefreshBypassesCache() async throws {
+        @Test
+        func `forceRefresh bypasses cache`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: VCardModule.self))

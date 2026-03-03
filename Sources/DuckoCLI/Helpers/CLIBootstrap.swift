@@ -2,7 +2,7 @@ import DuckoCore
 import DuckoData
 import SwiftData
 
-struct CLIContext: Sendable {
+struct CLIContext {
     let environment: AppEnvironment
 }
 

@@ -10,8 +10,8 @@ private let testContext = FilterContext(
 
 enum LinkDetectionFilterTests {
     struct DetectsHTTPURL {
-        @Test("Detects a single HTTP URL in body")
-        func detectsSingleURL() async {
+        @Test
+        func `Detects a single HTTP URL in body`() async {
             let filter = LinkDetectionFilter()
             let content = MessageContent(body: "Check out https://example.com/page")
             let result = await filter.filter(content, direction: .incoming, context: testContext)
@@ -21,8 +21,8 @@ enum LinkDetectionFilterTests {
     }
 
     struct DetectsMultipleURLs {
-        @Test("Detects multiple URLs in body")
-        func detectsMultipleURLs() async {
+        @Test
+        func `Detects multiple URLs in body`() async {
             let filter = LinkDetectionFilter()
             let content = MessageContent(body: "Visit https://example.com and http://test.org/path")
             let result = await filter.filter(content, direction: .incoming, context: testContext)
@@ -31,8 +31,8 @@ enum LinkDetectionFilterTests {
     }
 
     struct NoURLs {
-        @Test("Returns empty detectedURLs for plain text")
-        func noURLs() async {
+        @Test
+        func `Returns empty detectedURLs for plain text`() async {
             let filter = LinkDetectionFilter()
             let content = MessageContent(body: "Hello, how are you?")
             let result = await filter.filter(content, direction: .incoming, context: testContext)
@@ -41,8 +41,8 @@ enum LinkDetectionFilterTests {
     }
 
     struct PreservesBody {
-        @Test("Body text is unchanged after filtering")
-        func preservesBody() async {
+        @Test
+        func `Body text is unchanged after filtering`() async {
             let filter = LinkDetectionFilter()
             let body = "Check https://example.com please"
             let content = MessageContent(body: body)

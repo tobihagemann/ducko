@@ -17,9 +17,9 @@ private func makeChatService(store: MockPersistenceStore) -> ChatService {
 
 enum ChatServiceChatStatesTests {
     struct TypingState {
-        @Test("Chat state event updates typingStates")
+        @Test
         @MainActor
-        func chatStateUpdatesTypingStates() async {
+        func `Chat state event updates typingStates`() async {
             let store = MockPersistenceStore()
             let service = makeChatService(store: store)
 
@@ -31,9 +31,9 @@ enum ChatServiceChatStatesTests {
             #expect(service.typingStates[contactJID] == .composing)
         }
 
-        @Test("Active state replaces composing")
+        @Test
         @MainActor
-        func activeReplacesComposing() async {
+        func `Active state replaces composing`() async {
             let store = MockPersistenceStore()
             let service = makeChatService(store: store)
 

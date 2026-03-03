@@ -13,32 +13,32 @@ private let filterContext = FilterContext(
 
 enum EmojiFilterTests {
     struct OutgoingReplacement {
-        @Test("Replaces :) with emoji on outgoing")
-        func replacesSmile() async {
+        @Test
+        func `Replaces :) with emoji on outgoing`() async {
             let filter = EmojiFilter()
             let content = MessageContent(body: "Hello :)")
             let result = await filter.filter(content, direction: .outgoing, context: filterContext)
             #expect(result.body == "Hello \u{1F60A}")
         }
 
-        @Test("Replaces :( with emoji on outgoing")
-        func replacesSad() async {
+        @Test
+        func `Replaces :( with emoji on outgoing`() async {
             let filter = EmojiFilter()
             let content = MessageContent(body: "Oh no :(")
             let result = await filter.filter(content, direction: .outgoing, context: filterContext)
             #expect(result.body == "Oh no \u{1F61E}")
         }
 
-        @Test("Replaces <3 with emoji on outgoing")
-        func replacesHeart() async {
+        @Test
+        func `Replaces <3 with emoji on outgoing`() async {
             let filter = EmojiFilter()
             let content = MessageContent(body: "Love <3")
             let result = await filter.filter(content, direction: .outgoing, context: filterContext)
             #expect(result.body == "Love \u{2764}\u{FE0F}")
         }
 
-        @Test("Multiple emoticons in one message")
-        func replacesMultiple() async {
+        @Test
+        func `Multiple emoticons in one message`() async {
             let filter = EmojiFilter()
             let content = MessageContent(body: ":) and :D")
             let result = await filter.filter(content, direction: .outgoing, context: filterContext)
@@ -47,8 +47,8 @@ enum EmojiFilterTests {
     }
 
     struct IncomingPassthrough {
-        @Test("Does not replace emoticons on incoming")
-        func passthroughOnIncoming() async {
+        @Test
+        func `Does not replace emoticons on incoming`() async {
             let filter = EmojiFilter()
             let content = MessageContent(body: "Hello :)")
             let result = await filter.filter(content, direction: .incoming, context: filterContext)
@@ -57,8 +57,8 @@ enum EmojiFilterTests {
     }
 
     struct BoundaryAwareness {
-        @Test("Does not replace emoticons inside words")
-        func noReplacementInWords() async {
+        @Test
+        func `Does not replace emoticons inside words`() async {
             let filter = EmojiFilter()
             let content = MessageContent(body: "http://example.com:)")
             let result = await filter.filter(content, direction: .outgoing, context: filterContext)

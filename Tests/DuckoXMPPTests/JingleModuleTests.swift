@@ -69,8 +69,8 @@ private func sessionTerminateXML(
 
 enum JingleModuleTests {
     struct SessionInitiateHandling {
-        @Test("Emits jingleFileTransferReceived on session-initiate")
-        func emitsOffer() async throws {
+        @Test
+        func `Emits jingleFileTransferReceived on session-initiate`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -100,8 +100,8 @@ enum JingleModuleTests {
     }
 
     struct SessionTerminateSuccess {
-        @Test("Emits jingleFileTransferCompleted on session-terminate with success reason")
-        func emitsCompleted() async throws {
+        @Test
+        func `Emits jingleFileTransferCompleted on session-terminate with success reason`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -131,8 +131,8 @@ enum JingleModuleTests {
     }
 
     struct SessionTerminateFailure {
-        @Test("Emits jingleFileTransferFailed on session-terminate with cancel reason")
-        func emitsFailed() async throws {
+        @Test
+        func `Emits jingleFileTransferFailed on session-terminate with cancel reason`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -161,8 +161,8 @@ enum JingleModuleTests {
     }
 
     struct DeclineFileTransfer {
-        @Test("declineFileTransfer sends session-terminate with decline reason")
-        func sendsDecline() async throws {
+        @Test
+        func `declineFileTransfer sends session-terminate with decline reason`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: JingleModule.self))
@@ -189,8 +189,8 @@ enum JingleModuleTests {
     }
 
     struct DisconnectClearsSession {
-        @Test("handleDisconnect clears sessions and emits failed events")
-        func clearsOnDisconnect() async throws {
+        @Test
+        func `handleDisconnect clears sessions and emits failed events`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 

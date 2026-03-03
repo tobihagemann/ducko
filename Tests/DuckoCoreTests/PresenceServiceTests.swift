@@ -31,9 +31,9 @@ private func makePresence(show: XMPPPresence.Show? = nil, type: XMPPPresence.Pre
 
 enum PresenceServiceTests {
     struct PresenceUpdated {
-        @Test("Presence updated sets contact status")
+        @Test
         @MainActor
-        func presenceUpdatedSetsStatus() throws {
+        func `Presence updated sets contact status`() throws {
             let service = makePresenceService()
 
             let presence = makePresence(show: .away)
@@ -43,9 +43,9 @@ enum PresenceServiceTests {
             #expect(service.contactPresences[contactJID] == .away)
         }
 
-        @Test("Unavailable presence sets status to offline")
+        @Test
         @MainActor
-        func unavailableSetsOffline() throws {
+        func `Unavailable presence sets status to offline`() throws {
             let service = makePresenceService()
 
             // First set to available
@@ -61,7 +61,6 @@ enum PresenceServiceTests {
         }
 
         @Test(
-            "Show values map correctly",
             arguments: [
                 (XMPPPresence.Show.chat, PresenceService.PresenceStatus.available),
                 (XMPPPresence.Show.away, PresenceService.PresenceStatus.away),
@@ -70,7 +69,7 @@ enum PresenceServiceTests {
             ] as [(XMPPPresence.Show, PresenceService.PresenceStatus)]
         )
         @MainActor
-        func showValuesMappedCorrectly(show: XMPPPresence.Show, expected: PresenceService.PresenceStatus) throws {
+        func `Show values map correctly`(show: XMPPPresence.Show, expected: PresenceService.PresenceStatus) throws {
             let service = makePresenceService()
 
             let presence = makePresence(show: show)
@@ -82,9 +81,9 @@ enum PresenceServiceTests {
     }
 
     struct SubscriptionRequests {
-        @Test("Subscription request is stored")
+        @Test
         @MainActor
-        func subscriptionRequestStored() {
+        func `Subscription request is stored`() {
             let service = makePresenceService()
 
             service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
@@ -93,9 +92,9 @@ enum PresenceServiceTests {
             #expect(service.pendingSubscriptionRequests[0] == contactJID)
         }
 
-        @Test("Duplicate subscription request is not stored twice")
+        @Test
         @MainActor
-        func duplicateSubscriptionRequestIgnored() {
+        func `Duplicate subscription request is not stored twice`() {
             let service = makePresenceService()
 
             service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
@@ -106,9 +105,9 @@ enum PresenceServiceTests {
     }
 
     struct RemoveSubscriptionRequest {
-        @Test("removeSubscriptionRequest removes matching JID")
+        @Test
         @MainActor
-        func removesMatchingJID() {
+        func `removeSubscriptionRequest removes matching JID`() {
             let service = makePresenceService()
 
             service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
@@ -118,9 +117,9 @@ enum PresenceServiceTests {
             #expect(service.pendingSubscriptionRequests.isEmpty)
         }
 
-        @Test("removeSubscriptionRequest does nothing for unknown JID")
+        @Test
         @MainActor
-        func doesNothingForUnknownJID() throws {
+        func `removeSubscriptionRequest does nothing for unknown JID`() throws {
             let service = makePresenceService()
             let otherJID = try #require(BareJID(localPart: "other", domainPart: "example.com"))
 
@@ -133,9 +132,9 @@ enum PresenceServiceTests {
     }
 
     struct Disconnect {
-        @Test("Disconnect event clears contactPresences and pendingSubscriptionRequests")
+        @Test
         @MainActor
-        func disconnectClearsState() throws {
+        func `Disconnect event clears contactPresences and pendingSubscriptionRequests`() throws {
             let service = makePresenceService()
 
             // Set some presence and a pending subscription request
@@ -155,7 +154,6 @@ enum PresenceServiceTests {
 
     struct StatusDisplayName {
         @Test(
-            "PresenceStatus displayName returns human-readable string",
             arguments: [
                 (PresenceService.PresenceStatus.available, "Available"),
                 (PresenceService.PresenceStatus.away, "Away"),
@@ -164,15 +162,15 @@ enum PresenceServiceTests {
                 (PresenceService.PresenceStatus.offline, "Offline")
             ] as [(PresenceService.PresenceStatus, String)]
         )
-        func statusDisplayName(status: PresenceService.PresenceStatus, expected: String) {
+        func `PresenceStatus displayName returns human-readable string`(status: PresenceService.PresenceStatus, expected: String) {
             #expect(status.displayName == expected)
         }
     }
 
     struct MyPresence {
-        @Test("goOffline sets status to offline")
+        @Test
         @MainActor
-        func goOfflineSetsOffline() {
+        func `goOffline sets status to offline`() {
             let service = makePresenceService()
             #expect(service.myPresence == .available)
 

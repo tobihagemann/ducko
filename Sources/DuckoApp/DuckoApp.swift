@@ -31,12 +31,15 @@ struct DuckoApp: App {
                 .task {
                     notificationManager.requestAuthorization()
                     wireNotifications()
+                    try? await environment.accountService.loadAccounts()
+                    await environment.accountService.connectEnabledAccounts()
                 }
                 .onChange(of: totalUnread) { _, newValue in
                     notificationManager.updateDockBadge(totalUnread: newValue)
                 }
         }
         .defaultSize(width: 280, height: 600)
+        .defaultLaunchBehavior(.presented)
 
         WindowGroup("Chat", id: "chat", for: String.self) { $jidString in
             ChatWindow(jidString: $jidString)
@@ -92,8 +95,9 @@ struct DuckoApp: App {
         }
 
         Settings {
-            Text("Preferences will be available in a future update.")
-                .frame(width: 300, height: 100)
+            PreferencesView()
+                .environment(environment)
+                .environment(themeEngine)
         }
     }
 

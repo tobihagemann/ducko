@@ -95,8 +95,8 @@ private func respondToSlotRequest(
 
 enum HTTPUploadModuleTests {
     struct DiscoverUploadService {
-        @Test("Discovers upload service via disco")
-        func discoversService() async throws {
+        @Test
+        func `Discovers upload service via disco`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: HTTPUploadModule.self))
@@ -119,8 +119,8 @@ enum HTTPUploadModuleTests {
     }
 
     struct DiscoverMaxFileSize {
-        @Test("Parses max-file-size from extended disco info")
-        func parsesMaxFileSize() async throws {
+        @Test
+        func `Parses max-file-size from extended disco info`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: HTTPUploadModule.self))
@@ -144,8 +144,8 @@ enum HTTPUploadModuleTests {
     }
 
     struct RequestSlot {
-        @Test("Requests and parses upload slot")
-        func requestsSlot() async throws {
+        @Test
+        func `Requests and parses upload slot`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: HTTPUploadModule.self))
@@ -170,8 +170,8 @@ enum HTTPUploadModuleTests {
     }
 
     struct RequestSlotWithHeaders {
-        @Test("Parses PUT headers from slot response")
-        func parsesHeaders() async throws {
+        @Test
+        func `Parses PUT headers from slot response`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: HTTPUploadModule.self))
@@ -198,8 +198,8 @@ enum HTTPUploadModuleTests {
     }
 
     struct FileTooLarge {
-        @Test("Throws fileTooLarge when size exceeds max")
-        func throwsFileTooLarge() async throws {
+        @Test
+        func `Throws fileTooLarge when size exceeds max`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: HTTPUploadModule.self))
@@ -229,8 +229,8 @@ enum HTTPUploadModuleTests {
     }
 
     struct NoUploadService {
-        @Test("Throws noUploadServiceFound when no upload component exists")
-        func throwsNoService() async throws {
+        @Test
+        func `Throws noUploadServiceFound when no upload component exists`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: HTTPUploadModule.self))
@@ -284,8 +284,8 @@ enum HTTPUploadModuleTests {
     }
 
     struct CacheClearing {
-        @Test("handleDisconnect clears cached service")
-        func clearsCache() async throws {
+        @Test
+        func `handleDisconnect clears cached service`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: HTTPUploadModule.self))

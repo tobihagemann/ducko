@@ -21,9 +21,9 @@ private func makeChatService(store: MockPersistenceStore) -> ChatService {
 
 enum ChatServiceCorrectionTests {
     struct IncomingCorrection {
-        @Test("Message correction updates body and marks edited")
+        @Test
         @MainActor
-        func correctionUpdatesBody() async throws {
+        func `Message correction updates body and marks edited`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 

@@ -2,7 +2,7 @@ import CDnssd
 import Darwin
 
 /// A DNS SRV record per RFC 2782.
-struct SRVRecord: Sendable, Comparable {
+struct SRVRecord: Comparable {
     let priority: UInt16
     let weight: UInt16
     let port: UInt16

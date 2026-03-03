@@ -86,8 +86,8 @@ private func simulateSessionConnectFlow(_ mock: MockTransport) async {
 
 enum XMPPClientTests {
     struct ConnectFlow {
-        @Test("Full connect with STARTTLS and PLAIN auth")
-        func fullConnectWithTLS() async throws {
+        @Test
+        func `Full connect with STARTTLS and PLAIN auth`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -105,8 +105,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Connect without TLS")
-        func connectWithoutTLS() async throws {
+        @Test
+        func `Connect without TLS`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -124,8 +124,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Connect with legacy session establishment")
-        func connectWithSession() async throws {
+        @Test
+        func `Connect with legacy session establishment`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -140,8 +140,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Connected event includes full JID")
-        func connectedEventIncludesJID() async throws {
+        @Test
+        func `Connected event includes full JID`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -173,8 +173,8 @@ enum XMPPClientTests {
     }
 
     struct AuthFailure {
-        @Test("Auth failure emits event and throws")
-        func authFailureEmitsEventAndThrows() async throws {
+        @Test
+        func `Auth failure emits event and throws`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -216,8 +216,8 @@ enum XMPPClientTests {
     }
 
     struct IQTracking {
-        @Test("sendIQ returns result child element")
-        func sendIQReturnsResult() async throws {
+        @Test
+        func `sendIQ returns result child element`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -247,8 +247,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("sendIQ returns nil for error response")
-        func sendIQReturnsNilForError() async throws {
+        @Test
+        func `sendIQ returns nil for error response`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -276,8 +276,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Disconnect cancels pending IQs")
-        func disconnectCancelsPendingIQs() async throws {
+        @Test
+        func `Disconnect cancels pending IQs`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -307,8 +307,8 @@ enum XMPPClientTests {
     }
 
     struct StanzaDispatch {
-        @Test("Chat message dispatches to ChatModule")
-        func chatMessageDispatchesToModule() async throws {
+        @Test
+        func `Chat message dispatches to ChatModule`() async throws {
             let mock = MockTransport()
             let chatModule = ChatModule()
             let client = XMPPClient(
@@ -343,8 +343,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Presence stanza emits presenceReceived event")
-        func presenceStanzaEmitsEvent() async throws {
+        @Test
+        func `Presence stanza emits presenceReceived event`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -376,8 +376,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("IQ stanza emits iqReceived event")
-        func iqStanzaEmitsEvent() async throws {
+        @Test
+        func `IQ stanza emits iqReceived event`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -412,8 +412,8 @@ enum XMPPClientTests {
     }
 
     struct Disconnection {
-        @Test("Stream close emits disconnected event")
-        func streamCloseEmitsDisconnectedEvent() async throws {
+        @Test
+        func `Stream close emits disconnected event`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -449,8 +449,8 @@ enum XMPPClientTests {
     }
 
     struct Builder {
-        @Test("Builder creates client with modules")
-        func builderCreatesClientWithModules() async {
+        @Test
+        func `Builder creates client with modules`() async {
             let mock = MockTransport()
             var builder = XMPPClientBuilder(domain: "example.com", username: "user", password: "pass")
             builder.withTransport(mock)
@@ -465,8 +465,8 @@ enum XMPPClientTests {
     }
 
     struct IDGeneration {
-        @Test("IDs are sequential")
-        func idsAreSequential() async {
+        @Test
+        func `IDs are sequential`() async {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass")
@@ -483,8 +483,8 @@ enum XMPPClientTests {
     // MARK: - IQ Timeout
 
     struct IQTimeoutTests {
-        @Test("IQ times out when no response arrives")
-        func iqTimesOut() async throws {
+        @Test
+        func `IQ times out when no response arrives`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -514,8 +514,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("IQ from wrong JID does not match pending request")
-        func iqFromWrongJIDDoesNotMatch() async throws {
+        @Test
+        func `IQ from wrong JID does not match pending request`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -552,8 +552,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Server-directed IQ accepts response with no from")
-        func serverDirectedIQAcceptsNoFrom() async throws {
+        @Test
+        func `Server-directed IQ accepts response with no from`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -586,8 +586,8 @@ enum XMPPClientTests {
     // MARK: - Stanza Interceptor
 
     struct StanzaInterceptorTests {
-        @Test("Consuming interceptor blocks message dispatch")
-        func consumingInterceptorBlocksDispatch() async throws {
+        @Test
+        func `Consuming interceptor blocks message dispatch`() async throws {
             let mock = MockTransport()
             let interceptor = MessageConsumingInterceptor()
             let client = XMPPClient(
@@ -627,8 +627,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Non-consuming interceptor allows normal dispatch")
-        func nonConsumingInterceptorAllowsDispatch() async throws {
+        @Test
+        func `Non-consuming interceptor allows normal dispatch`() async throws {
             let mock = MockTransport()
             let interceptor = PassthroughInterceptor()
             let client = XMPPClient(
@@ -666,8 +666,8 @@ enum XMPPClientTests {
     // MARK: - Module Features
 
     struct ModuleFeatureTests {
-        @Test("availableFeatures aggregates from registered modules")
-        func availableFeaturesAggregates() async {
+        @Test
+        func `availableFeatures aggregates from registered modules`() async {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass")
@@ -684,8 +684,8 @@ enum XMPPClientTests {
             await client.disconnect()
         }
 
-        @Test("Module with no features returns empty set")
-        func noFeaturesReturnsEmpty() async {
+        @Test
+        func `Module with no features returns empty set`() async {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass")
@@ -702,8 +702,8 @@ enum XMPPClientTests {
     // MARK: - Module Disconnect Hook
 
     struct DisconnectHookTests {
-        @Test("handleDisconnect is called on clean disconnect")
-        func handleDisconnectCalledOnDisconnect() async throws {
+        @Test
+        func `handleDisconnect is called on clean disconnect`() async throws {
             let mock = MockTransport()
             let module = DisconnectTrackingModule()
             let client = XMPPClient(

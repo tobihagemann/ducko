@@ -92,8 +92,8 @@ private func ibbDataXML(
 
 enum JingleIBBFallbackTests {
     struct TransportReplaceTriggersAccept {
-        @Test("Receiving transport-replace with IBB triggers transport-accept response")
-        func sendsTransportAccept() async throws {
+        @Test
+        func `Receiving transport-replace with IBB triggers transport-accept response`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -120,8 +120,8 @@ enum JingleIBBFallbackTests {
     }
 
     struct TransportRejectEmitsFailure {
-        @Test("Receiving transport-reject emits jingleFileTransferFailed event")
-        func emitsFailure() async throws {
+        @Test
+        func `Receiving transport-reject emits jingleFileTransferFailed event`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -153,8 +153,8 @@ enum JingleIBBFallbackTests {
     }
 
     struct IBBDataAcknowledged {
-        @Test("IBB data IQ is acknowledged with IQ result")
-        func acknowledgesData() async throws {
+        @Test
+        func `IBB data IQ is acknowledged with IQ result`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 

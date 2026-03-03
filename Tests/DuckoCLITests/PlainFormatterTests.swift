@@ -9,7 +9,7 @@ struct PlainFormatterTests {
 
     // MARK: - formatMessage
 
-    @Test func formatMessageIncoming() {
+    @Test func `format message incoming`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -28,7 +28,7 @@ struct PlainFormatterTests {
         #expect(output.contains("Hello!"))
     }
 
-    @Test func formatMessageOutgoing() {
+    @Test func `format message outgoing`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -49,7 +49,7 @@ struct PlainFormatterTests {
 
     // MARK: - formatContact
 
-    @Test func formatContactWithName() throws {
+    @Test func `format contact with name`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -67,7 +67,7 @@ struct PlainFormatterTests {
         #expect(output.contains("[both]"))
     }
 
-    @Test func formatContactWithoutName() throws {
+    @Test func `format contact without name`() throws {
         let jid = try #require(BareJID.parse("bob@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -85,7 +85,7 @@ struct PlainFormatterTests {
 
     // MARK: - formatAccount
 
-    @Test func formatAccount() throws {
+    @Test func `format account`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let accountID = UUID()
         let account = Account(
@@ -102,7 +102,7 @@ struct PlainFormatterTests {
 
     // MARK: - formatContactWithPresence
 
-    @Test func formatContactWithPresenceAvailable() throws {
+    @Test func `format contact with presence available`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -121,7 +121,7 @@ struct PlainFormatterTests {
         #expect(output.contains("[both]"))
     }
 
-    @Test func formatContactWithPresenceAway() throws {
+    @Test func `format contact with presence away`() throws {
         let jid = try #require(BareJID.parse("bob@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -137,7 +137,7 @@ struct PlainFormatterTests {
         #expect(output.contains("[~]"))
     }
 
-    @Test func formatContactWithPresenceDND() throws {
+    @Test func `format contact with presence DND`() throws {
         let jid = try #require(BareJID.parse("carol@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -153,7 +153,7 @@ struct PlainFormatterTests {
         #expect(output.contains("[-]"))
     }
 
-    @Test func formatContactWithPresenceOffline() throws {
+    @Test func `format contact with presence offline`() throws {
         let jid = try #require(BareJID.parse("dave@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -169,7 +169,7 @@ struct PlainFormatterTests {
         #expect(output.contains("[ ]"))
     }
 
-    @Test func formatContactWithPresenceUsesLocalAlias() throws {
+    @Test func `format contact with presence uses local alias`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -189,7 +189,7 @@ struct PlainFormatterTests {
 
     // MARK: - formatGroupHeader
 
-    @Test func formatGroupHeader() throws {
+    @Test func `format group header`() throws {
         let group = try ContactGroup(id: "friends", name: "Friends", contacts: [
             Contact(
                 id: UUID(),
@@ -226,7 +226,7 @@ struct PlainFormatterTests {
 
     // MARK: - formatPresence
 
-    @Test func formatPresenceWithMessage() throws {
+    @Test func `format presence with message`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = formatter.formatPresence(jid: jid, status: "away", message: "Gone fishing")
         #expect(output.contains("alice@example.com"))
@@ -234,7 +234,7 @@ struct PlainFormatterTests {
         #expect(output.contains("Gone fishing"))
     }
 
-    @Test func formatPresenceWithoutMessage() throws {
+    @Test func `format presence without message`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = formatter.formatPresence(jid: jid, status: "available", message: nil)
         #expect(output.contains("alice@example.com"))
@@ -243,38 +243,38 @@ struct PlainFormatterTests {
 
     // MARK: - formatError
 
-    @Test func formatError() {
+    @Test func `format error`() {
         let output = formatter.formatError(CLIError.noAccounts)
         #expect(output.hasPrefix("error:"))
     }
 
     // MARK: - formatEvent
 
-    @Test func formatEventConnected() throws {
+    @Test func `format event connected`() throws {
         let jid = try #require(FullJID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.connected(jid), accountID: UUID()))
         #expect(output.contains("connected"))
     }
 
-    @Test func formatEventDisconnected() throws {
+    @Test func `format event disconnected`() throws {
         let output = try #require(formatter.formatEvent(.disconnected(.requested), accountID: UUID()))
         #expect(output.contains("disconnected"))
     }
 
-    @Test func formatEventSubscriptionRequest() throws {
+    @Test func `format event subscription request`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatEvent(.presenceSubscriptionRequest(from: jid), accountID: UUID()))
         #expect(output.contains("Subscription request from"))
         #expect(output.contains("alice@example.com"))
     }
 
-    @Test func formatEventIQReturnsNil() {
+    @Test func `format event IQ returns nil`() {
         let iq = XMPPIQ(type: .result)
         let output = formatter.formatEvent(.iqReceived(iq), accountID: UUID())
         #expect(output == nil)
     }
 
-    @Test func formatEventDeliveryReceipt() throws {
+    @Test func `format event delivery receipt`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.deliveryReceiptReceived(messageID: "msg-1", from: jid), accountID: UUID()))
         #expect(output.contains("delivery receipt"))
@@ -282,14 +282,14 @@ struct PlainFormatterTests {
         #expect(output.contains("alice@example.com"))
     }
 
-    @Test func formatEventMessageCorrected() throws {
+    @Test func `format event message corrected`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.messageCorrected(originalID: "msg-1", newBody: "fixed", from: jid), accountID: UUID()))
         #expect(output.contains("corrected"))
         #expect(output.contains("fixed"))
     }
 
-    @Test func formatEventMessageError() throws {
+    @Test func `format event message error`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, errorText: "not allowed"), accountID: UUID()))
         #expect(output.contains("error"))
@@ -298,7 +298,7 @@ struct PlainFormatterTests {
 
     // MARK: - formatMessage Markers
 
-    @Test func formatMessageDelivered() {
+    @Test func `format message delivered`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -315,7 +315,7 @@ struct PlainFormatterTests {
         #expect(output.contains("[delivered]"))
     }
 
-    @Test func formatMessageDeliveredNotShownForIncoming() {
+    @Test func `format message delivered not shown for incoming`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -332,7 +332,7 @@ struct PlainFormatterTests {
         #expect(!output.contains("[delivered]"))
     }
 
-    @Test func formatMessageEdited() {
+    @Test func `format message edited`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -349,7 +349,7 @@ struct PlainFormatterTests {
         #expect(output.contains("[edited]"))
     }
 
-    @Test func formatMessageError() {
+    @Test func `format message error`() {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -369,14 +369,14 @@ struct PlainFormatterTests {
 
     // MARK: - formatTypingIndicator
 
-    @Test func formatTypingIndicatorTyping() throws {
+    @Test func `format typing indicator typing`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatTypingIndicator(from: jid, state: .composing))
         #expect(output.contains("typing"))
         #expect(output.contains("alice@example.com"))
     }
 
-    @Test func formatTypingIndicatorNotTyping() throws {
+    @Test func `format typing indicator not typing`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = formatter.formatTypingIndicator(from: jid, state: .paused)
         #expect(output == nil)

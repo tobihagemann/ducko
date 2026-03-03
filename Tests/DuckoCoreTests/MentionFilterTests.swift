@@ -13,8 +13,8 @@ private let filterContext = FilterContext(
 
 enum MentionFilterTests {
     struct IncomingMention {
-        @Test("Detects @mention and wraps in bold in htmlBody")
-        func detectsMention() async {
+        @Test
+        func `Detects @mention and wraps in bold in htmlBody`() async {
             let filter = MentionFilter()
             let content = MessageContent(body: "Hey @user check this")
             let result = await filter.filter(content, direction: .incoming, context: filterContext)
@@ -22,8 +22,8 @@ enum MentionFilterTests {
             #expect(result.htmlBody == "Hey <b>@user</b> check this")
         }
 
-        @Test("No mention — no htmlBody added")
-        func noMentionNoHtmlBody() async {
+        @Test
+        func `No mention — no htmlBody added`() async {
             let filter = MentionFilter()
             let content = MessageContent(body: "Just a normal message")
             let result = await filter.filter(content, direction: .incoming, context: filterContext)
@@ -32,8 +32,8 @@ enum MentionFilterTests {
     }
 
     struct OutgoingPassthrough {
-        @Test("Does not process outgoing messages")
-        func passthroughOnOutgoing() async {
+        @Test
+        func `Does not process outgoing messages`() async {
             let filter = MentionFilter()
             let content = MessageContent(body: "Hey @user check this")
             let result = await filter.filter(content, direction: .outgoing, context: filterContext)

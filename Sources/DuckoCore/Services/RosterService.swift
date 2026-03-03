@@ -99,6 +99,22 @@ public final class RosterService {
         try await loadContacts(for: accountID)
     }
 
+    // MARK: - Blocking (XEP-0191)
+
+    public func blockContact(jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else { return }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let blockingModule = await client.module(ofType: BlockingModule.self) else { return }
+        try await blockingModule.blockContact(jid: jid)
+    }
+
+    public func unblockContact(jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else { return }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let blockingModule = await client.module(ofType: BlockingModule.self) else { return }
+        try await blockingModule.unblockContact(jid: jid)
+    }
+
     // MARK: - Event Handling
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) async {
@@ -107,7 +123,23 @@ public final class RosterService {
             await handleRosterLoaded(items, accountID: accountID)
         case let .rosterItemChanged(item):
             await handleRosterItemChanged(item, accountID: accountID)
-        default:
+        case let .blockListLoaded(jids):
+            await handleBlockListLoaded(jids, accountID: accountID)
+        case let .contactBlocked(jid):
+            await handleBlockStateChanged(jid, isBlocked: true, accountID: accountID)
+        case let .contactUnblocked(jid):
+            await handleBlockStateChanged(jid, isBlocked: false, accountID: accountID)
+        case .connected, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress:
             break
         }
     }
@@ -178,6 +210,29 @@ public final class RosterService {
             lastSeen: existing?.lastSeen,
             createdAt: existing?.createdAt ?? Date()
         )
+    }
+
+    private func handleBlockListLoaded(_ jids: [BareJID], accountID: UUID) async {
+        let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
+        let blockedSet = Set(jids)
+        for contact in contacts {
+            let shouldBeBlocked = blockedSet.contains(contact.jid)
+            if contact.isBlocked != shouldBeBlocked {
+                var updated = contact
+                updated.isBlocked = shouldBeBlocked
+                try? await store.upsertContact(updated)
+            }
+        }
+        try? await loadContacts(for: accountID)
+    }
+
+    private func handleBlockStateChanged(_ jid: BareJID, isBlocked: Bool, accountID: UUID) async {
+        let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
+        guard let contact = contacts.first(where: { $0.jid == jid }) else { return }
+        var updated = contact
+        updated.isBlocked = isBlocked
+        try? await store.upsertContact(updated)
+        try? await loadContacts(for: accountID)
     }
 
     private func buildGroups(from contacts: [Contact]) -> [ContactGroup] {

@@ -8,7 +8,7 @@ struct FileCredentialStoreTests {
             .appendingPathComponent("test-credentials-\(UUID().uuidString).json")
     }
 
-    @Test func saveAndLoad() {
+    @Test func `save and load`() {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -18,7 +18,7 @@ struct FileCredentialStoreTests {
         #expect(loaded == "secret123")
     }
 
-    @Test func updateOverwrites() {
+    @Test func `update overwrites`() {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -29,13 +29,13 @@ struct FileCredentialStoreTests {
         #expect(loaded == "second")
     }
 
-    @Test func loadNonExistentReturnsNil() {
+    @Test func `load non existent returns nil`() {
         let url = makeTempURL()
         let store = FileCredentialStore(fileURL: url)
         #expect(store.loadPassword(for: "nobody@example.com") == nil)
     }
 
-    @Test func deleteRemovesEntry() {
+    @Test func `delete removes entry`() {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -45,7 +45,7 @@ struct FileCredentialStoreTests {
         #expect(store.loadPassword(for: "alice@example.com") == nil)
     }
 
-    @Test func deleteNonExistentDoesNotThrow() {
+    @Test func `delete non existent does not throw`() {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -53,7 +53,7 @@ struct FileCredentialStoreTests {
         store.deletePassword(for: "nobody@example.com")
     }
 
-    @Test func persistsAcrossInstances() {
+    @Test func `persists across instances`() {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
 
@@ -65,7 +65,7 @@ struct FileCredentialStoreTests {
         #expect(loaded == "persist-me")
     }
 
-    @Test func specialCharactersRoundTrip() {
+    @Test func `special characters round trip`() {
         let url = makeTempURL()
         defer { try? FileManager.default.removeItem(at: url) }
 

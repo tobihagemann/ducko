@@ -7,7 +7,7 @@ import Testing
 struct JSONFormatterTests {
     let formatter = JSONFormatter()
 
-    @Test func outputIsValidJSON() throws {
+    @Test func `output is valid JSON`() throws {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -29,7 +29,7 @@ struct JSONFormatterTests {
         #expect(json["direction"] == "incoming")
     }
 
-    @Test func accountOutputIsValidJSON() throws {
+    @Test func `account output is valid JSON`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let accountID = UUID()
         let account = Account(
@@ -50,7 +50,7 @@ struct JSONFormatterTests {
 
     // MARK: - formatContactWithPresence
 
-    @Test func contactWithPresenceIsValidJSON() throws {
+    @Test func `contact with presence is valid JSON`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -72,7 +72,7 @@ struct JSONFormatterTests {
         #expect(json["groups"] == "Friends")
     }
 
-    @Test func contactNilPresenceShowsOffline() throws {
+    @Test func `contact nil presence shows offline`() throws {
         let jid = try #require(BareJID.parse("bob@example.com"))
         let contact = Contact(
             id: UUID(),
@@ -91,7 +91,7 @@ struct JSONFormatterTests {
 
     // MARK: - formatGroupHeader
 
-    @Test func groupHeaderIsValidJSON() throws {
+    @Test func `group header is valid JSON`() throws {
         let group = try ContactGroup(id: "friends", name: "Friends", contacts: [
             Contact(
                 id: UUID(),
@@ -131,7 +131,7 @@ struct JSONFormatterTests {
 
     // MARK: - formatEvent
 
-    @Test func eventConnectedContainsAccountField() throws {
+    @Test func `event connected contains account field`() throws {
         let accountID = UUID()
         let jid = try #require(FullJID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.connected(jid), accountID: accountID))
@@ -141,13 +141,13 @@ struct JSONFormatterTests {
         #expect(json["account"] == accountID.uuidString)
     }
 
-    @Test func iqEventReturnsNil() {
+    @Test func `iq event returns nil`() {
         let iq = XMPPIQ(type: .result)
         let output = formatter.formatEvent(.iqReceived(iq), accountID: UUID())
         #expect(output == nil)
     }
 
-    @Test func subscriptionRequestIsValidJSON() throws {
+    @Test func `subscription request is valid JSON`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatEvent(.presenceSubscriptionRequest(from: jid), accountID: UUID()))
         let data = try #require(output.data(using: .utf8))
@@ -156,7 +156,7 @@ struct JSONFormatterTests {
         #expect(json["from"] == "alice@example.com")
     }
 
-    @Test func presenceEventReturnsNil() {
+    @Test func `presence event returns nil`() {
         let presence = XMPPPresence()
         let output = formatter.formatEvent(.presenceReceived(presence), accountID: UUID())
         #expect(output == nil)
@@ -164,7 +164,7 @@ struct JSONFormatterTests {
 
     // MARK: - Message Markers
 
-    @Test func messageIncludesDelivered() throws {
+    @Test func `message includes delivered`() throws {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -183,7 +183,7 @@ struct JSONFormatterTests {
         #expect(json["delivered"] == "true")
     }
 
-    @Test func messageIncludesEdited() throws {
+    @Test func `message includes edited`() throws {
         let message = ChatMessage(
             id: UUID(),
             conversationID: UUID(),
@@ -204,7 +204,7 @@ struct JSONFormatterTests {
 
     // MARK: - New Event Types
 
-    @Test func deliveryReceiptEventIsValidJSON() throws {
+    @Test func `delivery receipt event is valid JSON`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
         let output = try #require(formatter.formatEvent(.deliveryReceiptReceived(messageID: "msg-1", from: jid), accountID: UUID()))
         let data = try #require(output.data(using: .utf8))
@@ -216,7 +216,7 @@ struct JSONFormatterTests {
 
     // MARK: - Typing Indicator
 
-    @Test func typingIndicatorComposing() throws {
+    @Test func `typing indicator composing`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatTypingIndicator(from: jid, state: .composing))
         let data = try #require(output.data(using: .utf8))
@@ -225,7 +225,7 @@ struct JSONFormatterTests {
         #expect(json["state"] == "composing")
     }
 
-    @Test func typingIndicatorPaused() throws {
+    @Test func `typing indicator paused`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatTypingIndicator(from: jid, state: .paused))
         let data = try #require(output.data(using: .utf8))

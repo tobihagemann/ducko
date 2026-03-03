@@ -614,7 +614,7 @@ extension DuckoCLI {
     struct Account: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage XMPP accounts",
-            subcommands: [List.self, Add.self],
+            subcommands: [List.self, Add.self, Delete.self],
             defaultSubcommand: List.self
         )
 
@@ -681,6 +681,32 @@ extension DuckoCLI {
                 }
 
                 print("Account added: \(jid)")
+            }
+        }
+
+        struct Delete: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Delete an XMPP account"
+            )
+
+            @Argument(help: "The bare JID of the account to delete")
+            var jid: String
+
+            func run() async throws {
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: PlainFormatter())
+                }
+                let env = context.environment
+
+                try await env.accountService.loadAccounts()
+                let accounts = await MainActor.run { env.accountService.accounts }
+
+                guard let account = accounts.first(where: { $0.jid.description == jid }) else {
+                    throw CLIError.accountNotFound(jid)
+                }
+
+                try await env.accountService.deleteAccount(account.id)
+                print("Account deleted: \(jid)")
             }
         }
     }

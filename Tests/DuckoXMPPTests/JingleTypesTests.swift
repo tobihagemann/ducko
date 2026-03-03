@@ -3,8 +3,8 @@ import Testing
 
 enum JingleTypesTests {
     struct ActionRawValues {
-        @Test("JingleAction raw values match XEP-0166 action names")
-        func rawValues() {
+        @Test
+        func `JingleAction raw values match XEP-0166 action names`() {
             #expect(JingleAction.sessionInitiate.rawValue == "session-initiate")
             #expect(JingleAction.sessionAccept.rawValue == "session-accept")
             #expect(JingleAction.sessionTerminate.rawValue == "session-terminate")
@@ -17,8 +17,8 @@ enum JingleTypesTests {
     }
 
     struct TerminateReasonRawValues {
-        @Test("JingleTerminateReason raw values match XEP-0166 reason names")
-        func rawValues() {
+        @Test
+        func `JingleTerminateReason raw values match XEP-0166 reason names`() {
             #expect(JingleTerminateReason.success.rawValue == "success")
             #expect(JingleTerminateReason.decline.rawValue == "decline")
             #expect(JingleTerminateReason.cancel.rawValue == "cancel")
@@ -30,8 +30,8 @@ enum JingleTypesTests {
     }
 
     struct FileDescriptionParsing {
-        @Test("Parses JingleFileDescription from XML element")
-        func parsesDescription() {
+        @Test
+        func `Parses JingleFileDescription from XML element`() {
             var file = XMLElement(name: "file")
             file.setChildText(named: "name", to: "test.txt")
             file.setChildText(named: "size", to: "1024")
@@ -56,8 +56,8 @@ enum JingleTypesTests {
     }
 
     struct FileDescriptionRoundTrip {
-        @Test("JingleFileDescription survives parse → toXML → parse round-trip")
-        func roundTrip() {
+        @Test
+        func `JingleFileDescription survives parse → toXML → parse round-trip`() {
             let original = JingleFileDescription(
                 name: "photo.jpg",
                 size: 5000,
@@ -78,8 +78,8 @@ enum JingleTypesTests {
     }
 
     struct SOCKS5TransportParsing {
-        @Test("Parses SOCKS5Transport with candidates from XML")
-        func parsesTransport() {
+        @Test
+        func `Parses SOCKS5Transport with candidates from XML`() {
             let candidate = XMLElement(
                 name: "candidate",
                 attributes: [
@@ -113,8 +113,8 @@ enum JingleTypesTests {
     }
 
     struct SOCKS5TransportRoundTrip {
-        @Test("SOCKS5Transport survives round-trip")
-        func roundTrip() {
+        @Test
+        func `SOCKS5Transport survives round-trip`() {
             let original = SOCKS5Transport(
                 sid: "s5b-123",
                 candidates: [
@@ -137,8 +137,8 @@ enum JingleTypesTests {
     }
 
     struct IBBTransportParsing {
-        @Test("Parses IBBTransport from XML")
-        func parsesTransport() {
+        @Test
+        func `Parses IBBTransport from XML`() {
             let transport = XMLElement(
                 name: "transport",
                 namespace: XMPPNamespaces.jingleIBB,
@@ -153,8 +153,8 @@ enum JingleTypesTests {
     }
 
     struct IBBTransportRoundTrip {
-        @Test("IBBTransport survives round-trip")
-        func roundTrip() {
+        @Test
+        func `IBBTransport survives round-trip`() {
             let original = IBBTransport(sid: "ibb-456", blockSize: 8192)
             let xml = original.toXML()
             let parsed = IBBTransport(from: xml)
@@ -165,8 +165,8 @@ enum JingleTypesTests {
     }
 
     struct ContentParsing {
-        @Test("Parses full JingleContent with description and S5B transport")
-        func parsesContent() {
+        @Test
+        func `Parses full JingleContent with description and S5B transport`() {
             var file = XMLElement(name: "file")
             file.setChildText(named: "name", to: "doc.pdf")
             file.setChildText(named: "size", to: "2048")
@@ -199,8 +199,8 @@ enum JingleTypesTests {
     }
 
     struct ContentRoundTrip {
-        @Test("JingleContent survives round-trip")
-        func roundTrip() {
+        @Test
+        func `JingleContent survives round-trip`() {
             let original = JingleContent(
                 name: "file-offer",
                 creator: "initiator",

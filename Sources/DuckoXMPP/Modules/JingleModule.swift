@@ -19,7 +19,7 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     /// Discovered Proxy65 service info.
-    private struct ProxyInfo: Sendable {
+    private struct ProxyInfo {
         let jid: String
         let host: String
         let port: UInt16

@@ -96,19 +96,55 @@ public final class AccountService {
         connectionStates[accountID] = .disconnected
     }
 
-    public func createAccount(jidString: String) async throws -> UUID {
+    public func createAccount(
+        jidString: String,
+        displayName: String? = nil,
+        host: String? = nil,
+        port: Int? = nil,
+        resource: String? = nil,
+        connectOnLaunch: Bool = false
+    ) async throws -> UUID {
         guard let jid = BareJID.parse(jidString) else {
             throw AccountServiceError.invalidJID(jidString)
         }
         let account = Account(
             id: UUID(),
             jid: jid,
+            displayName: displayName,
             isEnabled: true,
-            connectOnLaunch: false,
+            connectOnLaunch: connectOnLaunch,
+            host: host,
+            port: port,
+            resource: resource,
             createdAt: Date()
         )
         try await store.saveAccount(account)
         return account.id
+    }
+
+    public func updateAccount(_ account: Account) async throws {
+        try await store.saveAccount(account)
+        if !account.isEnabled {
+            await disconnect(accountID: account.id)
+        }
+        try await loadAccounts()
+    }
+
+    public func connectEnabledAccounts() async {
+        await withTaskGroup(of: Void.self) { group in
+            for account in accounts where account.isEnabled && account.connectOnLaunch {
+                let state = connectionStates[account.id]
+                switch state {
+                case .connected, .connecting:
+                    continue
+                case .disconnected, .error, .none:
+                    break
+                }
+                group.addTask { [weak self] in
+                    try? await self?.connect(accountID: account.id)
+                }
+            }
+        }
     }
 
     public func deleteAccount(_ id: UUID) async throws {
@@ -157,6 +193,7 @@ public final class AccountService {
         builder.withModule(MUCModule())
         builder.withModule(HTTPUploadModule())
         builder.withModule(JingleModule())
+        builder.withModule(BlockingModule())
         let sm = StreamManagementModule()
         builder.withModule(sm)
         builder.withInterceptor(sm)
