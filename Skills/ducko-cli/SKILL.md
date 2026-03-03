@@ -46,18 +46,25 @@ ducko send alice@example.com "Hello"
 
 REPL mode. Connects once, then accepts commands on stdin:
 
-- `send <jid> <message>` — send a message
+- `send <jid> <message>` — send a message (auto-detects rooms)
 - `/roster` — show contacts grouped with presence indicators
 - `/status [status] [message]` — get or set presence status
 - `/who` — show online contacts only
 - `/history <jid> [limit]` — show message history (default 20 messages)
+- `/join <room> [nickname]` — join a MUC room (sets as current room)
+- `/leave [room]` — leave a MUC room (uses current room if omitted)
+- `/members [room]` — show room occupants
+- `/topic [room] [text]` — view or set room topic
+- `/rooms [service]` — discover available rooms on MUC service
+- `/approve <jid>` — approve subscription request
+- `/deny <jid>` — deny subscription request
 - `help` — show available commands
 - `quit` / `exit` — disconnect and exit
 
 Real-time indicators in interactive mode:
 - Typing indicators from contacts are displayed as they arrive
 - Delivery receipts and message corrections appear in the event stream
-- Terminal bell rings on incoming messages
+- Terminal bell rings on incoming messages and room messages
 
 ```
 ducko interactive
@@ -121,13 +128,44 @@ ducko presence available          # set available
 ducko presence --output json      # JSON output
 ```
 
+### `room list [--service <jid>]`
+
+Discover available rooms on a MUC service. Auto-discovers the server's MUC service if `--service` is omitted.
+
+```
+ducko room list
+ducko room list --service conference.example.com
+```
+
+### `room join <jid> [--nickname <nick>]`
+
+Join a room and monitor incoming messages. Stays connected until `quit` or stdin EOF. Supports `send <message>` to send to the room.
+
+```
+ducko room join chat@conference.example.com
+ducko room join chat@conference.example.com --nickname alice
+```
+
+### `room members <jid> [--nickname <nick>]`
+
+Show room occupants grouped by affiliation. Joins the room temporarily to retrieve the occupant list.
+
+```
+ducko room members chat@conference.example.com
+```
+
+### `room send <jid> <body> [--nickname <nick>]`
+
+Send a single message to a room. Joins the room, sends the message, then leaves and disconnects.
+
+```
+ducko room send chat@conference.example.com "Hello everyone"
+```
+
 ### Stubs (not yet implemented)
 
 | Subcommand | Description |
 |---|---|
-| `room join <jid>` | Join a MUC room |
-| `room leave <jid>` | Leave a MUC room |
-| `room list` | List joined rooms |
 | `account delete <jid>` | Delete an account |
 
 ## Output Formats

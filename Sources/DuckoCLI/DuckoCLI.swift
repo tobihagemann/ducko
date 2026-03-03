@@ -386,56 +386,201 @@ extension DuckoCLI {
     }
 }
 
-// MARK: - Stubs
+// MARK: - Room
 
 extension DuckoCLI {
     struct Room: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage multi-user chat rooms",
-            subcommands: [Join.self, Leave.self, ListRooms.self],
+            subcommands: [ListRooms.self, Join.self, Members.self, Send.self],
             defaultSubcommand: ListRooms.self
         )
-
-        struct Join: AsyncParsableCommand {
-            static let configuration = CommandConfiguration(
-                abstract: "Join a room"
-            )
-
-            @OptionGroup var global: GlobalOptions
-
-            @Argument(help: "The room JID")
-            var jid: String
-
-            func run() async throws {
-                print("room join: not yet implemented")
-            }
-        }
-
-        struct Leave: AsyncParsableCommand {
-            static let configuration = CommandConfiguration(
-                abstract: "Leave a room"
-            )
-
-            @OptionGroup var global: GlobalOptions
-
-            @Argument(help: "The room JID")
-            var jid: String
-
-            func run() async throws {
-                print("room leave: not yet implemented")
-            }
-        }
 
         struct ListRooms: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
                 commandName: "list",
-                abstract: "List joined rooms"
+                abstract: "Discover available rooms on a MUC service"
             )
 
             @OptionGroup var global: GlobalOptions
 
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Option(name: .long, help: "MUC service JID (auto-discovered if omitted)")
+            var service: String?
+
             func run() async throws {
-                print("room list: not yet implemented")
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let serviceJID: String
+                if let service {
+                    serviceJID = service
+                } else {
+                    guard let discovered = await env.chatService.discoverMUCService(accountID: selectedAccount.id) else {
+                        throw CLIError.noMUCService
+                    }
+                    serviceJID = discovered
+                }
+
+                let rooms = try await env.chatService.discoverRooms(on: serviceJID, accountID: selectedAccount.id)
+                printDiscoveredRooms(rooms, formatter: formatter)
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Join: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Join a room and monitor messages"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The room JID")
+            var jid: String
+
+            @Option(name: .long, help: "Nickname to use (defaults to local part of account JID)")
+            var nickname: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter, isInteractive: true)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let nick = nickname ?? defaultNickname(for: selectedAccount)
+                try await env.chatService.joinRoom(jidString: jid, nickname: nick, accountID: selectedAccount.id)
+                try await waitForRoomJoined(roomJID: jid, environment: env)
+
+                let participantCount = await MainActor.run { env.chatService.participantCount(forRoomJIDString: jid) }
+                print(formatter.formatRoomJoinedConfirmation(room: jid, nickname: nick, participantCount: participantCount, subject: nil))
+                print("Type 'send <message>' to send, 'quit' to leave.")
+
+                let accountID = selectedAccount.id
+                let roomJID = jid
+                await Task.detached {
+                    await runRoomLoop(roomJID: roomJID, formatter: formatter, environment: env, accountID: accountID)
+                }.value
+            }
+        }
+
+        struct Members: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Show room occupants"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The room JID")
+            var jid: String
+
+            @Option(name: .long, help: "Nickname to use (defaults to local part of account JID)")
+            var nickname: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let nick = nickname ?? defaultNickname(for: selectedAccount)
+                try await env.chatService.joinRoom(jidString: jid, nickname: nick, accountID: selectedAccount.id)
+                try await waitForRoomJoined(roomJID: jid, environment: env)
+
+                await printRoomMembers(jidString: jid, environment: env, formatter: formatter)
+
+                try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Send: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Send a message to a room"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The room JID")
+            var jid: String
+
+            @Argument(help: "The message body")
+            var body: String
+
+            @Option(name: .long, help: "Nickname to use (defaults to local part of account JID)")
+            var nickname: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let nick = nickname ?? defaultNickname(for: selectedAccount)
+                try await env.chatService.joinRoom(jidString: jid, nickname: nick, accountID: selectedAccount.id)
+                try await waitForRoomJoined(roomJID: jid, environment: env)
+
+                try await env.chatService.sendGroupMessage(toJIDString: jid, body: body, accountID: selectedAccount.id)
+
+                try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
+                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
     }
@@ -515,14 +660,47 @@ extension DuckoCLI {
     }
 }
 
-// MARK: - REPL
+// MARK: - Room Loop
 
-private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID, accountJID: BareJID) async {
+private func runRoomLoop(roomJID: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID) async {
     while let line = readLine() {
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { continue }
 
         if trimmed == "quit" || trimmed == "exit" {
+            break
+        }
+
+        if trimmed.hasPrefix("send ") {
+            let body = String(trimmed.dropFirst(5))
+            do {
+                try await environment.chatService.sendGroupMessage(toJIDString: roomJID, body: body, accountID: accountID)
+            } catch {
+                print(formatter.formatError(error))
+            }
+        } else {
+            print("Commands: send <message>, quit")
+        }
+    }
+
+    // quit or stdin closed
+    try? await environment.chatService.leaveRoom(jidString: roomJID, accountID: accountID)
+    await environment.accountService.disconnect(accountID: accountID)
+    Foundation.exit(0)
+}
+
+// MARK: - REPL
+
+private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID, accountJID: BareJID) async {
+    let context = REPLContext(formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
+    var currentRoom: String?
+
+    while let line = readLine() {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { continue }
+
+        if trimmed == "quit" || trimmed == "exit" {
+            await leaveCurrentRoom(currentRoom, environment: environment, accountID: accountID)
             await environment.accountService.disconnect(accountID: accountID)
             Foundation.exit(0)
         }
@@ -532,16 +710,18 @@ private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, a
             continue
         }
 
-        let handled = await dispatchREPLCommand(
-            trimmed, formatter: formatter, environment: environment,
-            accountID: accountID, accountJID: accountJID
-        )
-        if !handled {
+        let result = await dispatchREPLCommand(trimmed, context: context, currentRoom: currentRoom)
+        if result.handled {
+            if let updated = result.updatedCurrentRoom {
+                currentRoom = updated
+            }
+        } else {
             print("Unknown command: \(trimmed). Type 'help' for commands.")
         }
     }
 
     // stdin closed
+    await leaveCurrentRoom(currentRoom, environment: environment, accountID: accountID)
     await environment.accountService.disconnect(accountID: accountID)
     Foundation.exit(0)
 }
@@ -557,14 +737,35 @@ private func printREPLHelp() {
     print("  /history <jid> [limit]   Show message history")
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
+    print("  /join <room> [nick]      Join a MUC room")
+    print("  /leave [room]            Leave a MUC room")
+    print("  /members [room]          Show room occupants")
+    print("  /topic [room] [text]     View or set room topic")
+    print("  /rooms [service]         Discover available rooms")
     print("  help                     Show this help")
     print("  quit                     Disconnect and exit")
 }
 
+private struct REPLContext {
+    let formatter: any CLIFormatter
+    let environment: AppEnvironment
+    let accountID: UUID
+    let accountJID: BareJID
+}
+
+private struct REPLDispatchResult {
+    let handled: Bool
+    /// `nil` = no change, `.some(nil)` = clear, `.some(value)` = set
+    let updatedCurrentRoom: String??
+}
+
 private func dispatchREPLCommand(
-    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
-    accountID: UUID, accountJID: BareJID
-) async -> Bool {
+    _ input: String, context: REPLContext, currentRoom: String?
+) async -> REPLDispatchResult {
+    let formatter = context.formatter
+    let environment = context.environment
+    let accountID = context.accountID
+    let accountJID = context.accountJID
     if input.hasPrefix("send ") {
         await handleSendCommand(input, formatter: formatter, environment: environment, accountID: accountID)
     } else if input == "/roster" {
@@ -599,9 +800,150 @@ private func dispatchREPLCommand(
     } else if input == "/history" || input.hasPrefix("/history ") {
         await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
     } else {
-        return false
+        return await dispatchRoomREPLCommand(input, context: context, currentRoom: currentRoom)
     }
-    return true
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func dispatchRoomREPLCommand(
+    _ input: String, context: REPLContext, currentRoom: String?
+) async -> REPLDispatchResult {
+    let formatter = context.formatter
+    let environment = context.environment
+    let accountID = context.accountID
+    let accountJID = context.accountJID
+    if input == "/join" || input.hasPrefix("/join ") {
+        let args = input.dropFirst("/join".count).trimmingCharacters(in: .whitespaces)
+        guard !args.isEmpty else {
+            print("Usage: /join <room-jid> [nickname]")
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        }
+        let parts = args.split(separator: " ", maxSplits: 1)
+        guard let roomPart = parts.first else {
+            print("Usage: /join <room-jid> [nickname]")
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        }
+        let roomJID = String(roomPart)
+        let nick = parts.count > 1 ? String(parts[1]) : accountJID.localPart ?? accountJID.description
+        do {
+            try await environment.chatService.joinRoom(jidString: roomJID, nickname: nick, accountID: accountID)
+            try await waitForRoomJoined(roomJID: roomJID, environment: environment)
+            let count = await MainActor.run { environment.chatService.participantCount(forRoomJIDString: roomJID) }
+            print(formatter.formatRoomJoinedConfirmation(room: roomJID, nickname: nick, participantCount: count, subject: nil))
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: roomJID)
+        } catch {
+            print(formatter.formatError(error))
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        }
+    } else if input == "/leave" || input.hasPrefix("/leave ") {
+        return await handleLeaveREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/members" || input.hasPrefix("/members ") {
+        let args = input.dropFirst("/members".count).trimmingCharacters(in: .whitespaces)
+        let roomJID = args.isEmpty ? currentRoom : args
+        guard let roomJID else {
+            print(formatter.formatError(CLIError.noRoomSpecified))
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        }
+        await printRoomMembers(jidString: roomJID, environment: environment, formatter: formatter)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    } else if input == "/topic" || input.hasPrefix("/topic ") {
+        return await handleTopicREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/rooms" || input.hasPrefix("/rooms ") {
+        await handleRoomsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    } else {
+        return REPLDispatchResult(handled: false, updatedCurrentRoom: nil)
+    }
+}
+
+private func handleLeaveREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    let args = input.dropFirst("/leave".count).trimmingCharacters(in: .whitespaces)
+    let roomJID = args.isEmpty ? currentRoom : args
+    guard let roomJID else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    do {
+        try await environment.chatService.leaveRoom(jidString: roomJID, accountID: accountID)
+        print("Left \(roomJID).")
+        let cleared: String?? = currentRoom == roomJID ? .some(nil) : nil
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: cleared)
+    } catch {
+        print(formatter.formatError(error))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+}
+
+private func handleTopicREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    let args = input.dropFirst("/topic".count).trimmingCharacters(in: .whitespaces)
+
+    if args.isEmpty {
+        // No API to read topic directly; confirm current room
+        guard let roomJID = currentRoom else {
+            print(formatter.formatError(CLIError.noRoomSpecified))
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        }
+        print("Current room: \(roomJID)")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+
+    let parts = args.split(separator: " ", maxSplits: 1)
+    // If first part looks like a JID and there are more parts, treat as: /topic <room> <text>
+    let roomJID: String
+    let subject: String
+    if parts.count > 1, BareJID.parse(String(parts[0])) != nil {
+        roomJID = String(parts[0])
+        subject = String(parts[1])
+    } else if let current = currentRoom {
+        roomJID = current
+        subject = args
+    } else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+
+    do {
+        try await environment.chatService.setRoomSubject(jidString: roomJID, subject: subject, accountID: accountID)
+        print("Topic set for \(roomJID).")
+    } catch {
+        print(formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func handleRoomsREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID
+) async {
+    let args = input.dropFirst("/rooms".count).trimmingCharacters(in: .whitespaces)
+
+    let serviceJID: String
+    if args.isEmpty {
+        guard let discovered = await environment.chatService.discoverMUCService(accountID: accountID) else {
+            print(formatter.formatError(CLIError.noMUCService))
+            return
+        }
+        serviceJID = discovered
+    } else {
+        serviceJID = args
+    }
+
+    do {
+        let rooms = try await environment.chatService.discoverRooms(on: serviceJID, accountID: accountID)
+        printDiscoveredRooms(rooms, formatter: formatter)
+    } catch {
+        print(formatter.formatError(error))
+    }
+}
+
+private func leaveCurrentRoom(_ currentRoom: String?, environment: AppEnvironment, accountID: UUID) async {
+    guard let currentRoom else { return }
+    try? await environment.chatService.leaveRoom(jidString: currentRoom, accountID: accountID)
 }
 
 private func handleSendCommand(
@@ -621,7 +963,12 @@ private func handleSendCommand(
     }
 
     do {
-        try await environment.chatService.sendMessage(to: recipientJID, body: messageBody, accountID: accountID)
+        let isRoom = await MainActor.run { !(environment.chatService.roomParticipants[jidString]?.isEmpty ?? true) }
+        if isRoom {
+            try await environment.chatService.sendGroupMessage(to: recipientJID, body: messageBody, accountID: accountID)
+        } else {
+            try await environment.chatService.sendMessage(to: recipientJID, body: messageBody, accountID: accountID)
+        }
     } catch {
         print(formatter.formatError(error))
     }

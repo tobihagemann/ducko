@@ -12,7 +12,7 @@ actor CLIEventHandler {
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
-        case .messageReceived:
+        case .messageReceived, .roomMessageReceived, .roomInviteReceived:
             if isInteractive, !(formatter is JSONFormatter) {
                 print("\u{07}", terminator: "")
             }

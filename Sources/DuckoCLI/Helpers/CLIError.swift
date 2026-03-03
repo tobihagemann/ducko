@@ -9,6 +9,10 @@ enum CLIError: Error, LocalizedError {
     case connectionTimeout
     case invalidPresenceStatus(String)
     case invalidDate(String)
+    case noMUCService
+    case roomJoinTimeout(String)
+    case notJoinedToRoom(String)
+    case noRoomSpecified
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +32,14 @@ enum CLIError: Error, LocalizedError {
             "Invalid presence status: \(status). Valid values: available, away, xa, dnd, offline"
         case let .invalidDate(string):
             "Invalid ISO 8601 date: \(string)"
+        case .noMUCService:
+            "No MUC service found on this server."
+        case let .roomJoinTimeout(jid):
+            "Timed out joining room: \(jid)"
+        case let .notJoinedToRoom(jid):
+            "Not joined to room: \(jid)"
+        case .noRoomSpecified:
+            "No room specified. Join a room with /join or provide a room JID."
         }
     }
 }

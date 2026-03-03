@@ -67,9 +67,7 @@ struct PlainFormatter: CLIFormatter {
         case let .authenticationFailed(message):
             return "authentication failed: \(message)"
         case let .messageReceived(message):
-            guard let from = message.from?.bareJID, let body = message.body else { return nil }
-            let timestamp = iso8601(Date())
-            return "[\(timestamp)] <- \(from): \(body)"
+            return formatIncomingMessage(message)
         case let .presenceSubscriptionRequest(from: jid):
             return "Subscription request from \(jid)"
         case let .deliveryReceiptReceived(messageID, from):
@@ -78,14 +76,53 @@ struct PlainFormatter: CLIFormatter {
             return "message corrected by \(from.bareJID): \(newBody)"
         case let .messageError(_, from, errorText):
             return "message error from \(from.bareJID): \(errorText)"
+        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            return formatMUCEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .chatStateChanged, .chatMarkerReceived:
+            return nil
+        }
+    }
+
+    private func formatIncomingMessage(_ message: XMPPMessage) -> String? {
+        guard let from = message.from?.bareJID, let body = message.body else { return nil }
+        let timestamp = iso8601(Date())
+        return "[\(timestamp)] <- \(from): \(body)"
+    }
+
+    private func formatMUCEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .roomJoined(room, occupancy):
+            var line = "Joined \(room) as \(occupancy.nickname) (\(occupancy.occupants.count) participants)"
+            if let subject = occupancy.subject, !subject.isEmpty {
+                line += " — topic: \(subject)"
+            }
+            return line
+        case let .roomOccupantJoined(room, occupant):
+            return "\(room): \(occupant.nickname) joined"
+        case let .roomOccupantLeft(room, occupant):
+            return "\(room): \(occupant.nickname) left"
+        case let .roomSubjectChanged(room, subject, setter):
+            let who = setter?.bareJID.description ?? "someone"
+            let topic = subject ?? "(cleared)"
+            return "\(room): topic changed by \(who): \(topic)"
+        case let .roomInviteReceived(invite):
+            var line = "Room invite: \(invite.from.bareJID) invites you to \(invite.room)"
+            if let reason = invite.reason {
+                line += " (\(reason))"
+            }
+            return line
+        case let .roomMessageReceived(message):
+            guard let from = message.from, let body = message.body else { return nil }
+            let nickname = nicknameFromJID(from)
+            let timestamp = iso8601(Date())
+            return "[\(timestamp)] <- \(from.bareJID)/\(nickname): \(body)"
+        default:
             return nil
         }
     }
@@ -99,6 +136,36 @@ struct PlainFormatter: CLIFormatter {
         case let .connectionLost(message):
             return "disconnected: connection lost: \(message)"
         }
+    }
+
+    // MARK: - Room Formatting
+
+    func formatRoom(_ room: DiscoveredRoom) -> String {
+        if let name = room.name {
+            return "\(name) (\(room.jidString))"
+        }
+        return room.jidString
+    }
+
+    func formatRoomParticipant(_ participant: RoomParticipant) -> String {
+        var line = "  \(participant.nickname)"
+        if let jid = participant.jidString {
+            line += " (\(jid))"
+        }
+        line += " [\(participant.role.rawValue)]"
+        return line
+    }
+
+    func formatRoomParticipantGroupHeader(_ group: RoomParticipantGroup) -> String {
+        "--- \(group.affiliation.displayName) (\(group.participants.count)) ---"
+    }
+
+    func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String {
+        var line = "Joined \(room) as \(nickname) (\(participantCount) participants)"
+        if let subject, !subject.isEmpty {
+            line += "\nTopic: \(subject)"
+        }
+        return line
     }
 
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {

@@ -13,6 +13,14 @@ protocol CLIFormatter: Sendable {
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String?
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String?
     func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String
+    func formatRoom(_ room: DiscoveredRoom) -> String
+    func formatRoomParticipant(_ participant: RoomParticipant) -> String
+    func formatRoomParticipantGroupHeader(_ group: RoomParticipantGroup) -> String
+    func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String
+}
+
+func nicknameFromJID(_ jid: JID) -> String {
+    FullJID.parse(jid.description)?.resourcePart ?? jid.bareJID.description
 }
 
 func iso8601(_ date: Date) -> String {

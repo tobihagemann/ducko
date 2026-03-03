@@ -117,14 +117,15 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "message_corrected", "originalID": originalID, "newBody": newBody, "from": from.bareJID.description, "account": account])
         case let .messageError(_, from, errorText):
             return encode(["type": "message_error", "from": from.bareJID.description, "error": errorText, "account": account])
+        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            return formatMUCEvent(event, account: account)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .chatStateChanged, .chatMarkerReceived:
             return nil
         }
     }
@@ -178,6 +179,114 @@ struct JSONFormatter: CLIFormatter {
             dict["message"] = message
         }
         return encode(dict)
+    }
+
+    // MARK: - Room Formatting
+
+    func formatRoom(_ room: DiscoveredRoom) -> String {
+        var dict: [String: String] = [
+            "type": "room",
+            "jid": room.jidString
+        ]
+        if let name = room.name {
+            dict["name"] = name
+        }
+        return encode(dict)
+    }
+
+    func formatRoomParticipant(_ participant: RoomParticipant) -> String {
+        var dict: [String: String] = [
+            "type": "room_participant",
+            "nickname": participant.nickname,
+            "role": participant.role.rawValue,
+            "affiliation": participant.affiliation.rawValue
+        ]
+        if let jid = participant.jidString {
+            dict["jid"] = jid
+        }
+        return encode(dict)
+    }
+
+    func formatRoomParticipantGroupHeader(_ group: RoomParticipantGroup) -> String {
+        encode([
+            "type": "room_participant_group",
+            "affiliation": group.affiliation.displayName,
+            "count": "\(group.participants.count)"
+        ])
+    }
+
+    func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String {
+        var dict: [String: String] = [
+            "type": "room_joined",
+            "room": room,
+            "nickname": nickname,
+            "participants": "\(participantCount)"
+        ]
+        if let subject, !subject.isEmpty {
+            dict["subject"] = subject
+        }
+        return encode(dict)
+    }
+
+    private func formatMUCEvent(_ event: XMPPEvent, account: String) -> String? {
+        switch event {
+        case let .roomJoined(room, occupancy):
+            return formatRoomJoinedEvent(room: room, occupancy: occupancy, account: account)
+        case let .roomOccupantJoined(room, occupant):
+            return encode(["type": "room_occupant_joined", "room": room.description, "nickname": occupant.nickname, "account": account])
+        case let .roomOccupantLeft(room, occupant):
+            return encode(["type": "room_occupant_left", "room": room.description, "nickname": occupant.nickname, "account": account])
+        case let .roomSubjectChanged(room, subject, setter):
+            return formatRoomSubjectEvent(room: room, subject: subject, setter: setter, account: account)
+        case let .roomInviteReceived(invite):
+            var dict: [String: String] = [
+                "type": "room_invite",
+                "room": invite.room.description,
+                "from": invite.from.bareJID.description,
+                "account": account
+            ]
+            if let reason = invite.reason { dict["reason"] = reason }
+            return encode(dict)
+        case let .roomMessageReceived(message):
+            return formatIncomingRoomMessage(message, account: account)
+        default:
+            return nil
+        }
+    }
+
+    private func formatRoomJoinedEvent(room: BareJID, occupancy: RoomOccupancy, account: String) -> String {
+        var dict: [String: String] = [
+            "type": "room_joined", "room": room.description,
+            "nickname": occupancy.nickname,
+            "participants": "\(occupancy.occupants.count)",
+            "account": account
+        ]
+        if let subject = occupancy.subject {
+            dict["subject"] = subject
+        }
+        return encode(dict)
+    }
+
+    private func formatRoomSubjectEvent(room: BareJID, subject: String?, setter: JID?, account: String) -> String {
+        var dict: [String: String] = [
+            "type": "room_subject_changed",
+            "room": room.description,
+            "account": account
+        ]
+        if let subject { dict["subject"] = subject }
+        if let setter { dict["setter"] = setter.bareJID.description }
+        return encode(dict)
+    }
+
+    private func formatIncomingRoomMessage(_ message: XMPPMessage, account: String) -> String? {
+        guard let from = message.from, let body = message.body else { return nil }
+        let nickname = nicknameFromJID(from)
+        return encode([
+            "type": "room_message", "direction": "incoming",
+            "room": from.bareJID.description, "nickname": nickname,
+            "body": body, "account": account,
+            "timestamp": formatTimestamp(Date())
+        ])
     }
 
     // MARK: - Private

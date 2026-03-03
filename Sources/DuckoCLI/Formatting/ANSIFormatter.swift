@@ -92,9 +92,7 @@ struct ANSIFormatter: CLIFormatter {
         case let .authenticationFailed(message):
             return "\(Color.red)authentication failed: \(message)\(Color.reset)"
         case let .messageReceived(message):
-            guard let from = message.from?.bareJID, let body = message.body else { return nil }
-            let timestamp = iso8601(Date())
-            return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(from): \(body)\(Color.reset)"
+            return formatIncomingMessage(message)
         case let .presenceSubscriptionRequest(from: jid):
             return "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
         case let .deliveryReceiptReceived(messageID, from):
@@ -103,14 +101,83 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
         case let .messageError(_, from, errorText):
             return "\(Color.red)message error from \(from.bareJID): \(errorText)\(Color.reset)"
+        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            return formatMUCEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .chatStateChanged, .chatMarkerReceived:
+            return nil
+        }
+    }
+
+    // MARK: - Room Formatting
+
+    func formatRoom(_ room: DiscoveredRoom) -> String {
+        if let name = room.name {
+            return "\(Color.bold)\(name)\(Color.reset) (\(room.jidString))"
+        }
+        return room.jidString
+    }
+
+    func formatRoomParticipant(_ participant: RoomParticipant) -> String {
+        var line = "  \(Color.green)\(participant.nickname)\(Color.reset)"
+        if let jid = participant.jidString {
+            line += " (\(jid))"
+        }
+        line += " \(Color.dim)[\(participant.role.rawValue)]\(Color.reset)"
+        return line
+    }
+
+    func formatRoomParticipantGroupHeader(_ group: RoomParticipantGroup) -> String {
+        "\(Color.bold)--- \(group.affiliation.displayName) (\(group.participants.count)) ---\(Color.reset)"
+    }
+
+    func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String {
+        var line = "\(Color.green)Joined \(Color.bold)\(room)\(Color.reset)\(Color.green) as \(nickname) (\(participantCount) participants)\(Color.reset)"
+        if let subject, !subject.isEmpty {
+            line += "\n\(Color.dim)Topic: \(subject)\(Color.reset)"
+        }
+        return line
+    }
+
+    private func formatIncomingMessage(_ message: XMPPMessage) -> String? {
+        guard let from = message.from?.bareJID, let body = message.body else { return nil }
+        let timestamp = iso8601(Date())
+        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(from): \(body)\(Color.reset)"
+    }
+
+    private func formatMUCEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .roomJoined(room, occupancy):
+            var line = "\(Color.green)Joined \(Color.bold)\(room)\(Color.reset)\(Color.green) as \(occupancy.nickname) (\(occupancy.occupants.count) participants)\(Color.reset)"
+            if let subject = occupancy.subject, !subject.isEmpty {
+                line += " \(Color.dim)— topic: \(subject)\(Color.reset)"
+            }
+            return line
+        case let .roomOccupantJoined(room, occupant):
+            return "\(Color.yellow)\(room): \(occupant.nickname) joined\(Color.reset)"
+        case let .roomOccupantLeft(room, occupant):
+            return "\(Color.yellow)\(room): \(occupant.nickname) left\(Color.reset)"
+        case let .roomSubjectChanged(room, subject, setter):
+            let who = setter?.bareJID.description ?? "someone"
+            let topic = subject ?? "(cleared)"
+            return "\(Color.yellow)\(room): topic changed by \(who): \(topic)\(Color.reset)"
+        case let .roomInviteReceived(invite):
+            var line = "\(Color.yellow)Room invite: \(invite.from.bareJID) invites you to \(Color.bold)\(invite.room)\(Color.reset)"
+            if let reason = invite.reason {
+                line += "\(Color.yellow) (\(reason))\(Color.reset)"
+            }
+            return line
+        case let .roomMessageReceived(message):
+            guard let from = message.from, let body = message.body else { return nil }
+            let nickname = nicknameFromJID(from)
+            let timestamp = iso8601(Date())
+            return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(from.bareJID)/\(nickname): \(body)\(Color.reset)"
+        default:
             return nil
         }
     }
