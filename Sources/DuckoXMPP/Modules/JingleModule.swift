@@ -25,6 +25,25 @@ public final class JingleModule: XMPPModule, Sendable {
         let port: UInt16
     }
 
+    /// Snapshot of state extracted during disconnect cleanup.
+    private struct DisconnectSnapshot {
+        let sessions: [String: JingleSession]
+        let context: ModuleContext?
+        let connections: [SOCKS5Connection]
+        let listeners: [SOCKS5Listener]
+    }
+
+    /// Snapshot of state extracted during session termination.
+    private struct TerminateSnapshot {
+        let context: ModuleContext?
+        let session: JingleSession?
+        let connection: SOCKS5Connection?
+        let listener: SOCKS5Listener?
+    }
+
+    /// Sentinel CID for connections accepted by the local listener.
+    private static let listenerCID = "direct-listener"
+
     // MARK: - State
 
     private struct State {
@@ -32,6 +51,7 @@ public final class JingleModule: XMPPModule, Sendable {
         var sessions: [String: JingleSession] = [:]
         var cachedProxy65: ProxyInfo?
         var activeConnections: [String: SOCKS5Connection] = [:]
+        var activeListeners: [String: SOCKS5Listener] = [:]
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -52,22 +72,29 @@ public final class JingleModule: XMPPModule, Sendable {
     // MARK: - Lifecycle
 
     public func handleDisconnect() async {
-        let (sessions, context, connections) = state.withLock { state in
-            let sessions = state.sessions
-            let context = state.context
-            let connections = Array(state.activeConnections.values)
+        let snapshot = state.withLock { state -> DisconnectSnapshot in
+            let snapshot = DisconnectSnapshot(
+                sessions: state.sessions,
+                context: state.context,
+                connections: Array(state.activeConnections.values),
+                listeners: Array(state.activeListeners.values)
+            )
             state.sessions.removeAll()
             state.activeConnections.removeAll()
+            state.activeListeners.removeAll()
             state.cachedProxy65 = nil
-            return (sessions, context, connections)
+            return snapshot
         }
 
-        for connection in connections {
+        for connection in snapshot.connections {
             await connection.close()
         }
+        for listener in snapshot.listeners {
+            await listener.close()
+        }
 
-        for sid in sessions.keys {
-            context?.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "disconnected"))
+        for sid in snapshot.sessions.keys {
+            snapshot.context?.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "disconnected"))
         }
     }
 
@@ -152,14 +179,8 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func handleSessionTerminate(_ jingle: XMLElement, sid: String, context: ModuleContext) {
-        let (removed, connection) = state.withLock { state in
-            let session = state.sessions.removeValue(forKey: sid)
-            let connection = state.activeConnections.removeValue(forKey: sid)
-            return (session, connection)
-        }
-        if let connection {
-            Task { await connection.close() }
-        }
+        let removed = state.withLock { $0.sessions.removeValue(forKey: sid) }
+        cleanupTransport(sid: sid)
         guard removed != nil else {
             log.debug("Ignoring session-terminate for unknown sid: \(sid)")
             return
@@ -193,12 +214,19 @@ public final class JingleModule: XMPPModule, Sendable {
         let session = state.withLock { $0.sessions[sid] }
         guard let session else { return }
 
-        // If we're the initiator and the peer selected a proxy candidate, activate the proxy
+        // If we're the initiator and the peer selected a candidate, handle by type
         guard session.role == .initiator else { return }
 
         if case let .socks5(transport) = session.content.transport {
             let candidate = transport.candidates.first { $0.cid == cid }
-            if let candidate, candidate.type == .proxy {
+            guard let candidate else { return }
+
+            switch candidate.type {
+            case .direct:
+                // Direct candidate (our listener) — connection already established,
+                // no activation needed. Clean up the listener.
+                cleanupListener(sid: sid)
+            case .proxy:
                 Task {
                     do {
                         try await activateProxy(
@@ -217,13 +245,8 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func handleCandidateError(sid: String, context: ModuleContext) {
-        let connection = state.withLock { state -> SOCKS5Connection? in
-            state.sessions[sid]?.transportState = .failed
-            return state.activeConnections.removeValue(forKey: sid)
-        }
-        if let connection {
-            Task { await connection.close() }
-        }
+        state.withLock { $0.sessions[sid]?.transportState = .failed }
+        cleanupTransport(sid: sid)
         context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "candidate-error"))
     }
 
@@ -261,7 +284,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
         let sid = context.generateID()
         let transportSID = context.generateID()
-        let candidates = await buildCandidates(context: context, transportSID: transportSID)
+        let candidates = await buildCandidates(context: context, sessionSID: sid, transportSID: transportSID)
 
         let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: transportSID, candidates: candidates))
         let content = JingleContent(
@@ -332,17 +355,22 @@ public final class JingleModule: XMPPModule, Sendable {
 
     /// Terminates a Jingle session with the given reason.
     public func terminateSession(sid: String, reason: JingleTerminateReason) async throws {
-        let (context, session, connection) = state.withLock { state in
-            let context = state.context
-            let session = state.sessions.removeValue(forKey: sid)
-            let connection = state.activeConnections.removeValue(forKey: sid)
-            return (context, session, connection)
+        let snapshot = state.withLock { state -> TerminateSnapshot in
+            TerminateSnapshot(
+                context: state.context,
+                session: state.sessions.removeValue(forKey: sid),
+                connection: state.activeConnections.removeValue(forKey: sid),
+                listener: state.activeListeners.removeValue(forKey: sid)
+            )
         }
-        guard let context else { throw JingleError.notConnected }
-        guard let session else { throw JingleError.sessionNotFound }
+        guard let context = snapshot.context else { throw JingleError.notConnected }
+        guard let session = snapshot.session else { throw JingleError.sessionNotFound }
 
-        if let connection {
+        if let connection = snapshot.connection {
             await connection.close()
+        }
+        if let listener = snapshot.listener {
+            await listener.close()
         }
 
         var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
@@ -421,26 +449,70 @@ public final class JingleModule: XMPPModule, Sendable {
     // MARK: - Transport Connection Orchestration
 
     private func beginTransportConnection(sid: String, context: ModuleContext) async {
-        let session = state.withLock { state -> JingleSession? in
-            guard let session = state.sessions[sid] else { return nil }
+        let (session, listener) = state.withLock { state -> (JingleSession?, SOCKS5Listener?) in
+            guard let session = state.sessions[sid] else { return (nil, nil) }
             state.sessions[sid]?.transportState = .connecting
-            return session
+            let listener = state.activeListeners[sid]
+            return (session, listener)
         }
         guard let session else { return }
 
         let candidates = extractPeerCandidates(session: session)
-        guard !candidates.isEmpty else {
-            sendCandidateError(sid: sid, session: session, context: context)
-            return
-        }
-
         let dstAddr = computeDestinationAddress(session: session)
         let sorted = candidates.sorted { $0.priority > $1.priority }
 
-        if let result = await tryConnectCandidates(sorted, dstAddr: dstAddr) {
-            handleConnectionSuccess(sid: sid, result: result, session: session, context: context)
+        // Race outbound candidate connections against listener accept (if initiator)
+        if let listener {
+            defer { cleanupListener(sid: sid) }
+            // Initiator waits for responder to connect to our listener
+            if let result = await awaitListenerConnection(listener, dstAddr: dstAddr) {
+                handleConnectionSuccess(sid: sid, result: result, session: session, context: context)
+            } else {
+                sendCandidateError(sid: sid, session: session, context: context)
+            }
+        } else if !candidates.isEmpty {
+            // Responder — try outbound candidates only
+            if let result = await tryConnectCandidates(sorted, dstAddr: dstAddr) {
+                handleConnectionSuccess(sid: sid, result: result, session: session, context: context)
+            } else {
+                sendCandidateError(sid: sid, session: session, context: context)
+            }
         } else {
             sendCandidateError(sid: sid, session: session, context: context)
+        }
+    }
+
+    private func awaitListenerConnection(
+        _ listener: SOCKS5Listener,
+        dstAddr: String
+    ) async -> (connection: SOCKS5Connection, cid: String)? {
+        do {
+            let connection = try await listener.accept(expectedDstAddr: dstAddr)
+            return (connection, "direct-listener")
+        } catch {
+            log.debug("Listener accept failed: \(error)")
+            return nil
+        }
+    }
+
+    private func cleanupTransport(sid: String) {
+        let (connection, listener) = state.withLock { state in
+            let connection = state.activeConnections.removeValue(forKey: sid)
+            let listener = state.activeListeners.removeValue(forKey: sid)
+            return (connection, listener)
+        }
+        if let connection {
+            Task { await connection.close() }
+        }
+        if let listener {
+            Task { await listener.close() }
+        }
+    }
+
+    private func cleanupListener(sid: String) {
+        let listener = state.withLock { $0.activeListeners.removeValue(forKey: sid) }
+        if let listener {
+            Task { await listener.close() }
         }
     }
 
@@ -498,7 +570,9 @@ public final class JingleModule: XMPPModule, Sendable {
             Task { await result.connection.close() }
             return
         }
-        sendCandidateUsed(sid: sid, cid: result.cid, session: session, context: context)
+        if result.cid != Self.listenerCID {
+            sendCandidateUsed(sid: sid, cid: result.cid, session: session, context: context)
+        }
     }
 
     private func sendCandidateUsed(sid: String, cid: String, session: JingleSession, context: ModuleContext) {
@@ -600,21 +674,49 @@ public final class JingleModule: XMPPModule, Sendable {
 
     // MARK: - Candidate Building
 
-    private func buildCandidates(context: ModuleContext, transportSID: String) async -> [SOCKS5Transport.Candidate] {
-        guard let proxy = try? await discoverProxy65(context: context) else {
-            return []
+    private func buildCandidates(
+        context: ModuleContext,
+        sessionSID: String,
+        transportSID: String
+    ) async -> [SOCKS5Transport.Candidate] {
+        var candidates: [SOCKS5Transport.Candidate] = []
+
+        // Direct candidates from local network interfaces
+        let addresses = NetworkInterfaces.localAddresses().filter(\.isIPv4)
+        if !addresses.isEmpty {
+            let listener = SOCKS5Listener()
+            if let port = try? await listener.start() {
+                state.withLock { $0.activeListeners[sessionSID] = listener }
+
+                let myJID = context.connectedJID()?.description ?? ""
+                for (index, address) in addresses.enumerated() {
+                    let candidate = SOCKS5Transport.Candidate(
+                        cid: context.generateID(),
+                        host: address.ip,
+                        port: port,
+                        jid: myJID,
+                        priority: UInt32(100 + addresses.count - index),
+                        type: .direct
+                    )
+                    candidates.append(candidate)
+                }
+            }
         }
 
-        let cid = context.generateID()
-        let candidate = SOCKS5Transport.Candidate(
-            cid: cid,
-            host: proxy.host,
-            port: proxy.port,
-            jid: proxy.jid,
-            priority: 10,
-            type: .proxy
-        )
-        return [candidate]
+        // Proxy candidate
+        if let proxy = try? await discoverProxy65(context: context) {
+            let candidate = SOCKS5Transport.Candidate(
+                cid: context.generateID(),
+                host: proxy.host,
+                port: proxy.port,
+                jid: proxy.jid,
+                priority: 10,
+                type: .proxy
+            )
+            candidates.append(candidate)
+        }
+
+        return candidates
     }
 
     // MARK: - Proxy Activation

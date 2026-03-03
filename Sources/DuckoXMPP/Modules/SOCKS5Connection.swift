@@ -102,6 +102,13 @@ public actor SOCKS5Connection {
 
     // MARK: - Public API
 
+    /// Adopts an already-connected socket file descriptor for data transfer.
+    /// Used by SOCKS5Listener after accepting and validating an incoming connection.
+    public func adopt(fd newFD: Int32) throws {
+        guard fd == -1 else { throw SOCKS5Error.alreadyConnected }
+        fd = newFD
+    }
+
     /// Connects to a SOCKS5 proxy and performs the handshake.
     public func connect(
         host: String,
@@ -247,7 +254,7 @@ public actor SOCKS5Connection {
         }
     }
 
-    private static func sendAll(fd: Int32, data: [UInt8]) throws {
+    static func sendAll(fd: Int32, data: [UInt8]) throws {
         try data.withUnsafeBufferPointer { buf in
             var totalSent = 0
             while totalSent < data.count {
@@ -271,7 +278,7 @@ public actor SOCKS5Connection {
         }
     }
 
-    private static func recvAll(fd: Int32, count: Int) throws -> [UInt8] {
+    static func recvAll(fd: Int32, count: Int) throws -> [UInt8] {
         var buffer = [UInt8](repeating: 0, count: count)
         var totalRead = 0
         try buffer.withUnsafeMutableBytes { buf in

@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Testing
 @testable import DuckoXMPP
 
@@ -111,6 +112,52 @@ enum SOCKS5ConnectionTests {
         }
     }
 
+    struct AdoptFileDescriptor {
+        @Test("Send and receive work after adopt(fd:)")
+        func adoptAndTransfer() async throws {
+            var fds: [Int32] = [0, 0]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+                Issue.record("socketpair() failed")
+                return
+            }
+
+            let connA = SOCKS5Connection()
+            try await connA.adopt(fd: fds[0])
+
+            let connB = SOCKS5Connection()
+            try await connB.adopt(fd: fds[1])
+
+            let testData: [UInt8] = [1, 2, 3, 4, 5]
+            try await connA.send(testData)
+            let received = try await connB.receive(testData.count)
+            #expect(received == testData)
+
+            await connA.close()
+            await connB.close()
+        }
+
+        @Test("adopt(fd:) throws when already connected")
+        func alreadyConnected() async throws {
+            var fds: [Int32] = [0, 0]
+            guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0 else {
+                Issue.record("socketpair() failed")
+                return
+            }
+            defer {
+                Darwin.close(fds[1])
+            }
+
+            let conn = SOCKS5Connection()
+            try await conn.adopt(fd: fds[0])
+
+            await #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
+                try await conn.adopt(fd: fds[1])
+            }
+
+            await conn.close()
+        }
+    }
+
     struct CandidateSorting {
         @Test("Candidates sorted by priority descending")
         func sortByPriority() {
@@ -123,6 +170,15 @@ enum SOCKS5ConnectionTests {
             #expect(sorted[0].cid == "high")
             #expect(sorted[1].cid == "mid")
             #expect(sorted[2].cid == "low")
+        }
+
+        @Test("Direct candidates have higher priority than proxy")
+        func directHigherThanProxy() {
+            let direct = SOCKS5Transport.Candidate(cid: "d1", host: "192.168.1.1", port: 5000, jid: "me@example.com", priority: 101, type: .direct)
+            let proxy = SOCKS5Transport.Candidate(cid: "p1", host: "proxy.example.com", port: 1080, jid: "proxy@example.com", priority: 10, type: .proxy)
+            let sorted = [proxy, direct].sorted { $0.priority > $1.priority }
+            #expect(sorted[0].type == .direct)
+            #expect(sorted[1].type == .proxy)
         }
     }
 }
