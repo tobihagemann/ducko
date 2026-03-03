@@ -8,9 +8,15 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let conversation = windowState.conversation {
-                ChatHeaderView(conversation: conversation)
+                ChatHeaderView(conversation: conversation, windowState: windowState)
 
                 Divider()
+
+                if windowState.isGroupchat {
+                    RoomSubjectView(windowState: windowState)
+
+                    Divider()
+                }
             }
 
             if windowState.isSearching {
@@ -19,19 +25,31 @@ struct ChatView: View {
                 Divider()
             }
 
-            MessageListView(windowState: windowState)
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    MessageListView(windowState: windowState)
 
-            if windowState.isPartnerTyping {
-                TypingIndicatorView()
-                    .padding(.horizontal)
-                    .padding(.vertical, 4)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    if windowState.isPartnerTyping {
+                        TypingIndicatorView()
+                            .padding(.horizontal)
+                            .padding(.vertical, 4)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+
+                    Divider()
+
+                    MessageInputView(windowState: windowState)
+                }
+
+                if windowState.isGroupchat, windowState.showParticipantSidebar {
+                    Divider()
+
+                    ParticipantSidebar(roomJIDString: windowState.jidString)
+                        .transition(.move(edge: .trailing))
+                }
             }
-
-            Divider()
-
-            MessageInputView(windowState: windowState)
         }
         .animation(.easeInOut(duration: 0.2), value: windowState.isPartnerTyping)
+        .animation(.easeInOut(duration: 0.2), value: windowState.showParticipantSidebar)
     }
 }

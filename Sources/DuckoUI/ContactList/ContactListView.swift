@@ -1,11 +1,17 @@
 import DuckoCore
 import SwiftUI
 
+private let roomsSectionKey = "__rooms__"
+
 struct ContactListView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.openWindow) private var openWindow
     let searchText: String
     let preferences: ContactListPreferences
+
+    private var roomConversations: [Conversation] {
+        environment.chatService.openConversations.filter { $0.type == .groupchat }
+    }
 
     var body: some View {
         List {
@@ -24,6 +30,24 @@ struct ContactListView: View {
                     }
                 } label: {
                     Text(group.name)
+                }
+            }
+
+            if !roomConversations.isEmpty {
+                let roomsExpanded = Binding(
+                    get: { preferences.isGroupExpanded(roomsSectionKey) },
+                    set: { _ in preferences.toggleGroupExpanded(roomsSectionKey) }
+                )
+
+                DisclosureGroup(isExpanded: roomsExpanded) {
+                    ForEach(roomConversations) { conversation in
+                        RoomRowWithMenu(conversation: conversation)
+                            .onTapGesture(count: 2) {
+                                openWindow(id: "chat", value: conversation.jid.description)
+                            }
+                    }
+                } label: {
+                    Text("Rooms")
                 }
             }
         }
@@ -111,6 +135,96 @@ struct ContactListView: View {
         case .dnd: 2
         case .xa: 3
         case .offline: 4
+        }
+    }
+}
+
+// MARK: - RoomRowWithMenu
+
+private struct RoomRowWithMenu: View {
+    let conversation: Conversation
+    @State private var isShowingInviteSheet = false
+
+    var body: some View {
+        RoomRow(conversation: conversation)
+            .contextMenu {
+                RoomContextMenu(
+                    conversation: conversation,
+                    isShowingInviteSheet: $isShowingInviteSheet
+                )
+            }
+            .sheet(isPresented: $isShowingInviteSheet) {
+                InviteUserSheet(conversation: conversation)
+            }
+    }
+}
+
+// MARK: - InviteUserSheet
+
+private struct InviteUserSheet: View {
+    @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dismiss) private var dismiss
+    let conversation: Conversation
+    @State private var jidString = ""
+    @State private var reason = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Invite User")
+                .font(.headline)
+
+            TextField("JID (e.g. bob@example.com)", text: $jidString)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 300)
+
+            TextField("Reason (optional)", text: $reason)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 300)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.callout)
+            }
+
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Button("Invite") {
+                    inviteUser()
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(jidString.isEmpty)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 350)
+    }
+
+    private func inviteUser() {
+        let trimmed = jidString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.contains("@") else {
+            errorMessage = "Invalid JID: \(jidString)"
+            return
+        }
+        let reasonText = reason.isEmpty ? nil : reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                try await environment.chatService.inviteUser(
+                    jidString: trimmed,
+                    toRoomJIDString: conversation.jid.description,
+                    reason: reasonText,
+                    accountID: conversation.accountID
+                )
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 }

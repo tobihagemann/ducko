@@ -1,0 +1,103 @@
+// MARK: - Room Role
+
+public enum RoomRole: String, Sendable, Hashable {
+    case moderator, participant, visitor, none
+}
+
+// MARK: - Room Affiliation
+
+public enum RoomAffiliation: String, Sendable, Hashable {
+    case owner, admin, member, outcast, none
+
+    public var displayName: String {
+        switch self {
+        case .owner: "Owner"
+        case .admin: "Admin"
+        case .member: "Member"
+        case .outcast: "Outcast"
+        case .none: "Other"
+        }
+    }
+
+    public var sortPriority: Int {
+        switch self {
+        case .owner: 0
+        case .admin: 1
+        case .member: 2
+        case .none: 3
+        case .outcast: 4
+        }
+    }
+}
+
+// MARK: - Room Participant
+
+public struct RoomParticipant: Sendable, Identifiable, Hashable {
+    public var id: String {
+        nickname
+    }
+
+    public let nickname: String
+    public let jidString: String?
+    public let affiliation: RoomAffiliation
+    public let role: RoomRole
+
+    public init(nickname: String, jidString: String? = nil, affiliation: RoomAffiliation, role: RoomRole) {
+        self.nickname = nickname
+        self.jidString = jidString
+        self.affiliation = affiliation
+        self.role = role
+    }
+}
+
+// MARK: - Room Participant Group
+
+public struct RoomParticipantGroup: Sendable, Identifiable {
+    public var id: RoomAffiliation {
+        affiliation
+    }
+
+    public let affiliation: RoomAffiliation
+    public let participants: [RoomParticipant]
+
+    public init(affiliation: RoomAffiliation, participants: [RoomParticipant]) {
+        self.affiliation = affiliation
+        self.participants = participants
+    }
+}
+
+// MARK: - Discovered Room
+
+public struct DiscoveredRoom: Sendable, Identifiable {
+    public var id: String {
+        jidString
+    }
+
+    public let jidString: String
+    public let name: String?
+
+    public init(jidString: String, name: String?) {
+        self.jidString = jidString
+        self.name = name
+    }
+}
+
+// MARK: - Pending Room Invite
+
+public struct PendingRoomInvite: Sendable, Identifiable {
+    public var id: String {
+        roomJIDString + "|" + (fromJIDString ?? "")
+    }
+
+    public let roomJIDString: String
+    public let fromJIDString: String?
+    public let reason: String?
+    public let password: String?
+
+    public init(roomJIDString: String, fromJIDString: String?, reason: String?, password: String?) {
+        self.roomJIDString = roomJIDString
+        self.fromJIDString = fromJIDString
+        self.reason = reason
+        self.password = password
+    }
+}

@@ -8,11 +8,23 @@ struct MessageBubbleView: View {
     let repliedMessage: ChatMessage?
     let windowState: ChatWindowState
 
+    private var isGroupchatIncoming: Bool {
+        message.type == "groupchat" && !message.isOutgoing
+    }
+
     var body: some View {
         HStack {
             if message.isOutgoing { Spacer(minLength: 60) }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
+                if isGroupchatIncoming {
+                    Text(message.fromJID)
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Color.forNickname(message.fromJID))
+                        .padding(.leading, 4)
+                }
+
                 if let replied = repliedMessage {
                     ReplyQuoteView(
                         senderName: replied.isOutgoing ? "You" : replied.fromJID,

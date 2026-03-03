@@ -7,6 +7,8 @@ public final class ChatService {
     public private(set) var activeConversationID: UUID?
     public private(set) var messages: [ChatMessage] = []
     public private(set) var typingStates: [BareJID: ChatState] = [:]
+    public private(set) var roomParticipants: [String: [RoomParticipant]] = [:]
+    public private(set) var pendingInvites: [PendingRoomInvite] = []
     public var onIncomingMessage: ((ChatMessage, Conversation) -> Void)?
 
     private let store: any PersistenceStore
@@ -300,6 +302,76 @@ public final class ChatService {
         try await sendGroupMessage(to: jid, body: body, accountID: accountID)
     }
 
+    // MARK: - MUC Bridge
+
+    public func participantGroups(forRoomJIDString jidString: String) -> [RoomParticipantGroup] {
+        let participants = roomParticipants[jidString] ?? []
+        let grouped = Dictionary(grouping: participants, by: \.affiliation)
+        return grouped
+            .map { RoomParticipantGroup(affiliation: $0.key, participants: $0.value.sorted { $0.nickname.localizedStandardCompare($1.nickname) == .orderedAscending }) }
+            .sorted { $0.affiliation.sortPriority < $1.affiliation.sortPriority }
+    }
+
+    public func participantCount(forRoomJIDString jidString: String) -> Int {
+        roomParticipants[jidString]?.count ?? 0
+    }
+
+    public func discoverMUCService(accountID: UUID) async -> String? {
+        guard let client = accountService?.client(for: accountID) else { return nil }
+        guard let disco = await client.module(ofType: ServiceDiscoveryModule.self) else { return nil }
+
+        let account = accountService?.accounts.first { $0.id == accountID }
+        guard let domain = account?.jid.domainPart,
+              let domainJID = BareJID.parse(domain) else { return nil }
+        guard let items = try? await disco.queryItems(for: .bare(domainJID)) else { return nil }
+
+        for item in items {
+            guard let info = try? await disco.queryInfo(for: item.jid) else { continue }
+            if info.identities.contains(where: { $0.category == "conference" && $0.type == "text" }) {
+                return item.jid.description
+            }
+        }
+        return nil
+    }
+
+    public func discoverRooms(on service: String, accountID: UUID) async throws -> [DiscoveredRoom] {
+        guard let client = accountService?.client(for: accountID) else { return [] }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return [] }
+
+        let rooms = try await mucModule.discoverRooms(on: service)
+        return rooms.map { DiscoveredRoom(jidString: $0.jid.description, name: $0.name) }
+    }
+
+    public func setRoomSubject(jidString: String, subject: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        try await mucModule.setSubject(in: jid, subject: subject)
+    }
+
+    public func inviteUser(jidString: String, toRoomJIDString roomJIDString: String, reason: String?, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        guard let roomJID = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        try await mucModule.inviteUser(jid, to: roomJID, reason: reason)
+    }
+
+    public func acceptInvite(_ invite: PendingRoomInvite, nickname: String, accountID: UUID) async throws {
+        try await joinRoom(jidString: invite.roomJIDString, nickname: nickname, password: invite.password, accountID: accountID)
+        pendingInvites.removeAll { $0.id == invite.id }
+    }
+
+    public func declineInvite(_ invite: PendingRoomInvite) {
+        pendingInvites.removeAll { $0.id == invite.id }
+    }
+
     // MARK: - Pin/Mute
 
     public func togglePin(conversationID: UUID, accountID: UUID) async throws {
@@ -347,12 +419,25 @@ public final class ChatService {
             await handleMessageCorrected(originalID: originalID, newBody: newBody)
         case let .messageError(messageID, _, errorText):
             await handleMessageError(messageID: messageID, errorText: errorText)
+        default:
+            await handleMUCEvent(event, accountID: accountID)
+        }
+    }
+
+    private func handleMUCEvent(_ event: XMPPEvent, accountID: UUID) async {
+        switch event {
         case let .roomJoined(room, occupancy):
             await handleRoomJoined(room: room, occupancy: occupancy, accountID: accountID)
+        case let .roomOccupantJoined(room, occupant):
+            handleRoomOccupantJoined(room: room, occupant: occupant)
+        case let .roomOccupantLeft(room, occupant):
+            handleRoomOccupantLeft(room: room, occupant: occupant)
         case let .roomMessageReceived(xmppMessage):
             await handleRoomMessageReceived(xmppMessage, accountID: accountID)
         case let .roomSubjectChanged(room, subject, _):
             await handleRoomSubjectChanged(room: room, subject: subject, accountID: accountID)
+        case let .roomInviteReceived(invite):
+            handleRoomInviteReceived(invite)
         default:
             break
         }
@@ -388,6 +473,36 @@ public final class ChatService {
 
     private func handleRoomJoined(room: BareJID, occupancy: RoomOccupancy, accountID: UUID) async {
         _ = try? await findOrCreateGroupConversation(for: room, nickname: occupancy.nickname, accountID: accountID)
+        let key = room.description
+        roomParticipants[key] = occupancy.occupants.map { mapOccupant($0) }
+    }
+
+    private func handleRoomOccupantJoined(room: BareJID, occupant: RoomOccupant) {
+        let key = room.description
+        let participant = mapOccupant(occupant)
+        var list = roomParticipants[key] ?? []
+        list.removeAll { $0.nickname == participant.nickname }
+        list.append(participant)
+        roomParticipants[key] = list
+    }
+
+    private func handleRoomOccupantLeft(room: BareJID, occupant: RoomOccupant) {
+        let key = room.description
+        roomParticipants[key]?.removeAll { $0.nickname == occupant.nickname }
+    }
+
+    private func handleRoomInviteReceived(_ invite: RoomInvite) {
+        let pending = PendingRoomInvite(
+            roomJIDString: invite.room.description,
+            fromJIDString: invite.from.description,
+            reason: invite.reason,
+            password: invite.password
+        )
+        // Deduplicate by room+from
+        guard !pendingInvites.contains(where: { $0.roomJIDString == pending.roomJIDString && $0.fromJIDString == pending.fromJIDString }) else {
+            return
+        }
+        pendingInvites.append(pending)
     }
 
     private func handleRoomMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
@@ -557,6 +672,17 @@ public final class ChatService {
     ) async throws -> [ChatMessage] {
         let messages = try await store.fetchMessages(for: conversationID, before: before, limit: limit)
         return messages.reversed()
+    }
+
+    private func mapOccupant(_ occupant: RoomOccupant) -> RoomParticipant {
+        let affiliation = RoomAffiliation(rawValue: occupant.affiliation.rawValue) ?? .none
+        let role = RoomRole(rawValue: occupant.role.rawValue) ?? .none
+        return RoomParticipant(
+            nickname: occupant.nickname,
+            jidString: occupant.jid?.description,
+            affiliation: affiliation,
+            role: role
+        )
     }
 
     private func findOrCreateConversation(for jid: BareJID, accountID: UUID) async throws -> Conversation {

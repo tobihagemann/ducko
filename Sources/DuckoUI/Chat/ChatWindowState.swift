@@ -12,6 +12,14 @@ final class ChatWindowState {
     var replyingTo: ChatMessage?
     var editingMessage: ChatMessage?
 
+    // MARK: - Groupchat
+
+    var showParticipantSidebar = false
+
+    var isGroupchat: Bool {
+        conversation?.type == .groupchat
+    }
+
     // MARK: - Infinite Scroll
 
     var isLoadingOlder = false
@@ -59,7 +67,9 @@ final class ChatWindowState {
         guard let accountID = environment.accountService.accounts.first?.id else { return }
 
         do {
-            if let editing = editingMessage, let stanzaID = editing.stanzaID {
+            if isGroupchat {
+                try await environment.chatService.sendGroupMessage(toJIDString: jidString, body: body, accountID: accountID)
+            } else if let editing = editingMessage, let stanzaID = editing.stanzaID {
                 try await environment.chatService.sendCorrection(
                     toJIDString: jidString,
                     originalStanzaID: stanzaID,
@@ -81,6 +91,11 @@ final class ChatWindowState {
         }
 
         cancelReplyOrEdit()
+    }
+
+    func setRoomSubject(_ subject: String) async {
+        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        try? await environment.chatService.setRoomSubject(jidString: jidString, subject: subject, accountID: accountID)
     }
 
     func userIsTyping() async {

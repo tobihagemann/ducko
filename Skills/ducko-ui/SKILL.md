@@ -52,6 +52,18 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `reply-compose-bar` | Reply/edit compose bar above input | Chat |
 | `message-search-bar` | Cmd+F search bar in chat | Chat |
 | `sort-mode-menu` | View options menu (sort/filter) | Contacts |
+| `join-room-toolbar-button` | Join Room toolbar button | Contacts |
+| `room-row-{jid}` | Room row in Rooms section | Contacts |
+| `room-invite-banner` | Pending room invitation banner | Contacts |
+| `room-jid-field` | Room JID field in Join Room dialog | Contacts |
+| `room-nickname-field` | Nickname field in Join Room dialog | Contacts |
+| `join-room-button` | Join button in Join Room dialog | Contacts |
+| `browse-rooms-button` | Browse Rooms button in Join Room dialog | Contacts |
+| `room-name-field` | Room name field in Create Room dialog | Contacts |
+| `create-room-button` | Create button in Create Room dialog | Contacts |
+| `room-subject-view` | Room topic banner (editable) | Chat |
+| `participant-sidebar` | Participant sidebar list | Chat |
+| `toggle-participant-sidebar` | Sidebar toggle button (person.2 icon) | Chat |
 
 ### Script Reference
 
@@ -66,6 +78,9 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `ducko-search.sh` | Toggle Cmd+F search bar in chat, optionally search | `[QUERY]` (optional) |
 | `ducko-reply.sh` | Right-click a message and select Reply | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
 | `ducko-sort.sh` | Open View Options menu, optionally select sort/filter | `[alphabetical\|byStatus\|recentConversation\|hideOffline]` (optional) |
+| `ducko-join-room.sh` | Open Join Room sheet, fill room JID + nickname, join | `ROOM_JID [NICKNAME]` |
+| `ducko-toggle-sidebar.sh` | Toggle participant sidebar in active groupchat window | none |
+| `ducko-focus-contacts.sh` | Raise the Contacts window to the front | none |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
@@ -80,7 +95,7 @@ For first-time setup when no account exists:
 SCRIPTS="Skills/ducko-ui/scripts"
 
 # 1. Launch
-WID=$($SCRIPTS/ducko-launch.sh)
+$SCRIPTS/ducko-launch.sh
 
 # 2. Login (only needed for fresh install)
 $SCRIPTS/ducko-login.sh "USER_JID" "PASSWORD_HERE"
@@ -110,8 +125,7 @@ When an account already exists, the app auto-connects on launch using Keychain c
 SCRIPTS="Skills/ducko-ui/scripts"
 
 # 1. Launch (auto-connects, shows contact list)
-WID=$($SCRIPTS/ducko-launch.sh)
-sleep 3  # wait for auto-connect
+$SCRIPTS/ducko-launch.sh
 
 # 2. Screenshot to verify contact list
 $SCRIPTS/ducko-screenshot.sh "after-relaunch.png"
@@ -140,16 +154,12 @@ Tests features from Prompt 18 — message grouping, search bar, reply compose ba
 SCRIPTS="Skills/ducko-ui/scripts"
 
 # 1. Launch and open a chat
-WID=$($SCRIPTS/ducko-launch.sh)
-sleep 3
+$SCRIPTS/ducko-launch.sh
 $SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
-sleep 2
 
 # 2. Send grouped messages (within 2-min window → single timestamp)
 $SCRIPTS/ducko-send.sh "Message one"
-sleep 1
 $SCRIPTS/ducko-send.sh "Message two"
-sleep 1
 $SCRIPTS/ducko-send.sh "Message three"
 $SCRIPTS/ducko-screenshot.sh "grouped-messages.png"
 
@@ -174,8 +184,7 @@ Tests sort modes and hide-offline toggle:
 SCRIPTS="Skills/ducko-ui/scripts"
 
 # 1. Launch
-WID=$($SCRIPTS/ducko-launch.sh)
-sleep 3
+$SCRIPTS/ducko-launch.sh
 
 # 2. Open sort menu (visual verification)
 $SCRIPTS/ducko-sort.sh
@@ -190,6 +199,43 @@ $SCRIPTS/ducko-sort.sh hideOffline
 $SCRIPTS/ducko-screenshot.sh "hide-offline.png"
 
 # 5. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### MUC (Group Chat) test
+
+Tests MUC features — join room, send group message, toggle participant sidebar:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch
+$SCRIPTS/ducko-launch.sh
+
+# 2. Join a room (opens Join Room dialog, fills fields, joins)
+# The room appears in the "Rooms" section of the contact list
+# and a chat window opens automatically.
+$SCRIPTS/ducko-join-room.sh "room@conference.example.com" "mynick"
+
+# 3. Screenshot the room chat
+# Shows: room subject banner, sender nicknames (color-coded),
+# participant sidebar toggle button (person.2 icon) in header
+$SCRIPTS/ducko-screenshot.sh "muc-joined.png"
+
+# 4. Send a group message
+$SCRIPTS/ducko-send.sh "Hello room!"
+$SCRIPTS/ducko-screenshot.sh "muc-chat.png"
+
+# 5. Toggle participant sidebar
+# Shows occupants grouped by affiliation (Owner, Admin, Member, etc.)
+$SCRIPTS/ducko-toggle-sidebar.sh
+$SCRIPTS/ducko-screenshot.sh "muc-sidebar.png"
+
+# 6. Verify Rooms section in contact list
+$SCRIPTS/ducko-focus-contacts.sh
+$SCRIPTS/ducko-screenshot.sh "muc-rooms-section.png"
+
+# 7. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 

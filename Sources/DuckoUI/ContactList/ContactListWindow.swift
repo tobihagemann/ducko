@@ -7,6 +7,7 @@ struct ContactListWindow: View {
     @State private var searchText = ""
     @State private var isShowingNewChat = false
     @State private var isShowingAddContact = false
+    @State private var isShowingJoinRoom = false
     @State private var preferences = ContactListPreferences()
 
     private var account: Account? {
@@ -20,6 +21,8 @@ struct ContactListWindow: View {
             Divider()
 
             SubscriptionRequestBanner()
+
+            RoomInviteBanner()
 
             ContactListView(searchText: searchText, preferences: preferences)
         }
@@ -48,6 +51,15 @@ struct ContactListWindow: View {
                 } label: {
                     Label("Add Contact", systemImage: "person.badge.plus")
                 }
+            }
+
+            ToolbarItem {
+                Button {
+                    isShowingJoinRoom = true
+                } label: {
+                    Label("Join Room", systemImage: "bubble.left.and.bubble.right")
+                }
+                .accessibilityIdentifier("join-room-toolbar-button")
             }
 
             ToolbarItem {
@@ -82,6 +94,11 @@ struct ContactListWindow: View {
         }
         .sheet(isPresented: $isShowingAddContact) {
             AddContactSheet()
+        }
+        .sheet(isPresented: $isShowingJoinRoom) {
+            RoomJoinDialog { jidString in
+                openWindow(id: "chat", value: jidString)
+            }
         }
     }
 }
