@@ -31,7 +31,9 @@ actor CLIEventHandler {
              .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged:
+             .roomSubjectChanged,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed:
             break
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }

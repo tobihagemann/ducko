@@ -30,4 +30,10 @@ public enum XMPPNamespaces {
     public static let httpUpload = "urn:xmpp:http:upload:0"
     public static let oob = "jabber:x:oob"
     public static let dataForms = "jabber:x:data"
+    public static let jingle = "urn:xmpp:jingle:1"
+    public static let jingleFileTransfer = "urn:xmpp:jingle:apps:file-transfer:5"
+    public static let jingleS5B = "urn:xmpp:jingle:transports:s5b:1"
+    public static let jingleIBB = "urn:xmpp:jingle:transports:ibb:1"
+    public static let bytestreams = "http://jabber.org/protocol/bytestreams"
+    public static let ibb = "http://jabber.org/protocol/ibb"
 }

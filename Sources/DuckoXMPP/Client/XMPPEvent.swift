@@ -26,6 +26,11 @@ public enum XMPPEvent: Sendable {
     case roomSubjectChanged(room: BareJID, subject: String?, setter: JID?)
     case roomInviteReceived(RoomInvite)
     case roomMessageReceived(XMPPMessage)
+
+    // Jingle File Transfer (XEP-0166/0234)
+    case jingleFileTransferReceived(JingleFileOffer)
+    case jingleFileTransferCompleted(sid: String)
+    case jingleFileTransferFailed(sid: String, reason: String)
 }
 
 /// Reason the client disconnected.
