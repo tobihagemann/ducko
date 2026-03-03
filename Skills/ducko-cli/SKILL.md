@@ -34,14 +34,17 @@ Accounts can be created via `ducko account add <jid>` or in DuckoApp (GUI). The 
 
 ## Subcommands
 
-### `send [--file <path>] <jid> [body]`
+### `send [--file <path>] [--method auto|http|jingle] <jid> [body]`
 
 Send a message or file, then disconnect. At least one of `--file` or `body` is required. When both are provided, the file is uploaded first, then the body is sent as a separate caption message.
+
+The `--method` option selects the file transfer mechanism: `auto` (default, currently HTTP upload), `http` (HTTP upload via XEP-0363), or `jingle` (peer-to-peer via XEP-0234). Jingle requires a full JID with resource.
 
 ```
 ducko send alice@example.com "Hello"
 ducko send --file photo.jpg alice@example.com
 ducko send --file photo.jpg alice@example.com "Check this out"
+ducko send --file photo.jpg --method jingle alice@example.com/resource
 ```
 
 ### `interactive` (default)
@@ -59,6 +62,9 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/topic [room] [text]` — view or set room topic
 - `/rooms [service]` — discover available rooms on MUC service
 - `/sendfile [jid] <path>` — send a file (uses current room if jid omitted)
+- `/accept [sid]` — accept incoming Jingle file transfer (uses latest offer if sid omitted)
+- `/decline [sid]` — decline incoming Jingle file transfer (uses latest offer if sid omitted)
+- `/transfers` — list active file transfers with progress
 - `/approve <jid>` — approve subscription request
 - `/deny <jid>` — deny subscription request
 - `help` — show available commands
@@ -67,7 +73,8 @@ REPL mode. Connects once, then accepts commands on stdin:
 Real-time indicators in interactive mode:
 - Typing indicators from contacts are displayed as they arrive
 - Delivery receipts and message corrections appear in the event stream
-- Terminal bell rings on incoming messages and room messages
+- Jingle file transfer notifications: incoming offers (with bell), progress updates, completion, and failure
+- Terminal bell rings on incoming messages, room messages, and file transfer offers
 
 ```
 ducko interactive

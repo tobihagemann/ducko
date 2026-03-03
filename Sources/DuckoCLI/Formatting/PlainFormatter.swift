@@ -68,25 +68,21 @@ struct PlainFormatter: CLIFormatter {
             return "authentication failed: \(message)"
         case let .messageReceived(message):
             return formatIncomingMessage(message)
-        case let .presenceSubscriptionRequest(from: jid):
-            return "Subscription request from \(jid)"
-        case let .deliveryReceiptReceived(messageID, from):
-            return "delivery receipt: \(messageID) from \(from.bareJID)"
-        case let .messageCorrected(_, newBody, from):
-            return "message corrected by \(from.bareJID): \(newBody)"
-        case let .messageError(_, from, errorText):
-            return "message error from \(from.bareJID): \(errorText)"
+        case .presenceSubscriptionRequest, .deliveryReceiptReceived,
+             .messageCorrected, .messageError:
+            return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
             return formatMUCEvent(event)
+        case .jingleFileTransferReceived, .jingleFileTransferProgress,
+             .jingleFileTransferCompleted, .jingleFileTransferFailed:
+            return formatJingleEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress:
+             .chatStateChanged, .chatMarkerReceived:
             return nil
         }
     }
@@ -132,6 +128,61 @@ struct PlainFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress:
+            return nil
+        }
+    }
+
+    private func formatJingleEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .jingleFileTransferReceived(offer):
+            return formatFileOffer(
+                fileName: offer.fileName, fileSize: offer.fileSize,
+                from: offer.from.bareJID.description, sid: offer.sid
+            )
+        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
+            let (progress, state) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+            return formatJingleTransferProgress(
+                fileName: sid, fileSize: totalBytes, progress: progress, state: state
+            )
+        case let .jingleFileTransferCompleted(sid):
+            return formatJingleTransferCompleted(sid: sid)
+        case let .jingleFileTransferFailed(sid, reason):
+            return formatJingleTransferFailed(sid: sid, reason: reason)
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            return nil
+        }
+    }
+
+    private func formatMiscEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .presenceSubscriptionRequest(from: jid):
+            return "Subscription request from \(jid)"
+        case let .deliveryReceiptReceived(messageID, from):
+            return "delivery receipt: \(messageID) from \(from.bareJID)"
+        case let .messageCorrected(_, newBody, from):
+            return "message corrected by \(from.bareJID): \(newBody)"
+        case let .messageError(_, from, errorText):
+            return "message error from \(from.bareJID): \(errorText)"
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .chatMarkerReceived,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress:
             return nil
@@ -191,6 +242,23 @@ struct PlainFormatter: CLIFormatter {
         }
         line += "\n  \(url)"
         return line
+    }
+
+    func formatFileOffer(fileName: String, fileSize: Int64, from: String, sid: String) -> String {
+        "[File offer] \(fileName) (\(formatByteCount(fileSize))) from \(from) (\(sid)) — /accept or /decline"
+    }
+
+    func formatJingleTransferProgress(fileName: String, fileSize: Int64, progress: Double, state: String) -> String {
+        let percent = Int(progress * 100)
+        return "\(fileName) (\(formatByteCount(fileSize))): \(state) \(percent)%"
+    }
+
+    func formatJingleTransferCompleted(sid: String) -> String {
+        "Transfer completed: \(sid)"
+    }
+
+    func formatJingleTransferFailed(sid: String, reason: String) -> String {
+        "Transfer failed: \(sid) — \(reason)"
     }
 
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {

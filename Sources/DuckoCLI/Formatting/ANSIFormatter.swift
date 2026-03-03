@@ -93,25 +93,21 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.red)authentication failed: \(message)\(Color.reset)"
         case let .messageReceived(message):
             return formatIncomingMessage(message)
-        case let .presenceSubscriptionRequest(from: jid):
-            return "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
-        case let .deliveryReceiptReceived(messageID, from):
-            return "\(Color.dim)\u{2713} delivery receipt: \(messageID) from \(from.bareJID)\(Color.reset)"
-        case let .messageCorrected(_, newBody, from):
-            return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
-        case let .messageError(_, from, errorText):
-            return "\(Color.red)message error from \(from.bareJID): \(errorText)\(Color.reset)"
+        case .presenceSubscriptionRequest, .deliveryReceiptReceived,
+             .messageCorrected, .messageError:
+            return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
             return formatMUCEvent(event)
+        case .jingleFileTransferReceived, .jingleFileTransferProgress,
+             .jingleFileTransferCompleted, .jingleFileTransferFailed:
+            return formatJingleEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress:
+             .chatStateChanged, .chatMarkerReceived:
             return nil
         }
     }
@@ -193,6 +189,61 @@ struct ANSIFormatter: CLIFormatter {
         }
     }
 
+    private func formatJingleEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .jingleFileTransferReceived(offer):
+            return formatFileOffer(
+                fileName: offer.fileName, fileSize: offer.fileSize,
+                from: offer.from.bareJID.description, sid: offer.sid
+            )
+        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
+            let (progress, state) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+            return formatJingleTransferProgress(
+                fileName: sid, fileSize: totalBytes, progress: progress, state: state
+            )
+        case let .jingleFileTransferCompleted(sid):
+            return formatJingleTransferCompleted(sid: sid)
+        case let .jingleFileTransferFailed(sid, reason):
+            return formatJingleTransferFailed(sid: sid, reason: reason)
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            return nil
+        }
+    }
+
+    private func formatMiscEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .presenceSubscriptionRequest(from: jid):
+            return "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
+        case let .deliveryReceiptReceived(messageID, from):
+            return "\(Color.dim)\u{2713} delivery receipt: \(messageID) from \(from.bareJID)\(Color.reset)"
+        case let .messageCorrected(_, newBody, from):
+            return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
+        case let .messageError(_, from, errorText):
+            return "\(Color.red)message error from \(from.bareJID): \(errorText)\(Color.reset)"
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .chatMarkerReceived,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress:
+            return nil
+        }
+    }
+
     private func formatDisconnect(_ reason: DisconnectReason) -> String {
         switch reason {
         case .requested:
@@ -205,12 +256,7 @@ struct ANSIFormatter: CLIFormatter {
     }
 
     func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String {
-        let percent = Int(progress * 100)
-        let barWidth = 20
-        let filled = Int(progress * Double(barWidth))
-        let empty = barWidth - filled
-        let bar = String(repeating: "\u{2588}", count: filled) + String(repeating: "\u{2591}", count: empty)
-        return "\r\(Color.cyan)\(fileName)\(Color.reset) (\(formatByteCount(fileSize))) \(Color.green)\(bar)\(Color.reset) \(percent)%"
+        "\r\(Color.cyan)\(fileName)\(Color.reset) (\(formatByteCount(fileSize))) \(progressBar(progress)) \(Int(progress * 100))%"
     }
 
     func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String {
@@ -220,6 +266,30 @@ struct ANSIFormatter: CLIFormatter {
         }
         line += "\n  \(Color.cyan)\(url)\(Color.reset)"
         return line
+    }
+
+    func formatFileOffer(fileName: String, fileSize: Int64, from: String, sid: String) -> String {
+        "\(Color.yellow)\u{1F4E5} [File offer] \(fileName) (\(formatByteCount(fileSize))) from \(from) (\(sid)) \u{2014} /accept or /decline\(Color.reset)"
+    }
+
+    func formatJingleTransferProgress(fileName: String, fileSize: Int64, progress: Double, state: String) -> String {
+        "\r\(Color.cyan)\(fileName)\(Color.reset) (\(formatByteCount(fileSize))) \(progressBar(progress)) \(state) \(Int(progress * 100))%"
+    }
+
+    func formatJingleTransferCompleted(sid: String) -> String {
+        "\(Color.green)\u{2705} Transfer completed: \(sid)\(Color.reset)"
+    }
+
+    func formatJingleTransferFailed(sid: String, reason: String) -> String {
+        "\(Color.red)Transfer failed: \(sid) \u{2014} \(reason)\(Color.reset)"
+    }
+
+    private func progressBar(_ progress: Double) -> String {
+        let barWidth = 20
+        let filled = Int(progress * Double(barWidth))
+        let empty = barWidth - filled
+        let bar = String(repeating: "\u{2588}", count: filled) + String(repeating: "\u{2591}", count: empty)
+        return "\(Color.green)\(bar)\(Color.reset)"
     }
 
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {

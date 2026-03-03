@@ -49,6 +49,9 @@ extension DuckoCLI {
         @Option(name: .long, help: "Path to a file to upload and send")
         var file: String?
 
+        @Option(name: .long, help: "Transfer method: auto, http, jingle (default: auto)")
+        var method: String?
+
         @Argument(help: "The recipient JID")
         var jid: String
 
@@ -83,12 +86,13 @@ extension DuckoCLI {
             try await waitForConnected(accountID: selectedAccount.id, environment: env)
 
             if let file {
+                let resolvedMethod = try parseTransferMethod(method)
                 let ftContext = FileTransferCLIContext(
                     accountID: selectedAccount.id, environment: env, formatter: formatter
                 )
                 try await sendFileFromCLI(
                     filePath: file, recipientJID: recipientJID,
-                    body: body, context: ftContext
+                    body: body, method: resolvedMethod, context: ftContext
                 )
             } else if let body {
                 try await env.chatService.sendMessage(to: recipientJID, body: body, accountID: selectedAccount.id)
@@ -761,6 +765,9 @@ private func printREPLHelp() {
     print("  /members [room]          Show room occupants")
     print("  /topic [room] [text]     View or set room topic")
     print("  /sendfile [jid] <path>   Send a file")
+    print("  /accept [sid]            Accept incoming file transfer")
+    print("  /decline [sid]           Decline incoming file transfer")
+    print("  /transfers               List active transfers")
     print("  /rooms [service]         Discover available rooms")
     print("  help                     Show this help")
     print("  quit                     Disconnect and exit")
@@ -819,12 +826,29 @@ private func dispatchREPLCommand(
         }
     } else if input == "/history" || input.hasPrefix("/history ") {
         await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
-    } else if input == "/sendfile" || input.hasPrefix("/sendfile ") {
-        await handleSendFileREPLCommand(input, context: context, currentRoom: currentRoom)
+    } else if input == "/sendfile" || input.hasPrefix("/sendfile ")
+        || input == "/accept" || input.hasPrefix("/accept ")
+        || input == "/decline" || input.hasPrefix("/decline ")
+        || input == "/transfers" {
+        await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
     } else {
         return await dispatchRoomREPLCommand(input, context: context, currentRoom: currentRoom)
     }
     return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func dispatchFileTransferREPLCommand(
+    _ input: String, context: REPLContext, currentRoom: String?
+) async {
+    if input == "/sendfile" || input.hasPrefix("/sendfile ") {
+        await handleSendFileREPLCommand(input, context: context, currentRoom: currentRoom)
+    } else if input == "/accept" || input.hasPrefix("/accept ") {
+        await handleAcceptREPLCommand(input, context: context)
+    } else if input == "/decline" || input.hasPrefix("/decline ") {
+        await handleDeclineREPLCommand(input, context: context)
+    } else if input == "/transfers" {
+        await handleTransfersREPLCommand(context: context)
+    }
 }
 
 private func dispatchRoomREPLCommand(

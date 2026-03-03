@@ -15,6 +15,8 @@ enum CLIError: Error, LocalizedError {
     case noRoomSpecified
     case fileNotFound(String)
     case noConversationTarget
+    case invalidTransferMethod(String)
+    case noIncomingOffers
 
     var errorDescription: String? {
         switch self {
@@ -46,6 +48,10 @@ enum CLIError: Error, LocalizedError {
             "File not found: \(path)"
         case .noConversationTarget:
             "No conversation target. Use: /sendfile [jid] <path>"
+        case let .invalidTransferMethod(method):
+            "Invalid transfer method: \(method). Valid values: auto, http, jingle"
+        case .noIncomingOffers:
+            "No incoming file transfer offers."
         }
     }
 }

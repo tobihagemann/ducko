@@ -12,7 +12,8 @@ actor CLIEventHandler {
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
-        case .messageReceived, .roomMessageReceived, .roomInviteReceived:
+        case .messageReceived, .roomMessageReceived, .roomInviteReceived,
+             .jingleFileTransferReceived:
             if isInteractive, !(formatter is JSONFormatter) {
                 print("\u{07}", terminator: "")
             }
@@ -22,6 +23,8 @@ actor CLIEventHandler {
                 print(output)
             }
             return
+        case .jingleFileTransferProgress:
+            guard isInteractive else { break }
         case .connected, .disconnected, .authenticationFailed,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
@@ -32,8 +35,7 @@ actor CLIEventHandler {
              .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomSubjectChanged,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress:
+             .jingleFileTransferCompleted, .jingleFileTransferFailed:
             break
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }

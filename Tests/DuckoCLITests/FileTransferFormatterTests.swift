@@ -42,6 +42,36 @@ struct PlainFileTransferFormatterTests {
         #expect(output.contains("doc.pdf"))
         #expect(output.contains("https://upload.example.com/doc.pdf"))
     }
+
+    // MARK: - Jingle Formatter Methods
+
+    @Test func formatFileOffer() {
+        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
+        #expect(output.contains("report.pdf"))
+        #expect(output.contains("MB"))
+        #expect(output.contains("bob@example.com"))
+        #expect(output.contains("sid-123"))
+        #expect(output.contains("/accept"))
+        #expect(output.contains("/decline"))
+    }
+
+    @Test func formatJingleTransferProgress() {
+        let output = formatter.formatJingleTransferProgress(fileName: "data.zip", fileSize: 10_485_760, progress: 0.75, state: "transferring")
+        #expect(output.contains("data.zip"))
+        #expect(output.contains("75%"))
+        #expect(output.contains("transferring"))
+    }
+
+    @Test func formatJingleTransferCompleted() {
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456")
+        #expect(output.contains("sid-456"))
+    }
+
+    @Test func formatJingleTransferFailed() {
+        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: "connection lost")
+        #expect(output.contains("sid-789"))
+        #expect(output.contains("connection lost"))
+    }
 }
 
 // MARK: - ANSIFormatter File Transfer Tests
@@ -73,6 +103,37 @@ struct ANSIFileTransferFormatterTests {
         #expect(output.contains("\u{001B}[36m")) // cyan
         #expect(output.contains("photo.jpg"))
         #expect(output.contains("https://upload.example.com/photo.jpg"))
+    }
+
+    // MARK: - Jingle Formatter Methods
+
+    @Test func formatFileOfferContainsYellow() {
+        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
+        #expect(output.contains("\u{001B}[33m")) // yellow
+        #expect(output.contains("report.pdf"))
+        #expect(output.contains("bob@example.com"))
+        #expect(output.contains("sid-123"))
+    }
+
+    @Test func formatJingleTransferProgressContainsProgressBar() {
+        let output = formatter.formatJingleTransferProgress(fileName: "data.zip", fileSize: 10_485_760, progress: 0.5, state: "transferring")
+        #expect(output.hasPrefix("\r"))
+        #expect(output.contains("\u{2588}")) // filled block
+        #expect(output.contains("transferring"))
+        #expect(output.contains("50%"))
+    }
+
+    @Test func formatJingleTransferCompletedContainsGreen() {
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456")
+        #expect(output.contains("\u{001B}[32m")) // green
+        #expect(output.contains("sid-456"))
+    }
+
+    @Test func formatJingleTransferFailedContainsRed() {
+        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: "timeout")
+        #expect(output.contains("\u{001B}[31m")) // red
+        #expect(output.contains("sid-789"))
+        #expect(output.contains("timeout"))
     }
 }
 
@@ -115,5 +176,45 @@ struct JSONFileTransferFormatterTests {
         #expect(json["type"] == "file")
         #expect(json["fileSize"] == nil)
         #expect(json["fileSizeBytes"] == nil)
+    }
+
+    // MARK: - Jingle Formatter Methods
+
+    @Test func formatFileOfferIsValidJSON() throws {
+        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "file_offer")
+        #expect(json["fileName"] == "report.pdf")
+        #expect(json["from"] == "bob@example.com")
+        #expect(json["sid"] == "sid-123")
+        #expect(json["fileSizeBytes"] == "5242880")
+    }
+
+    @Test func formatJingleTransferProgressIsValidJSON() throws {
+        let output = formatter.formatJingleTransferProgress(fileName: "data.zip", fileSize: 10_485_760, progress: 0.6, state: "transferring")
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "jingle_transfer_progress")
+        #expect(json["fileName"] == "data.zip")
+        #expect(json["progress"] == "60")
+        #expect(json["state"] == "transferring")
+    }
+
+    @Test func formatJingleTransferCompletedIsValidJSON() throws {
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456")
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "jingle_transfer_completed")
+        #expect(json["sid"] == "sid-456")
+    }
+
+    @Test func formatJingleTransferFailedIsValidJSON() throws {
+        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: "connection lost")
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "jingle_transfer_failed")
+        #expect(json["sid"] == "sid-789")
+        #expect(json["reason"] == "connection lost")
     }
 }

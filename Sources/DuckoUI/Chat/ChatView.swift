@@ -19,6 +19,8 @@ struct ChatView: View {
                 }
             }
 
+            IncomingFileTransferBanner()
+
             if windowState.isSearching {
                 MessageSearchBar(windowState: windowState)
 
@@ -35,6 +37,8 @@ struct ChatView: View {
                             .padding(.vertical, 4)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
+
+                    TransferProgressView()
 
                     Divider()
 

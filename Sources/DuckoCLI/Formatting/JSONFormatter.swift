@@ -109,6 +109,27 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "authentication_failed", "message": message, "account": account])
         case let .messageReceived(message):
             return formatIncomingMessage(message, account: account)
+        case .presenceSubscriptionRequest, .deliveryReceiptReceived,
+             .messageCorrected, .messageError:
+            return formatMiscEvent(event, account: account)
+        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            return formatMUCEvent(event, account: account)
+        case .jingleFileTransferReceived, .jingleFileTransferProgress,
+             .jingleFileTransferCompleted, .jingleFileTransferFailed:
+            return formatJingleEvent(event, account: account)
+        case .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .chatMarkerReceived:
+            return nil
+        }
+    }
+
+    private func formatMiscEvent(_ event: XMPPEvent, account: String) -> String? {
+        switch event {
         case let .presenceSubscriptionRequest(from: jid):
             return encode(["type": "subscription_request", "from": jid.description])
         case let .deliveryReceiptReceived(messageID, from):
@@ -117,15 +138,15 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "message_corrected", "originalID": originalID, "newBody": newBody, "from": from.bareJID.description, "account": account])
         case let .messageError(_, from, errorText):
             return encode(["type": "message_error", "from": from.bareJID.description, "error": errorText, "account": account])
-        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
-            return formatMUCEvent(event, account: account)
-        case .presenceReceived, .iqReceived,
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress:
             return nil
@@ -155,6 +176,46 @@ struct JSONFormatter: CLIFormatter {
         ])
     }
 
+    private func formatJingleEvent(_ event: XMPPEvent, account: String) -> String? {
+        switch event {
+        case let .jingleFileTransferReceived(offer):
+            return encode([
+                "type": "file_offer",
+                "fileName": offer.fileName,
+                "fileSize": formatByteCount(offer.fileSize),
+                "fileSizeBytes": "\(offer.fileSize)",
+                "from": offer.from.bareJID.description,
+                "sid": offer.sid,
+                "account": account
+            ])
+        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
+            let (progress, _) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+            return encode([
+                "type": "jingle_transfer_progress",
+                "sid": sid,
+                "progress": "\(Int(progress * 100))",
+                "bytesTransferred": "\(bytesTransferred)",
+                "totalBytes": "\(totalBytes)",
+                "account": account
+            ])
+        case let .jingleFileTransferCompleted(sid):
+            return encode(["type": "jingle_transfer_completed", "sid": sid, "account": account])
+        case let .jingleFileTransferFailed(sid, reason):
+            return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason, "account": account])
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            return nil
+        }
+    }
+
     func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String {
         encode([
             "type": "transfer_progress",
@@ -175,6 +236,42 @@ struct JSONFormatter: CLIFormatter {
             dict["fileSizeBytes"] = "\(fileSize)"
         }
         return encode(dict)
+    }
+
+    func formatFileOffer(fileName: String, fileSize: Int64, from: String, sid: String) -> String {
+        encode([
+            "type": "file_offer",
+            "fileName": fileName,
+            "fileSize": formatByteCount(fileSize),
+            "fileSizeBytes": "\(fileSize)",
+            "from": from,
+            "sid": sid
+        ])
+    }
+
+    func formatJingleTransferProgress(fileName: String, fileSize: Int64, progress: Double, state: String) -> String {
+        encode([
+            "type": "jingle_transfer_progress",
+            "fileName": fileName,
+            "fileSize": formatByteCount(fileSize),
+            "progress": "\(Int(progress * 100))",
+            "state": state
+        ])
+    }
+
+    func formatJingleTransferCompleted(sid: String) -> String {
+        encode([
+            "type": "jingle_transfer_completed",
+            "sid": sid
+        ])
+    }
+
+    func formatJingleTransferFailed(sid: String, reason: String) -> String {
+        encode([
+            "type": "jingle_transfer_failed",
+            "sid": sid,
+            "reason": reason
+        ])
     }
 
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {

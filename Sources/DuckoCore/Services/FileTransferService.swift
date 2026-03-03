@@ -20,6 +20,26 @@ public final class FileTransferService {
         case incoming
     }
 
+    /// View-friendly representation of an incoming Jingle file offer.
+    /// Uses strings instead of DuckoXMPP types so DuckoUI can access it without importing DuckoXMPP.
+    public struct IncomingFileOffer: Sendable, Identifiable {
+        public var id: String {
+            sid
+        }
+
+        public let sid: String
+        public let fileName: String
+        public let fileSize: Int64
+        public let fromJIDString: String
+
+        public init(sid: String, fileName: String, fileSize: Int64, fromJIDString: String) {
+            self.sid = sid
+            self.fileName = fileName
+            self.fileSize = fileSize
+            self.fromJIDString = fromJIDString
+        }
+    }
+
     public struct ActiveTransfer: Sendable, Identifiable {
         public let id: UUID
         public let fileName: String
@@ -92,6 +112,13 @@ public final class FileTransferService {
 
     public private(set) var activeTransfers: [ActiveTransfer] = []
     public private(set) var incomingOffers: [JingleFileOffer] = []
+
+    /// View-friendly projection of `incomingOffers` for modules that cannot import DuckoXMPP.
+    public var viewIncomingOffers: [IncomingFileOffer] {
+        incomingOffers.map {
+            IncomingFileOffer(sid: $0.sid, fileName: $0.fileName, fileSize: $0.fileSize, fromJIDString: $0.from.bareJID.description)
+        }
+    }
 
     private let store: any PersistenceStore
     private weak var accountService: AccountService?
