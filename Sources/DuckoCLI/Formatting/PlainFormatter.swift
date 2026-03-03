@@ -86,7 +86,7 @@ struct PlainFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed:
+             .jingleFileTransferFailed, .jingleFileTransferProgress:
             return nil
         }
     }
@@ -133,7 +133,7 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed:
+             .jingleFileTransferFailed, .jingleFileTransferProgress:
             return nil
         }
     }

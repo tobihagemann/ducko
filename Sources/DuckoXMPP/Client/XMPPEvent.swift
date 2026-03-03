@@ -31,6 +31,7 @@ public enum XMPPEvent: Sendable {
     case jingleFileTransferReceived(JingleFileOffer)
     case jingleFileTransferCompleted(sid: String)
     case jingleFileTransferFailed(sid: String, reason: String)
+    case jingleFileTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64)
 }
 
 /// Reason the client disconnected.

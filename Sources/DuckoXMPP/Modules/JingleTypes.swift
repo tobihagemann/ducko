@@ -256,12 +256,21 @@ public struct JingleContent: Sendable {
     }
 }
 
+/// Transport connection state within a Jingle session.
+public enum TransportState: Sendable {
+    case pending
+    case connecting
+    case connected(candidateCID: String)
+    case failed
+}
+
 /// State of a Jingle session.
 public struct JingleSession: Sendable {
     public let sid: String
     public let peer: FullJID
     public let role: Role
     public var state: State
+    public var transportState: TransportState
     public let content: JingleContent
 
     /// Whether this side initiated or is responding.
@@ -277,11 +286,19 @@ public struct JingleSession: Sendable {
         case terminated
     }
 
-    public init(sid: String, peer: FullJID, role: Role, state: State, content: JingleContent) {
+    public init(
+        sid: String,
+        peer: FullJID,
+        role: Role,
+        state: State,
+        transportState: TransportState = .pending,
+        content: JingleContent
+    ) {
         self.sid = sid
         self.peer = peer
         self.role = role
         self.state = state
+        self.transportState = transportState
         self.content = content
     }
 }

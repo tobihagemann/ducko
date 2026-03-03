@@ -127,7 +127,7 @@ struct JSONFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed:
+             .jingleFileTransferFailed, .jingleFileTransferProgress:
             return nil
         }
     }
@@ -282,7 +282,7 @@ struct JSONFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed:
+             .jingleFileTransferFailed, .jingleFileTransferProgress:
             return nil
         }
     }
