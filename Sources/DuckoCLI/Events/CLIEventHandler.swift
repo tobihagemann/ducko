@@ -22,7 +22,16 @@ actor CLIEventHandler {
                 print(output)
             }
             return
-        default:
+        case .connected, .disconnected, .authenticationFailed,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged:
             break
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }

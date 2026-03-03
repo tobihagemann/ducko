@@ -249,7 +249,14 @@ struct JSONFormatter: CLIFormatter {
             return encode(dict)
         case let .roomMessageReceived(message):
             return formatIncomingRoomMessage(message, account: account)
-        default:
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError:
             return nil
         }
     }

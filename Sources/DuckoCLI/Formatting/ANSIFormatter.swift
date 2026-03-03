@@ -177,7 +177,14 @@ struct ANSIFormatter: CLIFormatter {
             let nickname = nicknameFromJID(from)
             let timestamp = iso8601(Date())
             return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(from.bareJID)/\(nickname): \(body)\(Color.reset)"
-        default:
+        case .connected, .disconnected, .authenticationFailed, .messageReceived,
+             .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError:
             return nil
         }
     }

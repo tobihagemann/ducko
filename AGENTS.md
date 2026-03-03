@@ -74,3 +74,4 @@ Project-specific agent skills live in `Skills/`. Both `.claude/skills/` and `.ag
 - **Concurrency**: value types (struct/enum) are automatically `Sendable`. Never use `@unchecked Sendable`. Use actors for mutable shared state.
 - **libxml2 / CLibxml2**: DuckoXMPP uses libxml2 via a `CLibxml2` system library target (`Sources/CLibxml2/`). For C callbacks that need a back-reference to a Swift class, use the `Unmanaged.passUnretained(self).toOpaque()` pattern — do not use NSObject or `@objc`.
 - **CryptoKit**: Does not re-export Foundation on macOS 26. Safe to import alongside `XMLElement` without naming conflicts.
+- **Exhaustive switches**: Never use `default:` when switching on project-defined enums. List all cases explicitly so the compiler catches new cases at build time.
