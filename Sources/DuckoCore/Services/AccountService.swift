@@ -156,6 +156,7 @@ public final class AccountService {
         builder.withModule(PingModule())
         builder.withModule(MUCModule())
         builder.withModule(HTTPUploadModule())
+        builder.withModule(JingleModule())
         let sm = StreamManagementModule()
         builder.withModule(sm)
         builder.withInterceptor(sm)

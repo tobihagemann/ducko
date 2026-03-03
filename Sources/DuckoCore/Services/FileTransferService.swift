@@ -9,48 +9,89 @@ private let log = Logger(subsystem: "com.ducko.core", category: "fileTransfer")
 public final class FileTransferService {
     // MARK: - Types
 
+    public enum TransferMethod: Sendable {
+        case auto
+        case httpUpload
+        case jingle
+    }
+
+    public enum TransferDirection: Sendable {
+        case outgoing
+        case incoming
+    }
+
     public struct ActiveTransfer: Sendable, Identifiable {
         public let id: UUID
         public let fileName: String
         public let fileSize: Int64
         public let mimeType: String
         public var state: TransferState
+        public let method: TransferMethod
+        public let direction: TransferDirection
+        public let sid: String?
 
-        public init(id: UUID, fileName: String, fileSize: Int64, mimeType: String, state: TransferState) {
+        public init(
+            id: UUID, fileName: String, fileSize: Int64, mimeType: String,
+            state: TransferState, method: TransferMethod = .httpUpload,
+            direction: TransferDirection = .outgoing, sid: String? = nil
+        ) {
             self.id = id
             self.fileName = fileName
             self.fileSize = fileSize
             self.mimeType = mimeType
             self.state = state
+            self.method = method
+            self.direction = direction
+            self.sid = sid
         }
     }
 
     public enum TransferState: Sendable {
+        // HTTP Upload
         case requestingSlot
         case uploading(progress: Double)
         case completed(downloadURL: String)
         case failed(String)
+        // Jingle
+        case negotiating
+        case connectingTransport
+        case transferring(progress: Double)
+        case awaitingAcceptance
+        case completedTransfer
     }
 
     public enum FileTransferError: Error, LocalizedError {
         case fileReadFailed(String)
         case noClient
         case noUploadModule
+        case noJingleModule
         case uploadFailed(String)
+        case jingleFailed(String)
 
         public var errorDescription: String? {
             switch self {
             case let .fileReadFailed(reason): "File read failed: \(reason)"
             case .noClient: "No XMPP client available"
             case .noUploadModule: "HTTP upload module not available"
+            case .noJingleModule: "Jingle module not available"
             case let .uploadFailed(reason): "Upload failed: \(reason)"
+            case let .jingleFailed(reason): "Jingle transfer failed: \(reason)"
             }
         }
+    }
+
+    /// Bundles file metadata extracted from the file system.
+    private struct FileInfo {
+        let url: URL
+        let name: String
+        let size: Int64
+        let mimeType: String
     }
 
     // MARK: - State
 
     public private(set) var activeTransfers: [ActiveTransfer] = []
+    public private(set) var incomingOffers: [JingleFileOffer] = []
 
     private let store: any PersistenceStore
     private weak var accountService: AccountService?
@@ -75,6 +116,7 @@ public final class FileTransferService {
     @discardableResult
     public func sendFile(
         url: URL, in conversation: Conversation, accountID: UUID,
+        method: TransferMethod = .auto,
         onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> String {
         let attributes: [FileAttributeKey: Any]
@@ -83,32 +125,20 @@ public final class FileTransferService {
         } catch {
             throw FileTransferError.fileReadFailed(error.localizedDescription)
         }
-        let fileSize = (attributes[.size] as? Int64) ?? 0
-        let fileName = url.lastPathComponent
-        let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-
-        let transferID = UUID()
-        let transfer = ActiveTransfer(
-            id: transferID,
-            fileName: fileName,
-            fileSize: fileSize,
-            mimeType: mimeType,
-            state: .requestingSlot
+        let file = FileInfo(
+            url: url,
+            name: url.lastPathComponent,
+            size: (attributes[.size] as? Int64) ?? 0,
+            mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         )
-        activeTransfers.append(transfer)
 
-        do {
-            let slot = try await requestUploadSlot(fileName: fileName, fileSize: fileSize, mimeType: mimeType, accountID: accountID)
-            let downloadURL = try await performUpload(fileURL: url, slot: slot, mimeType: mimeType, transferID: transferID, onProgress: onProgress)
-            // Yield to drain any pending progress callbacks before setting terminal state
-            await Task.yield()
-            try await sendDownloadURL(downloadURL, in: conversation, accountID: accountID)
-            updateTransferState(id: transferID, state: .completed(downloadURL: downloadURL))
-            return downloadURL
-        } catch {
-            await Task.yield()
-            updateTransferState(id: transferID, state: .failed(error.localizedDescription))
-            throw error
+        let resolved = resolveMethod(method)
+
+        switch resolved {
+        case .httpUpload, .auto:
+            return try await sendFileViaHTTP(file, in: conversation, accountID: accountID, onProgress: onProgress)
+        case .jingle:
+            return try await sendFileViaJingle(file, peer: conversation.jid.description, accountID: accountID, onProgress: onProgress)
         }
     }
 
@@ -126,7 +156,167 @@ public final class FileTransferService {
         return try await sendFile(url: tempURL, in: conversation, accountID: accountID, onProgress: onProgress)
     }
 
-    // MARK: - Private
+    // MARK: - Jingle Event Handling
+
+    public func handleJingleEvent(_ event: XMPPEvent, accountID: UUID) {
+        switch event {
+        case let .jingleFileTransferReceived(offer):
+            incomingOffers.append(offer)
+            let transfer = ActiveTransfer(
+                id: UUID(),
+                fileName: offer.fileName,
+                fileSize: offer.fileSize,
+                mimeType: offer.mediaType ?? "application/octet-stream",
+                state: .awaitingAcceptance,
+                method: .jingle,
+                direction: .incoming,
+                sid: offer.sid
+            )
+            activeTransfers.append(transfer)
+        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
+            let progress = Double(bytesTransferred) / Double(totalBytes)
+            updateTransferState(forSID: sid, state: .transferring(progress: progress))
+        case let .jingleFileTransferCompleted(sid):
+            updateTransferState(forSID: sid, state: .completedTransfer)
+            incomingOffers.removeAll { $0.sid == sid }
+        case let .jingleFileTransferFailed(sid, reason):
+            updateTransferState(forSID: sid, state: .failed(reason))
+            incomingOffers.removeAll { $0.sid == sid }
+        case .connected, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+            break
+        }
+    }
+
+    // MARK: - Incoming Transfer Management
+
+    public func acceptIncomingTransfer(_ sid: String, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+
+        try await jingleModule.acceptFileTransfer(sid: sid)
+
+        let offer = incomingOffers.first { $0.sid == sid }
+        guard let offer else { return }
+
+        Task {
+            do {
+                try await jingleModule.awaitTransportReady(sid: sid)
+                let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: offer.fileSize)
+                log.info("Received \(data.count) bytes via Jingle for sid: \(sid)")
+            } catch {
+                log.warning("Jingle receive failed for sid \(sid): \(error)")
+                updateTransferState(forSID: sid, state: .failed(error.localizedDescription))
+            }
+        }
+    }
+
+    public func declineIncomingTransfer(_ sid: String, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+
+        try await jingleModule.declineFileTransfer(sid: sid)
+        incomingOffers.removeAll { $0.sid == sid }
+    }
+
+    // MARK: - Private: Method Resolution
+
+    private func resolveMethod(_ method: TransferMethod) -> TransferMethod {
+        switch method {
+        case .httpUpload, .jingle:
+            return method
+        case .auto:
+            // TODO: query peer disco for Jingle support in 1:1 chat
+            return .httpUpload
+        }
+    }
+
+    // MARK: - Private: HTTP Upload
+
+    private func sendFileViaHTTP(
+        _ file: FileInfo, in conversation: Conversation, accountID: UUID,
+        onProgress: (@MainActor @Sendable (Double) -> Void)?
+    ) async throws -> String {
+        let transferID = UUID()
+        let transfer = ActiveTransfer(
+            id: transferID,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.mimeType,
+            state: .requestingSlot,
+            method: .httpUpload,
+            direction: .outgoing
+        )
+        activeTransfers.append(transfer)
+
+        do {
+            let slot = try await requestUploadSlot(fileName: file.name, fileSize: file.size, mimeType: file.mimeType, accountID: accountID)
+            let downloadURL = try await performUpload(fileURL: file.url, slot: slot, mimeType: file.mimeType, transferID: transferID, onProgress: onProgress)
+            // Yield to drain any pending progress callbacks before setting terminal state
+            await Task.yield()
+            try await sendDownloadURL(downloadURL, in: conversation, accountID: accountID)
+            updateTransferState(id: transferID, state: .completed(downloadURL: downloadURL))
+            return downloadURL
+        } catch {
+            await Task.yield()
+            updateTransferState(id: transferID, state: .failed(error.localizedDescription))
+            throw error
+        }
+    }
+
+    // MARK: - Private: Jingle Transfer
+
+    private func sendFileViaJingle(
+        _ file: FileInfo, peer: String, accountID: UUID,
+        onProgress: (@MainActor @Sendable (Double) -> Void)?
+    ) async throws -> String {
+        let jingleModule = try await jingleModule(for: accountID)
+
+        guard let peerJID = FullJID.parse(peer) else {
+            // Jingle requires a full JID (with resource) to target a specific client.
+            // BareJID conversations need resource resolution via presence before Jingle.
+            throw FileTransferError.jingleFailed("Jingle requires a full JID with resource, got: \(peer)")
+        }
+
+        let fileDesc = JingleFileDescription(name: file.name, size: file.size, mediaType: file.mimeType)
+        let sid = try await jingleModule.initiateFileTransfer(to: peerJID, file: fileDesc)
+
+        let transferID = UUID()
+        let transfer = ActiveTransfer(
+            id: transferID,
+            fileName: file.name,
+            fileSize: file.size,
+            mimeType: file.mimeType,
+            state: .negotiating,
+            method: .jingle,
+            direction: .outgoing,
+            sid: sid
+        )
+        activeTransfers.append(transfer)
+
+        do {
+            try await jingleModule.awaitTransportReady(sid: sid)
+            updateTransferState(id: transferID, state: .connectingTransport)
+
+            let fileData = try Array(Data(contentsOf: file.url))
+            updateTransferState(id: transferID, state: .transferring(progress: 0))
+
+            try await jingleModule.sendFileData(sid: sid, data: fileData)
+            updateTransferState(id: transferID, state: .completedTransfer)
+            return ""
+        } catch {
+            updateTransferState(id: transferID, state: .failed(error.localizedDescription))
+            throw error
+        }
+    }
+
+    // MARK: - Private: HTTP Upload Helpers
 
     private func requestUploadSlot(
         fileName: String,
@@ -196,8 +386,28 @@ public final class FileTransferService {
         }
     }
 
+    // MARK: - Private: Module Lookup
+
+    private func jingleModule(for accountID: UUID) async throws -> JingleModule {
+        guard let client = accountService?.client(for: accountID) else {
+            throw FileTransferError.noClient
+        }
+        guard let module = await client.module(ofType: JingleModule.self) else {
+            throw FileTransferError.noJingleModule
+        }
+        return module
+    }
+
+    // MARK: - Private: State Updates
+
     private func updateTransferState(id: UUID, state: TransferState) {
         if let index = activeTransfers.firstIndex(where: { $0.id == id }) {
+            activeTransfers[index].state = state
+        }
+    }
+
+    private func updateTransferState(forSID sid: String, state: TransferState) {
+        if let index = activeTransfers.firstIndex(where: { $0.sid == sid }) {
             activeTransfers[index].state = state
         }
     }

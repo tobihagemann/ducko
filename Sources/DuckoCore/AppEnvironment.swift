@@ -28,11 +28,12 @@ public final class AppEnvironment {
         let fileTransferService = FileTransferService(store: store)
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
 
-        accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService] event, accountID in
+        accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService, weak fileTransferService] event, accountID in
             Task { @MainActor in
                 await chatService?.handleEvent(event, accountID: accountID)
                 presenceService?.handleEvent(event, accountID: accountID)
                 await rosterService?.handleEvent(event, accountID: accountID)
+                fileTransferService?.handleJingleEvent(event, accountID: accountID)
             }
             onExternalEvent?(event, accountID)
         }

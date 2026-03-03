@@ -1,14 +1,15 @@
+import DuckoXMPP
 import Foundation
 import Testing
 @testable import DuckoCore
 
 enum FileTransferServiceTests {
-    private static func makeConversation() -> Conversation {
+    private static func makeConversation(type: Conversation.ConversationType = .chat) -> Conversation {
         Conversation(
             id: UUID(),
             accountID: UUID(),
             jid: .parse("friend@example.com")!,
-            type: .chat,
+            type: type,
             isPinned: false,
             isMuted: false,
             unreadCount: 0,
@@ -99,6 +100,88 @@ enum FileTransferServiceTests {
                 // Expected — failed due to no client
             } else {
                 Issue.record("Expected failed state, got \(transfer.state)")
+            }
+        }
+    }
+
+    @MainActor
+    struct TransferStateJingleCases {
+        @Test("Jingle transfer states can be pattern-matched")
+        func jingleStates() {
+            let states: [FileTransferService.TransferState] = [
+                .negotiating,
+                .connectingTransport,
+                .transferring(progress: 0.5),
+                .awaitingAcceptance,
+                .completedTransfer
+            ]
+
+            for transferState in states {
+                switch transferState {
+                case .negotiating, .connectingTransport, .awaitingAcceptance, .completedTransfer:
+                    break
+                case let .transferring(progress):
+                    #expect(progress == 0.5)
+                case .requestingSlot, .uploading, .completed, .failed:
+                    Issue.record("Unexpected HTTP state in Jingle test")
+                }
+            }
+        }
+    }
+
+    @MainActor
+    struct IncomingOfferTracking {
+        @Test("handleJingleEvent tracks incoming file offers")
+        func tracksIncomingOffer() throws {
+            let store = MockPersistenceStore()
+            let service = FileTransferService(store: store)
+
+            let peer = try #require(FullJID.parse("sender@example.com/res"))
+            let offer = JingleFileOffer(
+                sid: "test-sid",
+                from: peer,
+                fileName: "document.pdf",
+                fileSize: 5000,
+                mediaType: "application/pdf"
+            )
+
+            service.handleJingleEvent(.jingleFileTransferReceived(offer), accountID: UUID())
+
+            #expect(service.incomingOffers.count == 1)
+            #expect(service.incomingOffers[0].sid == "test-sid")
+            #expect(service.incomingOffers[0].fileName == "document.pdf")
+
+            #expect(service.activeTransfers.count == 1)
+            let transfer = service.activeTransfers[0]
+            #expect(transfer.fileName == "document.pdf")
+            #expect(transfer.method == .jingle)
+            #expect(transfer.direction == .incoming)
+            if case .awaitingAcceptance = transfer.state {
+                // Expected
+            } else {
+                Issue.record("Expected awaitingAcceptance state")
+            }
+        }
+    }
+
+    @MainActor
+    struct JingleProgressTracking {
+        @Test("handleJingleEvent updates transfer progress")
+        func updatesProgress() throws {
+            let store = MockPersistenceStore()
+            let service = FileTransferService(store: store)
+
+            let peer = try #require(FullJID.parse("sender@example.com/res"))
+            let offer = JingleFileOffer(sid: "progress-sid", from: peer, fileName: "file.bin", fileSize: 1000)
+
+            service.handleJingleEvent(.jingleFileTransferReceived(offer), accountID: UUID())
+            service.handleJingleEvent(.jingleFileTransferProgress(sid: "progress-sid", bytesTransferred: 500, totalBytes: 1000), accountID: UUID())
+
+            let transfer = service.activeTransfers.first { $0.sid == "progress-sid" }
+            if case let .transferring(progress) = transfer?.state {
+                #expect(progress == 0.5)
+            } else {
+                Issue.record("Expected transferring state with 0.5 progress")
             }
         }
     }

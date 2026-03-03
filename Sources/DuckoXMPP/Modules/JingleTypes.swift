@@ -256,12 +256,30 @@ public struct JingleContent: Sendable {
     }
 }
 
+/// IBB session state for tracking in-band data transfer.
+public struct IBBSessionState: Sendable {
+    public let ibbSID: String
+    public let blockSize: Int
+    public let peer: FullJID
+    public var receivedData: [UInt8] = []
+    public var nextExpectedSeq: UInt16 = 0
+    public let expectedSize: Int64
+
+    public init(ibbSID: String, blockSize: Int, peer: FullJID, expectedSize: Int64) {
+        self.ibbSID = ibbSID
+        self.blockSize = blockSize
+        self.peer = peer
+        self.expectedSize = expectedSize
+    }
+}
+
 /// Transport connection state within a Jingle session.
 public enum TransportState: Sendable {
     case pending
     case connecting
     case connected(candidateCID: String)
     case failed
+    case replacePending
 }
 
 /// State of a Jingle session.
