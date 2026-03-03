@@ -8,6 +8,7 @@ import SwiftUI
 @main
 struct DuckoApp: App {
     @State private var environment: AppEnvironment
+    @State private var themeEngine = ThemeEngine()
     @State private var notificationManager = NotificationManager()
     @FocusedValue(\.chatTabManager) private var focusedTabManager
 
@@ -26,6 +27,7 @@ struct DuckoApp: App {
         Window("Contacts", id: "contacts") {
             ContentView()
                 .environment(environment)
+                .environment(themeEngine)
                 .task {
                     notificationManager.requestAuthorization()
                     wireNotifications()
@@ -39,6 +41,7 @@ struct DuckoApp: App {
         WindowGroup("Chat", id: "chat", for: String.self) { $jidString in
             ChatWindow(jidString: $jidString)
                 .environment(environment)
+                .environment(themeEngine)
         }
         .defaultSize(width: 500, height: 450)
         .commands {
@@ -85,6 +88,7 @@ struct DuckoApp: App {
         MenuBarExtra("Ducko", systemImage: "bubble.left.and.bubble.right.fill") {
             MenuBarStatusView()
                 .environment(environment)
+                .environment(themeEngine)
         }
 
         Settings {

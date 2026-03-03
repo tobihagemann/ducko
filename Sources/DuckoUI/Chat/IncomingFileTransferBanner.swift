@@ -3,6 +3,8 @@ import SwiftUI
 
 struct IncomingFileTransferBanner: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(ThemeEngine.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let offers = environment.fileTransferService.viewIncomingOffers
@@ -13,7 +15,7 @@ struct IncomingFileTransferBanner: View {
                 }
             }
             .padding(.vertical, 4)
-            .background(.blue.opacity(0.1))
+            .background(theme.current.accentColor.resolved(for: colorScheme).opacity(0.1))
             .accessibilityIdentifier("file-transfer-banner")
         }
     }

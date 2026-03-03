@@ -3,6 +3,8 @@ import SwiftUI
 
 struct RoomRow: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(ThemeEngine.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     let conversation: Conversation
 
     private var participantCount: Int {
@@ -41,7 +43,7 @@ struct RoomRow: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
-                    .background(.red, in: .capsule)
+                    .background(theme.current.unreadBadgeColor.resolved(for: colorScheme), in: .capsule)
             }
         }
         .padding(.vertical, 2)

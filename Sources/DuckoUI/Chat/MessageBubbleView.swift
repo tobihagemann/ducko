@@ -2,6 +2,8 @@ import DuckoCore
 import SwiftUI
 
 struct MessageBubbleView: View {
+    @Environment(ThemeEngine.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     let message: ChatMessage
     let position: MessagePosition
     let isHovered: Bool
@@ -48,17 +50,17 @@ struct MessageBubbleView: View {
                             Text(message.body)
                         }
 
-                        if let preview = windowState.linkPreview(for: message) {
+                        if theme.current.showLinkPreviews, let preview = windowState.linkPreview(for: message) {
                             LinkPreviewCard(preview: preview)
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, theme.current.bubblePadding)
+                    .padding(.vertical, theme.current.bubblePadding * 0.67)
                     .background(
-                        message.isOutgoing ? Color.accentColor : Color(.separatorColor),
-                        in: .rect(cornerRadius: 12)
+                        theme.bubbleColor(isOutgoing: message.isOutgoing, colorScheme: colorScheme),
+                        in: .rect(cornerRadius: theme.current.bubbleCornerRadius)
                     )
-                    .foregroundStyle(message.isOutgoing ? .white : .primary)
+                    .foregroundStyle(theme.textColor(isOutgoing: message.isOutgoing, colorScheme: colorScheme))
                 }
 
                 MessageMetadataView(

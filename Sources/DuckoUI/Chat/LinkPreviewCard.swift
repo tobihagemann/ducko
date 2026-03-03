@@ -3,6 +3,8 @@ import DuckoCore
 import SwiftUI
 
 struct LinkPreviewCard: View {
+    @Environment(ThemeEngine.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     let preview: LinkPreview
 
     var body: some View {
@@ -55,10 +57,10 @@ struct LinkPreviewCard: View {
                 Spacer()
             }
             .padding(8)
-            .background(Color(.controlBackgroundColor), in: .rect(cornerRadius: 8))
+            .background(theme.current.backgroundColor.resolved(for: colorScheme), in: .rect(cornerRadius: 8))
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(.separatorColor), lineWidth: 0.5)
+                    .stroke(theme.current.separatorColor.resolved(for: colorScheme), lineWidth: 0.5)
             )
         }
         .buttonStyle(.plain)

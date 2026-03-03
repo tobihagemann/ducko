@@ -4,6 +4,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct AttachmentView: View {
+    @Environment(ThemeEngine.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     let attachment: Attachment
     let isOutgoing: Bool
     @State private var showPreview = false
@@ -90,7 +92,9 @@ struct AttachmentView: View {
         }
         .padding(8)
         .background(
-            isOutgoing ? Color.white.opacity(0.15) : Color(.controlBackgroundColor),
+            isOutgoing
+                ? theme.current.outgoingBubbleColor.resolved(for: colorScheme).opacity(0.3)
+                : theme.current.backgroundColor.resolved(for: colorScheme),
             in: .rect(cornerRadius: 8)
         )
         .accessibilityIdentifier("attachment-view")

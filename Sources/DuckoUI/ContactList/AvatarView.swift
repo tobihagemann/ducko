@@ -3,6 +3,7 @@ import DuckoCore
 import SwiftUI
 
 struct AvatarView: View {
+    @Environment(ThemeEngine.self) private var theme
     let contact: Contact
     var size: CGFloat = 32
     @State private var nsImage: NSImage?
@@ -14,7 +15,7 @@ struct AvatarView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(width: size, height: size)
-                    .clipShape(.circle)
+                    .clipShape(avatarClipShape)
             } else {
                 initialsView
             }
@@ -35,8 +36,19 @@ struct AvatarView: View {
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
-                in: .circle
+                in: avatarClipShape
             )
+    }
+
+    private var avatarClipShape: AnyShape {
+        switch theme.current.avatarShape {
+        case .circle:
+            AnyShape(.circle)
+        case .roundedRect:
+            AnyShape(.rect(cornerRadius: size * 0.2))
+        case .squircle:
+            AnyShape(.rect(cornerRadius: size * 0.25, style: .continuous))
+        }
     }
 
     private var initials: String {

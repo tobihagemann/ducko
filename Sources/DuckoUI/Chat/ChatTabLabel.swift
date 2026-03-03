@@ -2,6 +2,8 @@ import DuckoCore
 import SwiftUI
 
 struct ChatTabLabel: View {
+    @Environment(ThemeEngine.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     let tab: ChatTabManager.Tab
     let isSelected: Bool
     let onClose: () -> Void
@@ -35,7 +37,7 @@ struct ChatTabLabel: View {
                     .bold()
                     .padding(.horizontal, 5)
                     .padding(.vertical, 1)
-                    .background(.red, in: .capsule)
+                    .background(theme.current.unreadBadgeColor.resolved(for: colorScheme), in: .capsule)
                     .foregroundStyle(.white)
             }
 
@@ -51,7 +53,7 @@ struct ChatTabLabel: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear, in: .rect(cornerRadius: 6))
+        .background(isSelected ? theme.current.accentColor.resolved(for: colorScheme).opacity(0.15) : Color.clear, in: .rect(cornerRadius: 6))
         .onHover { isHovered = $0 }
         .accessibilityIdentifier("chat-tab-\(tab.jidString)")
     }

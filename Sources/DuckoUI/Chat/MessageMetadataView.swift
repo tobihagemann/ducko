@@ -2,13 +2,14 @@ import DuckoCore
 import SwiftUI
 
 struct MessageMetadataView: View {
+    @Environment(ThemeEngine.self) private var theme
     let message: ChatMessage
     let isVisible: Bool
 
     var body: some View {
         HStack(spacing: 4) {
             Text(message.timestamp, style: .time)
-                .font(.caption2)
+                .font(theme.current.timestampFont.resolved)
                 .foregroundStyle(.secondary)
 
             if message.isOutgoing, message.isDelivered {

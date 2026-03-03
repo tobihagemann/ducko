@@ -3,6 +3,8 @@ import SwiftUI
 
 struct RoomInviteBanner: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(ThemeEngine.self) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         let invites = environment.chatService.pendingInvites
@@ -13,7 +15,7 @@ struct RoomInviteBanner: View {
                 }
             }
             .padding(.vertical, 4)
-            .background(.blue.opacity(0.1))
+            .background(theme.current.accentColor.resolved(for: colorScheme).opacity(0.1))
             .accessibilityIdentifier("room-invite-banner")
         }
     }
