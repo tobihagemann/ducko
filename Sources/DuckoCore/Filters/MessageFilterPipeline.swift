@@ -1,12 +1,15 @@
 import DuckoXMPP
+import Foundation
 
 public struct MessageContent: Sendable {
     public var body: String
     public var htmlBody: String?
+    public var detectedURLs: [URL]
 
-    public init(body: String, htmlBody: String? = nil) {
+    public init(body: String, htmlBody: String? = nil, detectedURLs: [URL] = []) {
         self.body = body
         self.htmlBody = htmlBody
+        self.detectedURLs = detectedURLs
     }
 }
 

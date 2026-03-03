@@ -33,4 +33,9 @@ public protocol PersistenceStore: Sendable {
     // MARK: - Attachments
 
     func insertAttachment(_ attachment: Attachment, for messageID: UUID) async throws
+
+    // MARK: - Link Previews
+
+    func fetchLinkPreview(for url: String) async throws -> LinkPreview?
+    func upsertLinkPreview(_ preview: LinkPreview) async throws
 }

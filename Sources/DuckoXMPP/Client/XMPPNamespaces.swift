@@ -27,4 +27,7 @@ public enum XMPPNamespaces {
     public static let mucAdmin = "http://jabber.org/protocol/muc#admin"
     public static let mucOwner = "http://jabber.org/protocol/muc#owner"
     public static let mucDirectInvite = "jabber:x:conference"
+    public static let httpUpload = "urn:xmpp:http:upload:0"
+    public static let oob = "jabber:x:oob"
+    public static let dataForms = "jabber:x:data"
 }

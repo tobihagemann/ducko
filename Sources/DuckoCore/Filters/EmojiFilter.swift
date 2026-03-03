@@ -21,7 +21,7 @@ public struct EmojiFilter: MessageFilter, Sendable {
         for (pattern, emoji) in Self.replacements {
             body = replaceEmoticon(in: body, pattern: pattern, emoji: emoji)
         }
-        return MessageContent(body: body, htmlBody: content.htmlBody)
+        return MessageContent(body: body, htmlBody: content.htmlBody, detectedURLs: content.detectedURLs)
     }
 
     private func replaceEmoticon(in text: String, pattern: String, emoji: String) -> String {

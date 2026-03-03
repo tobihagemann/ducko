@@ -7,6 +7,7 @@ actor MockPersistenceStore: PersistenceStore {
     var conversations: [Conversation] = []
     var messages: [ChatMessage] = []
     var attachments: [Attachment] = []
+    var linkPreviews: [LinkPreview] = []
 
     // MARK: - Test Helpers
 
@@ -114,5 +115,19 @@ actor MockPersistenceStore: PersistenceStore {
 
     func insertAttachment(_ attachment: Attachment, for messageID: UUID) async throws {
         attachments.append(attachment)
+    }
+
+    // MARK: - Link Previews
+
+    func fetchLinkPreview(for url: String) async throws -> LinkPreview? {
+        linkPreviews.first { $0.url == url }
+    }
+
+    func upsertLinkPreview(_ preview: LinkPreview) async throws {
+        if let index = linkPreviews.firstIndex(where: { $0.url == preview.url }) {
+            linkPreviews[index] = preview
+        } else {
+            linkPreviews.append(preview)
+        }
     }
 }

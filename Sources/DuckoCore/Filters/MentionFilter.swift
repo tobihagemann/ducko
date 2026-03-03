@@ -15,6 +15,6 @@ public struct MentionFilter: MessageFilter, Sendable {
         let htmlBody = content.htmlBody ?? content.body
         let highlightedHTML = htmlBody.replacingOccurrences(of: mention, with: "<b>\(mention)</b>")
 
-        return MessageContent(body: content.body, htmlBody: highlightedHTML)
+        return MessageContent(body: content.body, htmlBody: highlightedHTML, detectedURLs: content.detectedURLs)
     }
 }

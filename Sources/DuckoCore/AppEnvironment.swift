@@ -25,7 +25,7 @@ public final class AppEnvironment {
         let presenceService = PresenceService()
         let rosterService = RosterService(store: store)
         let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore)
-        let fileTransferService = FileTransferService()
+        let fileTransferService = FileTransferService(store: store)
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
 
         accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService] event, accountID in
@@ -41,6 +41,15 @@ public final class AppEnvironment {
         presenceService.setAccountService(accountService)
         rosterService.setAccountService(accountService)
         rosterService.setPresenceService(presenceService)
+        fileTransferService.setAccountService(accountService)
+        fileTransferService.setChatService(chatService)
+
+        Task {
+            await pipeline.register(LinkDetectionFilter())
+            await pipeline.register(EmojiFilter())
+            await pipeline.register(MentionFilter())
+            await pipeline.register(LinkPreviewFilter(previewService: linkPreviewService))
+        }
 
         self.credentialStore = resolvedCredentialStore
         self.accountService = accountService

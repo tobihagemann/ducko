@@ -312,4 +312,38 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         modelContext.insert(record)
         try modelContext.save()
     }
+
+    // MARK: - Link Previews
+
+    public func fetchLinkPreview(for url: String) throws -> LinkPreview? {
+        var descriptor = FetchDescriptor<LinkPreviewRecord>(
+            predicate: #Predicate { $0.url == url }
+        )
+        descriptor.fetchLimit = 1
+
+        return try modelContext.fetch(descriptor).first?.toDomain()
+    }
+
+    public func upsertLinkPreview(_ preview: LinkPreview) throws {
+        let previewURL = preview.url
+        var descriptor = FetchDescriptor<LinkPreviewRecord>(
+            predicate: #Predicate { $0.url == previewURL }
+        )
+        descriptor.fetchLimit = 1
+
+        if let existing = try modelContext.fetch(descriptor).first {
+            existing.update(from: preview)
+        } else {
+            let record = LinkPreviewRecord(
+                url: preview.url,
+                title: preview.title,
+                descriptionText: preview.descriptionText,
+                imageURL: preview.imageURL,
+                siteName: preview.siteName,
+                fetchedAt: preview.fetchedAt
+            )
+            modelContext.insert(record)
+        }
+        try modelContext.save()
+    }
 }
