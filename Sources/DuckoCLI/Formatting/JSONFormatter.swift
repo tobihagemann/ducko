@@ -153,6 +153,28 @@ struct JSONFormatter: CLIFormatter {
         ])
     }
 
+    func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String {
+        encode([
+            "type": "transfer_progress",
+            "fileName": fileName,
+            "fileSize": formatByteCount(fileSize),
+            "progress": "\(Int(progress * 100))"
+        ])
+    }
+
+    func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String {
+        var dict: [String: String] = [
+            "type": "file",
+            "fileName": fileName,
+            "url": url
+        ]
+        if let fileSize {
+            dict["fileSize"] = formatByteCount(fileSize)
+            dict["fileSizeBytes"] = "\(fileSize)"
+        }
+        return encode(dict)
+    }
+
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         encode([
             "type": "typing",

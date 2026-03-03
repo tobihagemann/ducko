@@ -34,12 +34,14 @@ Accounts can be created via `ducko account add <jid>` or in DuckoApp (GUI). The 
 
 ## Subcommands
 
-### `send <jid> <body>`
+### `send [--file <path>] <jid> [body]`
 
-Send a one-off message, then disconnect.
+Send a message or file, then disconnect. At least one of `--file` or `body` is required. When both are provided, the file is uploaded first, then the body is sent as a separate caption message.
 
 ```
 ducko send alice@example.com "Hello"
+ducko send --file photo.jpg alice@example.com
+ducko send --file photo.jpg alice@example.com "Check this out"
 ```
 
 ### `interactive` (default)
@@ -56,6 +58,7 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/members [room]` — show room occupants
 - `/topic [room] [text]` — view or set room topic
 - `/rooms [service]` — discover available rooms on MUC service
+- `/sendfile [jid] <path>` — send a file (uses current room if jid omitted)
 - `/approve <jid>` — approve subscription request
 - `/deny <jid>` — deny subscription request
 - `help` — show available commands

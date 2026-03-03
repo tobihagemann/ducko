@@ -175,6 +175,20 @@ struct PlainFormatter: CLIFormatter {
         return line
     }
 
+    func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String {
+        let percent = Int(progress * 100)
+        return "Uploading \(fileName) (\(formatByteCount(fileSize))): \(percent)%"
+    }
+
+    func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String {
+        var line = "File: \(fileName)"
+        if let fileSize {
+            line += " (\(formatByteCount(fileSize)))"
+        }
+        line += "\n  \(url)"
+        return line
+    }
+
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "[\(jid) is typing...]" : nil
     }

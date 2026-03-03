@@ -13,6 +13,8 @@ enum CLIError: Error, LocalizedError {
     case roomJoinTimeout(String)
     case notJoinedToRoom(String)
     case noRoomSpecified
+    case fileNotFound(String)
+    case noConversationTarget
 
     var errorDescription: String? {
         switch self {
@@ -40,6 +42,10 @@ enum CLIError: Error, LocalizedError {
             "Not joined to room: \(jid)"
         case .noRoomSpecified:
             "No room specified. Join a room with /join or provide a room JID."
+        case let .fileNotFound(path):
+            "File not found: \(path)"
+        case .noConversationTarget:
+            "No conversation target. Use: /sendfile [jid] <path>"
         }
     }
 }

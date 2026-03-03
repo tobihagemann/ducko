@@ -17,6 +17,12 @@ protocol CLIFormatter: Sendable {
     func formatRoomParticipant(_ participant: RoomParticipant) -> String
     func formatRoomParticipantGroupHeader(_ group: RoomParticipantGroup) -> String
     func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String
+    func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String
+    func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String
+}
+
+func formatByteCount(_ bytes: Int64) -> String {
+    ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
 }
 
 func nicknameFromJID(_ jid: JID) -> String {

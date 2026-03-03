@@ -46,11 +46,20 @@ extension DuckoCLI {
         @Option(name: .long, help: "Account UUID (uses first account if omitted)")
         var account: String?
 
+        @Option(name: .long, help: "Path to a file to upload and send")
+        var file: String?
+
         @Argument(help: "The recipient JID")
         var jid: String
 
         @Argument(help: "The message body")
-        var body: String
+        var body: String?
+
+        func validate() throws {
+            guard file != nil || body != nil else {
+                throw ValidationError("Provide a message body or --file <path>")
+            }
+        }
 
         func run() async throws {
             let formatter = global.resolvedFormat.makeFormatter()
@@ -73,20 +82,30 @@ extension DuckoCLI {
             try await env.accountService.connect(accountID: selectedAccount.id, password: password)
             try await waitForConnected(accountID: selectedAccount.id, environment: env)
 
-            try await env.chatService.sendMessage(to: recipientJID, body: body, accountID: selectedAccount.id)
+            if let file {
+                let ftContext = FileTransferCLIContext(
+                    accountID: selectedAccount.id, environment: env, formatter: formatter
+                )
+                try await sendFileFromCLI(
+                    filePath: file, recipientJID: recipientJID,
+                    body: body, context: ftContext
+                )
+            } else if let body {
+                try await env.chatService.sendMessage(to: recipientJID, body: body, accountID: selectedAccount.id)
 
-            print(formatter.formatMessage(ChatMessage(
-                id: UUID(),
-                conversationID: UUID(),
-                fromJID: recipientJID.description,
-                body: body,
-                timestamp: Date(),
-                isOutgoing: true,
-                isRead: true,
-                isDelivered: false,
-                isEdited: false,
-                type: "chat"
-            )))
+                print(formatter.formatMessage(ChatMessage(
+                    id: UUID(),
+                    conversationID: UUID(),
+                    fromJID: recipientJID.description,
+                    body: body,
+                    timestamp: Date(),
+                    isOutgoing: true,
+                    isRead: true,
+                    isDelivered: false,
+                    isEdited: false,
+                    type: "chat"
+                )))
+            }
 
             await env.accountService.disconnect(accountID: selectedAccount.id)
         }
@@ -741,12 +760,13 @@ private func printREPLHelp() {
     print("  /leave [room]            Leave a MUC room")
     print("  /members [room]          Show room occupants")
     print("  /topic [room] [text]     View or set room topic")
+    print("  /sendfile [jid] <path>   Send a file")
     print("  /rooms [service]         Discover available rooms")
     print("  help                     Show this help")
     print("  quit                     Disconnect and exit")
 }
 
-private struct REPLContext {
+struct REPLContext {
     let formatter: any CLIFormatter
     let environment: AppEnvironment
     let accountID: UUID
@@ -799,6 +819,8 @@ private func dispatchREPLCommand(
         }
     } else if input == "/history" || input.hasPrefix("/history ") {
         await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+    } else if input == "/sendfile" || input.hasPrefix("/sendfile ") {
+        await handleSendFileREPLCommand(input, context: context, currentRoom: currentRoom)
     } else {
         return await dispatchRoomREPLCommand(input, context: context, currentRoom: currentRoom)
     }

@@ -72,7 +72,11 @@ public final class FileTransferService {
 
     // MARK: - Public API
 
-    public func sendFile(url: URL, in conversation: Conversation, accountID: UUID) async throws {
+    @discardableResult
+    public func sendFile(
+        url: URL, in conversation: Conversation, accountID: UUID,
+        onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
+    ) async throws -> String {
         let attributes: [FileAttributeKey: Any]
         do {
             attributes = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -95,23 +99,31 @@ public final class FileTransferService {
 
         do {
             let slot = try await requestUploadSlot(fileName: fileName, fileSize: fileSize, mimeType: mimeType, accountID: accountID)
-            let downloadURL = try await performUpload(fileURL: url, slot: slot, mimeType: mimeType, transferID: transferID)
+            let downloadURL = try await performUpload(fileURL: url, slot: slot, mimeType: mimeType, transferID: transferID, onProgress: onProgress)
+            // Yield to drain any pending progress callbacks before setting terminal state
+            await Task.yield()
             try await sendDownloadURL(downloadURL, in: conversation, accountID: accountID)
             updateTransferState(id: transferID, state: .completed(downloadURL: downloadURL))
+            return downloadURL
         } catch {
+            await Task.yield()
             updateTransferState(id: transferID, state: .failed(error.localizedDescription))
             throw error
         }
     }
 
-    public func sendImage(data: Data, mimeType: String = "image/jpeg", in conversation: Conversation, accountID: UUID) async throws {
+    @discardableResult
+    public func sendImage(
+        data: Data, mimeType: String = "image/jpeg", in conversation: Conversation, accountID: UUID,
+        onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
+    ) async throws -> String {
         let tempDir = FileManager.default.temporaryDirectory
         let ext = UTType(mimeType: mimeType)?.preferredFilenameExtension ?? "jpg"
         let fileName = "image-\(UUID().uuidString).\(ext)"
         let tempURL = tempDir.appendingPathComponent(fileName)
         try data.write(to: tempURL)
         defer { try? FileManager.default.removeItem(at: tempURL) }
-        try await sendFile(url: tempURL, in: conversation, accountID: accountID)
+        return try await sendFile(url: tempURL, in: conversation, accountID: accountID, onProgress: onProgress)
     }
 
     // MARK: - Private
@@ -135,7 +147,8 @@ public final class FileTransferService {
         fileURL: URL,
         slot: HTTPUploadModule.UploadSlot,
         mimeType: String,
-        transferID: UUID
+        transferID: UUID,
+        onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> String {
         updateTransferState(id: transferID, state: .uploading(progress: 0))
 
@@ -150,7 +163,16 @@ public final class FileTransferService {
             request.setValue(value, forHTTPHeaderField: name)
         }
 
-        let (_, response) = try await URLSession.shared.upload(for: request, fromFile: fileURL)
+        let delegate = UploadProgressDelegate { progress in
+            Task { @MainActor in
+                self.updateTransferState(id: transferID, state: .uploading(progress: progress))
+                onProgress?(progress)
+            }
+        }
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        let (_, response) = try await session.upload(for: request, fromFile: fileURL)
         guard let httpResponse = response as? HTTPURLResponse,
               (200 ... 299).contains(httpResponse.statusCode) else {
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -178,5 +200,27 @@ public final class FileTransferService {
         if let index = activeTransfers.firstIndex(where: { $0.id == id }) {
             activeTransfers[index].state = state
         }
+    }
+}
+
+// MARK: - Upload Progress Delegate
+
+/// URLSession delegate that reports upload progress. Must be a class conforming to NSObject
+/// for URLSession delegate requirements — `@unchecked Sendable` is required because
+/// URLSessionTaskDelegate is not Sendable but the callback is safe to call from any thread.
+private final class UploadProgressDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    private let onProgress: @Sendable (Double) -> Void
+
+    init(onProgress: @escaping @Sendable (Double) -> Void) {
+        self.onProgress = onProgress
+    }
+
+    func urlSession(
+        _ session: URLSession, task: URLSessionTask,
+        didSendBodyData bytesSent: Int64, totalBytesSent: Int64, totalBytesExpectedToSend: Int64
+    ) {
+        guard totalBytesExpectedToSend > 0 else { return }
+        let progress = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
+        onProgress(progress)
     }
 }

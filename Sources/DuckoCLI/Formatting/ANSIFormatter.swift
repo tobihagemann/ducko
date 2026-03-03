@@ -200,6 +200,24 @@ struct ANSIFormatter: CLIFormatter {
         }
     }
 
+    func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String {
+        let percent = Int(progress * 100)
+        let barWidth = 20
+        let filled = Int(progress * Double(barWidth))
+        let empty = barWidth - filled
+        let bar = String(repeating: "\u{2588}", count: filled) + String(repeating: "\u{2591}", count: empty)
+        return "\r\(Color.cyan)\(fileName)\(Color.reset) (\(formatByteCount(fileSize))) \(Color.green)\(bar)\(Color.reset) \(percent)%"
+    }
+
+    func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String {
+        var line = "\(Color.bold)\u{1F4CE} \(fileName)\(Color.reset)"
+        if let fileSize {
+            line += " (\(formatByteCount(fileSize)))"
+        }
+        line += "\n  \(Color.cyan)\(url)\(Color.reset)"
+        return line
+    }
+
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "\(Color.dim)[\(jid) is typing...]\(Color.reset)" : nil
     }
