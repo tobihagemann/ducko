@@ -144,6 +144,7 @@ public final class FileTransferService {
     public func sendFile(
         url: URL, in conversation: Conversation, accountID: UUID,
         method: TransferMethod = .auto,
+        peerJID: String? = nil,
         onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> String {
         let attributes: [FileAttributeKey: Any]
@@ -165,7 +166,8 @@ public final class FileTransferService {
         case .httpUpload, .auto:
             return try await sendFileViaHTTP(file, in: conversation, accountID: accountID, onProgress: onProgress)
         case .jingle:
-            return try await sendFileViaJingle(file, peer: conversation.jid.description, accountID: accountID, onProgress: onProgress)
+            let peer = peerJID ?? conversation.jid.description
+            return try await sendFileViaJingle(file, peer: peer, accountID: accountID, onProgress: onProgress)
         }
     }
 

@@ -67,9 +67,10 @@ extension DuckoCLI {
         func run() async throws {
             let formatter = global.resolvedFormat.makeFormatter()
 
-            guard let recipientJID = BareJID.parse(jid) else {
+            guard let parsedJID = JID.parse(jid) else {
                 throw CLIError.invalidJID(jid)
             }
+            let recipientJID = parsedJID.bareJID
 
             let context = try await MainActor.run {
                 try CLIBootstrap.setUp(formatter: formatter)
@@ -90,9 +91,11 @@ extension DuckoCLI {
                 let ftContext = FileTransferCLIContext(
                     accountID: selectedAccount.id, environment: env, formatter: formatter
                 )
+                let peerOverride = resolvedMethod == .jingle ? jid : nil
                 try await sendFileFromCLI(
                     filePath: file, recipientJID: recipientJID,
-                    body: body, method: resolvedMethod, context: ftContext
+                    body: body, method: resolvedMethod,
+                    peerJID: peerOverride, context: ftContext
                 )
             } else if let body {
                 try await env.chatService.sendMessage(to: recipientJID, body: body, accountID: selectedAccount.id)

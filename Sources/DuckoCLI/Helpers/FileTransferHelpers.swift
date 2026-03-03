@@ -25,7 +25,7 @@ func parseTransferMethod(_ string: String?) throws -> FileTransferService.Transf
 func sendFileFromCLI(
     filePath: String, recipientJID: BareJID,
     body: String?, method: FileTransferService.TransferMethod = .auto,
-    context: FileTransferCLIContext
+    peerJID: String? = nil, context: FileTransferCLIContext
 ) async throws {
     let fileURL = URL(fileURLWithPath: filePath)
     guard let attributes = try? FileManager.default.attributesOfItem(atPath: fileURL.path) else {
@@ -37,7 +37,8 @@ func sendFileFromCLI(
     let env = context.environment
     let conversation = try await env.chatService.openConversation(for: recipientJID, accountID: context.accountID)
     let downloadURL = try await env.fileTransferService.sendFile(
-        url: fileURL, in: conversation, accountID: context.accountID, method: method
+        url: fileURL, in: conversation, accountID: context.accountID,
+        method: method, peerJID: peerJID
     ) { progress in
         printTransferProgress(fileName: fileName, fileSize: fileSize, progress: progress, formatter: context.formatter)
     }
