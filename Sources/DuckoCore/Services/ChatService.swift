@@ -94,10 +94,6 @@ public final class ChatService {
         return try await openConversation(for: jid, accountID: accountID)
     }
 
-    public func startConversation(jidString: String, accountID: UUID) async throws -> UUID {
-        try await openConversation(jidString: jidString, accountID: accountID).id
-    }
-
     public func sendMessage(toJIDString jidString: String, body: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)

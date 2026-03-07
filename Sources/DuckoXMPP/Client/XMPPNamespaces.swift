@@ -1,6 +1,5 @@
 /// XMPP namespace constants per RFC 6120.
 public enum XMPPNamespaces {
-    public static let stream = "http://etherx.jabber.org/streams"
     public static let tls = "urn:ietf:params:xml:ns:xmpp-tls"
     public static let bind = "urn:ietf:params:xml:ns:xmpp-bind"
     public static let session = "urn:ietf:params:xml:ns:xmpp-session"
@@ -28,7 +27,6 @@ public enum XMPPNamespaces {
     public static let mucOwner = "http://jabber.org/protocol/muc#owner"
     public static let mucDirectInvite = "jabber:x:conference"
     public static let httpUpload = "urn:xmpp:http:upload:0"
-    public static let oob = "jabber:x:oob"
     public static let dataForms = "jabber:x:data"
     public static let jingle = "urn:xmpp:jingle:1"
     public static let jingleFileTransfer = "urn:xmpp:jingle:apps:file-transfer:5"

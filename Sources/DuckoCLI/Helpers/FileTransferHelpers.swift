@@ -185,12 +185,3 @@ private func formatTransferState(_ state: FileTransferService.TransferState) -> 
     case .completedTransfer: "completed"
     }
 }
-
-private func transferProgress(_ state: FileTransferService.TransferState) -> Double {
-    switch state {
-    case let .uploading(progress): progress
-    case let .transferring(progress): progress
-    case .completed, .completedTransfer: 1.0
-    case .requestingSlot, .negotiating, .connectingTransport, .awaitingAcceptance, .failed: 0.0
-    }
-}
