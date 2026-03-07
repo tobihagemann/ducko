@@ -81,28 +81,25 @@ private actor HandshakeActor {
     }
 }
 
-@Test(.timeLimit(.minutes(1)))
+@Test
 func `Parser reset enables post-SASL stream re-open`() async throws {
     let mock = MockTransport()
     let actor = HandshakeActor(transport: mock)
 
     let task = Task { try await actor.run() }
 
-    try await Task.sleep(for: .milliseconds(100))
-
     // 1. Stream open + features
+    await mock.waitForSent(count: 1) // stream opening
     await mock.simulateReceive(streamOpen)
-    try await Task.sleep(for: .milliseconds(50))
     await mock.simulateReceive(featuresNoTLS)
-    try await Task.sleep(for: .milliseconds(50))
 
     // 2. Auth success
+    await mock.waitForSent(count: 2) // auth element
     await mock.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
-    try await Task.sleep(for: .milliseconds(50))
 
     // 3. Post-auth stream open + bind features
+    await mock.waitForSent(count: 3) // post-auth stream opening
     await mock.simulateReceive(streamOpen)
-    try await Task.sleep(for: .milliseconds(50))
     await mock.simulateReceive("""
     <features xmlns='http://etherx.jabber.org/streams'>\
     <bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\

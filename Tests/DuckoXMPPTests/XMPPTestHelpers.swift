@@ -44,22 +44,22 @@ let testBindResult = """
 
 /// Simulates a connect handshake without TLS.
 func simulateNoTLSConnect(_ mock: MockTransport, postAuthFeatures: String = testFeaturesBind) async {
-    try? await Task.sleep(for: .milliseconds(50))
+    await mock.waitForSent(count: 1) // stream opening sent
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(testFeaturesNoTLS)
-    try? await Task.sleep(for: .milliseconds(50))
+    await mock.waitForSent(count: 2) // auth element sent
     await mock.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
-    try? await Task.sleep(for: .milliseconds(50))
+    await mock.waitForSent(count: 3) // post-auth stream opening sent
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(postAuthFeatures)
-    try? await Task.sleep(for: .milliseconds(50))
+    await mock.waitForSent(count: 4) // bind IQ sent
     await mock.simulateReceive(testBindResult)
 }
 
 /// Simulates a connect handshake without TLS, followed by a roster response.
 func simulateNoTLSConnect(_ mock: MockTransport, rosterResponse: String) async {
     await simulateNoTLSConnect(mock)
-    try? await Task.sleep(for: .milliseconds(100))
+    await mock.waitForSent(count: 5) // roster GET IQ sent
     await mock.simulateReceive(rosterResponse)
 }
 

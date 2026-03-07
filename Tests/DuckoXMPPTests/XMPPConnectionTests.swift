@@ -35,11 +35,24 @@ actor MockTransport: XMPPTransport {
         isTLSUpgraded = true
     }
 
+    private var sentWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+
     func send(_ bytes: [UInt8]) async throws {
         guard isConnected else {
             throw XMPPConnectionError.notConnected
         }
         sentBytes.append(bytes)
+        if let waiter = sentWaiters.removeValue(forKey: sentBytes.count) {
+            waiter.resume()
+        }
+    }
+
+    /// Suspends until `sentBytes.count >= count`. Returns immediately if already met.
+    func waitForSent(count: Int) async {
+        if sentBytes.count >= count { return }
+        await withCheckedContinuation { continuation in
+            sentWaiters[count] = continuation
+        }
     }
 
     func disconnect() {
@@ -67,6 +80,7 @@ actor MockTransport: XMPPTransport {
     /// Clears the recorded sent bytes for isolation in tests.
     func clearSentBytes() {
         sentBytes.removeAll()
+        sentWaiters.removeAll()
     }
 }
 
@@ -99,7 +113,6 @@ private func collectEvents(
 
 // MARK: - Tests
 
-@Suite(.timeLimit(.minutes(1)))
 enum XMPPConnectionTests {
     struct ConnectionLifecycle {
         @Test
@@ -130,8 +143,11 @@ enum XMPPConnectionTests {
             let isConnected = await mock.isConnected
             #expect(!isConnected)
 
-            // Event stream should terminate (use timeout to avoid hanging on CI)
-            let events = try await collectEvents(from: connection, timeout: .seconds(2)) { _ in false }
+            // Event stream should terminate
+            var events: [XMLStreamEvent] = []
+            for await event in connection.events {
+                events.append(event)
+            }
             #expect(events.isEmpty)
         }
     }
@@ -149,8 +165,9 @@ enum XMPPConnectionTests {
             await mock.simulateReceive("<message><body>Hello</body></message>")
             await mock.simulateDisconnect()
 
-            let events = try await collectEvents(from: connection) {
-                $0.stanzaElement != nil
+            var events: [XMLStreamEvent] = []
+            for await event in connection.events {
+                events.append(event)
             }
 
             // Should have at least streamOpened + stanzaReceived
@@ -177,8 +194,9 @@ enum XMPPConnectionTests {
             await mock.simulateReceive("dy>Split</body></message>")
             await mock.simulateDisconnect()
 
-            let events = try await collectEvents(from: connection) {
-                $0.stanzaElement != nil
+            var events: [XMLStreamEvent] = []
+            for await event in connection.events {
+                events.append(event)
             }
 
             let stanzas = events.compactMap(\.stanzaElement)

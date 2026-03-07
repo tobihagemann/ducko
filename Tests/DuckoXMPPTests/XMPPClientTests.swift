@@ -27,64 +27,41 @@ private let sessionResult = "<iq type='result' id='ducko-2'/>"
 
 /// Simulates a full connect handshake with STARTTLS on the mock transport.
 private func simulateTLSConnectFlow(_ mock: MockTransport) async {
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 1. Initial stream open → features with TLS
+    await mock.waitForSent(count: 1) // stream opening
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(featuresWithTLS)
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 2. TLS proceed
+    await mock.waitForSent(count: 2) // starttls element
     await mock.simulateReceive("<proceed xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 3. Post-TLS stream → features with auth
+    await mock.waitForSent(count: 3) // post-TLS stream opening
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(testFeaturesNoTLS)
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 4. Auth success
+    await mock.waitForSent(count: 4) // auth element
     await mock.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 5. Post-auth stream → features with bind
+    await mock.waitForSent(count: 5) // post-auth stream opening
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(testFeaturesBind)
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 6. Bind result
+    await mock.waitForSent(count: 6) // bind IQ
     await mock.simulateReceive(testBindResult)
 }
 
 /// Simulates a connect handshake with session establishment.
 private func simulateSessionConnectFlow(_ mock: MockTransport) async {
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 1. Stream open → features without TLS
+    await mock.waitForSent(count: 1) // stream opening
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(testFeaturesNoTLS)
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 2. Auth success
+    await mock.waitForSent(count: 2) // auth element
     await mock.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 3. Post-auth stream → features with bind + session
+    await mock.waitForSent(count: 3) // post-auth stream opening
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(featuresBindSession)
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 4. Bind result
+    await mock.waitForSent(count: 4) // bind IQ
     await mock.simulateReceive(testBindResult)
-    try? await Task.sleep(for: .milliseconds(50))
-
-    // 5. Session result
+    await mock.waitForSent(count: 5) // session IQ
     await mock.simulateReceive(sessionResult)
 }
 
 // MARK: - Tests
 
-@Suite(.timeLimit(.minutes(1)))
 enum XMPPClientTests {
     struct ConnectFlow {
         @Test
@@ -192,10 +169,10 @@ enum XMPPClientTests {
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
 
-            try? await Task.sleep(for: .milliseconds(50))
+            await mock.waitForSent(count: 1) // stream opening
             await mock.simulateReceive(testServerStreamOpen)
             await mock.simulateReceive(testFeaturesNoTLS)
-            try? await Task.sleep(for: .milliseconds(50))
+            await mock.waitForSent(count: 2) // auth element
             await mock.simulateReceive(
                 "<failure xmlns='urn:ietf:params:xml:ns:xmpp-sasl'><not-authorized/></failure>"
             )
