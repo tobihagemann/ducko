@@ -7,6 +7,7 @@ import Testing
 
 private let testAccountID = UUID()
 private let contactJID = BareJID(localPart: "contact", domainPart: "example.com")!
+private let roomJID = BareJID(localPart: "room", domainPart: "conference.example.com")!
 
 private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
@@ -65,6 +66,34 @@ enum ChatServiceMAMTests {
                     jidString: "", accountID: testAccountID, before: nil, limit: 50
                 )
             }
+        }
+
+        @Test
+        @MainActor
+        func `Returns empty for groupchat conversation without client`() async throws {
+            let store = makeStore()
+            let service = makeChatService(store: store)
+
+            // Pre-create a groupchat conversation so the code path exercises MUC logic
+            let conversation = Conversation(
+                id: UUID(),
+                accountID: testAccountID,
+                jid: roomJID,
+                type: .groupchat,
+                isPinned: false,
+                isMuted: false,
+                unreadCount: 0,
+                roomNickname: "mynick",
+                createdAt: Date()
+            )
+            try await store.upsertConversation(conversation)
+
+            let (messages, hasMore) = try await service.fetchServerHistory(
+                jid: roomJID, accountID: testAccountID, before: nil, limit: 50
+            )
+
+            #expect(messages.isEmpty)
+            #expect(!hasMore)
         }
     }
 }

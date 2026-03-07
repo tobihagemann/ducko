@@ -778,28 +778,61 @@ public final class ChatService {
                 Date()
             }
 
-            let isOutgoing = forwarded.message.from?.bareJID == accountJID
-            let fromJID = forwarded.message.from?.bareJID.description ?? accountJID.description
+            let meta = resolveMessageMeta(forwarded: forwarded, conversation: conversation, accountJID: accountJID)
 
             let message = ChatMessage(
                 id: UUID(),
                 conversationID: conversation.id,
                 stanzaID: forwarded.message.id,
                 serverID: entry.serverID,
-                fromJID: fromJID,
+                fromJID: meta.fromJID,
                 body: body,
                 timestamp: timestamp,
-                isOutgoing: isOutgoing,
+                isOutgoing: meta.isOutgoing,
                 isRead: true,
                 isDelivered: false,
                 isEdited: false,
-                type: forwarded.message.messageType?.rawValue ?? "chat"
+                type: meta.messageType
             )
             try await store.insertMessage(message)
             newMessages.append(message)
         }
 
         return newMessages.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    private struct MessageMeta {
+        let fromJID: String
+        let isOutgoing: Bool
+        let messageType: String
+    }
+
+    private func resolveMessageMeta(
+        forwarded: ForwardedMessage,
+        conversation: Conversation,
+        accountJID: BareJID
+    ) -> MessageMeta {
+        switch conversation.type {
+        case .groupchat:
+            // MUC: extract nickname from resource part
+            let senderNickname: String? = if case let .full(fullJID) = forwarded.message.from {
+                fullJID.resourcePart
+            } else {
+                nil
+            }
+            return MessageMeta(
+                fromJID: senderNickname ?? conversation.jid.description,
+                isOutgoing: senderNickname != nil && senderNickname == conversation.roomNickname,
+                messageType: conversation.type.rawValue
+            )
+        case .chat:
+            // 1:1 chat: compare bare JIDs
+            return MessageMeta(
+                fromJID: forwarded.message.from?.bareJID.description ?? accountJID.description,
+                isOutgoing: forwarded.message.from?.bareJID == accountJID,
+                messageType: forwarded.message.messageType?.rawValue ?? "chat"
+            )
+        }
     }
 
     private func mapOccupant(_ occupant: RoomOccupant) -> RoomParticipant {
