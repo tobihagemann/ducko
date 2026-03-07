@@ -1,0 +1,155 @@
+name: Release
+
+on:
+  push:
+    tags: ["[0-9]*.[0-9]*.[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version number"
+        type: string
+        required: true
+      dry_run:
+        description: "Dry run (build + sign + notarize, skip GitHub Release)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, Sign, Notarize & Publish
+    runs-on: macos-26
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ inputs.version }}"
+          fi
+          echo "MARKETING_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Import code signing certificate
+        env:
+          P12_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          echo "$P12_BASE64" | base64 --decode > /tmp/certificate.p12
+          security import /tmp/certificate.p12 -k "$KEYCHAIN" \
+            -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f /tmp/certificate.p12
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+      - name: Build, sign, and notarize
+        env:
+          APP_IDENTITY: ${{ secrets.APP_IDENTITY }}
+          APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ARCHES: "arm64 x86_64"
+        run: ./Scripts/release.sh
+
+      - name: Compute checksums
+        run: |
+          source version.env
+          shasum -a 256 "${APP_NAME}-${MARKETING_VERSION}.zip" \
+                        "${APP_NAME}-${MARKETING_VERSION}.dmg" > checksums.txt
+          cat checksums.txt
+
+      - name: Generate Sparkle appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          source version.env
+          SPARKLE_BIN=".build/artifacts/sparkle/Sparkle/bin"
+
+          # generate_appcast needs the private key as a file.
+          KEY_FILE=$(mktemp)
+          echo "$SPARKLE_PRIVATE_KEY" > "$KEY_FILE"
+          chmod 600 "$KEY_FILE"
+
+          # Stage the zip in a temp dir so generate_appcast can read it.
+          RELEASE_DIR=$(mktemp -d)
+          cp "${APP_NAME}-${MARKETING_VERSION}.zip" "$RELEASE_DIR/"
+
+          "$SPARKLE_BIN/generate_appcast" \
+            --ed-key-file "$KEY_FILE" \
+            --download-url-prefix "https://github.com/tobihagemann/ducko/releases/download/${MARKETING_VERSION}/" \
+            "$RELEASE_DIR"
+
+          cp "$RELEASE_DIR/appcast.xml" appcast.xml
+          rm -f "$KEY_FILE"
+          rm -rf "$RELEASE_DIR"
+
+      - name: Extract release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          # Extract the section for this version (between ## headings).
+          # Must run before checking out main so we read the tagged commit's file.
+          awk -v ver="$MARKETING_VERSION" '
+            /^## / { if (found) exit; if ($2 == ver) found=1; next }
+            found { print }
+          ' CHANGELOG.md > release_notes.txt
+          cat release_notes.txt
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          source version.env
+          gh release create "${MARKETING_VERSION}" \
+            "${APP_NAME}-${MARKETING_VERSION}.zip" \
+            "${APP_NAME}-${MARKETING_VERSION}.dmg" \
+            checksums.txt \
+            --title "${APP_NAME} ${MARKETING_VERSION}" \
+            --notes-file release_notes.txt
+
+      - name: Commit appcast.xml to main
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          # Save generated appcast.xml — git checkout would fail if main
+          # already tracks it from a previous release.
+          cp appcast.xml /tmp/appcast.xml
+          git checkout main
+          cp /tmp/appcast.xml appcast.xml
+          git add appcast.xml
+          if git diff --cached --quiet; then
+            echo "appcast.xml unchanged, skipping commit."
+          else
+            git commit -m "Update appcast.xml for ${MARKETING_VERSION}"
+            git push origin main
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: |
+            *.zip
+            *.dmg
+            checksums.txt
+            appcast.xml
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain build.keychain-db || true

@@ -1,44 +1,53 @@
 ---
 name: release
-description: Prepare and publish a Ducko release. Build, sign, notarize, create DMG, generate Sparkle appcast, and publish to GitHub. Use when asked to "cut a release", "publish a new version", "bump the version", "prepare a release", or "ship it".
+description: This skill should be used when the user asks to "cut a release", "publish a new version", "prepare a release", "tag a release", or "ship it". Covers the full pipeline: update CHANGELOG.md, tag, and push to trigger GitHub Actions CI which builds, signs, notarizes, creates DMG, generates Sparkle appcast, and publishes a GitHub Release.
 ---
 
 # Release
 
-All script invocations require `dangerouslyDisableSandbox: true`.
+Releases are built exclusively via GitHub Actions — never locally.
 
-## Step 1: Bump Version
+## Step 1: Update CHANGELOG.md
 
-Update `version.env`:
-- `MARKETING_VERSION` — user-facing version (e.g., `0.2.0`)
-
-Commit the version bump.
-
-## Step 2: Build, Sign, Notarize
+Discover user-facing changes since the last release:
 
 ```bash
-source .env.local
-./Scripts/release.sh     # produces Ducko-x.y.z.zip + Ducko-x.y.z.dmg
+git log $(git describe --tags --abbrev=0)..HEAD --oneline
 ```
 
-## Step 3: Generate Appcast
+Read PR descriptions via `gh pr view <number> --json title,body` to understand each change's user-facing impact. Do not rely on commit messages alone — they describe implementation, not user outcomes.
+
+Add a new section under the version heading. See [references/changelog-format.md](references/changelog-format.md) for format and style guidance.
+
+```markdown
+## x.y.z
+
+- Added feature X.
+- Fixed bug Y.
+```
+
+## Step 2: Commit and Push
 
 ```bash
-.build/arm64-apple-macosx/debug/Sparkle.framework/bin/generate_appcast /path/to/releases/
+git add CHANGELOG.md
+git commit -m "Prepare release x.y.z"
+git push origin main
 ```
 
-This reads signed zips and creates/updates `appcast.xml`.
-
-## Step 4: Publish
+## Step 3: Tag and Push
 
 ```bash
-git tag v0.x.y
-gh release create v0.x.y Ducko-0.x.y.dmg Ducko-0.x.y.zip
+git tag x.y.z
+git push origin x.y.z
 ```
 
-Commit and push `appcast.xml` so Sparkle can find the new release.
+The `release.yml` workflow automatically builds, signs, notarizes, creates the DMG, generates the Sparkle appcast, commits `appcast.xml` to `main`, and publishes a GitHub Release with `.zip`, `.dmg`, checksums, and release notes from `CHANGELOG.md`.
 
-## Notes
+## Dry Run
 
-- `release.sh` calls `package_app.sh` and `create_dmg.sh` internally — do not run them separately.
-- See the Packaging section in CLAUDE.md for the full script inventory.
+Use `workflow_dispatch` from the Actions tab with "Dry run" checked. This runs the full pipeline but skips creating the GitHub Release. Artifacts are always uploaded.
+
+## Local Fallback
+
+If CI is unavailable, see [references/local-release.md](references/local-release.md) for the manual release procedure.
+

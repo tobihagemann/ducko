@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/version.env"
 
+MARKETING_VERSION=${MARKETING_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")}
 APP_BUNDLE="$ROOT/${APP_NAME}.app"
 DMG_NAME="${APP_NAME}-${MARKETING_VERSION}.dmg"
 TEMP_DIR=$(mktemp -d)

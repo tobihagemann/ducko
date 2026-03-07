@@ -42,7 +42,7 @@ Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` 
 
 ## Packaging
 
-`version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `MARKETING_VERSION`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.
+`version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.
 
 ```
 Scripts/package_app.sh [debug|release]   # build + assemble .app bundle

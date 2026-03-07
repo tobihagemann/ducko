@@ -7,7 +7,8 @@ cd "$ROOT"
 
 source "$ROOT/version.env"
 
-# Derive build number from git commit count (monotonically increasing for Sparkle).
+# Derive version from git tag and build number from commit count.
+MARKETING_VERSION=${MARKETING_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")}
 BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo "1")
 
 EXEC_NAME=${EXEC_NAME:-DuckoApp}
@@ -50,6 +51,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>NSHighResolutionCapable</key><true/>
     <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Tobias Hagemann. All rights reserved.</string>
     <key>SUFeedURL</key><string>https://raw.githubusercontent.com/tobihagemann/ducko/main/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>SaoWoBwGAvFPeUCkM7sp8mWO3CdwWa/Yw78vZ5xGDHk=</string>
     <key>BuildTimestamp</key><string>${BUILD_TIMESTAMP}</string>
     <key>GitCommit</key><string>${GIT_COMMIT}</string>
 </dict>
