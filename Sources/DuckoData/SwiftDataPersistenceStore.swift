@@ -224,6 +224,26 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         try modelContext.save()
     }
 
+    public func messageExistsByServerID(_ serverID: String, conversationID: UUID) throws -> Bool {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate {
+                $0.serverID == serverID && $0.conversation?.id == conversationID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try !modelContext.fetch(descriptor).isEmpty
+    }
+
+    public func messageExistsByStanzaID(_ stanzaID: String, conversationID: UUID) throws -> Bool {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate {
+                $0.stanzaID == stanzaID && $0.conversation?.id == conversationID
+            }
+        )
+        descriptor.fetchLimit = 1
+        return try !modelContext.fetch(descriptor).isEmpty
+    }
+
     public func markMessagesRead(in conversationID: UUID) throws {
         let messageDescriptor = FetchDescriptor<MessageRecord>(
             predicate: #Predicate {

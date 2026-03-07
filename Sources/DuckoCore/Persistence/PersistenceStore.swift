@@ -23,6 +23,8 @@ public protocol PersistenceStore: Sendable {
     func fetchMessages(for conversationID: UUID, before: Date?, limit: Int) async throws -> [ChatMessage]
     func insertMessage(_ message: ChatMessage) async throws
     func markMessagesRead(in conversationID: UUID) async throws
+    func messageExistsByServerID(_ serverID: String, conversationID: UUID) async throws -> Bool
+    func messageExistsByStanzaID(_ stanzaID: String, conversationID: UUID) async throws -> Bool
 
     // MARK: - Message Updates
 

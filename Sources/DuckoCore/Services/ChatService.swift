@@ -1,5 +1,8 @@
 import DuckoXMPP
 import Foundation
+import os
+
+private let log = Logger(subsystem: "com.ducko.core", category: "chat")
 
 @MainActor @Observable
 public final class ChatService {
@@ -419,6 +422,10 @@ public final class ChatService {
             await handleMessageCorrected(originalID: originalID, newBody: newBody)
         case let .messageError(messageID, _, errorText):
             await handleMessageError(messageID: messageID, errorText: errorText)
+        case .rosterLoaded:
+            Task { [weak self] in
+                await self?.syncRecentHistory(accountID: accountID)
+            }
         default:
             await handleMUCEvent(event, accountID: accountID)
         }
@@ -672,6 +679,127 @@ public final class ChatService {
     ) async throws -> [ChatMessage] {
         let messages = try await store.fetchMessages(for: conversationID, before: before, limit: limit)
         return messages.reversed()
+    }
+
+    public func fetchServerHistory(
+        jid: BareJID,
+        accountID: UUID,
+        before: Date?,
+        limit: Int
+    ) async throws -> (messages: [ChatMessage], hasMore: Bool) {
+        guard let client = accountService?.client(for: accountID) else {
+            return ([], false)
+        }
+        guard let mamModule = await client.module(ofType: MAMModule.self) else {
+            return ([], false)
+        }
+
+        let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
+        let accountJID = accountJID(for: accountID, fallback: jid)
+        let endISO = before.map { $0.formatted(.iso8601) }
+
+        let (archived, fin) = try await mamModule.queryMessages(with: jid, end: endISO, max: limit)
+        let newMessages = try await convertAndDedup(
+            archived: archived, conversation: conversation, accountJID: accountJID
+        )
+        return (newMessages, !fin.complete)
+    }
+
+    public func fetchServerHistory(
+        jidString: String,
+        accountID: UUID,
+        before: Date?,
+        limit: Int
+    ) async throws -> (messages: [ChatMessage], hasMore: Bool) {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        return try await fetchServerHistory(jid: jid, accountID: accountID, before: before, limit: limit)
+    }
+
+    private func syncRecentHistory(accountID: UUID) async {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mamModule = await client.module(ofType: MAMModule.self) else { return }
+        guard let account = accountService?.accounts.first(where: { $0.id == accountID }) else { return }
+        let accountJID = account.jid
+
+        do {
+            let conversations = try await store.fetchConversations(for: accountID)
+            for conversation in conversations {
+                let lastMessages = try await store.fetchMessages(for: conversation.id, before: nil, limit: 1)
+                let startISO = lastMessages.first.map { $0.timestamp.formatted(.iso8601) }
+
+                let (archived, _) = try await mamModule.queryMessages(
+                    with: conversation.jid, start: startISO, max: 50
+                )
+                let newMessages = try await convertAndDedup(
+                    archived: archived, conversation: conversation, accountJID: accountJID
+                )
+                if let lastMessage = newMessages.last {
+                    var updated = conversation
+                    updated.lastMessageDate = lastMessage.timestamp
+                    updated.lastMessagePreview = String(lastMessage.body.prefix(100))
+                    try await store.upsertConversation(updated)
+                }
+            }
+            openConversations = try await store.fetchConversations(for: accountID)
+        } catch {
+            let desc = error.localizedDescription
+            log.warning("MAM sync failed: \(desc)")
+        }
+    }
+
+    private func convertAndDedup(
+        archived: [ArchivedMessage],
+        conversation: Conversation,
+        accountJID: BareJID
+    ) async throws -> [ChatMessage] {
+        let isoStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        let basicStyle = Date.ISO8601FormatStyle()
+        var newMessages: [ChatMessage] = []
+
+        for entry in archived {
+            let forwarded = entry.forwarded
+            guard let body = forwarded.message.body else { continue }
+
+            if let serverID = entry.serverID {
+                if try await store.messageExistsByServerID(serverID, conversationID: conversation.id) {
+                    continue
+                }
+            } else if let stanzaID = forwarded.message.id {
+                if try await store.messageExistsByStanzaID(stanzaID, conversationID: conversation.id) {
+                    continue
+                }
+            }
+
+            let timestamp: Date = if let stamp = forwarded.timestamp {
+                (try? isoStyle.parse(stamp)) ?? (try? basicStyle.parse(stamp)) ?? Date()
+            } else {
+                Date()
+            }
+
+            let isOutgoing = forwarded.message.from?.bareJID == accountJID
+            let fromJID = forwarded.message.from?.bareJID.description ?? accountJID.description
+
+            let message = ChatMessage(
+                id: UUID(),
+                conversationID: conversation.id,
+                stanzaID: forwarded.message.id,
+                serverID: entry.serverID,
+                fromJID: fromJID,
+                body: body,
+                timestamp: timestamp,
+                isOutgoing: isOutgoing,
+                isRead: true,
+                isDelivered: false,
+                isEdited: false,
+                type: forwarded.message.messageType?.rawValue ?? "chat"
+            )
+            try await store.insertMessage(message)
+            newMessages.append(message)
+        }
+
+        return newMessages.sorted { $0.timestamp < $1.timestamp }
     }
 
     private func mapOccupant(_ occupant: RoomOccupant) -> RoomParticipant {

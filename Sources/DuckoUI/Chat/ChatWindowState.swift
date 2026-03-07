@@ -149,7 +149,25 @@ final class ChatWindowState {
             )
 
             if older.isEmpty {
-                hasReachedEnd = true
+                // Local store exhausted — try server
+                guard let accountID = environment.accountService.accounts.first?.id else {
+                    hasReachedEnd = true
+                    return
+                }
+                let (serverMessages, hasMore) = try await environment.chatService.fetchServerHistory(
+                    jidString: jidString,
+                    accountID: accountID,
+                    before: messages.first?.timestamp,
+                    limit: 50
+                )
+                if serverMessages.isEmpty {
+                    hasReachedEnd = true
+                } else {
+                    messages = serverMessages + messages
+                    if !hasMore {
+                        hasReachedEnd = true
+                    }
+                }
             } else {
                 messages = older + messages
             }

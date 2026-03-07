@@ -82,18 +82,20 @@ ducko interactive
 
 ### `history <jid>`
 
-View message history for a conversation. Connects, fetches messages, then disconnects.
+View message history from the local database. With `--server`, connects to fetch from the XMPP server.
 
 | Option | Description |
 |---|---|
 | `--limit <n>` | Maximum number of messages (default: 20) |
 | `--before <date>` | Show messages before this ISO 8601 date (pagination) |
+| `--server` | Fetch from server when local history is empty (requires connection) |
 
 ```
 ducko history alice@example.com
 ducko history alice@example.com --limit 5
 ducko history alice@example.com --before 2026-03-01T00:00:00Z
 ducko history alice@example.com --output json --limit 10
+ducko history alice@example.com --server
 ```
 
 ### `account list`
@@ -179,12 +181,6 @@ Send a single message to a room. Joins the room, sends the message, then leaves 
 ```
 ducko room send chat@conference.example.com "Hello everyone"
 ```
-
-### Stubs (not yet implemented)
-
-| Subcommand | Description |
-|---|---|
-| `account delete <jid>` | Delete an account |
 
 ## Output Formats
 

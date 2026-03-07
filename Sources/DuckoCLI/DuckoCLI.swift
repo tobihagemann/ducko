@@ -388,6 +388,9 @@ extension DuckoCLI {
         @Option(name: .long, help: "Show messages before this ISO 8601 date")
         var before: String?
 
+        @Flag(name: .long, help: "Fetch from server when local history is empty (requires connection)")
+        var server: Bool = false
+
         func run() async throws {
             let formatter = global.resolvedFormat.makeFormatter()
 
@@ -403,10 +406,28 @@ extension DuckoCLI {
             let selectedAccount = try await resolveAccount(account, environment: env)
 
             let beforeDate = try parseBeforeDate(before)
-            let messages = try await fetchHistory(
+            var messages = try await fetchHistory(
                 jid: bareJID, before: beforeDate, limit: limit,
                 environment: env, accountID: selectedAccount.id
             )
+
+            if server, messages.isEmpty {
+                let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore)
+                guard let password else { throw CLIError.noPassword }
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+                do {
+                    let (serverMessages, _) = try await env.chatService.fetchServerHistory(
+                        jid: bareJID, accountID: selectedAccount.id, before: beforeDate, limit: limit
+                    )
+                    messages = serverMessages
+                } catch {
+                    await env.accountService.disconnect(accountID: selectedAccount.id)
+                    throw error
+                }
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+
             printHistory(messages, formatter: formatter)
         }
     }

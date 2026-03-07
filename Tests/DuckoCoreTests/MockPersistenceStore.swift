@@ -83,6 +83,14 @@ actor MockPersistenceStore: PersistenceStore {
         messages.append(message)
     }
 
+    func messageExistsByServerID(_ serverID: String, conversationID: UUID) async throws -> Bool {
+        messages.contains { $0.serverID == serverID && $0.conversationID == conversationID }
+    }
+
+    func messageExistsByStanzaID(_ stanzaID: String, conversationID: UUID) async throws -> Bool {
+        messages.contains { $0.stanzaID == stanzaID && $0.conversationID == conversationID }
+    }
+
     func markMessagesRead(in conversationID: UUID) async throws {
         for index in messages.indices where messages[index].conversationID == conversationID {
             messages[index].isRead = true

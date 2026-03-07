@@ -63,6 +63,8 @@ struct SwiftDataPersistenceStoreTests {
     private func makeMessage(
         id: UUID = UUID(),
         conversationID: UUID,
+        stanzaID: String? = nil,
+        serverID: String? = nil,
         body: String = "Hello",
         timestamp: Date = Date(),
         isOutgoing: Bool = false,
@@ -71,6 +73,8 @@ struct SwiftDataPersistenceStoreTests {
         ChatMessage(
             id: id,
             conversationID: conversationID,
+            stanzaID: stanzaID,
+            serverID: serverID,
             fromJID: "sender@example.com",
             body: body,
             timestamp: timestamp,
@@ -427,6 +431,101 @@ struct SwiftDataPersistenceStoreTests {
             )
             #expect(conversations.isEmpty)
             #expect(messages.isEmpty)
+        }
+    }
+
+    // MARK: - Dedup Queries
+
+    struct DedupQueries {
+        private let outer = SwiftDataPersistenceStoreTests()
+
+        private func makeStoreWithConversation() async throws -> (SwiftDataPersistenceStore, UUID) {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+            let conversation = outer.makeConversation(accountID: account.id)
+            try await store.upsertConversation(conversation)
+            return (store, conversation.id)
+        }
+
+        @Test
+        func `messageExistsByServerID returns true for existing serverID`() async throws {
+            let (store, conversationID) = try await makeStoreWithConversation()
+            let msg = outer.makeMessage(conversationID: conversationID, serverID: "srv-1")
+            try await store.insertMessage(msg)
+
+            let exists = try await store.messageExistsByServerID("srv-1", conversationID: conversationID)
+            #expect(exists)
+        }
+
+        @Test
+        func `messageExistsByServerID returns false for unknown serverID`() async throws {
+            let (store, conversationID) = try await makeStoreWithConversation()
+            let msg = outer.makeMessage(conversationID: conversationID, serverID: "srv-1")
+            try await store.insertMessage(msg)
+
+            let exists = try await store.messageExistsByServerID("srv-999", conversationID: conversationID)
+            #expect(!exists)
+        }
+
+        @Test
+        func `messageExistsByServerID scoped to conversation`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let convA = outer.makeConversation(accountID: account.id, jid: "alice@example.com")
+            let convB = outer.makeConversation(accountID: account.id, jid: "bob@example.com")
+            try await store.upsertConversation(convA)
+            try await store.upsertConversation(convB)
+
+            let msg = outer.makeMessage(conversationID: convA.id, serverID: "srv-1")
+            try await store.insertMessage(msg)
+
+            let existsInA = try await store.messageExistsByServerID("srv-1", conversationID: convA.id)
+            let existsInB = try await store.messageExistsByServerID("srv-1", conversationID: convB.id)
+            #expect(existsInA)
+            #expect(!existsInB)
+        }
+
+        @Test
+        func `messageExistsByStanzaID returns true for existing stanzaID`() async throws {
+            let (store, conversationID) = try await makeStoreWithConversation()
+            let msg = outer.makeMessage(conversationID: conversationID, stanzaID: "stanza-1")
+            try await store.insertMessage(msg)
+
+            let exists = try await store.messageExistsByStanzaID("stanza-1", conversationID: conversationID)
+            #expect(exists)
+        }
+
+        @Test
+        func `messageExistsByStanzaID returns false for unknown stanzaID`() async throws {
+            let (store, conversationID) = try await makeStoreWithConversation()
+            let msg = outer.makeMessage(conversationID: conversationID, stanzaID: "stanza-1")
+            try await store.insertMessage(msg)
+
+            let exists = try await store.messageExistsByStanzaID("stanza-999", conversationID: conversationID)
+            #expect(!exists)
+        }
+
+        @Test
+        func `messageExistsByStanzaID scoped to conversation`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let convA = outer.makeConversation(accountID: account.id, jid: "alice@example.com")
+            let convB = outer.makeConversation(accountID: account.id, jid: "bob@example.com")
+            try await store.upsertConversation(convA)
+            try await store.upsertConversation(convB)
+
+            let msg = outer.makeMessage(conversationID: convA.id, stanzaID: "stanza-1")
+            try await store.insertMessage(msg)
+
+            let existsInA = try await store.messageExistsByStanzaID("stanza-1", conversationID: convA.id)
+            let existsInB = try await store.messageExistsByStanzaID("stanza-1", conversationID: convB.id)
+            #expect(existsInA)
+            #expect(!existsInB)
         }
     }
 
