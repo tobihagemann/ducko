@@ -9,6 +9,7 @@ import SwiftUI
 struct DuckoApp: App {
     @State private var environment: AppEnvironment
     @State private var themeEngine = ThemeEngine()
+    @State private var updateManager = UpdateManager()
     @State private var notificationManager = NotificationManager()
     @FocusedValue(\.chatTabManager) private var focusedTabManager
 
@@ -48,6 +49,17 @@ struct DuckoApp: App {
         }
         .defaultSize(width: 500, height: 450)
         .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates...") {
+                    updateManager.checkForUpdates()
+                }
+                .disabled(!updateManager.canCheckForUpdates)
+
+                Button("Install Command Line Tools...") {
+                    CLIInstaller.installCLITools()
+                }
+            }
+
             CommandGroup(after: .newItem) {
                 Divider()
             }

@@ -40,6 +40,19 @@ After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., 
 
 Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` commands.
 
+## Packaging
+
+`version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `MARKETING_VERSION`, `BUILD_NUMBER`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.
+
+```
+Scripts/package_app.sh [debug|release]   # build + assemble .app bundle
+Scripts/compile_and_run.sh               # package + launch (dev loop)
+Scripts/create_dmg.sh                    # wrap .app in DMG
+Scripts/release.sh                       # build, sign, notarize, DMG, zip
+```
+
+`Resources/Entitlements.plist` holds app entitlements. `Resources/Assets.car` is the precompiled Liquid Glass icon.
+
 ## Dev/Prod Isolation
 
 `BuildEnvironment` (in DuckoCore) centralizes `#if DEBUG` config. Debug builds use separate storage to avoid polluting production data:

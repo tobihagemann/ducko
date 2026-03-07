@@ -18,6 +18,10 @@ DerivedData/
 # Docs
 docs/
 
+# App bundles & packaging artifacts
+*.app/
+*.dmg
+
 # Environment & Secrets
 .env
 .env.local
