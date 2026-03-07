@@ -230,8 +230,8 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.dim)\u{2713} delivery receipt: \(messageID) from \(from.bareJID)\(Color.reset)"
         case let .messageCorrected(_, newBody, from):
             return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
-        case let .messageError(_, from, errorText):
-            return "\(Color.red)message error from \(from.bareJID): \(errorText)\(Color.reset)"
+        case let .messageError(_, from, error):
+            return "\(Color.red)message error from \(from.bareJID): \(error.displayText)\(Color.reset)"
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
@@ -252,8 +252,9 @@ struct ANSIFormatter: CLIFormatter {
         switch reason {
         case .requested:
             return "\(Color.yellow)disconnected\(Color.reset)"
-        case let .streamError(message):
-            return "\(Color.red)disconnected: stream error: \(message)\(Color.reset)"
+        case let .streamError(condition, text):
+            let detail = text ?? condition?.rawValue ?? "unknown"
+            return "\(Color.red)disconnected: stream error: \(detail)\(Color.reset)"
         case let .connectionLost(message):
             return "\(Color.red)disconnected: connection lost: \(message)\(Color.reset)"
         }

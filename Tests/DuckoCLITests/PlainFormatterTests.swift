@@ -291,7 +291,8 @@ struct PlainFormatterTests {
 
     @Test func `format event message error`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
-        let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, errorText: "not allowed"), accountID: UUID()))
+        let error = XMPPStanzaError(errorType: .modify, condition: .notAllowed, text: "not allowed")
+        let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, error: error), accountID: UUID()))
         #expect(output.contains("error"))
         #expect(output.contains("not allowed"))
     }

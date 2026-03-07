@@ -240,7 +240,11 @@ public final class AccountService {
             switch reason {
             case .requested:
                 connectionStates[accountID] = .disconnected
-            case let .streamError(message), let .connectionLost(message):
+            case let .streamError(condition, text):
+                let message = text ?? condition?.rawValue ?? "Stream error"
+                connectionStates[accountID] = .error(message)
+                scheduleReconnect(accountID: accountID)
+            case let .connectionLost(message):
                 connectionStates[accountID] = .error(message)
                 scheduleReconnect(accountID: accountID)
             }

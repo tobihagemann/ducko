@@ -25,12 +25,23 @@ public enum XMPPStreamError: String, Sendable {
     case unsupportedFeature = "unsupported-feature"
     case unsupportedStanzaType = "unsupported-stanza-type"
     case unsupportedVersion = "unsupported-version"
+
+    /// Parses a stream error condition from a `<stream:error>` element.
+    public static func parse(from element: XMLElement) -> XMPPStreamError? {
+        for case let .element(child) in element.children
+            where child.namespace == XMPPNamespaces.streams {
+            if let condition = XMPPStreamError(rawValue: child.name) {
+                return condition
+            }
+        }
+        return nil
+    }
 }
 
 // MARK: - XMPPStanzaError
 
 /// XMPP stanza-level error per RFC 6120 §8.3.3.
-public struct XMPPStanzaError: Sendable {
+public struct XMPPStanzaError: Sendable, Error {
     public let errorType: ErrorType
     public let condition: Condition
     public let text: String?
@@ -39,6 +50,31 @@ public struct XMPPStanzaError: Sendable {
         self.errorType = errorType
         self.condition = condition
         self.text = text
+    }
+
+    /// Human-readable description: prefers `text`, falls back to `condition.rawValue`.
+    public var displayText: String {
+        text ?? condition.rawValue
+    }
+
+    /// Parses a stanza error from an `<error>` child element.
+    public static func parse(from element: XMLElement?) -> XMPPStanzaError? {
+        guard let element else { return nil }
+
+        let errorType = element.attribute("type").flatMap(ErrorType.init(rawValue:)) ?? .cancel
+
+        var condition: Condition?
+        var text: String?
+        for case let .element(child) in element.children where child.namespace == XMPPNamespaces.stanzas {
+            if child.name == "text" {
+                text = child.textContent
+            } else if let parsed = Condition(rawValue: child.name) {
+                condition = parsed
+            }
+        }
+
+        guard let condition else { return nil }
+        return XMPPStanzaError(errorType: errorType, condition: condition, text: text)
     }
 
     public enum ErrorType: String, Sendable {

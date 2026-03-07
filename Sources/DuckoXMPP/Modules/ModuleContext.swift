@@ -2,7 +2,8 @@
 public struct ModuleContext: Sendable {
     /// Sends a stanza over the connection.
     public let sendStanza: @Sendable (any XMPPStanza) async throws -> Void
-    /// Sends an IQ and awaits the matching result/error response. Returns `nil` for IQ errors.
+    /// Sends an IQ and awaits the matching result response. Returns `nil` for result IQs with no child.
+    /// Throws ``XMPPStanzaError`` for IQ errors.
     public let sendIQ: @Sendable (XMPPIQ) async throws -> XMLElement?
     /// Emits a domain event to the client's event stream.
     public let emitEvent: @Sendable (XMPPEvent) -> Void

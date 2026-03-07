@@ -226,7 +226,7 @@ enum XMPPClientTests {
         }
 
         @Test
-        func `sendIQ returns nil for error response`() async throws {
+        func `sendIQ throws stanza error for error response`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -248,8 +248,13 @@ enum XMPPClientTests {
                 "<iq type='error' id='test-iq-2'><error type='cancel'><item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>"
             )
 
-            let result = try await iqTask.value
-            #expect(result == nil)
+            do {
+                _ = try await iqTask.value
+                Issue.record("Expected XMPPStanzaError to be thrown")
+            } catch let error as XMPPStanzaError {
+                #expect(error.errorType == .cancel)
+                #expect(error.condition == .itemNotFound)
+            }
 
             await client.disconnect()
         }

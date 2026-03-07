@@ -33,10 +33,15 @@ public final class RosterModule: XMPPModule, Sendable {
         let query = XMLElement(name: "query", namespace: XMPPNamespaces.roster)
         iq.element.addChild(query)
 
-        guard let result = try await context.sendIQ(iq) else {
-            log.warning("Roster GET returned error")
+        let result: XMLElement?
+        do {
+            result = try await context.sendIQ(iq)
+        } catch is XMPPStanzaError {
+            log.warning("Roster GET returned stanza error")
             return
         }
+
+        guard let result else { return }
 
         let items = result.children(named: "item").compactMap(RosterItem.parse)
 

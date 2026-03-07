@@ -33,10 +33,15 @@ public final class BlockingModule: XMPPModule, Sendable {
         let blocklist = XMLElement(name: "blocklist", namespace: XMPPNamespaces.blocking)
         iq.element.addChild(blocklist)
 
-        guard let result = try await context.sendIQ(iq) else {
-            log.warning("Block list GET returned error")
+        let result: XMLElement?
+        do {
+            result = try await context.sendIQ(iq)
+        } catch is XMPPStanzaError {
+            log.warning("Block list GET returned stanza error")
             return
         }
+
+        guard let result else { return }
 
         let jids = result.children(named: "item").compactMap { element -> BareJID? in
             guard let jidStr = element.attribute("jid") else { return nil }

@@ -21,13 +21,9 @@ public final class ChatModule: XMPPModule, Sendable {
 
         // Error messages
         if message.messageType == .error {
-            let errorText = message.element.child(named: "error")?.child(named: "text")?.textContent
-                ?? message.element.child(named: "error")?.children.compactMap({ node -> String? in
-                    guard case let .element(child) = node, child.name != "text" else { return nil }
-                    return child.name
-                }).first
-                ?? "Unknown error"
-            context?.emitEvent(.messageError(messageID: message.id, from: from, errorText: errorText))
+            let stanzaError = XMPPStanzaError.parse(from: message.element.child(named: "error"))
+                ?? XMPPStanzaError(errorType: .cancel, condition: .undefinedCondition)
+            context?.emitEvent(.messageError(messageID: message.id, from: from, error: stanzaError))
             return
         }
 

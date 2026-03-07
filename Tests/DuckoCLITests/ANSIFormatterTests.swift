@@ -201,7 +201,8 @@ struct ANSIFormatterTests {
 
     @Test func `message error event uses red`() throws {
         let jid = try #require(JID.parse("alice@example.com/res"))
-        let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, errorText: "failed"), accountID: UUID()))
+        let error = XMPPStanzaError(errorType: .cancel, condition: .serviceUnavailable, text: "failed")
+        let output = try #require(formatter.formatEvent(.messageError(messageID: "msg-1", from: jid, error: error), accountID: UUID()))
         #expect(output.contains("\u{001B}[31m")) // red
     }
 

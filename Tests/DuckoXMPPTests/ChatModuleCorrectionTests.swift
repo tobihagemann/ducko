@@ -132,12 +132,12 @@ enum ChatModuleCorrectionTests {
             """)
 
             let events = try await eventsTask.value
-            guard case let .messageError(messageID, from, errorText) = events.last else {
+            guard case let .messageError(messageID, from, error) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected messageError")
             }
             #expect(messageID == "msg-err")
             #expect(from.bareJID.description == "contact@example.com")
-            #expect(errorText == "service-unavailable")
+            #expect(error.condition == .serviceUnavailable)
 
             await client.disconnect()
         }

@@ -448,8 +448,8 @@ public final class ChatService {
             handleChatStateChanged(from: from, state: chatState)
         case let .messageCorrected(originalID, newBody, _):
             await handleMessageCorrected(originalID: originalID, newBody: newBody)
-        case let .messageError(messageID, _, errorText):
-            await handleMessageError(messageID: messageID, errorText: errorText)
+        case let .messageError(messageID, _, error):
+            await handleMessageError(messageID: messageID, errorText: error.displayText)
         case .rosterLoaded:
             Task { [weak self] in
                 await self?.syncRecentHistory(accountID: accountID)

@@ -37,8 +37,9 @@ enum ChatServiceErrorTests {
             await store.addMessage(message)
 
             let from = try #require(JID.parse("contact@example.com/res"))
+            let stanzaError = XMPPStanzaError(errorType: .cancel, condition: .serviceUnavailable)
             await service.handleEvent(
-                .messageError(messageID: "msg-err-1", from: from, errorText: "service-unavailable"),
+                .messageError(messageID: "msg-err-1", from: from, error: stanzaError),
                 accountID: testAccountID
             )
 
@@ -53,8 +54,9 @@ enum ChatServiceErrorTests {
             let service = makeChatService(store: store)
 
             let from = try #require(JID.parse("contact@example.com/res"))
+            let stanzaError = XMPPStanzaError(errorType: .cancel, condition: .undefinedCondition, text: "error")
             await service.handleEvent(
-                .messageError(messageID: nil, from: from, errorText: "error"),
+                .messageError(messageID: nil, from: from, error: stanzaError),
                 accountID: testAccountID
             )
 

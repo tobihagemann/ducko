@@ -175,8 +175,8 @@ struct PlainFormatter: CLIFormatter {
             return "delivery receipt: \(messageID) from \(from.bareJID)"
         case let .messageCorrected(_, newBody, from):
             return "message corrected by \(from.bareJID): \(newBody)"
-        case let .messageError(_, from, errorText):
-            return "message error from \(from.bareJID): \(errorText)"
+        case let .messageError(_, from, error):
+            return "message error from \(from.bareJID): \(error.displayText)"
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
@@ -197,8 +197,9 @@ struct PlainFormatter: CLIFormatter {
         switch reason {
         case .requested:
             return "disconnected"
-        case let .streamError(message):
-            return "disconnected: stream error: \(message)"
+        case let .streamError(condition, text):
+            let detail = text ?? condition?.rawValue ?? "unknown"
+            return "disconnected: stream error: \(detail)"
         case let .connectionLost(message):
             return "disconnected: connection lost: \(message)"
         }

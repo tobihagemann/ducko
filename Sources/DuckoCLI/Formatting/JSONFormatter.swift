@@ -137,8 +137,15 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "delivery_receipt", "messageID": messageID, "from": from.bareJID.description, "account": account])
         case let .messageCorrected(originalID, newBody, from):
             return encode(["type": "message_corrected", "originalID": originalID, "newBody": newBody, "from": from.bareJID.description, "account": account])
-        case let .messageError(_, from, errorText):
-            return encode(["type": "message_error", "from": from.bareJID.description, "error": errorText, "account": account])
+        case let .messageError(_, from, error):
+            var dict: [String: String] = [
+                "type": "message_error",
+                "from": from.bareJID.description,
+                "condition": error.condition.rawValue,
+                "account": account
+            ]
+            if let text = error.text { dict["text"] = text }
+            return encode(dict)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
@@ -160,9 +167,10 @@ struct JSONFormatter: CLIFormatter {
         switch reason {
         case .requested:
             dict["reason"] = "requested"
-        case let .streamError(message):
+        case let .streamError(condition, text):
             dict["reason"] = "stream_error"
-            dict["message"] = message
+            if let condition { dict["condition"] = condition.rawValue }
+            if let text { dict["text"] = text }
         case let .connectionLost(message):
             dict["reason"] = "connection_lost"
             dict["message"] = message
