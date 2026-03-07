@@ -26,13 +26,23 @@ struct ContactRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                } else if contact.isPendingSubscription {
+                    Text("Pending approval")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(1)
+                } else if presence == nil, let lastSeen = contact.lastSeen {
+                    Text("Last seen \(lastSeen, style: .relative)")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
                 }
             }
 
             Spacer()
 
             if theme.current.showPresenceIndicators {
-                PresenceIndicator(status: presence)
+                PresenceIndicator(status: presence, isPendingSubscription: contact.isPendingSubscription)
             }
         }
         .padding(.vertical, 2)

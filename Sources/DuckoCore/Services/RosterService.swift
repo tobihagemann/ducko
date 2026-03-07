@@ -99,6 +99,15 @@ public final class RosterService {
         try await loadContacts(for: accountID)
     }
 
+    func updateLastSeen(jid: BareJID, date: Date, accountID: UUID) async {
+        let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
+        guard let contact = contacts.first(where: { $0.jid == jid }) else { return }
+        var updated = contact
+        updated.lastSeen = date
+        try? await store.upsertContact(updated)
+        try? await loadContacts(for: accountID)
+    }
+
     // MARK: - Blocking (XEP-0191)
 
     public func blockContact(jidString: String, accountID: UUID) async throws {
@@ -129,9 +138,13 @@ public final class RosterService {
             await handleBlockStateChanged(jid, isBlocked: true, accountID: accountID)
         case let .contactUnblocked(jid):
             await handleBlockStateChanged(jid, isBlocked: false, accountID: accountID)
+        case let .presenceUpdated(from, presence):
+            if presence.presenceType == .unavailable {
+                await updateLastSeen(jid: from.bareJID, date: Date(), accountID: accountID)
+            }
         case .connected, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
-             .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,

@@ -24,6 +24,10 @@ public struct Contact: Sendable, Identifiable {
         localAlias ?? name ?? jid.description
     }
 
+    public var isPendingSubscription: Bool {
+        ask == "subscribe"
+    }
+
     public init(
         id: UUID,
         accountID: UUID,

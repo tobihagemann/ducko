@@ -18,6 +18,11 @@ struct MessageBubbleView: View {
         message.body.isEmpty && message.attachments.count == 1 && message.attachments[0].isImage
     }
 
+    private var parsedHTMLBody: AttributedString? {
+        guard let html = message.htmlBody else { return nil }
+        return HTMLAttributedStringParser.parse(html)
+    }
+
     var body: some View {
         HStack {
             if message.isOutgoing { Spacer(minLength: 60) }
@@ -47,7 +52,11 @@ struct MessageBubbleView: View {
                         }
 
                         if !message.body.isEmpty {
-                            Text(message.body)
+                            if let attributedString = parsedHTMLBody {
+                                Text(attributedString)
+                            } else {
+                                Text(message.body)
+                            }
                         }
 
                         if theme.current.showLinkPreviews, let preview = windowState.linkPreview(for: message) {

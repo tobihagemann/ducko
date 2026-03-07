@@ -288,6 +288,7 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
 
         if let record = try modelContext.fetch(descriptor).first {
             record.body = newBody
+            record.htmlBody = nil
             record.isEdited = isEdited
             record.editedAt = editedAt
             try modelContext.save()

@@ -19,9 +19,10 @@ struct MessageMetadataView: View {
             }
 
             if message.isEdited {
-                Text("(edited)")
+                Text(editedLabel)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .help(editedTooltip)
             }
 
             if message.errorText != nil {
@@ -32,5 +33,16 @@ struct MessageMetadataView: View {
         }
         .opacity(isVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.15), value: isVisible)
+    }
+
+    private var editedLabel: String {
+        if let editedAt = message.editedAt {
+            return "(edited \(editedAt.formatted(.relative(presentation: .named))))"
+        }
+        return "(edited)"
+    }
+
+    private var editedTooltip: String {
+        message.editedAt?.formatted(date: .abbreviated, time: .standard) ?? ""
     }
 }

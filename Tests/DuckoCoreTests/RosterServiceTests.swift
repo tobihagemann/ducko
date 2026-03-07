@@ -23,9 +23,10 @@ private func makeRosterItem(
     jid: BareJID,
     name: String? = nil,
     subscription: RosterItem.Subscription = .both,
+    ask: Bool = false,
     groups: [String] = []
 ) -> RosterItem {
-    RosterItem(jid: jid, name: name, subscription: subscription, groups: groups)
+    RosterItem(jid: jid, name: name, subscription: subscription, ask: ask, groups: groups)
 }
 
 private func makeContact(
@@ -353,6 +354,68 @@ enum RosterServiceTests {
 
             let updated = try await store.fetchContacts(for: testAccountID)
             #expect(updated[0].localAlias == "Ally")
+        }
+    }
+
+    struct UpdateLastSeen {
+        @Test
+        @MainActor
+        func `updateLastSeen persists date for matching contact`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
+            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+
+            let date = Date()
+            await service.updateLastSeen(jid: contactJID1, date: date, accountID: testAccountID)
+
+            let contacts = try await store.fetchContacts(for: testAccountID)
+            #expect(contacts[0].lastSeen == date)
+        }
+
+        @Test
+        @MainActor
+        func `updateLastSeen is no-op for unknown JID`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
+            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+
+            let unknownJID = try #require(BareJID(localPart: "unknown", domainPart: "example.com"))
+            await service.updateLastSeen(jid: unknownJID, date: Date(), accountID: testAccountID)
+
+            let contacts = try await store.fetchContacts(for: testAccountID)
+            #expect(contacts[0].lastSeen == nil)
+        }
+    }
+
+    struct AskField {
+        @Test
+        @MainActor
+        func `Roster item with ask=true produces contact with ask=subscribe`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            let items = [makeRosterItem(jid: contactJID1, name: "Alice", ask: true)]
+            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+
+            let contacts = try await store.fetchContacts(for: testAccountID)
+            #expect(contacts[0].ask == "subscribe")
+        }
+
+        @Test
+        @MainActor
+        func `Roster item with ask=false produces contact with nil ask`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            let items = [makeRosterItem(jid: contactJID1, name: "Alice", ask: false)]
+            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+
+            let contacts = try await store.fetchContacts(for: testAccountID)
+            #expect(contacts[0].ask == nil)
         }
     }
 }
