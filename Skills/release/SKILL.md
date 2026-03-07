@@ -11,7 +11,6 @@ All script invocations require `dangerouslyDisableSandbox: true`.
 
 Update `version.env`:
 - `MARKETING_VERSION` — user-facing version (e.g., `0.2.0`)
-- `BUILD_NUMBER` — must increase for every release (Sparkle requirement)
 
 Commit the version bump.
 

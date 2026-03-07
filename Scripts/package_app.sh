@@ -7,6 +7,9 @@ cd "$ROOT"
 
 source "$ROOT/version.env"
 
+# Derive build number from git commit count (monotonically increasing for Sparkle).
+BUILD_NUMBER=$(git rev-list --count HEAD 2>/dev/null || echo "1")
+
 EXEC_NAME=${EXEC_NAME:-DuckoApp}
 CLI_NAME=${CLI_NAME:-DuckoCLI}
 MACOS_MIN_VERSION=${MACOS_MIN_VERSION:-26.0}
