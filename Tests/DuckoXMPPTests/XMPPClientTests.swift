@@ -84,6 +84,7 @@ private func simulateSessionConnectFlow(_ mock: MockTransport) async {
 
 // MARK: - Tests
 
+@Suite(.timeLimit(.minutes(1)))
 enum XMPPClientTests {
     struct ConnectFlow {
         @Test

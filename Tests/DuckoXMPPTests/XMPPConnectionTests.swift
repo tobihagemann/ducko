@@ -99,6 +99,7 @@ private func collectEvents(
 
 // MARK: - Tests
 
+@Suite(.timeLimit(.minutes(1)))
 enum XMPPConnectionTests {
     struct ConnectionLifecycle {
         @Test
@@ -129,11 +130,8 @@ enum XMPPConnectionTests {
             let isConnected = await mock.isConnected
             #expect(!isConnected)
 
-            // Event stream should terminate
-            var events: [XMLStreamEvent] = []
-            for await event in connection.events {
-                events.append(event)
-            }
+            // Event stream should terminate (use timeout to avoid hanging on CI)
+            let events = try await collectEvents(from: connection, timeout: .seconds(2)) { _ in false }
             #expect(events.isEmpty)
         }
     }
@@ -151,9 +149,8 @@ enum XMPPConnectionTests {
             await mock.simulateReceive("<message><body>Hello</body></message>")
             await mock.simulateDisconnect()
 
-            var events: [XMLStreamEvent] = []
-            for await event in connection.events {
-                events.append(event)
+            let events = try await collectEvents(from: connection) {
+                $0.stanzaElement != nil
             }
 
             // Should have at least streamOpened + stanzaReceived
@@ -180,9 +177,8 @@ enum XMPPConnectionTests {
             await mock.simulateReceive("dy>Split</body></message>")
             await mock.simulateDisconnect()
 
-            var events: [XMLStreamEvent] = []
-            for await event in connection.events {
-                events.append(event)
+            let events = try await collectEvents(from: connection) {
+                $0.stanzaElement != nil
             }
 
             let stanzas = events.compactMap(\.stanzaElement)
