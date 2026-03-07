@@ -1,13 +1,12 @@
-/// Orchestrates transport, XML stream parser, and event forwarding for an XMPP connection.
+/// Orchestrates transport, XML stream parser, and event delivery for an XMPP connection.
 ///
 /// Owns a single unified ``events`` stream that survives parser resets across TLS upgrades.
-/// On ``upgradeTLS(serverName:)``, the current parser is closed, a fresh one is created,
-/// and event forwarding resumes — matching XMPP's "new stream" semantics.
+/// On ``upgradeTLS(serverName:)``, the current parser is closed and a fresh one is created
+/// — matching XMPP's "new stream" semantics.
 actor XMPPConnection {
     private let transport: any XMPPTransport
     private var parser: XMPPStreamParser
     private var receiveTask: Task<Void, Never>?
-    private var forwardTask: Task<Void, Never>?
 
     private let eventContinuation: AsyncStream<XMLStreamEvent>.Continuation
 
@@ -42,17 +41,15 @@ actor XMPPConnection {
     /// Direct connect to a specific host and port.
     func connect(host: String, port: UInt16) async throws {
         try await transport.connect(host: host, port: port)
-        startForwarding()
         startReceiving()
     }
 
     // MARK: - TLS
 
-    /// Upgrades the transport to TLS, resets the parser, and resumes event forwarding.
+    /// Upgrades the transport to TLS and resets the parser.
     ///
-    /// Only the forward task is stopped — the receive task continues running.
-    /// Parser access is actor-isolated, so queued `feedParser` calls will
-    /// execute against the new parser after the swap.
+    /// The receive task continues running. Parser access is actor-isolated,
+    /// so queued `feedParser` calls will execute against the new parser after the swap.
     func upgradeTLS(serverName: String) async throws {
         resetStream()
         try await transport.upgradeTLS(serverName: serverName)
@@ -62,14 +59,10 @@ actor XMPPConnection {
 
     /// Resets the parser for a new XMPP stream (e.g. after SASL authentication).
     ///
-    /// The receive task continues running — only the forward task is restarted
-    /// with the new parser's event stream.
+    /// The receive task continues running — only the parser is replaced.
     func resetStream() {
-        forwardTask?.cancel()
-        forwardTask = nil
-        parser.close()
+        _ = parser.close()
         parser = XMPPStreamParser()
-        startForwarding()
     }
 
     // MARK: - Sending
@@ -84,25 +77,12 @@ actor XMPPConnection {
     /// Clean shutdown: stops tasks, closes parser, disconnects transport, finishes event stream.
     func disconnect() async {
         stopTasks()
-        parser.close()
+        _ = parser.close()
         await transport.disconnect()
         eventContinuation.finish()
     }
 
     // MARK: - Private
-
-    private func startForwarding() {
-        let parserEvents = parser.events
-        let continuation = eventContinuation
-        forwardTask = Task {
-            for await event in parserEvents {
-                continuation.yield(event)
-            }
-            if !Task.isCancelled {
-                continuation.finish()
-            }
-        }
-    }
 
     private func startReceiving() {
         let receivedData = transport.receivedData
@@ -112,22 +92,31 @@ actor XMPPConnection {
             }
             if !Task.isCancelled {
                 await self?.closeParser()
+                await self?.finishEvents()
             }
         }
     }
 
     private func feedParser(_ bytes: [UInt8]) {
-        parser.parse(bytes)
+        let events = parser.parse(bytes)
+        for event in events {
+            eventContinuation.yield(event)
+        }
     }
 
     private func closeParser() {
-        parser.close()
+        let events = parser.close()
+        for event in events {
+            eventContinuation.yield(event)
+        }
+    }
+
+    private func finishEvents() {
+        eventContinuation.finish()
     }
 
     private func stopTasks() {
         receiveTask?.cancel()
         receiveTask = nil
-        forwardTask?.cancel()
-        forwardTask = nil
     }
 }

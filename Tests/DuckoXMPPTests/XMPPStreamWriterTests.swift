@@ -69,22 +69,18 @@ enum XMPPStreamWriterTests {
 
     struct RoundTrip {
         @Test
-        func `Writer output can be parsed by parser`() async throws {
+        func `Writer output can be parsed by parser`() throws {
             var msg = XMLElement(name: "message", attributes: ["type": "chat"])
             var body = XMLElement(name: "body")
             body.addText("Hello")
             msg.addChild(body)
 
             let parser = XMPPStreamParser()
-            parser.parse(XMPPStreamWriter.streamOpening(to: "example.com"))
-            parser.parse(XMPPStreamWriter.stanza(msg))
-            parser.parse(XMPPStreamWriter.streamClosing())
-            parser.close()
-
             var events: [XMLStreamEvent] = []
-            for await event in parser.events {
-                events.append(event)
-            }
+            events.append(contentsOf: parser.parse(XMPPStreamWriter.streamOpening(to: "example.com")))
+            events.append(contentsOf: parser.parse(XMPPStreamWriter.stanza(msg)))
+            events.append(contentsOf: parser.parse(XMPPStreamWriter.streamClosing()))
+            events.append(contentsOf: parser.close())
 
             try #require(events.count == 3)
 

@@ -214,7 +214,7 @@ enum XMPPClientTests {
                 return try await client.sendIQ(iq)
             }
 
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
             await mock.simulateReceive(
                 "<iq type='result' id='test-iq-1'><query xmlns='jabber:iq:roster'><item jid='contact@example.com'/></query></iq>"
             )
@@ -243,7 +243,7 @@ enum XMPPClientTests {
                 return try await client.sendIQ(iq)
             }
 
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
             await mock.simulateReceive(
                 "<iq type='error' id='test-iq-2'><error type='cancel'><item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>"
             )
@@ -272,7 +272,7 @@ enum XMPPClientTests {
                 return try await client.sendIQ(iq)
             }
 
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
             await client.disconnect()
 
             do {
@@ -511,13 +511,12 @@ enum XMPPClientTests {
                 return try await client.sendIQ(iq, timeout: .seconds(5))
             }
 
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
 
             // Response from wrong JID — should NOT satisfy the pending IQ
             await mock.simulateReceive(
                 "<iq type='result' id='test-jid-match' from='eve@evil.com'><wrong/></iq>"
             )
-            try? await Task.sleep(for: .milliseconds(100))
 
             // Response from correct JID — should satisfy the pending IQ
             await mock.simulateReceive(
@@ -549,7 +548,7 @@ enum XMPPClientTests {
                 return try await client.sendIQ(iq, timeout: .seconds(5))
             }
 
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
             await mock.simulateReceive(
                 "<iq type='result' id='test-server-iq'><query xmlns='jabber:iq:roster'/></iq>"
             )

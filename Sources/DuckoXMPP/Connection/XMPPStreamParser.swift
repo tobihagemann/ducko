@@ -2,27 +2,21 @@ import CLibxml2
 
 /// Incremental XML stream parser for XMPP using libxml2 SAX2 push parsing.
 ///
-/// Feed raw bytes via ``parse(_:)`` and consume events from ``events``.
+/// Feed raw bytes via ``parse(_:)`` and collect returned events synchronously.
 /// The parser tracks element depth to handle the XMPP stream lifecycle:
 /// depth 0→1 emits ``XMLStreamEvent/streamOpened(attributes:)``,
 /// depth 2→1 emits ``XMLStreamEvent/stanzaReceived(_:)``,
 /// and depth 1→0 emits ``XMLStreamEvent/streamClosed``.
 final class XMPPStreamParser {
-    let events: AsyncStream<XMLStreamEvent>
-    private let continuation: AsyncStream<XMLStreamEvent>.Continuation
-
     private var parserCtxt: xmlParserCtxtPtr?
     private var depth = 0
     private var elementStack: [XMLElement] = []
     private var contentNamespace: String?
     private var hasError = false
     private var isClosing = false
+    private var pendingEvents: [XMLStreamEvent] = []
 
     init() {
-        let (stream, continuation) = AsyncStream.makeStream(of: XMLStreamEvent.self)
-        self.events = stream
-        self.continuation = continuation
-
         var sax = xmlSAXHandler()
         sax.initialized = XML_SAX2_MAGIC
         sax.startElementNs = saxStartElementNs
@@ -41,28 +35,32 @@ final class XMPPStreamParser {
             }
             xmlFreeParserCtxt(ctx)
         }
-        continuation.finish()
     }
 
     // MARK: - Feeding Data
 
-    /// Feed raw bytes into the parser. SAX callbacks fire synchronously.
-    func parse(_ bytes: [UInt8]) {
-        guard !hasError, let ctx = parserCtxt, !bytes.isEmpty else { return }
+    /// Feed raw bytes into the parser. SAX callbacks fire synchronously and events are returned.
+    @discardableResult
+    func parse(_ bytes: [UInt8]) -> [XMLStreamEvent] {
+        guard !hasError, let ctx = parserCtxt, !bytes.isEmpty else { return [] }
+        pendingEvents = []
         bytes.withUnsafeBufferPointer { buffer in
             buffer.baseAddress!.withMemoryRebound(to: CChar.self, capacity: buffer.count) { ptr in
                 _ = xmlParseChunk(ctx, ptr, Int32(buffer.count), 0)
             }
         }
+        return pendingEvents
     }
 
-    /// Terminates the parser and finishes the event stream.
-    func close() {
+    /// Terminates the parser and returns any final events.
+    @discardableResult
+    func close() -> [XMLStreamEvent] {
         isClosing = true
+        pendingEvents = []
         if let ctx = parserCtxt {
             _ = xmlParseChunk(ctx, nil, 0, 1)
         }
-        continuation.finish()
+        return pendingEvents
     }
 
     // MARK: - SAX Callback Handlers
@@ -87,7 +85,7 @@ final class XMPPStreamParser {
                     allAttrs["xmlns"] = nsURI
                 }
             }
-            continuation.yield(.streamOpened(attributes: allAttrs))
+            pendingEvents.append(.streamOpened(attributes: allAttrs))
         } else {
             // Building a stanza or nested element
             let ns = (namespaceURI != nil && namespaceURI != contentNamespace) ? namespaceURI : nil
@@ -99,10 +97,10 @@ final class XMPPStreamParser {
     fileprivate func handleEndElement() {
         switch depth {
         case 1:
-            continuation.yield(.streamClosed)
+            pendingEvents.append(.streamClosed)
         case 2:
             if let stanza = elementStack.popLast() {
-                continuation.yield(.stanzaReceived(stanza))
+                pendingEvents.append(.stanzaReceived(stanza))
             }
         default:
             if let child = elementStack.popLast() {
@@ -120,7 +118,7 @@ final class XMPPStreamParser {
     fileprivate func handleError(_ message: String) {
         guard !isClosing else { return }
         hasError = true
-        continuation.yield(.error(XMLStreamParseError(message: message)))
+        pendingEvents.append(.error(XMLStreamParseError(message: message)))
     }
 }
 
