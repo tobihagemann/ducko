@@ -2,6 +2,7 @@ import DuckoCore
 import SwiftUI
 
 struct MessageListView: View {
+    @Environment(ThemeEngine.self) private var theme
     let windowState: ChatWindowState
     @State private var hoveredMessageID: UUID?
 
@@ -39,10 +40,18 @@ struct MessageListView: View {
                             .padding()
                     }
 
-                    ForEach(messages) { message in
+                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
                         let pos = positions[message.id] ?? MessagePosition(isFirstInGroup: true, isLastInGroup: true)
-                        let repliedMessage = message.replyToID.flatMap { stanzaIDMap[$0] }
+                        let repliedMessage = message.replyToID.flatMap({ stanzaIDMap[$0] })
                         let isSearchResult = windowState.searchResults.contains(message.id)
+
+                        if theme.current.timestampStyle == .grouped, isNewDay(at: index) {
+                            Text(message.timestamp.formatted(date: .abbreviated, time: .omitted))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                        }
 
                         MessageBubbleView(
                             message: message,
@@ -78,5 +87,10 @@ struct MessageListView: View {
                 }
             }
         }
+    }
+
+    private func isNewDay(at index: Int) -> Bool {
+        guard index > 0 else { return true }
+        return !Calendar.current.isDate(messages[index].timestamp, inSameDayAs: messages[index - 1].timestamp)
     }
 }

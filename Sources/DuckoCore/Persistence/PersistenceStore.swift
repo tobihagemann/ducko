@@ -32,10 +32,6 @@ public protocol PersistenceStore: Sendable {
     func updateMessageBody(stanzaID: String, newBody: String, isEdited: Bool, editedAt: Date) async throws
     func updateMessageError(stanzaID: String, errorText: String) async throws
 
-    // MARK: - Attachments
-
-    func insertAttachment(_ attachment: Attachment, for messageID: UUID) async throws
-
     // MARK: - Link Previews
 
     func fetchLinkPreview(for url: String) async throws -> LinkPreview?

@@ -268,17 +268,4 @@ struct PlainFormatter: CLIFormatter {
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "[\(jid) is typing...]" : nil
     }
-
-    func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String {
-        switch state {
-        case .disconnected:
-            return "\(jid): disconnected"
-        case .connecting:
-            return "\(jid): connecting..."
-        case let .connected(fullJID):
-            return "\(jid): connected as \(fullJID)"
-        case let .error(message):
-            return "\(jid): error: \(message)"
-        }
-    }
 }

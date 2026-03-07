@@ -299,17 +299,4 @@ struct ANSIFormatter: CLIFormatter {
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "\(Color.dim)[\(jid) is typing...]\(Color.reset)" : nil
     }
-
-    func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String {
-        switch state {
-        case .disconnected:
-            return "\(Color.yellow)\(jid): disconnected\(Color.reset)"
-        case .connecting:
-            return "\(Color.yellow)\(jid): connecting...\(Color.reset)"
-        case let .connected(fullJID):
-            return "\(Color.green)\(jid): connected as \(fullJID)\(Color.reset)"
-        case let .error(message):
-            return "\(Color.red)\(jid): error: \(message)\(Color.reset)"
-        }
-    }
 }

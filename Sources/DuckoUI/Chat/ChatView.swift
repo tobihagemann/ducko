@@ -48,7 +48,7 @@ struct ChatView: View {
                 if windowState.isGroupchat, windowState.showParticipantSidebar {
                     Divider()
 
-                    ParticipantSidebar(roomJIDString: windowState.jidString)
+                    ParticipantSidebar(roomJIDString: windowState.jidString, roomNickname: windowState.conversation?.roomNickname)
                         .transition(.move(edge: .trailing))
                 }
             }

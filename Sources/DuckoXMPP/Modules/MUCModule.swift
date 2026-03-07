@@ -270,25 +270,6 @@ public final class MUCModule: XMPPModule, Sendable {
         try await context.sendStanza(message)
     }
 
-    /// Requests the room configuration form.
-    public func configureRoom(_ room: BareJID) async throws -> XMLElement? {
-        guard let context = state.withLock({ $0.context }) else { return nil }
-        var iq = XMPPIQ(type: .get, to: .bare(room), id: context.generateID())
-        let query = XMLElement(name: "query", namespace: XMPPNamespaces.mucOwner)
-        iq.element.addChild(query)
-        return try await context.sendIQ(iq)
-    }
-
-    /// Submits a room configuration form.
-    public func submitRoomConfig(_ room: BareJID, form: XMLElement) async throws {
-        guard let context = state.withLock({ $0.context }) else { return }
-        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
-        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucOwner)
-        query.addChild(form)
-        iq.element.addChild(query)
-        _ = try await context.sendIQ(iq)
-    }
-
     /// Kicks an occupant from the room by nickname.
     public func kickOccupant(nickname: String, from room: BareJID, reason: String? = nil) async throws {
         guard let context = state.withLock({ $0.context }) else { return }

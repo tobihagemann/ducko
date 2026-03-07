@@ -8,7 +8,7 @@ struct MessageMetadataView: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            Text(message.timestamp, style: .time)
+            timestampText
                 .font(theme.current.timestampFont.resolved)
                 .foregroundStyle(.secondary)
 
@@ -33,6 +33,29 @@ struct MessageMetadataView: View {
         }
         .opacity(isVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.15), value: isVisible)
+    }
+
+    @ViewBuilder
+    private var timestampText: some View {
+        if theme.current.timestampStyle == .grouped {
+            EmptyView()
+        } else if let format = theme.current.timestampFormat {
+            Text(formattedTimestamp(format))
+        } else {
+            Text(message.timestamp, style: .time)
+        }
+    }
+
+    private static var formatters: [String: DateFormatter] = [:]
+
+    private func formattedTimestamp(_ format: String) -> String {
+        let formatter = Self.formatters[format] ?? {
+            let f = DateFormatter()
+            f.dateFormat = format
+            Self.formatters[format] = f
+            return f
+        }()
+        return formatter.string(from: message.timestamp)
     }
 
     private var editedLabel: String {

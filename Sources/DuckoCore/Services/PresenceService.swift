@@ -66,12 +66,6 @@ public final class PresenceService {
         }
     }
 
-    public func goOnline(accountID: UUID) async {
-        myPresence = .available
-        myStatusMessage = nil
-        await sendPresence(accountID: accountID)
-    }
-
     public func removeSubscriptionRequest(_ jid: BareJID) {
         pendingSubscriptionRequests.removeAll { $0 == jid }
     }

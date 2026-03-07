@@ -285,26 +285,6 @@ struct JSONFormatter: CLIFormatter {
         ])
     }
 
-    func formatConnectionState(_ state: AccountService.ConnectionState, jid: BareJID) -> String {
-        var dict: [String: String] = [
-            "type": "connection_state",
-            "jid": jid.description
-        ]
-        switch state {
-        case .disconnected:
-            dict["state"] = "disconnected"
-        case .connecting:
-            dict["state"] = "connecting"
-        case let .connected(fullJID):
-            dict["state"] = "connected"
-            dict["fullJID"] = fullJID.description
-        case let .error(message):
-            dict["state"] = "error"
-            dict["message"] = message
-        }
-        return encode(dict)
-    }
-
     // MARK: - Room Formatting
 
     func formatRoom(_ room: DiscoveredRoom) -> String {

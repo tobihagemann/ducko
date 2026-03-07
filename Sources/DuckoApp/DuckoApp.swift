@@ -12,6 +12,7 @@ struct DuckoApp: App {
     @State private var updateManager = UpdateManager()
     @State private var notificationManager = NotificationManager()
     @FocusedValue(\.chatTabManager) private var focusedTabManager
+    @Environment(\.openWindow) private var openWindow
 
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
@@ -130,6 +131,10 @@ struct DuckoApp: App {
                 jidString: conversation.jid.description,
                 avatarData: nil
             )
+        }
+
+        notificationManager.onNotificationTapped = { [openWindow] jidString in
+            openWindow(id: "chat", value: jidString)
         }
     }
 }

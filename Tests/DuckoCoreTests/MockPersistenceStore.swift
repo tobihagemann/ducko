@@ -6,7 +6,6 @@ actor MockPersistenceStore: PersistenceStore {
     var contacts: [Contact] = []
     var conversations: [Conversation] = []
     var messages: [ChatMessage] = []
-    var attachments: [Attachment] = []
     var linkPreviews: [LinkPreview] = []
 
     // MARK: - Test Helpers
@@ -117,12 +116,6 @@ actor MockPersistenceStore: PersistenceStore {
         for index in messages.indices where messages[index].stanzaID == stanzaID {
             messages[index].errorText = errorText
         }
-    }
-
-    // MARK: - Attachments
-
-    func insertAttachment(_ attachment: Attachment, for messageID: UUID) async throws {
-        attachments.append(attachment)
     }
 
     // MARK: - Link Previews

@@ -160,7 +160,7 @@ public final class FileTransferService {
             mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         )
 
-        let resolved = resolveMethod(method)
+        let resolved = await resolveMethod(method, peerJIDString: peerJID ?? conversation.jid.description, accountID: accountID)
 
         switch resolved {
         case .httpUpload, .auto:
@@ -169,20 +169,6 @@ public final class FileTransferService {
             let peer = peerJID ?? conversation.jid.description
             return try await sendFileViaJingle(file, peer: peer, accountID: accountID, onProgress: onProgress)
         }
-    }
-
-    @discardableResult
-    public func sendImage(
-        data: Data, mimeType: String = "image/jpeg", in conversation: Conversation, accountID: UUID,
-        onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
-    ) async throws -> String {
-        let tempDir = FileManager.default.temporaryDirectory
-        let ext = UTType(mimeType: mimeType)?.preferredFilenameExtension ?? "jpg"
-        let fileName = "image-\(UUID().uuidString).\(ext)"
-        let tempURL = tempDir.appendingPathComponent(fileName)
-        try data.write(to: tempURL)
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-        return try await sendFile(url: tempURL, in: conversation, accountID: accountID, onProgress: onProgress)
     }
 
     // MARK: - Jingle Event Handling
@@ -257,14 +243,24 @@ public final class FileTransferService {
 
     // MARK: - Private: Method Resolution
 
-    private func resolveMethod(_ method: TransferMethod) -> TransferMethod {
+    private func resolveMethod(_ method: TransferMethod, peerJIDString: String, accountID: UUID) async -> TransferMethod {
         switch method {
         case .httpUpload, .jingle:
             return method
         case .auto:
-            // TODO: query peer disco for Jingle support in 1:1 chat
+            if FullJID.parse(peerJIDString) != nil,
+               let peerJID = BareJID.parse(peerJIDString),
+               await peerSupportsJingle(peerJID, accountID: accountID) {
+                return .jingle
+            }
             return .httpUpload
         }
+    }
+
+    private func peerSupportsJingle(_ peerJID: BareJID, accountID: UUID) async -> Bool {
+        guard let client = accountService?.client(for: accountID) else { return false }
+        guard let capsModule = await client.module(ofType: CapsModule.self) else { return false }
+        return capsModule.isFeatureSupported(XMPPNamespaces.jingle, by: peerJID)
     }
 
     // MARK: - Private: HTTP Upload

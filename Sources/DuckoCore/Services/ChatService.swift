@@ -78,6 +78,7 @@ public final class ChatService {
         try? await store.markMessagesRead(in: id)
         if let accountID {
             openConversations = await (try? store.fetchConversations(for: accountID)) ?? openConversations
+            await sendDisplayedMarkerForLatest(conversationID: id, accountID: accountID)
         }
     }
 
@@ -238,6 +239,16 @@ public final class ChatService {
         try await sendDisplayedMarker(to: jid, messageStanzaID: messageStanzaID, accountID: accountID)
     }
 
+    // MARK: - Private: Displayed Markers
+
+    private func sendDisplayedMarkerForLatest(conversationID: UUID, accountID: UUID) async {
+        guard let conversation = openConversations.first(where: { $0.id == conversationID }),
+              conversation.type == .chat else { return }
+        let latestIncoming = messages.last { !$0.isOutgoing && $0.stanzaID != nil }
+        guard let stanzaID = latestIncoming?.stanzaID else { return }
+        try? await sendDisplayedMarker(to: conversation.jid, messageStanzaID: stanzaID, accountID: accountID)
+    }
+
     // MARK: - MUC
 
     public func joinRoom(jid: BareJID, nickname: String, password: String? = nil, accountID: UUID) async throws {
@@ -360,6 +371,27 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.inviteUser(jid, to: roomJID, reason: reason)
+    }
+
+    public func kickOccupant(nickname: String, fromRoomJIDString roomJIDString: String, reason: String?, accountID: UUID) async throws {
+        guard let roomJID = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        try await mucModule.kickOccupant(nickname: nickname, from: roomJID, reason: reason)
+    }
+
+    public func banUser(jidString: String, fromRoomJIDString roomJIDString: String, reason: String?, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        guard let roomJID = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        try await mucModule.banUser(jid: jid, from: roomJID, reason: reason)
     }
 
     public func acceptInvite(_ invite: PendingRoomInvite, nickname: String, accountID: UUID) async throws {
@@ -627,7 +659,15 @@ public final class ChatService {
             type: "chat",
             replyToID: replyToID
         )
-        try? await persistMessage(message, in: conversation, incrementUnread: true, accountID: accountID)
+        let isActiveConversation = conversation.id == activeConversationID
+        try? await persistMessage(message, in: conversation, incrementUnread: !isActiveConversation, accountID: accountID)
+
+        if isActiveConversation {
+            try? await store.markMessagesRead(in: conversation.id)
+            if conversation.type == .chat, let stanzaID = message.stanzaID {
+                try? await sendDisplayedMarker(to: conversation.jid, messageStanzaID: stanzaID, accountID: accountID)
+            }
+        }
 
         onIncomingMessage?(message, conversation)
     }

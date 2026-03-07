@@ -362,42 +362,6 @@ struct SwiftDataPersistenceStoreTests {
         }
     }
 
-    // MARK: - Attachments
-
-    struct Attachments {
-        private let outer = SwiftDataPersistenceStoreTests()
-
-        @Test
-        func `Insert attachment for message`() async throws {
-            let store = try outer.makeStore()
-            let account = outer.makeAccount()
-            try await store.saveAccount(account)
-            let conversation = outer.makeConversation(accountID: account.id)
-            try await store.upsertConversation(conversation)
-            let message = outer.makeMessage(conversationID: conversation.id)
-            try await store.insertMessage(message)
-
-            let attachment = Attachment(
-                id: UUID(),
-                messageID: message.id,
-                url: "https://example.com/image.png",
-                mimeType: "image/png",
-                fileName: "image.png",
-                fileSize: 1024,
-                width: 800,
-                height: 600
-            )
-            try await store.insertAttachment(attachment, for: message.id)
-
-            // Verify by fetching the message — attachment count is implicit
-            // via the cascade relationship
-            let fetched = try await store.fetchMessages(
-                for: conversation.id, before: nil, limit: 50
-            )
-            #expect(fetched.count == 1)
-        }
-    }
-
     // MARK: - Cascade Deletes
 
     struct CascadeDeletes {
@@ -414,14 +378,6 @@ struct SwiftDataPersistenceStoreTests {
 
             let message = outer.makeMessage(conversationID: conversation.id)
             try await store.insertMessage(message)
-
-            let attachment = Attachment(
-                id: UUID(),
-                messageID: message.id,
-                url: "https://example.com/file.zip",
-                fileName: "file.zip"
-            )
-            try await store.insertAttachment(attachment, for: message.id)
 
             try await store.deleteAccount(account.id)
 

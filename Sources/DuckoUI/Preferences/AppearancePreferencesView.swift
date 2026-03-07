@@ -92,6 +92,11 @@ private struct ThemeCard: View {
                 Text(theme.name)
                     .font(.caption)
                     .lineLimit(1)
+
+                Text("by \(theme.author)")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             .padding(8)
             .background {

@@ -39,9 +39,4 @@ public struct XMPPMessage: XMPPStanza {
         get { element.childText(named: "subject") }
         set { element.setChildText(named: "subject", to: newValue) }
     }
-
-    public var thread: String? {
-        get { element.childText(named: "thread") }
-        set { element.setChildText(named: "thread", to: newValue) }
-    }
 }

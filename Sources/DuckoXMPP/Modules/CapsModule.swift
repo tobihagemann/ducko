@@ -10,6 +10,8 @@ public final class CapsModule: XMPPModule, Sendable {
         var context: ModuleContext?
         /// `nil` value means the hash was seen but features haven't been fetched yet.
         var capsCache: [String: Set<String>?] = [:]
+        /// Maps bare JIDs to their advertised verification hash.
+        var jidToVer: [BareJID: String] = [:]
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -61,14 +63,48 @@ public final class CapsModule: XMPPModule, Sendable {
 
     public func handlePresence(_ presence: XMPPPresence) throws {
         guard let capsChild = presence.element.child(named: "c", namespace: XMPPNamespaces.caps),
-              let ver = capsChild.attribute("ver") else {
+              let ver = capsChild.attribute("ver"),
+              let from = presence.from else {
             return
         }
 
-        // Record the ver hash as pending (features will be populated on disco#info lookup)
-        state.withLock { state in
-            if !state.capsCache.keys.contains(ver) {
-                state.capsCache[ver] = nil
+        let bareJID = from.bareJID
+        let capNode = capsChild.attribute("node")
+
+        let (needsQuery, context) = state.withLock { state -> (Bool, ModuleContext?) in
+            state.jidToVer[bareJID] = ver
+            if state.capsCache.keys.contains(ver) {
+                return (false, nil)
+            }
+            state.capsCache[ver] = nil
+            return (true, state.context)
+        }
+
+        if needsQuery, let context {
+            queryDiscoInfo(from: from, ver: ver, node: capNode, context: context)
+        }
+    }
+
+    private func queryDiscoInfo(from jid: JID, ver: String, node: String?, context: ModuleContext) {
+        Task {
+            do {
+                let queryNode = node.map { "\($0)#\(ver)" }
+                var iq = XMPPIQ(type: .get, to: jid, id: context.generateID())
+                var query = XMLElement(name: "query", namespace: XMPPNamespaces.discoInfo)
+                if let queryNode { query.setAttribute("node", value: queryNode) }
+                iq.element.addChild(query)
+
+                guard let result = try await context.sendIQ(iq) else { return }
+
+                let features: Set<String> = Set(
+                    result.children(named: "feature").compactMap { $0.attribute("var") }
+                )
+                state.withLock { $0.capsCache[ver] = features }
+                let count = features.count
+                log.info("Cached \(count) features for ver=\(ver)")
+            } catch {
+                let desc = error.localizedDescription
+                log.warning("Disco#info query failed for \(jid): \(desc)")
             }
         }
     }
@@ -84,6 +120,23 @@ public final class CapsModule: XMPPModule, Sendable {
     /// Stores features for a verification hash in the cache.
     public func cacheFeatures(_ features: Set<String>, for ver: String) {
         state.withLock { $0.capsCache[ver] = features }
+    }
+
+    /// Returns whether a bare JID supports a given feature, based on cached caps.
+    public func isFeatureSupported(_ feature: String, by bareJID: BareJID) -> Bool {
+        state.withLock { state in
+            guard let ver = state.jidToVer[bareJID],
+                  let features = state.capsCache[ver] ?? nil else {
+                return false
+            }
+            return features.contains(feature)
+        }
+    }
+
+    // MARK: - Lifecycle: Disconnect
+
+    public func handleDisconnect() async {
+        state.withLock { $0.jidToVer.removeAll() }
     }
 
     // MARK: - Verification String

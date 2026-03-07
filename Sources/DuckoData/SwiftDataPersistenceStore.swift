@@ -307,33 +307,6 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         }
     }
 
-    // MARK: - Attachments
-
-    public func insertAttachment(_ attachment: Attachment, for messageID: UUID) throws {
-        var messageDescriptor = FetchDescriptor<MessageRecord>(
-            predicate: #Predicate { $0.id == messageID }
-        )
-        messageDescriptor.fetchLimit = 1
-        guard let messageRecord = try modelContext.fetch(messageDescriptor).first else {
-            throw PersistenceStoreError.parentNotFound("MessageRecord(\(messageID))")
-        }
-
-        let record = AttachmentRecord(
-            id: attachment.id,
-            url: attachment.url,
-            mimeType: attachment.mimeType,
-            fileName: attachment.fileName,
-            fileSize: attachment.fileSize,
-            width: attachment.width,
-            height: attachment.height,
-            thumbnailData: attachment.thumbnailData,
-            localPath: attachment.localPath,
-            message: messageRecord
-        )
-        modelContext.insert(record)
-        try modelContext.save()
-    }
-
     // MARK: - Link Previews
 
     public func fetchLinkPreview(for url: String) throws -> LinkPreview? {
