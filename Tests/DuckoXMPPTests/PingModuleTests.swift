@@ -33,7 +33,7 @@ enum PingModuleTests {
                 "<iq type='get' from='example.com' id='ping-1'><ping xmlns='urn:xmpp:ping'/></iq>"
             )
 
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 1)
 
             let sentData = await mock.sentBytes
             let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
@@ -53,8 +53,8 @@ enum PingModuleTests {
 
             await mock.clearSentBytes()
 
-            // Wait for at least one keepalive ping (interval is 200ms)
-            try? await Task.sleep(for: .milliseconds(350))
+            // Wait for at least one keepalive ping
+            await mock.waitForSent(count: 1)
 
             let sentData = await mock.sentBytes
             let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
