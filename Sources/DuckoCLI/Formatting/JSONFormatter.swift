@@ -19,6 +19,9 @@ struct JSONFormatter: CLIFormatter {
             "body": message.body,
             "timestamp": formatTimestamp(message.timestamp)
         ]
+        if message.body.hasPrefix("/me ") {
+            dict["action"] = "true"
+        }
         if message.isDelivered {
             dict["delivered"] = "true"
         }
@@ -97,6 +100,10 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "authentication_failed", "message": message, "account": account])
         case let .messageReceived(message):
             return formatIncomingMessage(message, account: account)
+        case let .messageCarbonReceived(forwarded):
+            return formatCarbonEvent(forwarded, isOutgoing: false, account: account)
+        case let .messageCarbonSent(forwarded):
+            return formatCarbonEvent(forwarded, isOutgoing: true, account: account)
         case .presenceSubscriptionRequest, .deliveryReceiptReceived,
              .messageCorrected, .messageError:
             return formatMiscEvent(event, account: account)
@@ -109,12 +116,27 @@ struct JSONFormatter: CLIFormatter {
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
-             .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
+    }
+
+    private func formatCarbonEvent(_ forwarded: ForwardedMessage, isOutgoing: Bool, account: String) -> String? {
+        let jid = isOutgoing ? forwarded.message.to?.bareJID : forwarded.message.from?.bareJID
+        guard let jid, let body = forwarded.message.body else { return nil }
+        let jidKey = isOutgoing ? "to" : "from"
+        let direction = isOutgoing ? "outgoing" : "incoming"
+        var dict: [String: String] = [
+            "type": "message", "direction": direction, "carbon": "true",
+            jidKey: jid.description, "body": body,
+            "account": account, "timestamp": formatTimestamp(Date())
+        ]
+        if body.hasPrefix("/me ") {
+            dict["action"] = "true"
+        }
+        return encode(dict)
     }
 
     private func formatMiscEvent(_ event: XMPPEvent, account: String) -> String? {
@@ -168,10 +190,14 @@ struct JSONFormatter: CLIFormatter {
 
     private func formatIncomingMessage(_ message: XMPPMessage, account: String) -> String? {
         guard let from = message.from?.bareJID, let body = message.body else { return nil }
-        return encode([
+        var dict: [String: String] = [
             "type": "message", "direction": "incoming", "from": from.description,
             "body": body, "account": account, "timestamp": formatTimestamp(Date())
-        ])
+        ]
+        if body.hasPrefix("/me ") {
+            dict["action"] = "true"
+        }
+        return encode(dict)
     }
 
     private func formatJingleEvent(_ event: XMPPEvent, account: String) -> String? {
@@ -391,12 +417,16 @@ struct JSONFormatter: CLIFormatter {
     private func formatIncomingRoomMessage(_ message: XMPPMessage, account: String) -> String? {
         guard let from = message.from, let body = message.body else { return nil }
         let nickname = nicknameFromJID(from)
-        return encode([
+        var dict: [String: String] = [
             "type": "room_message", "direction": "incoming",
             "room": from.bareJID.description, "nickname": nickname,
             "body": body, "account": account,
             "timestamp": formatTimestamp(Date())
-        ])
+        ]
+        if body.hasPrefix("/me ") {
+            dict["action"] = "true"
+        }
+        return encode(dict)
     }
 
     // MARK: - Private

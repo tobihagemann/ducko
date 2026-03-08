@@ -14,6 +14,24 @@ struct MessageBubbleView: View {
         message.type == "groupchat" && !message.isOutgoing
     }
 
+    private var isActionMessage: Bool {
+        message.body.hasPrefix("/me ")
+    }
+
+    private var actionText: String {
+        String(message.body.dropFirst(4))
+    }
+
+    private var actionSenderName: String {
+        if message.isOutgoing {
+            return "You"
+        }
+        if isGroupchatIncoming {
+            return message.fromJID
+        }
+        return windowState.contact?.displayName ?? message.fromJID
+    }
+
     private var isImageOnlyMessage: Bool {
         message.body.isEmpty && message.attachments.count == 1 && message.attachments[0].isImage
     }
@@ -74,7 +92,10 @@ struct MessageBubbleView: View {
                         }
 
                         if !message.body.isEmpty {
-                            if let attributedString = parsedHTMLBody {
+                            if isActionMessage {
+                                Text("* \(actionSenderName) \(actionText)")
+                                    .italic()
+                            } else if let attributedString = parsedHTMLBody {
                                 Text(attributedString)
                             } else {
                                 Text(message.body)

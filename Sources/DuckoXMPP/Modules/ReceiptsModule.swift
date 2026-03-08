@@ -61,6 +61,7 @@ public final class ReceiptsModule: XMPPModule, Sendable {
             attributes: ["id": messageID]
         )
         message.element.addChild(marker)
+        message.element.addChild(XMLElement(name: "private", namespace: XMPPNamespaces.carbons))
         try await context.sendStanza(message)
     }
 
@@ -77,6 +78,7 @@ public final class ReceiptsModule: XMPPModule, Sendable {
                 attributes: ["id": messageID]
             )
             reply.element.addChild(received)
+            reply.element.addChild(XMLElement(name: "private", namespace: XMPPNamespaces.carbons))
             do {
                 try await context.sendStanza(reply)
             } catch {

@@ -12,7 +12,8 @@ actor CLIEventHandler {
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
-        case .messageReceived, .roomMessageReceived, .roomInviteReceived,
+        case .messageReceived, .messageCarbonReceived, .messageCarbonSent,
+             .roomMessageReceived, .roomInviteReceived,
              .jingleFileTransferReceived:
             if isInteractive, !(formatter is JSONFormatter) {
                 print("\u{07}", terminator: "")
@@ -29,7 +30,6 @@ actor CLIEventHandler {
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
-             .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,

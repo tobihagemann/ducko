@@ -6,7 +6,12 @@ struct PlainFormatter: CLIFormatter {
     func formatMessage(_ message: ChatMessage) -> String {
         let timestamp = iso8601(message.timestamp)
         let direction = message.isOutgoing ? "->" : "<-"
-        var line = "[\(timestamp)] \(direction) \(message.fromJID): \(message.body)"
+        let body = if message.body.hasPrefix("/me ") {
+            "* \(message.fromJID) \(message.body.dropFirst(4))"
+        } else {
+            "\(message.fromJID): \(message.body)"
+        }
+        var line = "[\(timestamp)] \(direction) \(body)"
         if message.isEdited {
             line += " [edited]"
         }
@@ -63,6 +68,10 @@ struct PlainFormatter: CLIFormatter {
             return "authentication failed: \(message)"
         case let .messageReceived(message):
             return formatIncomingMessage(message)
+        case let .messageCarbonReceived(forwarded):
+            return formatCarbonEvent(forwarded, isOutgoing: false)
+        case let .messageCarbonSent(forwarded):
+            return formatCarbonEvent(forwarded, isOutgoing: true)
         case .presenceSubscriptionRequest, .deliveryReceiptReceived,
              .messageCorrected, .messageError:
             return formatMiscEvent(event)
@@ -75,7 +84,6 @@ struct PlainFormatter: CLIFormatter {
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated,
-             .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -83,10 +91,28 @@ struct PlainFormatter: CLIFormatter {
         }
     }
 
+    private func formatCarbonEvent(_ forwarded: ForwardedMessage, isOutgoing: Bool) -> String? {
+        let jid = isOutgoing ? forwarded.message.to?.bareJID : forwarded.message.from?.bareJID
+        guard let jid, let body = forwarded.message.body else { return nil }
+        let timestamp = iso8601(Date())
+        let direction = isOutgoing ? "->" : "<-"
+        let formatted = if body.hasPrefix("/me ") {
+            "* \(jid) \(body.dropFirst(4))"
+        } else {
+            "\(jid): \(body)"
+        }
+        return "[\(timestamp)] \(direction) \(formatted) [carbon]"
+    }
+
     private func formatIncomingMessage(_ message: XMPPMessage) -> String? {
         guard let from = message.from?.bareJID, let body = message.body else { return nil }
         let timestamp = iso8601(Date())
-        return "[\(timestamp)] <- \(from): \(body)"
+        let formatted = if body.hasPrefix("/me ") {
+            "* \(from) \(body.dropFirst(4))"
+        } else {
+            "\(from): \(body)"
+        }
+        return "[\(timestamp)] <- \(formatted)"
     }
 
     private func formatMUCEvent(_ event: XMPPEvent) -> String? {
@@ -112,16 +138,12 @@ struct PlainFormatter: CLIFormatter {
             }
             return line
         case let .roomMessageReceived(message):
-            guard let from = message.from, let body = message.body else { return nil }
-            let nickname = nicknameFromJID(from)
-            let timestamp = iso8601(Date())
-            return "[\(timestamp)] <- \(from.bareJID)/\(nickname): \(body)"
+            return formatIncomingRoomMessage(message)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
+             .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
@@ -129,6 +151,18 @@ struct PlainFormatter: CLIFormatter {
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
+    }
+
+    private func formatIncomingRoomMessage(_ message: XMPPMessage) -> String? {
+        guard let from = message.from, let body = message.body else { return nil }
+        let nickname = nicknameFromJID(from)
+        let timestamp = iso8601(Date())
+        let formatted = if body.hasPrefix("/me ") {
+            "* \(nickname) \(body.dropFirst(4))"
+        } else {
+            "\(from.bareJID)/\(nickname): \(body)"
+        }
+        return "[\(timestamp)] <- \(formatted)"
     }
 
     private func formatJingleEvent(_ event: XMPPEvent) -> String? {

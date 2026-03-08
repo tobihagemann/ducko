@@ -96,9 +96,24 @@ public final class CapsModule: XMPPModule, Sendable {
 
                 guard let result = try await context.sendIQ(iq) else { return }
 
+                let identities = result.children(named: "identity").map { identity in
+                    ServiceDiscoveryModule.Identity(
+                        category: identity.attribute("category") ?? "",
+                        type: identity.attribute("type") ?? "",
+                        name: identity.attribute("name")
+                    )
+                }
                 let features: Set<String> = Set(
-                    result.children(named: "feature").compactMap { $0.attribute("var") }
+                    result.children(named: "feature").compactMap({ $0.attribute("var") })
                 )
+
+                let computedVer = Self.generateVerificationString(identities: identities, features: features)
+                guard computedVer == ver else {
+                    log.warning("Caps hash mismatch for ver=\(ver), computed=\(computedVer)")
+                    state.withLock { _ = $0.capsCache.removeValue(forKey: ver) }
+                    return
+                }
+
                 state.withLock { $0.capsCache[ver] = features }
                 let count = features.count
                 log.info("Cached \(count) features for ver=\(ver)")

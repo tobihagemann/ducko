@@ -38,6 +38,7 @@ public final class ChatStatesModule: XMPPModule, Sendable {
         var message = XMPPMessage(type: .chat, to: recipient, id: context.generateID())
         let child = XMLElement(name: chatState.rawValue, namespace: XMPPNamespaces.chatStates)
         message.element.addChild(child)
+        message.element.addChild(XMLElement(name: "private", namespace: XMPPNamespaces.carbons))
         try await context.sendStanza(message)
     }
 }

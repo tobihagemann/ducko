@@ -103,6 +103,107 @@ enum CapsModuleTests {
         }
     }
 
+    struct HashValidation {
+        @Test
+        func `Valid hash caches features`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+            let capsModule = CapsModule()
+            await client.register(capsModule)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            // Compute a known ver hash
+            let testIdentities = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "TestClient")
+            ]
+            let testFeatures: Set = ["urn:xmpp:ping", "urn:xmpp:receipts"]
+            let expectedVer = CapsModule.generateVerificationString(
+                identities: testIdentities, features: testFeatures
+            )
+
+            // Simulate presence with this ver
+            await mock.simulateReceive(
+                "<presence from='peer@example.com/res'><c xmlns='http://jabber.org/protocol/caps' hash='sha-1' node='http://test.example' ver='\(expectedVer)'/></presence>"
+            )
+
+            // Wait for disco#info IQ
+            await mock.waitForSent(count: 6)
+            let sentData = await mock.sentBytes
+            let lastSent = try String(decoding: #require(sentData.last), as: UTF8.self)
+            let iqID = try #require(extractIQID(from: lastSent))
+
+            // Respond with matching identities and features
+            await mock.simulateReceive("""
+            <iq type='result' id='\(iqID)' from='peer@example.com/res'>\
+            <query xmlns='http://jabber.org/protocol/disco#info' node='http://test.example#\(expectedVer)'>\
+            <identity category='client' type='pc' name='TestClient'/>\
+            <feature var='urn:xmpp:ping'/>\
+            <feature var='urn:xmpp:receipts'/>\
+            </query>\
+            </iq>
+            """)
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let peerJID = try #require(BareJID.parse("peer@example.com"))
+            #expect(capsModule.isFeatureSupported("urn:xmpp:ping", by: peerJID))
+            #expect(capsModule.isFeatureSupported("urn:xmpp:receipts", by: peerJID))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Invalid hash rejects features`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+            let capsModule = CapsModule()
+            await client.register(capsModule)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            // Use a fabricated ver hash
+            let fakeVer = "fakehash123"
+
+            await mock.simulateReceive(
+                "<presence from='evil@example.com/res'><c xmlns='http://jabber.org/protocol/caps' hash='sha-1' node='http://evil.example' ver='\(fakeVer)'/></presence>"
+            )
+
+            // Wait for disco#info IQ
+            await mock.waitForSent(count: 6)
+            let sentData = await mock.sentBytes
+            let lastSent = try String(decoding: #require(sentData.last), as: UTF8.self)
+            let iqID = try #require(extractIQID(from: lastSent))
+
+            // Respond with data that does NOT match the fakeVer hash
+            await mock.simulateReceive("""
+            <iq type='result' id='\(iqID)' from='evil@example.com/res'>\
+            <query xmlns='http://jabber.org/protocol/disco#info' node='http://evil.example#\(fakeVer)'>\
+            <identity category='client' type='pc' name='EvilClient'/>\
+            <feature var='urn:xmpp:poisoned'/>\
+            </query>\
+            </iq>
+            """)
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let evilJID = try #require(BareJID.parse("evil@example.com"))
+            #expect(!capsModule.isFeatureSupported("urn:xmpp:poisoned", by: evilJID))
+
+            await client.disconnect()
+        }
+    }
+
     struct FeatureSupported {
         @Test
         func `Returns true when JID has cached feature`() async throws {

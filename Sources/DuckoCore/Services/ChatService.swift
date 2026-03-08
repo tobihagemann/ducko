@@ -429,6 +429,8 @@ public final class ChatService {
         switch event {
         case let .messageReceived(xmppMessage):
             await handleMessageReceived(xmppMessage, accountID: accountID)
+        case .messageCarbonReceived, .messageCarbonSent:
+            await handleCarbonEvent(event, accountID: accountID)
         case let .deliveryReceiptReceived(messageID, _):
             await handleDeliveryReceipt(messageID: messageID)
         case let .chatMarkerReceived(messageID, markerType, _):
@@ -443,8 +445,17 @@ public final class ChatService {
             Task { [weak self] in
                 await self?.syncRecentHistory(accountID: accountID)
             }
-        default:
+        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
             await handleMUCEvent(event, accountID: accountID)
+        case .connected, .disconnected, .authenticationFailed,
+             .presenceReceived, .iqReceived,
+             .rosterItemChanged, .presenceUpdated, .presenceSubscriptionRequest,
+             .archivedMessagesLoaded,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            break
         }
     }
 
@@ -462,7 +473,39 @@ public final class ChatService {
             await handleRoomSubjectChanged(room: room, subject: subject, accountID: accountID)
         case let .roomInviteReceived(invite):
             handleRoomInviteReceived(invite)
-        default:
+        case .connected, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected, .messageError,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            break
+        }
+    }
+
+    private func handleCarbonEvent(_ event: XMPPEvent, accountID: UUID) async {
+        switch event {
+        case let .messageCarbonReceived(forwarded):
+            await handleCarbon(forwarded, accountID: accountID, isOutgoing: false)
+        case let .messageCarbonSent(forwarded):
+            await handleCarbon(forwarded, accountID: accountID, isOutgoing: true)
+        case .connected, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             break
         }
     }
@@ -661,6 +704,54 @@ public final class ChatService {
         onIncomingMessage?(message, conversation)
     }
 
+    private func handleCarbon(_ forwarded: ForwardedMessage, accountID: UUID, isOutgoing: Bool) async {
+        let jid = isOutgoing ? forwarded.message.to?.bareJID : forwarded.message.from?.bareJID
+        guard forwarded.message.messageType != .groupchat,
+              let body = forwarded.message.body,
+              let jid else { return }
+
+        if await isDuplicate(stanzaID: forwarded.message.id, from: jid, accountID: accountID) {
+            return
+        }
+
+        let conversation: Conversation
+        do {
+            conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
+        } catch {
+            return
+        }
+
+        let content = MessageContent(body: body)
+        let filterDirection: FilterDirection = isOutgoing ? .outgoing : .incoming
+        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
+        let filtered = await filterPipeline.process(content, direction: filterDirection, context: filterContext)
+
+        let timestamp = parseISO8601Timestamp(forwarded.timestamp)
+
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: conversation.id,
+            stanzaID: forwarded.message.id,
+            fromJID: jid.description,
+            body: filtered.body,
+            htmlBody: filtered.htmlBody,
+            timestamp: timestamp,
+            isOutgoing: isOutgoing,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        try? await persistMessage(message, in: conversation, accountID: accountID)
+    }
+
+    private func parseISO8601Timestamp(_ stamp: String?) -> Date {
+        guard let stamp else { return Date() }
+        let isoStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+        let basicStyle = Date.ISO8601FormatStyle()
+        return (try? isoStyle.parse(stamp)) ?? (try? basicStyle.parse(stamp)) ?? Date()
+    }
+
     private func persistMessage(
         _ message: ChatMessage,
         in conversation: Conversation,
@@ -779,8 +870,6 @@ public final class ChatService {
         conversation: Conversation,
         accountJID: BareJID
     ) async throws -> [ChatMessage] {
-        let isoStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
-        let basicStyle = Date.ISO8601FormatStyle()
         var newMessages: [ChatMessage] = []
 
         for entry in archived {
@@ -797,11 +886,7 @@ public final class ChatService {
                 }
             }
 
-            let timestamp: Date = if let stamp = forwarded.timestamp {
-                (try? isoStyle.parse(stamp)) ?? (try? basicStyle.parse(stamp)) ?? Date()
-            } else {
-                Date()
-            }
+            let timestamp = parseISO8601Timestamp(forwarded.timestamp)
 
             let meta = resolveMessageMeta(forwarded: forwarded, conversation: conversation, accountJID: accountJID)
 
