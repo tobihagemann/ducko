@@ -142,19 +142,48 @@ struct ContactListView: View {
 // MARK: - RoomRowWithMenu
 
 private struct RoomRowWithMenu: View {
+    @Environment(AppEnvironment.self) private var environment
     let conversation: Conversation
     @State private var isShowingInviteSheet = false
+    @State private var isShowingSettingsSheet = false
+
+    private var isNewlyCreated: Bool {
+        environment.chatService.newlyCreatedRoomJIDs.contains(conversation.jid.description)
+    }
 
     var body: some View {
         RoomRow(conversation: conversation)
             .contextMenu {
                 RoomContextMenu(
                     conversation: conversation,
-                    isShowingInviteSheet: $isShowingInviteSheet
+                    isShowingInviteSheet: $isShowingInviteSheet,
+                    isShowingSettingsSheet: $isShowingSettingsSheet
                 )
             }
             .sheet(isPresented: $isShowingInviteSheet) {
                 InviteUserSheet(conversation: conversation)
+            }
+            .sheet(
+                isPresented: $isShowingSettingsSheet,
+                onDismiss: {
+                    environment.chatService.clearNewlyCreatedRoom(conversation.jid.description)
+                },
+                content: {
+                    RoomSettingsView(
+                        roomJIDString: conversation.jid.description,
+                        accountID: conversation.accountID
+                    )
+                }
+            )
+            .onChange(of: isNewlyCreated) {
+                if isNewlyCreated {
+                    isShowingSettingsSheet = true
+                }
+            }
+            .onAppear {
+                if isNewlyCreated {
+                    isShowingSettingsSheet = true
+                }
             }
     }
 }

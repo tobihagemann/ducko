@@ -108,7 +108,8 @@ struct JSONFormatter: CLIFormatter {
              .messageCorrected, .messageError:
             return formatMiscEvent(event, account: account)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .roomOccupantNickChanged, .roomSubjectChanged,
+             .roomInviteReceived, .roomMessageReceived, .roomDestroyed:
             return formatMUCEvent(event, account: account)
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
@@ -164,7 +165,9 @@ struct JSONFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -235,7 +238,9 @@ struct JSONFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -356,12 +361,14 @@ struct JSONFormatter: CLIFormatter {
 
     private func formatMUCEvent(_ event: XMPPEvent, account: String) -> String? {
         switch event {
-        case let .roomJoined(room, occupancy):
-            return formatRoomJoinedEvent(room: room, occupancy: occupancy, account: account)
+        case let .roomJoined(room, occupancy, isNewlyCreated):
+            return formatRoomJoinedEvent(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated, account: account)
         case let .roomOccupantJoined(room, occupant):
             return encode(["type": "room_occupant_joined", "room": room.description, "nickname": occupant.nickname, "account": account])
         case let .roomOccupantLeft(room, occupant):
             return encode(["type": "room_occupant_left", "room": room.description, "nickname": occupant.nickname, "account": account])
+        case let .roomOccupantNickChanged(room, oldNickname, occupant):
+            return encode(["type": "room_nick_changed", "room": room.description, "old_nickname": oldNickname, "new_nickname": occupant.nickname, "account": account])
         case let .roomSubjectChanged(room, subject, setter):
             return formatRoomSubjectEvent(room: room, subject: subject, setter: setter, account: account)
         case let .roomInviteReceived(invite):
@@ -375,6 +382,8 @@ struct JSONFormatter: CLIFormatter {
             return encode(dict)
         case let .roomMessageReceived(message):
             return formatIncomingRoomMessage(message, account: account)
+        case let .roomDestroyed(room, reason, alternate):
+            return formatRoomDestroyedEvent(room: room, reason: reason, alternate: alternate, account: account)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
@@ -390,16 +399,30 @@ struct JSONFormatter: CLIFormatter {
         }
     }
 
-    private func formatRoomJoinedEvent(room: BareJID, occupancy: RoomOccupancy, account: String) -> String {
+    private func formatRoomJoinedEvent(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool, account: String) -> String {
         var dict: [String: String] = [
             "type": "room_joined", "room": room.description,
             "nickname": occupancy.nickname,
             "participants": "\(occupancy.occupants.count)",
             "account": account
         ]
+        if isNewlyCreated {
+            dict["newly_created"] = "true"
+        }
         if let subject = occupancy.subject {
             dict["subject"] = subject
         }
+        return encode(dict)
+    }
+
+    private func formatRoomDestroyedEvent(room: BareJID, reason: String?, alternate: BareJID?, account: String) -> String {
+        var dict: [String: String] = [
+            "type": "room_destroyed",
+            "room": room.description,
+            "account": account
+        ]
+        if let reason { dict["reason"] = reason }
+        if let alternate { dict["alternate"] = alternate.description }
         return encode(dict)
     }
 

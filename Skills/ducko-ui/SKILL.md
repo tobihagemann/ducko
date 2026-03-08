@@ -68,6 +68,16 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `attachment-view` | Attachment in message bubble | Chat |
 | `image-preview` | Full-size image preview sheet | Chat |
 | `link-preview` | Link preview card in message bubble | Chat |
+| `room-settings-menu-item` | "Room Settings..." context menu item | Contacts |
+| `room-settings-view` | Room settings sheet (tabs + destroy) | Room Settings |
+| `room-settings-destroy` | Destroy Room button | Room Settings |
+| `room-config-view` | Room config form (General tab) | Room Settings |
+| `room-config-save` | Save config button | Room Settings |
+| `affiliation-list-view` | Affiliation list (Members tab) | Room Settings |
+| `affiliation-jid-field` | JID input for adding affiliation | Room Settings |
+| `affiliation-add-button` | Add affiliation button | Room Settings |
+| `change-nickname-menu-item` | "Change Nickname…" on self in sidebar | Chat (sidebar) |
+| `change-nickname-field` | Nickname text field in change alert | Chat (sidebar) |
 | `my-profile-toolbar-button` | My Profile toolbar button | Contacts |
 | `profile-edit-view` | Profile editing sheet | Contacts |
 | `profile-fullname-field` | Full Name text field | Profile |
@@ -97,6 +107,7 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `ducko-join-room.sh` | Open Join Room sheet, fill room JID + nickname, join | `ROOM_JID [NICKNAME]` |
 | `ducko-toggle-sidebar.sh` | Toggle participant sidebar in active groupchat window | none |
 | `ducko-focus-contacts.sh` | Raise the Contacts window to the front | none |
+| `ducko-room-settings.sh` | Open Room Settings sheet via context menu | `ROOM_JID` |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
 | `ducko-profile.sh` | Open My Profile sheet from contact list toolbar | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
@@ -255,6 +266,31 @@ $SCRIPTS/ducko-focus-contacts.sh
 $SCRIPTS/ducko-screenshot.sh "muc-rooms-section.png"
 
 # 7. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Room settings test
+
+Tests room settings — open settings sheet from context menu, view config and affiliations:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and join a room you own
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-join-room.sh "room@conference.example.com" "mynick"
+
+# 2. Focus contacts and open Room Settings via context menu
+$SCRIPTS/ducko-focus-contacts.sh
+$SCRIPTS/ducko-room-settings.sh "room@conference.example.com"
+
+# 3. Screenshot room settings (General tab with config form)
+$SCRIPTS/ducko-screenshot.sh "room-settings-general.png"
+
+# 4. Switch to Members tab to see affiliation list
+$SCRIPTS/ducko-screenshot.sh "room-settings-members.png"
+
+# 5. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 

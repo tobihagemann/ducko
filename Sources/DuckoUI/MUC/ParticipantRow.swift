@@ -6,16 +6,35 @@ struct ParticipantRow: View {
     let participant: RoomParticipant
     let myParticipant: RoomParticipant?
     let roomJIDString: String
+    @State private var isNickChangePresented = false
+    @State private var newNickname = ""
+
+    private var isSelf: Bool {
+        guard let me = myParticipant else { return false }
+        return participant.nickname == me.nickname
+    }
+
+    private var isOtherParticipant: Bool {
+        guard let me = myParticipant else { return false }
+        return participant.nickname != me.nickname
+    }
 
     private var canKick: Bool {
-        guard let me = myParticipant else { return false }
-        return me.role == .moderator && participant.nickname != me.nickname
+        myParticipant?.role == .moderator && isOtherParticipant
     }
 
     private var canBan: Bool {
-        guard let me = myParticipant else { return false }
-        let isAdminOrOwner = me.affiliation == .admin || me.affiliation == .owner
-        return isAdminOrOwner && participant.nickname != me.nickname && participant.jidString != nil
+        let aff = myParticipant?.affiliation
+        let isAdminOrOwner = aff == .admin || aff == .owner
+        return isAdminOrOwner && isOtherParticipant && participant.jidString != nil
+    }
+
+    private var canGrantVoice: Bool {
+        myParticipant?.role == .moderator && isOtherParticipant && participant.role == .visitor
+    }
+
+    private var canRevokeVoice: Bool {
+        myParticipant?.role == .moderator && isOtherParticipant && participant.role == .participant
     }
 
     private var accountID: UUID? {
@@ -69,6 +88,55 @@ struct ParticipantRow: View {
                     }
                 }
             }
+
+            if canGrantVoice {
+                Button("Grant Voice") {
+                    Task {
+                        guard let accountID else { return }
+                        try? await environment.chatService.grantVoice(
+                            nickname: participant.nickname,
+                            inRoomJIDString: roomJIDString,
+                            accountID: accountID
+                        )
+                    }
+                }
+            }
+
+            if canRevokeVoice {
+                Button("Revoke Voice") {
+                    Task {
+                        guard let accountID else { return }
+                        try? await environment.chatService.revokeVoice(
+                            nickname: participant.nickname,
+                            inRoomJIDString: roomJIDString,
+                            accountID: accountID
+                        )
+                    }
+                }
+            }
+
+            if isSelf {
+                Button("Change Nickname…") {
+                    newNickname = participant.nickname
+                    isNickChangePresented = true
+                }
+                .accessibilityIdentifier("change-nickname-menu-item")
+            }
+        }
+        .alert("Change Nickname", isPresented: $isNickChangePresented) {
+            TextField("Nickname", text: $newNickname)
+                .accessibilityIdentifier("change-nickname-field")
+            Button("Change") {
+                Task {
+                    guard let accountID, !newNickname.isEmpty else { return }
+                    try? await environment.chatService.changeRoomNickname(
+                        jidString: roomJIDString,
+                        newNickname: newNickname,
+                        accountID: accountID
+                    )
+                }
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 }

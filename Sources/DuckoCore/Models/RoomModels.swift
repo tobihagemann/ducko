@@ -82,6 +82,56 @@ public struct DiscoveredRoom: Sendable, Identifiable {
     }
 }
 
+// MARK: - Room Config Field
+
+/// Bridge type for `DataFormField` so DuckoUI can edit room config without importing DuckoXMPP.
+public struct RoomConfigField: Sendable, Identifiable {
+    public var id: String {
+        variable
+    }
+
+    public let variable: String
+    public let type: String?
+    public let label: String?
+    public var values: [String]
+    public let options: [(label: String?, value: String)]
+
+    public init(
+        variable: String,
+        type: String? = nil,
+        label: String? = nil,
+        values: [String] = [],
+        options: [(label: String?, value: String)] = []
+    ) {
+        self.variable = variable
+        self.type = type
+        self.label = label
+        self.values = values
+        self.options = options
+    }
+}
+
+// MARK: - Room Affiliation Item
+
+/// Bridge type for `MUCAffiliationItem` so DuckoUI can manage affiliations without importing DuckoXMPP.
+public struct RoomAffiliationItem: Sendable, Identifiable {
+    public var id: String {
+        jidString
+    }
+
+    public let jidString: String
+    public let affiliation: RoomAffiliation
+    public let nickname: String?
+    public let reason: String?
+
+    public init(jidString: String, affiliation: RoomAffiliation, nickname: String? = nil, reason: String? = nil) {
+        self.jidString = jidString
+        self.affiliation = affiliation
+        self.nickname = nickname
+        self.reason = reason
+    }
+}
+
 // MARK: - Pending Room Invite
 
 public struct PendingRoomInvite: Sendable, Identifiable {

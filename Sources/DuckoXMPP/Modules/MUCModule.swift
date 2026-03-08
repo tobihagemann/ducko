@@ -9,6 +9,7 @@ public final class MUCModule: XMPPModule, Sendable {
     private struct RoomState {
         var nickname: String
         var password: String?
+        var history: RoomHistoryFetch = .initial
         var occupants: [String: RoomOccupant] = [:]
         var subject: String?
     }
@@ -16,6 +17,7 @@ public final class MUCModule: XMPPModule, Sendable {
     private struct State {
         var context: ModuleContext?
         var rooms: [BareJID: RoomState] = [:]
+        var pendingNickChanges: [BareJID: [String: RoomOccupant]] = [:]
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -40,7 +42,7 @@ public final class MUCModule: XMPPModule, Sendable {
 
         // Auto-rejoin previously joined rooms
         for (room, roomState) in rooms {
-            let presence = buildJoinPresence(room: room, nickname: roomState.nickname, password: roomState.password, context: context)
+            let presence = buildJoinPresence(room: room, nickname: roomState.nickname, password: roomState.password, history: roomState.history, context: context)
             do {
                 try await context.sendStanza(presence)
             } catch {
@@ -54,10 +56,24 @@ public final class MUCModule: XMPPModule, Sendable {
             for key in state.rooms.keys {
                 state.rooms[key]?.occupants.removeAll()
             }
+            state.pendingNickChanges.removeAll()
         }
     }
 
     // MARK: - Presence Handling
+
+    /// Groups parsed presence info passed between presence-handling methods.
+    private struct PresenceInfo {
+        let roomJID: BareJID
+        let nickname: String
+        let occupant: RoomOccupant
+        let item: XMLElement?
+        let mucUser: XMLElement?
+        let statusCodes: Set<Int>
+        var isSelfPresence: Bool {
+            statusCodes.contains(110)
+        }
+    }
 
     public func handlePresence(_ presence: XMPPPresence) throws {
         guard let from = presence.from,
@@ -71,30 +87,83 @@ public final class MUCModule: XMPPModule, Sendable {
         guard isTracked else { return }
 
         let mucUser = presence.element.child(named: "x", namespace: XMPPNamespaces.mucUser)
-
-        // Parse occupant from muc#user item
         let item = mucUser?.child(named: "item")
         let occupant: RoomOccupant = if let item, let parsed = RoomOccupant.parse(item, nickname: nickname) {
             parsed
         } else {
-            // Minimal occupant if no muc#user element
             RoomOccupant(nickname: nickname, affiliation: .none, role: .participant)
         }
 
-        // Check for status codes
-        let statusCodes = parseStatusCodes(mucUser)
-        let isSelfPresence = statusCodes.contains(110)
+        let info = PresenceInfo(
+            roomJID: roomJID, nickname: nickname, occupant: occupant,
+            item: item, mucUser: mucUser, statusCodes: parseStatusCodes(mucUser)
+        )
 
         if presence.presenceType == .unavailable {
-            handleOccupantLeft(roomJID: roomJID, nickname: nickname, occupant: occupant, context: context)
-        } else if isSelfPresence {
-            handleSelfJoined(roomJID: roomJID, nickname: nickname, occupant: occupant, context: context)
+            handleUnavailablePresence(info, context: context)
         } else {
-            handleOccupantJoined(roomJID: roomJID, nickname: nickname, occupant: occupant, context: context)
+            handleAvailablePresence(info, context: context)
         }
     }
 
-    private func handleSelfJoined(roomJID: BareJID, nickname: String, occupant: RoomOccupant, context: ModuleContext?) {
+    private func handleUnavailablePresence(_ info: PresenceInfo, context: ModuleContext?) {
+        // Nick change (status 303): store old occupant under new nick, don't emit leave
+        if info.statusCodes.contains(303), let newNick = info.item?.attribute("nick") {
+            state.withLock { state in
+                var pending = state.pendingNickChanges[info.roomJID] ?? [:]
+                pending[newNick] = info.occupant
+                state.pendingNickChanges[info.roomJID] = pending
+            }
+            return
+        }
+
+        // Room destruction: check for <destroy> in muc#user
+        if info.isSelfPresence, let destroy = info.mucUser?.child(named: "destroy") {
+            let reason = destroy.child(named: "reason")?.textContent
+            let alternateVenue = destroy.attribute("jid").flatMap { BareJID.parse($0) }
+            state.withLock { state in
+                state.rooms.removeValue(forKey: info.roomJID)
+                state.pendingNickChanges.removeValue(forKey: info.roomJID)
+            }
+            log.info("Room \(info.roomJID) was destroyed")
+            context?.emitEvent(.roomDestroyed(room: info.roomJID, reason: reason, alternateVenue: alternateVenue))
+            return
+        }
+
+        handleOccupantLeft(roomJID: info.roomJID, nickname: info.nickname, occupant: info.occupant, context: context)
+    }
+
+    private func handleAvailablePresence(_ info: PresenceInfo, context: ModuleContext?) {
+        // Check if this is the second half of a nick change
+        let pendingOccupant = state.withLock { state -> RoomOccupant? in
+            state.pendingNickChanges[info.roomJID]?.removeValue(forKey: info.nickname)
+        }
+
+        if let pendingOccupant {
+            let oldNickname = pendingOccupant.nickname
+            state.withLock { state in
+                state.rooms[info.roomJID]?.occupants.removeValue(forKey: oldNickname)
+                state.rooms[info.roomJID]?.occupants[info.nickname] = info.occupant
+                if info.isSelfPresence {
+                    state.rooms[info.roomJID]?.nickname = info.nickname
+                }
+            }
+            log.info("Occupant \(oldNickname) changed nick to \(info.nickname) in \(info.roomJID)")
+            context?.emitEvent(.roomOccupantNickChanged(room: info.roomJID, oldNickname: oldNickname, occupant: info.occupant))
+        } else if info.isSelfPresence {
+            handleSelfJoined(roomJID: info.roomJID, nickname: info.nickname, occupant: info.occupant, statusCodes: info.statusCodes, context: context)
+        } else {
+            handleOccupantJoined(roomJID: info.roomJID, nickname: info.nickname, occupant: info.occupant, context: context)
+        }
+    }
+
+    private func handleSelfJoined(
+        roomJID: BareJID,
+        nickname: String,
+        occupant: RoomOccupant,
+        statusCodes: Set<Int>,
+        context: ModuleContext?
+    ) {
         let occupancy = state.withLock { state -> RoomOccupancy in
             state.rooms[roomJID]?.occupants[nickname] = occupant
             guard let room = state.rooms[roomJID] else {
@@ -106,8 +175,9 @@ public final class MUCModule: XMPPModule, Sendable {
                 subject: room.subject
             )
         }
-        log.info("Joined room \(roomJID) as \(nickname)")
-        context?.emitEvent(.roomJoined(room: roomJID, occupancy: occupancy))
+        let isNewlyCreated = statusCodes.contains(201)
+        log.info("Joined room \(roomJID) as \(nickname)\(isNewlyCreated ? " [new room]" : "")")
+        context?.emitEvent(.roomJoined(room: roomJID, occupancy: occupancy, isNewlyCreated: isNewlyCreated))
     }
 
     private func handleOccupantJoined(roomJID: BareJID, nickname: String, occupant: RoomOccupant, context: ModuleContext?) {
@@ -210,14 +280,14 @@ public final class MUCModule: XMPPModule, Sendable {
     // MARK: - Public API
 
     /// Joins a MUC room with the given nickname.
-    public func joinRoom(_ room: BareJID, nickname: String, password: String? = nil) async throws {
+    public func joinRoom(_ room: BareJID, nickname: String, password: String? = nil, history: RoomHistoryFetch = .initial) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
         state.withLock { state in
-            state.rooms[room] = RoomState(nickname: nickname, password: password)
+            state.rooms[room] = RoomState(nickname: nickname, password: password, history: history)
         }
 
-        let presence = buildJoinPresence(room: room, nickname: nickname, password: password, context: context)
+        let presence = buildJoinPresence(room: room, nickname: nickname, password: password, history: history, context: context)
         try await context.sendStanza(presence)
         log.info("Joining room \(room) as \(nickname)")
     }
@@ -229,6 +299,7 @@ public final class MUCModule: XMPPModule, Sendable {
         let nickname = state.withLock { state -> String? in
             let nick = state.rooms[room]?.nickname
             state.rooms.removeValue(forKey: room)
+            state.pendingNickChanges.removeValue(forKey: room)
             return nick
         }
         guard let nickname else { return }
@@ -268,26 +339,12 @@ public final class MUCModule: XMPPModule, Sendable {
 
     /// Kicks an occupant from the room by nickname.
     public func kickOccupant(nickname: String, from room: BareJID, reason: String? = nil) async throws {
-        guard let context = state.withLock({ $0.context }) else { return }
-        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
-        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucAdmin)
-        var item = XMLElement(name: "item", attributes: ["nick": nickname, "role": "none"])
-        appendReason(reason, to: &item)
-        query.addChild(item)
-        iq.element.addChild(query)
-        _ = try await context.sendIQ(iq)
+        try await setRole(nickname: nickname, in: room, to: .none, reason: reason)
     }
 
     /// Bans a user from the room by JID.
     public func banUser(jid: BareJID, from room: BareJID, reason: String? = nil) async throws {
-        guard let context = state.withLock({ $0.context }) else { return }
-        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
-        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucAdmin)
-        var item = XMLElement(name: "item", attributes: ["jid": jid.description, "affiliation": "outcast"])
-        appendReason(reason, to: &item)
-        query.addChild(item)
-        iq.element.addChild(query)
-        _ = try await context.sendIQ(iq)
+        try await setAffiliation(jid: jid, in: room, to: .outcast, reason: reason)
     }
 
     /// Discovers rooms on a MUC service using disco#items.
@@ -312,9 +369,121 @@ public final class MUCModule: XMPPModule, Sendable {
         state.withLock { $0.rooms[room]?.nickname }
     }
 
+    /// Changes the user's nickname in a room.
+    public func changeNickname(in room: BareJID, to newNickname: String) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        guard let fullJID = FullJID(bareJID: room, resourcePart: newNickname) else { return }
+        let presence = XMPPPresence(to: .full(fullJID), id: context.generateID())
+        try await context.sendStanza(presence)
+    }
+
+    // MARK: - Room Configuration (muc#owner)
+
+    /// Retrieves the room configuration form.
+    public func getRoomConfig(_ room: BareJID) async throws -> [DataFormField] {
+        guard let context = state.withLock({ $0.context }) else { return [] }
+        var iq = XMPPIQ(type: .get, to: .bare(room), id: context.generateID())
+        let query = XMLElement(name: "query", namespace: XMPPNamespaces.mucOwner)
+        iq.element.addChild(query)
+
+        guard let result = try await context.sendIQ(iq) else { return [] }
+        guard let form = result.child(named: "x", namespace: XMPPNamespaces.dataForms) else { return [] }
+        return parseDataForm(form)
+    }
+
+    /// Submits a room configuration form.
+    public func submitRoomConfig(_ room: BareJID, fields: [DataFormField]) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
+        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucOwner)
+        let form = buildSubmitForm(fields)
+        query.addChild(form)
+        iq.element.addChild(query)
+        _ = try await context.sendIQ(iq)
+    }
+
+    /// Accepts the default room configuration (instant room).
+    public func acceptDefaultConfig(_ room: BareJID) async throws {
+        try await submitRoomConfig(room, fields: [])
+    }
+
+    // MARK: - Voice Management
+
+    /// Sets the role of an occupant by nickname.
+    public func setRole(nickname: String, in room: BareJID, to role: MUCRole, reason: String? = nil) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
+        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucAdmin)
+        var item = XMLElement(name: "item", attributes: ["nick": nickname, "role": role.rawValue])
+        appendReason(reason, to: &item)
+        query.addChild(item)
+        iq.element.addChild(query)
+        _ = try await context.sendIQ(iq)
+    }
+
+    /// Grants voice (participant role) to a visitor.
+    public func grantVoice(nickname: String, in room: BareJID) async throws {
+        try await setRole(nickname: nickname, in: room, to: .participant)
+    }
+
+    /// Revokes voice (visitor role) from a participant.
+    public func revokeVoice(nickname: String, in room: BareJID) async throws {
+        try await setRole(nickname: nickname, in: room, to: .visitor)
+    }
+
+    // MARK: - Affiliation Management
+
+    /// Retrieves the affiliation list for a given affiliation.
+    public func getAffiliationList(_ affiliation: MUCAffiliation, in room: BareJID) async throws -> [MUCAffiliationItem] {
+        guard let context = state.withLock({ $0.context }) else { return [] }
+        var iq = XMPPIQ(type: .get, to: .bare(room), id: context.generateID())
+        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucAdmin)
+        let item = XMLElement(name: "item", attributes: ["affiliation": affiliation.rawValue])
+        query.addChild(item)
+        iq.element.addChild(query)
+
+        guard let result = try await context.sendIQ(iq) else { return [] }
+        return result.children(named: "item").compactMap { MUCAffiliationItem.parse($0) }
+    }
+
+    /// Sets the affiliation of a user by JID.
+    public func setAffiliation(jid: BareJID, in room: BareJID, to affiliation: MUCAffiliation, reason: String? = nil) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
+        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucAdmin)
+        var item = XMLElement(name: "item", attributes: ["jid": jid.description, "affiliation": affiliation.rawValue])
+        appendReason(reason, to: &item)
+        query.addChild(item)
+        iq.element.addChild(query)
+        _ = try await context.sendIQ(iq)
+    }
+
+    // MARK: - Room Destruction
+
+    /// Destroys a room (owner-only).
+    public func destroyRoom(_ room: BareJID, reason: String? = nil, alternateVenue: BareJID? = nil) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
+        var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucOwner)
+        var destroy = XMLElement(name: "destroy")
+        if let alternateVenue {
+            destroy.setAttribute("jid", value: alternateVenue.description)
+        }
+        appendReason(reason, to: &destroy)
+        query.addChild(destroy)
+        iq.element.addChild(query)
+        _ = try await context.sendIQ(iq)
+    }
+
     // MARK: - Private Helpers
 
-    private func buildJoinPresence(room: BareJID, nickname: String, password: String?, context: ModuleContext) -> XMPPPresence {
+    private func buildJoinPresence(
+        room: BareJID,
+        nickname: String,
+        password: String?,
+        history: RoomHistoryFetch = .initial,
+        context: ModuleContext
+    ) -> XMPPPresence {
         guard let fullJID = FullJID(bareJID: room, resourcePart: nickname) else {
             // Fallback: this shouldn't happen with valid nickname
             return XMPPPresence(to: .bare(room))
@@ -325,6 +494,16 @@ public final class MUCModule: XMPPModule, Sendable {
             var passwordElement = XMLElement(name: "password")
             passwordElement.addText(password)
             mucElement.addChild(passwordElement)
+        }
+        switch history {
+        case .initial:
+            break
+        case let .since(timestamp):
+            let historyElement = XMLElement(name: "history", attributes: ["since": timestamp])
+            mucElement.addChild(historyElement)
+        case .skip:
+            let historyElement = XMLElement(name: "history", attributes: ["maxchars": "0", "maxstanzas": "0"])
+            mucElement.addChild(historyElement)
         }
         presence.element.addChild(mucElement)
         return presence

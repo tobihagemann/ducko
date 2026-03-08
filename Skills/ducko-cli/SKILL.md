@@ -60,6 +60,11 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/leave [room]` — leave a MUC room (uses current room if omitted)
 - `/members [room]` — show room occupants
 - `/topic [room] [text]` — view or set room topic
+- `/nick <nickname>` — change nickname in current room
+- `/destroy [reason]` — destroy current room (owner only)
+- `/voice grant|revoke <nickname>` — grant or revoke voice (moderator only)
+- `/affiliations [member|admin|owner|outcast]` — list affiliations (default: member)
+- `/config` — show room configuration fields
 - `/rooms [service]` — discover available rooms on MUC service
 - `/sendfile [jid] <path>` — send a file (uses current room if jid omitted)
 - `/accept [sid]` — accept incoming Jingle file transfer (uses latest offer if sid omitted)
@@ -75,6 +80,7 @@ Real-time indicators in interactive mode:
 - Delivery receipts and message corrections appear in the event stream
 - Jingle file transfer notifications: incoming offers (with bell), progress updates, completion, and failure
 - Terminal bell rings on incoming messages, room messages, and file transfer offers
+- MUC room lifecycle events: `[new room]` when creating a room, nickname changes (`oldnick is now known as newnick`), room destruction with reason and alternate venue
 
 ```
 ducko interactive

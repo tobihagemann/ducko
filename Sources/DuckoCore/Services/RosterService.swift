@@ -155,7 +155,9 @@ public final class RosterService {
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress:
             break

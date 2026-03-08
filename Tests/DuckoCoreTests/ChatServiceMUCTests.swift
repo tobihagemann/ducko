@@ -46,7 +46,7 @@ enum ChatServiceMUCTests {
                 occupants: [RoomOccupant(nickname: "me", affiliation: .member, role: .participant)],
                 subject: nil
             )
-            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
+            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
             let conversations = try await store.fetchConversations(for: testAccountID)
             #expect(conversations.count == 1)
@@ -65,7 +65,7 @@ enum ChatServiceMUCTests {
 
             // Create the group conversation first
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
-            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
+            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
             // Receive a message from another occupant
             let xmppMessage = makeGroupMessage(from: testRoomJID, senderNickname: "other", body: "Hello room!")
@@ -88,7 +88,7 @@ enum ChatServiceMUCTests {
 
             // Create the group conversation
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
-            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
+            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
             // Receive echo of own message — without an accountService/client wired up,
             // the MUCModule nickname lookup will fail, so the message will be persisted.
@@ -112,7 +112,7 @@ enum ChatServiceMUCTests {
 
             // Create the group conversation
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
-            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
+            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
             await service.handleEvent(
                 .roomSubjectChanged(room: testRoomJID, subject: "New topic", setter: nil),
@@ -133,7 +133,7 @@ enum ChatServiceMUCTests {
 
             // Join creates conversation
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
-            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
+            await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
             // Receiving a message should reuse the same conversation
             let msg = makeGroupMessage(from: testRoomJID, senderNickname: "other", body: "Hi")

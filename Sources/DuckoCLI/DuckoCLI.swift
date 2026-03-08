@@ -814,6 +814,11 @@ private func printREPLHelp() {
     print("  /leave [room]            Leave a MUC room")
     print("  /members [room]          Show room occupants")
     print("  /topic [room] [text]     View or set room topic")
+    print("  /nick <nickname>         Change nickname in current room")
+    print("  /destroy [reason]        Destroy current room")
+    print("  /voice grant|revoke <n>  Grant/revoke voice")
+    print("  /affiliations [type]     List affiliations")
+    print("  /config                  Show room config")
     print("  /sendfile [jid] <path>   Send a file")
     print("  /accept [sid]            Accept incoming file transfer")
     print("  /decline [sid]           Decline incoming file transfer")
@@ -907,30 +912,8 @@ private func dispatchRoomREPLCommand(
     let formatter = context.formatter
     let environment = context.environment
     let accountID = context.accountID
-    let accountJID = context.accountJID
     if input == "/join" || input.hasPrefix("/join ") {
-        let args = input.dropFirst("/join".count).trimmingCharacters(in: .whitespaces)
-        guard !args.isEmpty else {
-            print("Usage: /join <room-jid> [nickname]")
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-        }
-        let parts = args.split(separator: " ", maxSplits: 1)
-        guard let roomPart = parts.first else {
-            print("Usage: /join <room-jid> [nickname]")
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-        }
-        let roomJID = String(roomPart)
-        let nick = parts.count > 1 ? String(parts[1]) : accountJID.localPart ?? accountJID.description
-        do {
-            try await environment.chatService.joinRoom(jidString: roomJID, nickname: nick, accountID: accountID)
-            try await waitForRoomJoined(roomJID: roomJID, environment: environment)
-            let count = await MainActor.run { environment.chatService.participantCount(forRoomJIDString: roomJID) }
-            print(formatter.formatRoomJoinedConfirmation(room: roomJID, nickname: nick, participantCount: count, subject: nil))
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: roomJID)
-        } catch {
-            print(formatter.formatError(error))
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-        }
+        return await handleJoinREPLCommand(input, context: context)
     } else if input == "/leave" || input.hasPrefix("/leave ") {
         return await handleLeaveREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     } else if input == "/members" || input.hasPrefix("/members ") {
@@ -944,11 +927,44 @@ private func dispatchRoomREPLCommand(
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     } else if input == "/topic" || input.hasPrefix("/topic ") {
         return await handleTopicREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/nick" || input.hasPrefix("/nick ")
+        || input == "/destroy" || input.hasPrefix("/destroy ")
+        || input == "/voice" || input.hasPrefix("/voice ")
+        || input == "/affiliations" || input.hasPrefix("/affiliations ")
+        || input == "/config" {
+        return await dispatchRoomAdminREPLCommand(input, context: context, currentRoom: currentRoom)
     } else if input == "/rooms" || input.hasPrefix("/rooms ") {
         await handleRoomsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID)
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     } else {
         return REPLDispatchResult(handled: false, updatedCurrentRoom: nil)
+    }
+}
+
+private func handleJoinREPLCommand(
+    _ input: String, context: REPLContext
+) async -> REPLDispatchResult {
+    let args = input.dropFirst("/join".count).trimmingCharacters(in: .whitespaces)
+    guard !args.isEmpty else {
+        print("Usage: /join <room-jid> [nickname]")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard let roomPart = parts.first else {
+        print("Usage: /join <room-jid> [nickname]")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    let roomJID = String(roomPart)
+    let nick = parts.count > 1 ? String(parts[1]) : context.accountJID.localPart ?? context.accountJID.description
+    do {
+        try await context.environment.chatService.joinRoom(jidString: roomJID, nickname: nick, accountID: context.accountID)
+        try await waitForRoomJoined(roomJID: roomJID, environment: context.environment)
+        let count = await MainActor.run { context.environment.chatService.participantCount(forRoomJIDString: roomJID) }
+        print(context.formatter.formatRoomJoinedConfirmation(room: roomJID, nickname: nick, participantCount: count, subject: nil))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: roomJID)
+    } catch {
+        print(context.formatter.formatError(error))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }
 }
 
@@ -1007,6 +1023,166 @@ private func handleTopicREPLCommand(
     do {
         try await environment.chatService.setRoomSubject(jidString: roomJID, subject: subject, accountID: accountID)
         print("Topic set for \(roomJID).")
+    } catch {
+        print(formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func dispatchRoomAdminREPLCommand(
+    _ input: String, context: REPLContext, currentRoom: String?
+) async -> REPLDispatchResult {
+    let formatter = context.formatter
+    let environment = context.environment
+    let accountID = context.accountID
+    if input == "/nick" || input.hasPrefix("/nick ") {
+        return await handleNickREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/destroy" || input.hasPrefix("/destroy ") {
+        return await handleDestroyREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/voice" || input.hasPrefix("/voice ") {
+        return await handleVoiceREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/affiliations" || input.hasPrefix("/affiliations ") {
+        return await handleAffiliationsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/config" {
+        return await handleConfigREPLCommand(formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func handleNickREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    let args = input.dropFirst("/nick".count).trimmingCharacters(in: .whitespaces)
+    guard !args.isEmpty else {
+        print("Usage: /nick <new-nickname>")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    guard let roomJID = currentRoom else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    do {
+        try await environment.chatService.changeRoomNickname(jidString: roomJID, newNickname: args, accountID: accountID)
+    } catch {
+        print(formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func handleDestroyREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    guard let roomJID = currentRoom else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    let reason = input.dropFirst("/destroy".count).trimmingCharacters(in: .whitespaces)
+    do {
+        try await environment.chatService.destroyRoom(
+            jidString: roomJID,
+            reason: reason.isEmpty ? nil : reason,
+            accountID: accountID
+        )
+        print("Room \(roomJID) destroyed.")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .some(nil))
+    } catch {
+        print(formatter.formatError(error))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+}
+
+private func handleVoiceREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    let args = input.dropFirst("/voice".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2, let action = parts.first, let nickname = parts.last else {
+        print("Usage: /voice grant|revoke <nickname>")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    guard let roomJID = currentRoom else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    do {
+        switch String(action) {
+        case "grant":
+            try await environment.chatService.grantVoice(nickname: String(nickname), inRoomJIDString: roomJID, accountID: accountID)
+            print("Granted voice to \(nickname).")
+        case "revoke":
+            try await environment.chatService.revokeVoice(nickname: String(nickname), inRoomJIDString: roomJID, accountID: accountID)
+            print("Revoked voice from \(nickname).")
+        default:
+            print("Usage: /voice grant|revoke <nickname>")
+        }
+    } catch {
+        print(formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func handleAffiliationsREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    guard let roomJID = currentRoom else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    let args = input.dropFirst("/affiliations".count).trimmingCharacters(in: .whitespaces)
+    let affiliation: RoomAffiliation = switch args {
+    case "admin": .admin
+    case "owner": .owner
+    case "outcast": .outcast
+    default: .member
+    }
+    do {
+        let items = try await environment.chatService.getAffiliationList(
+            affiliation: affiliation,
+            inRoomJIDString: roomJID,
+            accountID: accountID
+        )
+        if items.isEmpty {
+            print("No \(affiliation.displayName.lowercased())s.")
+        } else {
+            print("--- \(affiliation.displayName)s (\(items.count)) ---")
+            for item in items {
+                var line = "  \(item.jidString)"
+                if let nickname = item.nickname {
+                    line += " (\(nickname))"
+                }
+                print(line)
+            }
+        }
+    } catch {
+        print(formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func handleConfigREPLCommand(
+    formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    guard let roomJID = currentRoom else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    do {
+        let fields = try await environment.chatService.getRoomConfig(jidString: roomJID, accountID: accountID)
+        let visible = fields.filter { $0.variable != "FORM_TYPE" && $0.type != "hidden" }
+        if visible.isEmpty {
+            print("No configuration fields.")
+        } else {
+            for field in visible {
+                let label = field.label ?? field.variable
+                let value = field.values.joined(separator: ", ")
+                print("  \(label): \(value)")
+            }
+        }
     } catch {
         print(formatter.formatError(error))
     }

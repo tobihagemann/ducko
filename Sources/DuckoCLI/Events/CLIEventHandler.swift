@@ -34,7 +34,7 @@ actor CLIEventHandler {
              .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged,
+             .roomOccupantNickChanged, .roomSubjectChanged, .roomDestroyed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             break

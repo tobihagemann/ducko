@@ -76,7 +76,8 @@ struct PlainFormatter: CLIFormatter {
              .messageCorrected, .messageError:
             return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .roomOccupantNickChanged, .roomSubjectChanged,
+             .roomInviteReceived, .roomMessageReceived, .roomDestroyed:
             return formatMUCEvent(event)
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
@@ -117,28 +118,24 @@ struct PlainFormatter: CLIFormatter {
 
     private func formatMUCEvent(_ event: XMPPEvent) -> String? {
         switch event {
-        case let .roomJoined(room, occupancy):
-            var line = "Joined \(room) as \(occupancy.nickname) (\(occupancy.occupants.count) participants)"
-            if let subject = occupancy.subject, !subject.isEmpty {
-                line += " — topic: \(subject)"
-            }
-            return line
+        case let .roomJoined(room, occupancy, isNewlyCreated):
+            return formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
         case let .roomOccupantJoined(room, occupant):
             return "\(room): \(occupant.nickname) joined"
         case let .roomOccupantLeft(room, occupant):
             return "\(room): \(occupant.nickname) left"
+        case let .roomOccupantNickChanged(room, oldNickname, occupant):
+            return "\(room): \(oldNickname) is now known as \(occupant.nickname)"
         case let .roomSubjectChanged(room, subject, setter):
             let who = setter?.bareJID.description ?? "someone"
             let topic = subject ?? "(cleared)"
             return "\(room): topic changed by \(who): \(topic)"
         case let .roomInviteReceived(invite):
-            var line = "Room invite: \(invite.from.bareJID) invites you to \(invite.room)"
-            if let reason = invite.reason {
-                line += " (\(reason))"
-            }
-            return line
+            return formatRoomInviteMUC(invite)
         case let .roomMessageReceived(message):
             return formatIncomingRoomMessage(message)
+        case let .roomDestroyed(room, reason, alternate):
+            return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
@@ -151,6 +148,36 @@ struct PlainFormatter: CLIFormatter {
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
+    }
+
+    private func formatRoomJoinedMUC(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool) -> String {
+        var line = "Joined \(room) as \(occupancy.nickname) (\(occupancy.occupants.count) participants)"
+        if isNewlyCreated {
+            line += " [new room]"
+        }
+        if let subject = occupancy.subject, !subject.isEmpty {
+            line += " — topic: \(subject)"
+        }
+        return line
+    }
+
+    private func formatRoomInviteMUC(_ invite: RoomInvite) -> String {
+        var line = "Room invite: \(invite.from.bareJID) invites you to \(invite.room)"
+        if let reason = invite.reason {
+            line += " (\(reason))"
+        }
+        return line
+    }
+
+    private func formatRoomDestroyedMUC(room: BareJID, reason: String?, alternate: BareJID?) -> String {
+        var line = "Room \(room) was destroyed"
+        if let reason {
+            line += " (\(reason))"
+        }
+        if let alternate {
+            line += " → \(alternate)"
+        }
+        return line
     }
 
     private func formatIncomingRoomMessage(_ message: XMPPMessage) -> String? {
@@ -190,7 +217,9 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -214,7 +243,9 @@ struct PlainFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:

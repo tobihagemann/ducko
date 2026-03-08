@@ -79,7 +79,7 @@ struct PlainRoomFormatterTests {
             RoomOccupant(nickname: "alice", affiliation: .member, role: .participant),
             RoomOccupant(nickname: "bob", affiliation: .member, role: .participant)
         ], subject: "Hello")
-        let output = try #require(formatter.formatEvent(.roomJoined(room: room, occupancy: occupancy), accountID: UUID()))
+        let output = try #require(formatter.formatEvent(.roomJoined(room: room, occupancy: occupancy, isNewlyCreated: false), accountID: UUID()))
         #expect(output.contains("Joined"))
         #expect(output.contains("alice"))
         #expect(output.contains("2 participants"))
@@ -261,7 +261,7 @@ struct JSONRoomFormatterTests {
         let occupancy = RoomOccupancy(nickname: "alice", occupants: [
             RoomOccupant(nickname: "alice", affiliation: .member, role: .participant)
         ], subject: "Topic")
-        let output = try #require(formatter.formatEvent(.roomJoined(room: room, occupancy: occupancy), accountID: UUID()))
+        let output = try #require(formatter.formatEvent(.roomJoined(room: room, occupancy: occupancy, isNewlyCreated: false), accountID: UUID()))
         let data = try #require(output.data(using: .utf8))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(json["type"] == "room_joined")

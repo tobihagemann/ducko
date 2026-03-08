@@ -101,7 +101,8 @@ struct ANSIFormatter: CLIFormatter {
              .messageCorrected, .messageError:
             return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived:
+             .roomOccupantNickChanged, .roomSubjectChanged,
+             .roomInviteReceived, .roomMessageReceived, .roomDestroyed:
             return formatMUCEvent(event)
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
@@ -173,28 +174,24 @@ struct ANSIFormatter: CLIFormatter {
 
     private func formatMUCEvent(_ event: XMPPEvent) -> String? {
         switch event {
-        case let .roomJoined(room, occupancy):
-            var line = "\(Color.green)Joined \(Color.bold)\(room)\(Color.reset)\(Color.green) as \(occupancy.nickname) (\(occupancy.occupants.count) participants)\(Color.reset)"
-            if let subject = occupancy.subject, !subject.isEmpty {
-                line += " \(Color.dim)— topic: \(subject)\(Color.reset)"
-            }
-            return line
+        case let .roomJoined(room, occupancy, isNewlyCreated):
+            return formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
         case let .roomOccupantJoined(room, occupant):
             return "\(Color.yellow)\(room): \(occupant.nickname) joined\(Color.reset)"
         case let .roomOccupantLeft(room, occupant):
             return "\(Color.yellow)\(room): \(occupant.nickname) left\(Color.reset)"
+        case let .roomOccupantNickChanged(room, oldNickname, occupant):
+            return "\(Color.yellow)\(room): \(oldNickname) is now known as \(occupant.nickname)\(Color.reset)"
         case let .roomSubjectChanged(room, subject, setter):
             let who = setter?.bareJID.description ?? "someone"
             let topic = subject ?? "(cleared)"
             return "\(Color.yellow)\(room): topic changed by \(who): \(topic)\(Color.reset)"
         case let .roomInviteReceived(invite):
-            var line = "\(Color.yellow)Room invite: \(invite.from.bareJID) invites you to \(Color.bold)\(invite.room)\(Color.reset)"
-            if let reason = invite.reason {
-                line += "\(Color.yellow) (\(reason))\(Color.reset)"
-            }
-            return line
+            return formatRoomInviteMUC(invite)
         case let .roomMessageReceived(message):
             return formatIncomingRoomMessage(message)
+        case let .roomDestroyed(room, reason, alternate):
+            return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged,
@@ -208,6 +205,36 @@ struct ANSIFormatter: CLIFormatter {
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
+    }
+
+    private func formatRoomJoinedMUC(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool) -> String {
+        var line = "\(Color.green)Joined \(Color.bold)\(room)\(Color.reset)\(Color.green) as \(occupancy.nickname) (\(occupancy.occupants.count) participants)\(Color.reset)"
+        if isNewlyCreated {
+            line += " \(Color.yellow)[new room]\(Color.reset)"
+        }
+        if let subject = occupancy.subject, !subject.isEmpty {
+            line += " \(Color.dim)— topic: \(subject)\(Color.reset)"
+        }
+        return line
+    }
+
+    private func formatRoomInviteMUC(_ invite: RoomInvite) -> String {
+        var line = "\(Color.yellow)Room invite: \(invite.from.bareJID) invites you to \(Color.bold)\(invite.room)\(Color.reset)"
+        if let reason = invite.reason {
+            line += "\(Color.yellow) (\(reason))\(Color.reset)"
+        }
+        return line
+    }
+
+    private func formatRoomDestroyedMUC(room: BareJID, reason: String?, alternate: BareJID?) -> String {
+        var line = "\(Color.red)Room \(room) was destroyed\(Color.reset)"
+        if let reason {
+            line += " \(Color.dim)(\(reason))\(Color.reset)"
+        }
+        if let alternate {
+            line += " \(Color.dim)→ \(alternate)\(Color.reset)"
+        }
+        return line
     }
 
     private func formatIncomingRoomMessage(_ message: XMPPMessage) -> String? {
@@ -247,7 +274,9 @@ struct ANSIFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -271,7 +300,9 @@ struct ANSIFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:

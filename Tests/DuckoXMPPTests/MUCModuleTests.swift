@@ -59,7 +59,7 @@ enum MUCModuleTests {
             """)
 
             let events = try await eventsTask.value
-            guard case let .roomJoined(room, occupancy) = events.last else {
+            guard case let .roomJoined(room, occupancy, _) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected roomJoined event")
             }
             #expect(room == testRoomJID)
@@ -393,6 +393,546 @@ enum MUCModuleTests {
             #expect(rooms.count == 2)
             #expect(rooms[0].jid == testRoomJID)
             #expect(rooms[0].name == "General Chat")
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - History Control
+
+    struct HistoryControl {
+        @Test
+        func `Skip history produces maxchars and maxstanzas zero`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            await mock.clearSentBytes()
+            try await module.joinRoom(testRoomJID, nickname: "me", history: .skip)
+
+            await mock.waitForSent(count: 1)
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("maxchars"))
+            #expect(sent.contains("maxstanzas"))
+            #expect(sent.contains("history"))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Since history produces since attribute`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            await mock.clearSentBytes()
+            try await module.joinRoom(testRoomJID, nickname: "me", history: .since("2024-01-01T00:00:00Z"))
+
+            await mock.waitForSent(count: 1)
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("since"))
+            #expect(sent.contains("2024-01-01T00:00:00Z"))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Initial history omits history element`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            await mock.clearSentBytes()
+            try await module.joinRoom(testRoomJID, nickname: "me", history: .initial)
+
+            await mock.waitForSent(count: 1)
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            let containsHistory = sent.contains("<history")
+            #expect(!containsHistory)
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Room Creation (Status 201)
+
+    struct RoomCreation {
+        @Test
+        func `Self-presence with status 201 emits roomJoined with isNewlyCreated true`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomJoined = event { return true }
+                    return false
+                }
+            }
+
+            // Self-presence with status 110 + 201 (new room created)
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='owner' role='moderator'/>\
+            <status code='110'/>\
+            <status code='201'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomJoined(room, occupancy, isNewlyCreated) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomJoined event")
+            }
+            #expect(room == testRoomJID)
+            #expect(occupancy.nickname == "me")
+            #expect(isNewlyCreated)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Regular join emits roomJoined with isNewlyCreated false`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomJoined = event { return true }
+                    return false
+                }
+            }
+
+            // Self-presence with only status 110 (no 201)
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomJoined(_, _, isNewlyCreated) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomJoined event")
+            }
+            let created = isNewlyCreated
+            #expect(!created)
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Nickname Change (Status 303)
+
+    struct NicknameChange {
+        @Test
+        func `Status 303 then available produces roomOccupantNickChanged`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            // Add occupant
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/oldnick'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            </x>\
+            </presence>
+            """)
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomOccupantNickChanged = event { return true }
+                    return false
+                }
+            }
+
+            // Unavailable with status 303 + new nick
+            await mock.simulateReceive("""
+            <presence type='unavailable' from='room@conference.example.com/oldnick'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant' nick='newnick'/>\
+            <status code='303'/>\
+            </x>\
+            </presence>
+            """)
+
+            // Available presence with new nick
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/newnick'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomOccupantNickChanged(room, oldNickname, occupant) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomOccupantNickChanged event")
+            }
+            #expect(room == testRoomJID)
+            #expect(oldNickname == "oldnick")
+            #expect(occupant.nickname == "newnick")
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Nick change does not emit spurious leave and join`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            // Start collecting ALL events including the initial join
+            let eventsTask = Task {
+                try await collectEvents(from: client, timeout: .seconds(3)) { event in
+                    if case .roomOccupantNickChanged = event { return true }
+                    return false
+                }
+            }
+
+            // Add alice (triggers roomOccupantJoined)
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/alice'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            </x>\
+            </presence>
+            """)
+
+            // Nick change: unavailable with 303
+            await mock.simulateReceive("""
+            <presence type='unavailable' from='room@conference.example.com/alice'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant' nick='alice2'/>\
+            <status code='303'/>\
+            </x>\
+            </presence>
+            """)
+
+            // New nick appears
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/alice2'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            // Expect exactly 1 roomOccupantJoined (initial alice), no roomOccupantLeft, 1 roomOccupantNickChanged
+            let leftEvents = events.filter { if case .roomOccupantLeft = $0 { return true }; return false }
+            let joinedEvents = events.filter { if case .roomOccupantJoined = $0 { return true }; return false }
+            let nickChangeEvents = events.filter { if case .roomOccupantNickChanged = $0 { return true }; return false }
+            #expect(leftEvents.isEmpty)
+            #expect(joinedEvents.count == 1) // only the initial join
+            #expect(nickChangeEvents.count == 1)
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Voice Management
+
+    struct VoiceManagement {
+        @Test
+        func `grantVoice sends role participant`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let grantTask = Task {
+                try await module.grantVoice(nickname: "visitor1", in: testRoomJID)
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("role=\"participant\""))
+            #expect(sent.contains("nick=\"visitor1\""))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            try await grantTask.value
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `revokeVoice sends role visitor`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let revokeTask = Task {
+                try await module.revokeVoice(nickname: "talker1", in: testRoomJID)
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("role=\"visitor\""))
+            #expect(sent.contains("nick=\"talker1\""))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            try await revokeTask.value
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Affiliation Management
+
+    struct AffiliationManagement {
+        @Test
+        func `getAffiliationList sends correct IQ and parses response`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let listTask = Task {
+                try await module.getAffiliationList(.member, in: testRoomJID)
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("affiliation=\"member\""))
+            #expect(sent.contains("muc#admin"))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("""
+            <iq type='result' id='\(iqID)' from='room@conference.example.com'>\
+            <query xmlns='http://jabber.org/protocol/muc#admin'>\
+            <item jid='alice@example.com' affiliation='member' nick='alice'/>\
+            <item jid='bob@example.com' affiliation='member'/>\
+            </query>\
+            </iq>
+            """)
+
+            let items = try await listTask.value
+            #expect(items.count == 2)
+            #expect(items[0].jid.description == "alice@example.com")
+            #expect(items[0].nickname == "alice")
+            #expect(items[1].jid.description == "bob@example.com")
+            #expect(items[1].nickname == nil)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `setAffiliation sends correct IQ`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let targetJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
+            let setTask = Task {
+                try await module.setAffiliation(jid: targetJID, in: testRoomJID, to: .admin, reason: "Promotion")
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("affiliation=\"admin\""))
+            #expect(sent.contains("jid=\"user@example.com\""))
+            #expect(sent.contains("Promotion"))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            try await setTask.value
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Room Destruction
+
+    struct RoomDestruction {
+        @Test
+        func `destroyRoom sends correct IQ`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let destroyTask = Task {
+                try await module.destroyRoom(testRoomJID, reason: "Closing down")
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("muc#owner"))
+            #expect(sent.contains("destroy"))
+            #expect(sent.contains("Closing down"))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            try await destroyTask.value
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Incoming destruction presence emits roomDestroyed`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            // Complete join
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomDestroyed = event { return true }
+                    return false
+                }
+            }
+
+            // Room destruction notification
+            await mock.simulateReceive("""
+            <presence type='unavailable' from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='none'/>\
+            <status code='110'/>\
+            <destroy jid='newroom@conference.example.com'>\
+            <reason>Moving to a new room</reason>\
+            </destroy>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomDestroyed(room, reason, alternate) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomDestroyed event")
+            }
+            #expect(room == testRoomJID)
+            #expect(reason == "Moving to a new room")
+            #expect(alternate?.description == "newroom@conference.example.com")
+
+            await client.disconnect()
+        }
+    }
+
+    // MARK: - Room Configuration
+
+    struct RoomConfiguration {
+        @Test
+        func `getRoomConfig sends muc#owner IQ and parses form`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let configTask = Task {
+                try await module.getRoomConfig(testRoomJID)
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("muc#owner"))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("""
+            <iq type='result' id='\(iqID)' from='room@conference.example.com'>\
+            <query xmlns='http://jabber.org/protocol/muc#owner'>\
+            <x xmlns='jabber:x:data' type='form'>\
+            <field var='FORM_TYPE' type='hidden'>\
+            <value>http://jabber.org/protocol/muc#roomconfig</value>\
+            </field>\
+            <field var='muc#roomconfig_roomname' type='text-single' label='Room Name'>\
+            <value>Test Room</value>\
+            </field>\
+            </x>\
+            </query>\
+            </iq>
+            """)
+
+            let fields = try await configTask.value
+            #expect(fields.count == 2)
+            let roomName = fields.first { $0.variable == "muc#roomconfig_roomname" }
+            #expect(roomName?.values == ["Test Room"])
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `acceptDefaultConfig sends empty submit form`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let acceptTask = Task {
+                try await module.acceptDefaultConfig(testRoomJID)
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("muc#owner"))
+            #expect(sent.contains("type=\"submit\""))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            try await acceptTask.value
 
             await client.disconnect()
         }

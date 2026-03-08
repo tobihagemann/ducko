@@ -6,6 +6,17 @@ struct RoomContextMenu: View {
     @Environment(\.openWindow) private var openWindow
     let conversation: Conversation
     @Binding var isShowingInviteSheet: Bool
+    @Binding var isShowingSettingsSheet: Bool
+
+    private var myParticipant: RoomParticipant? {
+        guard let nickname = conversation.roomNickname else { return nil }
+        let participants = environment.chatService.roomParticipants[conversation.jid.description] ?? []
+        return participants.first { $0.nickname == nickname }
+    }
+
+    private var canManageRoom: Bool {
+        myParticipant?.affiliation == .owner
+    }
 
     var body: some View {
         Button("Open Chat") {
@@ -36,6 +47,15 @@ struct RoomContextMenu: View {
 
         Button("Invite User...") {
             isShowingInviteSheet = true
+        }
+
+        if canManageRoom {
+            Divider()
+
+            Button("Room Settings...") {
+                isShowingSettingsSheet = true
+            }
+            .accessibilityIdentifier("room-settings-menu-item")
         }
 
         Divider()

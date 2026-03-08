@@ -20,12 +20,14 @@ public enum XMPPEvent: Sendable {
     case messageError(messageID: String?, from: JID, error: XMPPStanzaError)
 
     // MUC (XEP-0045)
-    case roomJoined(room: BareJID, occupancy: RoomOccupancy)
+    case roomJoined(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool)
     case roomOccupantJoined(room: BareJID, occupant: RoomOccupant)
     case roomOccupantLeft(room: BareJID, occupant: RoomOccupant)
+    case roomOccupantNickChanged(room: BareJID, oldNickname: String, occupant: RoomOccupant)
     case roomSubjectChanged(room: BareJID, subject: String?, setter: JID?)
     case roomInviteReceived(RoomInvite)
     case roomMessageReceived(XMPPMessage)
+    case roomDestroyed(room: BareJID, reason: String?, alternateVenue: BareJID?)
 
     // Jingle File Transfer (XEP-0166/0234)
     case jingleFileTransferReceived(JingleFileOffer)
