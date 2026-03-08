@@ -11,7 +11,6 @@ public final class MUCModule: XMPPModule, Sendable {
         var password: String?
         var occupants: [String: RoomOccupant] = [:]
         var subject: String?
-        var joined: Bool = false
     }
 
     private struct State {
@@ -53,7 +52,6 @@ public final class MUCModule: XMPPModule, Sendable {
     public func handleDisconnect() async {
         state.withLock { state in
             for key in state.rooms.keys {
-                state.rooms[key]?.joined = false
                 state.rooms[key]?.occupants.removeAll()
             }
         }
@@ -98,13 +96,11 @@ public final class MUCModule: XMPPModule, Sendable {
 
     private func handleSelfJoined(roomJID: BareJID, nickname: String, occupant: RoomOccupant, context: ModuleContext?) {
         let occupancy = state.withLock { state -> RoomOccupancy in
-            state.rooms[roomJID]?.joined = true
             state.rooms[roomJID]?.occupants[nickname] = occupant
             guard let room = state.rooms[roomJID] else {
-                return RoomOccupancy(room: roomJID, nickname: nickname, occupants: [occupant], subject: nil)
+                return RoomOccupancy(nickname: nickname, occupants: [occupant], subject: nil)
             }
             return RoomOccupancy(
-                room: roomJID,
                 nickname: nickname,
                 occupants: Array(room.occupants.values),
                 subject: room.subject

@@ -10,7 +10,6 @@ public final class AppEnvironment {
     public let rosterService: RosterService
     public let fileTransferService: FileTransferService
     public let linkPreviewService: LinkPreviewService
-    public let messageFilterPipeline: MessageFilterPipeline
 
     public init(
         store: any PersistenceStore,
@@ -25,7 +24,7 @@ public final class AppEnvironment {
         let presenceService = PresenceService()
         let rosterService = RosterService(store: store)
         let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore)
-        let fileTransferService = FileTransferService(store: store)
+        let fileTransferService = FileTransferService()
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
 
         accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService, weak fileTransferService] event, accountID in
@@ -59,6 +58,5 @@ public final class AppEnvironment {
         self.rosterService = rosterService
         self.fileTransferService = fileTransferService
         self.linkPreviewService = linkPreviewService
-        self.messageFilterPipeline = pipeline
     }
 }

@@ -18,11 +18,9 @@ public enum FilterDirection: Sendable {
 }
 
 public struct FilterContext: Sendable {
-    public let conversationJID: BareJID
     public let accountJID: BareJID
 
-    public init(conversationJID: BareJID, accountJID: BareJID) {
-        self.conversationJID = conversationJID
+    public init(accountJID: BareJID) {
         self.accountJID = accountJID
     }
 }

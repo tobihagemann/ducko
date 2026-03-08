@@ -41,7 +41,7 @@ public final class ChatService {
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
         let content = MessageContent(body: body)
-        let filterContext = FilterContext(conversationJID: jid, accountJID: accountJID(for: accountID, fallback: jid))
+        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
         let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
 
         let recipient = JID.bare(jid)
@@ -173,7 +173,7 @@ public final class ChatService {
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
         let content = MessageContent(body: body)
-        let filterContext = FilterContext(conversationJID: jid, accountJID: accountJID(for: accountID, fallback: jid))
+        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
         let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
 
         let stanzaID = client.generateID()
@@ -226,17 +226,6 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let module = await client.module(ofType: ReceiptsModule.self) else { return }
         try await module.sendDisplayedMarker(to: .bare(jid), messageID: messageStanzaID)
-    }
-
-    public func sendDisplayedMarker(
-        toJIDString jidString: String,
-        messageStanzaID: String,
-        accountID: UUID
-    ) async throws {
-        guard let jid = BareJID.parse(jidString) else {
-            throw ChatServiceError.invalidJID(jidString)
-        }
-        try await sendDisplayedMarker(to: jid, messageStanzaID: messageStanzaID, accountID: accountID)
     }
 
     // MARK: - Private: Displayed Markers
@@ -638,7 +627,7 @@ public final class ChatService {
         }
 
         let content = MessageContent(body: body)
-        let filterContext = FilterContext(conversationJID: fromJID, accountJID: accountJID(for: accountID, fallback: fromJID))
+        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: fromJID))
         let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
 
         // Parse XEP-0461 reply

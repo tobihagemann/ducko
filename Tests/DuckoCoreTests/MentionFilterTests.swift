@@ -5,7 +5,6 @@ import Testing
 // MARK: - Helpers
 
 private let filterContext = FilterContext(
-    conversationJID: BareJID(localPart: "contact", domainPart: "example.com")!,
     accountJID: BareJID(localPart: "user", domainPart: "example.com")!
 )
 

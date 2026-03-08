@@ -2,7 +2,6 @@ import DuckoCore
 import SwiftUI
 
 struct NewChatSheet: View {
-    @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
     var onStartChat: (String) -> Void
     @State private var jidString = ""

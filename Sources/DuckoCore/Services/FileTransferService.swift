@@ -44,21 +44,19 @@ public final class FileTransferService {
         public let id: UUID
         public let fileName: String
         public let fileSize: Int64
-        public let mimeType: String
         public var state: TransferState
         public let method: TransferMethod
         public let direction: TransferDirection
         public let sid: String?
 
         public init(
-            id: UUID, fileName: String, fileSize: Int64, mimeType: String,
+            id: UUID, fileName: String, fileSize: Int64,
             state: TransferState, method: TransferMethod = .httpUpload,
             direction: TransferDirection = .outgoing, sid: String? = nil
         ) {
             self.id = id
             self.fileName = fileName
             self.fileSize = fileSize
-            self.mimeType = mimeType
             self.state = state
             self.method = method
             self.direction = direction
@@ -120,13 +118,10 @@ public final class FileTransferService {
         }
     }
 
-    private let store: any PersistenceStore
     private weak var accountService: AccountService?
     private weak var chatService: ChatService?
 
-    public init(store: any PersistenceStore) {
-        self.store = store
-    }
+    public init() {}
 
     // MARK: - Wiring
 
@@ -181,7 +176,6 @@ public final class FileTransferService {
                 id: UUID(),
                 fileName: offer.fileName,
                 fileSize: offer.fileSize,
-                mimeType: offer.mediaType ?? "application/octet-stream",
                 state: .awaitingAcceptance,
                 method: .jingle,
                 direction: .incoming,
@@ -274,7 +268,6 @@ public final class FileTransferService {
             id: transferID,
             fileName: file.name,
             fileSize: file.size,
-            mimeType: file.mimeType,
             state: .requestingSlot,
             method: .httpUpload,
             direction: .outgoing
@@ -318,7 +311,6 @@ public final class FileTransferService {
             id: transferID,
             fileName: file.name,
             fileSize: file.size,
-            mimeType: file.mimeType,
             state: .negotiating,
             method: .jingle,
             direction: .outgoing,

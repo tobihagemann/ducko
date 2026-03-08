@@ -245,14 +245,11 @@ final class ChatWindowState {
     // MARK: - Attachments
 
     func addAttachment(url: URL) {
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        let fileSize = (attributes?[.size] as? Int64) ?? 0
         let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
         let draft = DraftAttachment(
             url: url,
             fileName: url.lastPathComponent,
-            fileSize: fileSize,
             mimeType: mimeType
         )
         pendingAttachments.append(draft)

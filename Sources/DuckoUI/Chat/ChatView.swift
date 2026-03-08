@@ -2,7 +2,6 @@ import DuckoCore
 import SwiftUI
 
 struct ChatView: View {
-    @Environment(AppEnvironment.self) private var environment
     let windowState: ChatWindowState
 
     var body: some View {

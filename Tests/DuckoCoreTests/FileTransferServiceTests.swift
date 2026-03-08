@@ -21,8 +21,7 @@ enum FileTransferServiceTests {
     struct Initialization {
         @Test
         func `Starts with empty active transfers`() {
-            let store = MockPersistenceStore()
-            let service = FileTransferService(store: store)
+            let service = FileTransferService()
             #expect(service.activeTransfers.isEmpty)
         }
     }
@@ -31,8 +30,7 @@ enum FileTransferServiceTests {
     struct SendFileErrors {
         @Test
         func `Throws fileReadFailed for missing file`() async throws {
-            let store = MockPersistenceStore()
-            let service = FileTransferService(store: store)
+            let service = FileTransferService()
 
             let conversation = makeConversation()
 
@@ -54,8 +52,7 @@ enum FileTransferServiceTests {
     struct SendFileNoClient {
         @Test
         func `Throws noClient when no account service is set`() async throws {
-            let store = MockPersistenceStore()
-            let service = FileTransferService(store: store)
+            let service = FileTransferService()
 
             let conversation = makeConversation()
 
@@ -81,8 +78,7 @@ enum FileTransferServiceTests {
     struct ActiveTransferTracking {
         @Test
         func `Transfer appears in activeTransfers during send attempt`() async throws {
-            let store = MockPersistenceStore()
-            let service = FileTransferService(store: store)
+            let service = FileTransferService()
 
             let conversation = makeConversation()
 
@@ -133,8 +129,7 @@ enum FileTransferServiceTests {
     struct IncomingOfferTracking {
         @Test
         func `handleJingleEvent tracks incoming file offers`() throws {
-            let store = MockPersistenceStore()
-            let service = FileTransferService(store: store)
+            let service = FileTransferService()
 
             let peer = try #require(FullJID.parse("sender@example.com/res"))
             let offer = JingleFileOffer(
@@ -168,8 +163,7 @@ enum FileTransferServiceTests {
     struct JingleProgressTracking {
         @Test
         func `handleJingleEvent updates transfer progress`() throws {
-            let store = MockPersistenceStore()
-            let service = FileTransferService(store: store)
+            let service = FileTransferService()
 
             let peer = try #require(FullJID.parse("sender@example.com/res"))
             let offer = JingleFileOffer(sid: "progress-sid", from: peer, fileName: "file.bin", fileSize: 1000)

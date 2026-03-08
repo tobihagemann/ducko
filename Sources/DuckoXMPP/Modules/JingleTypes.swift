@@ -260,15 +260,13 @@ public struct JingleContent: Sendable {
 public struct IBBSessionState: Sendable {
     public let ibbSID: String
     public let blockSize: Int
-    public let peer: FullJID
     public var receivedData: [UInt8] = []
     public var nextExpectedSeq: UInt16 = 0
     public let expectedSize: Int64
 
-    public init(ibbSID: String, blockSize: Int, peer: FullJID, expectedSize: Int64) {
+    public init(ibbSID: String, blockSize: Int, expectedSize: Int64) {
         self.ibbSID = ibbSID
         self.blockSize = blockSize
-        self.peer = peer
         self.expectedSize = expectedSize
     }
 }
@@ -284,10 +282,8 @@ public enum TransportState: Sendable {
 
 /// State of a Jingle session.
 public struct JingleSession: Sendable {
-    public let sid: String
     public let peer: FullJID
     public let role: Role
-    public var state: State
     public var transportState: TransportState
     public let content: JingleContent
 
@@ -297,25 +293,14 @@ public struct JingleSession: Sendable {
         case responder
     }
 
-    /// Session lifecycle state.
-    public enum State: Sendable {
-        case pending
-        case active
-        case terminated
-    }
-
     public init(
-        sid: String,
         peer: FullJID,
         role: Role,
-        state: State,
         transportState: TransportState = .pending,
         content: JingleContent
     ) {
-        self.sid = sid
         self.peer = peer
         self.role = role
-        self.state = state
         self.transportState = transportState
         self.content = content
     }

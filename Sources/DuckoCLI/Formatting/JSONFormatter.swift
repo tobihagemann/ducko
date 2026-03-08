@@ -31,18 +31,6 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
-    func formatContact(_ contact: Contact) -> String {
-        var dict: [String: String] = [
-            "type": "contact",
-            "jid": contact.jid.description,
-            "subscription": contact.subscription.rawValue
-        ]
-        if let name = contact.name {
-            dict["name"] = name
-        }
-        return encode(dict)
-    }
-
     func formatAccount(_ account: Account) -> String {
         encode([
             "type": "account",

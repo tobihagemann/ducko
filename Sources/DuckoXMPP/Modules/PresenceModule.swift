@@ -68,11 +68,6 @@ public final class PresenceModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    /// Returns the presence for a specific full JID.
-    public func presence(for fullJID: FullJID) -> XMPPPresence? {
-        state.withLock { $0.presences[fullJID.bareJID]?[fullJID.resourcePart] }
-    }
-
     /// Returns all known presences for a bare JID (one per resource).
     public func presences(for bareJID: BareJID) -> [XMPPPresence] {
         state.withLock { state in

@@ -37,13 +37,11 @@ public struct RoomOccupant: Sendable, Hashable {
 
 /// Snapshot of room state after joining.
 public struct RoomOccupancy: Sendable {
-    public let room: BareJID
     public let nickname: String
     public let occupants: [RoomOccupant]
     public let subject: String?
 
-    public init(room: BareJID, nickname: String, occupants: [RoomOccupant], subject: String?) {
-        self.room = room
+    public init(nickname: String, occupants: [RoomOccupant], subject: String?) {
         self.nickname = nickname
         self.occupants = occupants
         self.subject = subject

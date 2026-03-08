@@ -42,7 +42,6 @@ enum ChatServiceMUCTests {
             let service = makeChatService(store: store)
 
             let occupancy = RoomOccupancy(
-                room: testRoomJID,
                 nickname: "me",
                 occupants: [RoomOccupant(nickname: "me", affiliation: .member, role: .participant)],
                 subject: nil
@@ -65,7 +64,7 @@ enum ChatServiceMUCTests {
             let service = makeChatService(store: store)
 
             // Create the group conversation first
-            let occupancy = RoomOccupancy(room: testRoomJID, nickname: "me", occupants: [], subject: nil)
+            let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
 
             // Receive a message from another occupant
@@ -88,7 +87,7 @@ enum ChatServiceMUCTests {
             let service = makeChatService(store: store)
 
             // Create the group conversation
-            let occupancy = RoomOccupancy(room: testRoomJID, nickname: "me", occupants: [], subject: nil)
+            let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
 
             // Receive echo of own message — without an accountService/client wired up,
@@ -112,7 +111,7 @@ enum ChatServiceMUCTests {
             let service = makeChatService(store: store)
 
             // Create the group conversation
-            let occupancy = RoomOccupancy(room: testRoomJID, nickname: "me", occupants: [], subject: nil)
+            let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
 
             await service.handleEvent(
@@ -133,7 +132,7 @@ enum ChatServiceMUCTests {
             let service = makeChatService(store: store)
 
             // Join creates conversation
-            let occupancy = RoomOccupancy(room: testRoomJID, nickname: "me", occupants: [], subject: nil)
+            let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
 
             // Receiving a message should reuse the same conversation

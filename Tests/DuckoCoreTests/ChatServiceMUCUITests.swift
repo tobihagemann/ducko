@@ -29,7 +29,6 @@ enum ChatServiceMUCUITests {
             let service = makeChatService(store: store)
 
             let occupancy = RoomOccupancy(
-                room: testRoomJID,
                 nickname: "me",
                 occupants: [
                     RoomOccupant(nickname: "me", affiliation: .member, role: .participant),
@@ -55,7 +54,6 @@ enum ChatServiceMUCUITests {
 
             // Seed with initial occupancy
             let occupancy = RoomOccupancy(
-                room: testRoomJID,
                 nickname: "me",
                 occupants: [RoomOccupant(nickname: "me", affiliation: .member, role: .participant)],
                 subject: nil
@@ -86,7 +84,6 @@ enum ChatServiceMUCUITests {
 
             // Seed with two occupants
             let occupancy = RoomOccupancy(
-                room: testRoomJID,
                 nickname: "me",
                 occupants: [
                     RoomOccupant(nickname: "me", affiliation: .member, role: .participant),
@@ -114,7 +111,6 @@ enum ChatServiceMUCUITests {
             let service = makeChatService(store: store)
 
             let occupancy = RoomOccupancy(
-                room: testRoomJID,
                 nickname: "me",
                 occupants: [
                     RoomOccupant(nickname: "user1", affiliation: .none, role: .participant),
@@ -199,7 +195,7 @@ enum ChatServiceMUCUITests {
                 RoomOccupant(nickname: "x", affiliation: .outcast, role: .none),
                 RoomOccupant(nickname: "n", affiliation: .none, role: .none)
             ]
-            let occupancy = RoomOccupancy(room: testRoomJID, nickname: "o", occupants: occupants, subject: nil)
+            let occupancy = RoomOccupancy(nickname: "o", occupants: occupants, subject: nil)
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy), accountID: testAccountID)
 
             let participants = service.roomParticipants[testRoomJID.description] ?? []

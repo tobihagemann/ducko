@@ -65,9 +65,8 @@ enum IBBTransportTests {
 
     struct IBBSessionStateAccumulation {
         @Test
-        func `IBBSessionState accumulates received data`() throws {
-            let peer = try #require(FullJID.parse("peer@example.com/res"))
-            var ibbState = IBBSessionState(ibbSID: "ibb-1", blockSize: 4096, peer: peer, expectedSize: 10)
+        func `IBBSessionState accumulates received data`() {
+            var ibbState = IBBSessionState(ibbSID: "ibb-1", blockSize: 4096, expectedSize: 10)
 
             #expect(ibbState.receivedData.isEmpty)
             #expect(ibbState.nextExpectedSeq == 0)

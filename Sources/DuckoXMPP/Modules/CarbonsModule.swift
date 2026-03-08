@@ -7,7 +7,6 @@ private let log = Logger(subsystem: "com.ducko.xmpp", category: "carbons")
 public final class CarbonsModule: XMPPModule, Sendable {
     private struct State {
         var context: ModuleContext?
-        var enabled: Bool = false
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -35,15 +34,10 @@ public final class CarbonsModule: XMPPModule, Sendable {
 
         do {
             _ = try await context.sendIQ(iq)
-            state.withLock { $0.enabled = true }
             log.info("Message Carbons enabled")
         } catch {
             log.warning("Failed to enable Message Carbons: \(error)")
         }
-    }
-
-    public func handleDisconnect() async {
-        state.withLock { $0.enabled = false }
     }
 
     // MARK: - Message Handling

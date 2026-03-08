@@ -1,12 +1,10 @@
 /// A single MAM (XEP-0313) result containing a forwarded message.
 public struct ArchivedMessage: Sendable {
-    public let queryID: String
     public let messageID: String
     public let serverID: String?
     public let forwarded: ForwardedMessage
 
-    public init(queryID: String, messageID: String, serverID: String?, forwarded: ForwardedMessage) {
-        self.queryID = queryID
+    public init(messageID: String, serverID: String?, forwarded: ForwardedMessage) {
         self.messageID = messageID
         self.serverID = serverID
         self.forwarded = forwarded
@@ -18,7 +16,6 @@ public struct ArchivedMessage: Sendable {
     public static func parse(_ element: XMLElement) -> ArchivedMessage? {
         guard element.name == "result",
               element.namespace == XMPPNamespaces.mam,
-              let queryID = element.attribute("queryid"),
               let messageID = element.attribute("id"),
               let forwardedElement = element.child(named: "forwarded", namespace: XMPPNamespaces.forward),
               let forwarded = ForwardedMessage.parse(forwardedElement) else {
@@ -31,7 +28,6 @@ public struct ArchivedMessage: Sendable {
             .attribute("id")
 
         return ArchivedMessage(
-            queryID: queryID,
             messageID: messageID,
             serverID: serverID,
             forwarded: forwarded

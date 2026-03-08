@@ -47,42 +47,6 @@ struct PlainFormatterTests {
         #expect(output.contains("Hi there"))
     }
 
-    // MARK: - formatContact
-
-    @Test func `format contact with name`() throws {
-        let jid = try #require(BareJID.parse("alice@example.com"))
-        let contact = Contact(
-            id: UUID(),
-            accountID: UUID(),
-            jid: jid,
-            name: "Alice",
-            subscription: .both,
-            groups: [],
-            isBlocked: false,
-            createdAt: Date()
-        )
-        let output = formatter.formatContact(contact)
-        #expect(output.contains("Alice"))
-        #expect(output.contains("alice@example.com"))
-        #expect(output.contains("[both]"))
-    }
-
-    @Test func `format contact without name`() throws {
-        let jid = try #require(BareJID.parse("bob@example.com"))
-        let contact = Contact(
-            id: UUID(),
-            accountID: UUID(),
-            jid: jid,
-            subscription: .to,
-            groups: [],
-            isBlocked: false,
-            createdAt: Date()
-        )
-        let output = formatter.formatContact(contact)
-        #expect(output.contains("bob@example.com"))
-        #expect(output.contains("[to]"))
-    }
-
     // MARK: - formatAccount
 
     @Test func `format account`() throws {

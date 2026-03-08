@@ -34,11 +34,6 @@ struct ANSIFormatter: CLIFormatter {
         return line
     }
 
-    func formatContact(_ contact: Contact) -> String {
-        let name = contact.name ?? contact.jid.description
-        return "\(Color.bold)\(name)\(Color.reset) (\(contact.jid)) \(Color.dim)[\(contact.subscription.rawValue)]\(Color.reset)"
-    }
-
     func formatAccount(_ account: Account) -> String {
         "\(Color.bold)\(account.jid)\(Color.reset) \(Color.dim)(\(account.id))\(Color.reset)"
     }

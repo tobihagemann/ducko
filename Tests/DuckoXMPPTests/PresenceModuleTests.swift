@@ -50,10 +50,10 @@ enum PresenceModuleTests {
             )
             try? await Task.sleep(for: .milliseconds(100))
 
-            let fullJID = try #require(FullJID.parse("contact@example.com/mobile"))
-            let presence = module.presence(for: fullJID)
-            #expect(presence != nil)
-            #expect(presence?.show == .away)
+            let bareJID = try #require(BareJID.parse("contact@example.com"))
+            let presences = module.presences(for: bareJID)
+            #expect(presences.count == 1)
+            #expect(presences.first?.show == .away)
 
             await client.disconnect()
         }
@@ -70,8 +70,8 @@ enum PresenceModuleTests {
             )
             try? await Task.sleep(for: .milliseconds(100))
 
-            let fullJID = try #require(FullJID.parse("contact@example.com/mobile"))
-            #expect(module.presence(for: fullJID) != nil)
+            let bareJID = try #require(BareJID.parse("contact@example.com"))
+            #expect(!module.presences(for: bareJID).isEmpty)
 
             // Now make unavailable
             await mock.simulateReceive(
@@ -79,7 +79,7 @@ enum PresenceModuleTests {
             )
             try? await Task.sleep(for: .milliseconds(100))
 
-            #expect(module.presence(for: fullJID) == nil)
+            #expect(module.presences(for: bareJID).isEmpty)
 
             await client.disconnect()
         }

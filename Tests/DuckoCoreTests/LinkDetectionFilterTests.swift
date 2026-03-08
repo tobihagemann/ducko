@@ -4,7 +4,6 @@ import Testing
 @testable import DuckoCore
 
 private let testContext = FilterContext(
-    conversationJID: BareJID.parse("friend@example.com")!,
     accountJID: BareJID.parse("user@example.com")!
 )
 

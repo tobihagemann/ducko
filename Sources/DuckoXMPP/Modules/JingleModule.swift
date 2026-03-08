@@ -190,7 +190,7 @@ public final class JingleModule: XMPPModule, Sendable {
             return
         }
 
-        let session = JingleSession(sid: sid, peer: fullJID, role: .responder, state: .pending, content: content)
+        let session = JingleSession(peer: fullJID, role: .responder, content: content)
         state.withLock { $0.sessions[sid] = session }
 
         let offer = JingleFileOffer(
@@ -204,8 +204,6 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func handleSessionAccept(sid: String, context: ModuleContext) {
-        state.withLock { $0.sessions[sid]?.state = .active }
-
         // Initiator begins transport connection after session-accept
         Task { await beginTransportConnection(sid: sid, context: context) }
     }
@@ -340,7 +338,7 @@ public final class JingleModule: XMPPModule, Sendable {
             return
         }
 
-        guard let from, case let .full(fullJID) = from else {
+        guard let from, case .full = from else {
             log.warning("transport-replace with invalid from JID")
             return
         }
@@ -350,7 +348,6 @@ public final class JingleModule: XMPPModule, Sendable {
             let ibbState = IBBSessionState(
                 ibbSID: ibbTransport.sid,
                 blockSize: ibbTransport.blockSize,
-                peer: fullJID,
                 expectedSize: session.content.description.size
             )
             state.ibbStates[sid] = ibbState
@@ -389,7 +386,6 @@ public final class JingleModule: XMPPModule, Sendable {
             let ibbState = IBBSessionState(
                 ibbSID: ibbSID,
                 blockSize: Self.defaultIBBBlockSize,
-                peer: session.peer,
                 expectedSize: session.content.description.size
             )
             state.ibbStates[sid] = ibbState
@@ -603,7 +599,7 @@ public final class JingleModule: XMPPModule, Sendable {
             transport: transport
         )
 
-        let session = JingleSession(sid: sid, peer: peer, role: .initiator, state: .pending, content: content)
+        let session = JingleSession(peer: peer, role: .initiator, content: content)
         state.withLock { $0.sessions[sid] = session }
 
         var iq = XMPPIQ(type: .set, to: .full(peer), id: context.generateID())
@@ -628,7 +624,6 @@ public final class JingleModule: XMPPModule, Sendable {
         let (context, session) = state.withLock { state -> (ModuleContext?, JingleSession?) in
             let context = state.context
             guard let session = state.sessions[sid] else { return (context, nil) }
-            state.sessions[sid]?.state = .active
             return (context, session)
         }
         guard let context else { throw JingleError.notConnected }

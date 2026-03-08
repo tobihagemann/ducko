@@ -11,7 +11,6 @@ enum AttachmentModelTests {
     ) -> DuckoCore.Attachment {
         DuckoCore.Attachment(
             id: UUID(),
-            messageID: UUID(),
             url: url,
             mimeType: mimeType,
             fileName: fileName,

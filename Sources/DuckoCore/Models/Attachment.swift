@@ -2,7 +2,6 @@ import Foundation
 
 public struct Attachment: Sendable, Identifiable {
     public var id: UUID
-    public var messageID: UUID
     public var url: String
     public var mimeType: String?
     public var fileName: String?
@@ -14,7 +13,6 @@ public struct Attachment: Sendable, Identifiable {
 
     public init(
         id: UUID,
-        messageID: UUID,
         url: String,
         mimeType: String? = nil,
         fileName: String? = nil,
@@ -25,7 +23,6 @@ public struct Attachment: Sendable, Identifiable {
         localPath: String? = nil
     ) {
         self.id = id
-        self.messageID = messageID
         self.url = url
         self.mimeType = mimeType
         self.fileName = fileName

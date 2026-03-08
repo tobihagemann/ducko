@@ -21,24 +21,7 @@ extension MessageRecord {
             type: type,
             replyToID: replyToID,
             errorText: errorText,
-            attachments: attachments.compactMap { $0.toDomain() }
+            attachments: attachments.map { $0.toDomain() }
         )
-    }
-
-    func update(from message: ChatMessage) {
-        stanzaID = message.stanzaID
-        serverID = message.serverID
-        fromJID = message.fromJID
-        body = message.body
-        htmlBody = message.htmlBody
-        timestamp = message.timestamp
-        isOutgoing = message.isOutgoing
-        isRead = message.isRead
-        isDelivered = message.isDelivered
-        isEdited = message.isEdited
-        editedAt = message.editedAt
-        type = message.type
-        replyToID = message.replyToID
-        errorText = message.errorText
     }
 }

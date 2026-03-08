@@ -188,7 +188,7 @@ enum JingleSOCKS5Tests {
             let desc = JingleFileDescription(name: "f.txt", size: 100)
             let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: "t-1"))
             let content = JingleContent(name: "offer", creator: "initiator", description: desc, transport: transport)
-            let session = JingleSession(sid: "s-1", peer: peer, role: .initiator, state: .pending, content: content)
+            let session = JingleSession(peer: peer, role: .initiator, content: content)
 
             if case .pending = session.transportState {
                 // Expected

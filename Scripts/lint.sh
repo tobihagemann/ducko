@@ -19,6 +19,7 @@ check_tool() {
 }
 check_tool swiftlint
 check_tool swiftformat
+check_tool periphery
 
 case "${1:-}" in
     --check)
@@ -32,6 +33,9 @@ case "${1:-}" in
 
         echo "Linting..."
         swiftlint lint --strict --quiet
+
+        echo "Scanning for unused code..."
+        periphery scan --quiet
         ;;
 
     *)
@@ -43,6 +47,9 @@ case "${1:-}" in
 
         echo "Linting..."
         swiftlint lint --strict --quiet
+
+        echo "Scanning for unused code..."
+        periphery scan --quiet
         ;;
 esac
 

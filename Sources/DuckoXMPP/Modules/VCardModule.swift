@@ -1,8 +1,6 @@
 import CryptoKit
 import os
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "vcard")
-
 /// Implements XEP-0054 vCard-temp — fetches and caches vCards.
 public final class VCardModule: XMPPModule, Sendable {
     // MARK: - Types

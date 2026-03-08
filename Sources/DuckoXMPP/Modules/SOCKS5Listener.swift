@@ -26,11 +26,6 @@ public actor SOCKS5Listener {
     private var listenFD: Int32 = -1
     private var boundPort: UInt16 = 0
 
-    /// The port the listener is bound to.
-    public var port: UInt16 {
-        boundPort
-    }
-
     // MARK: - Public API
 
     /// Starts listening on an ephemeral port.

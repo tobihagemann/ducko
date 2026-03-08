@@ -29,7 +29,6 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
     /// A single disco#items item.
     public struct Item: Sendable {
         public let jid: JID
-        public let node: String?
         public let name: String?
     }
 
@@ -175,7 +174,7 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
                   let jid = JID.parse(jidString) else {
                 return nil
             }
-            return Item(jid: jid, node: element.attribute("node"), name: element.attribute("name"))
+            return Item(jid: jid, name: element.attribute("name"))
         }
     }
 }

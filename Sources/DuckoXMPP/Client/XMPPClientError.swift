@@ -2,8 +2,6 @@
 public enum XMPPClientError: Error, Sendable {
     case notConnected
     case alreadyConnected
-    case streamError(String)
-    case tlsRequired
     case tlsNegotiationFailed(String)
     case authenticationFailed(String)
     case bindingFailed(String)

@@ -19,11 +19,6 @@ struct PlainFormatter: CLIFormatter {
         return line
     }
 
-    func formatContact(_ contact: Contact) -> String {
-        let name = contact.name ?? contact.jid.description
-        return "\(name) (\(contact.jid)) [\(contact.subscription.rawValue)]"
-    }
-
     func formatAccount(_ account: Account) -> String {
         "\(account.jid) (\(account.id))"
     }

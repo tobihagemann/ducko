@@ -75,7 +75,7 @@ struct PlainRoomFormatterTests {
 
     @Test func `format event room joined`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
-        let occupancy = RoomOccupancy(room: room, nickname: "alice", occupants: [
+        let occupancy = RoomOccupancy(nickname: "alice", occupants: [
             RoomOccupant(nickname: "alice", affiliation: .member, role: .participant),
             RoomOccupant(nickname: "bob", affiliation: .member, role: .participant)
         ], subject: "Hello")
@@ -258,7 +258,7 @@ struct JSONRoomFormatterTests {
 
     @Test func `format event room joined is valid JSON`() throws {
         let room = try #require(BareJID.parse("chat@conference.example.com"))
-        let occupancy = RoomOccupancy(room: room, nickname: "alice", occupants: [
+        let occupancy = RoomOccupancy(nickname: "alice", occupants: [
             RoomOccupant(nickname: "alice", affiliation: .member, role: .participant)
         ], subject: "Topic")
         let output = try #require(formatter.formatEvent(.roomJoined(room: room, occupancy: occupancy), accountID: UUID()))
