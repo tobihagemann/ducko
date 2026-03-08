@@ -22,10 +22,18 @@ struct RoomJoinDialog: View {
             Text("Join Room")
                 .font(.headline)
 
-            TextField("Room JID (e.g. room@conference.example.com)", text: $roomJID)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 350)
-                .accessibilityIdentifier("room-jid-field")
+            VStack(alignment: .leading, spacing: 4) {
+                TextField("Room address or JID (e.g. room@conference.example.com)", text: $roomJID)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("room-jid-field")
+
+                if !roomJID.contains("@"), let mucService {
+                    Text("Service: \(mucService)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: 350)
 
             TextField("Nickname", text: $nickname)
                 .textFieldStyle(.roundedBorder)
@@ -102,25 +110,40 @@ struct RoomJoinDialog: View {
             if nickname.isEmpty, let localPart = account?.jid.localPart {
                 nickname = localPart
             }
+            guard let accountID = account?.id else { return }
+            mucService = await environment.chatService.discoverMUCService(accountID: accountID)
         }
     }
 
     private func joinRoom() {
-        let trimmedJID = roomJID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedInput = roomJID.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedNick = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedJID.isEmpty, !trimmedNick.isEmpty else { return }
-        guard trimmedJID.contains("@") else {
-            errorMessage = "Invalid room JID: \(trimmedJID)"
-            return
-        }
-        guard let accountID = account?.id else { return }
+        guard !trimmedInput.isEmpty, !trimmedNick.isEmpty else { return }
         errorMessage = nil
+
+        guard let accountID = account?.id else { return }
 
         let pw = password.isEmpty ? nil : password
         Task {
             do {
-                try await environment.chatService.joinRoom(jidString: trimmedJID, nickname: trimmedNick, password: pw, accountID: accountID)
-                onJoin(trimmedJID)
+                let resolvedJID: String
+                if trimmedInput.contains("@") {
+                    resolvedJID = trimmedInput
+                } else {
+                    let normalized = trimmedInput.lowercased().replacingOccurrences(of: " ", with: "-")
+                    guard !normalized.contains("/") else {
+                        errorMessage = "Room name cannot contain / characters"
+                        return
+                    }
+                    await ensureMUCService(accountID: accountID)
+                    guard let service = mucService else {
+                        errorMessage = "No MUC service found on server"
+                        return
+                    }
+                    resolvedJID = "\(normalized)@\(service)"
+                }
+                try await environment.chatService.joinRoom(jidString: resolvedJID, nickname: trimmedNick, password: pw, accountID: accountID)
+                onJoin(resolvedJID)
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription
@@ -128,13 +151,17 @@ struct RoomJoinDialog: View {
         }
     }
 
+    private func ensureMUCService(accountID: UUID) async {
+        if mucService == nil {
+            mucService = await environment.chatService.discoverMUCService(accountID: accountID)
+        }
+    }
+
     private func browseRooms() {
         guard let accountID = account?.id else { return }
         isBrowsing = true
         Task {
-            if mucService == nil {
-                mucService = await environment.chatService.discoverMUCService(accountID: accountID)
-            }
+            await ensureMUCService(accountID: accountID)
             guard let service = mucService else {
                 errorMessage = "No MUC service found on server"
                 isBrowsing = false

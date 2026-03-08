@@ -59,8 +59,6 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `room-nickname-field` | Nickname field in Join Room dialog | Contacts |
 | `join-room-button` | Join button in Join Room dialog | Contacts |
 | `browse-rooms-button` | Browse Rooms button in Join Room dialog | Contacts |
-| `room-name-field` | Room name field in Create Room dialog | Contacts |
-| `create-room-button` | Create button in Create Room dialog | Contacts |
 | `room-subject-view` | Room topic banner (editable) | Chat |
 | `participant-sidebar` | Participant sidebar list | Chat |
 | `toggle-participant-sidebar` | Sidebar toggle button (person.2 icon) | Chat |
