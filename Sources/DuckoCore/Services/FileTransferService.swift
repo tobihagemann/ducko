@@ -168,7 +168,7 @@ public final class FileTransferService {
 
     // MARK: - Jingle Event Handling
 
-    public func handleJingleEvent(_ event: XMPPEvent, accountID: UUID) {
+    public func handleJingleEvent(_ event: XMPPEvent, accountID _: UUID) {
         switch event {
         case let .jingleFileTransferReceived(offer):
             incomingOffers.append(offer)
@@ -293,7 +293,7 @@ public final class FileTransferService {
 
     private func sendFileViaJingle(
         _ file: FileInfo, peer: String, accountID: UUID,
-        onProgress: (@MainActor @Sendable (Double) -> Void)?
+        onProgress _: (@MainActor @Sendable (Double) -> Void)?
     ) async throws -> String {
         let jingleModule = try await jingleModule(for: accountID)
 

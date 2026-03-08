@@ -70,7 +70,7 @@ public final class PresenceService {
         pendingSubscriptionRequests.removeAll { $0 == jid }
     }
 
-    public func goOffline(accountID: UUID) {
+    public func goOffline(accountID _: UUID) {
         myPresence = .offline
         myStatusMessage = nil
         // Unavailable presence is sent by the server on disconnect.
@@ -79,7 +79,7 @@ public final class PresenceService {
 
     // MARK: - Event Handling
 
-    func handleEvent(_ event: XMPPEvent, accountID: UUID) {
+    func handleEvent(_ event: XMPPEvent, accountID _: UUID) {
         switch event {
         case let .presenceUpdated(from, presence):
             handlePresenceUpdated(from: from, presence: presence)

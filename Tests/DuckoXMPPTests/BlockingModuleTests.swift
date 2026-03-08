@@ -6,9 +6,6 @@ import Testing
 /// Empty blocklist response for tests that don't need pre-loaded blocked JIDs.
 private let emptyBlocklistResponse = "<iq type='result' id='ducko-2'><blocklist xmlns='urn:xmpp:blocking'/></iq>"
 
-/// Empty roster response (BlockingModule fires after RosterModule; some tests need both).
-private let emptyRosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'/></iq>"
-
 /// Creates a connected client with BlockingModule registered.
 private func makeConnectedClient(mock: MockTransport, blocklistResponse: String = emptyBlocklistResponse) async throws -> XMPPClient {
     let client = XMPPClient(

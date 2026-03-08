@@ -180,6 +180,6 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
 }
 
 /// Errors from the service discovery module.
-public enum ServiceDiscoveryError: Error {
+enum ServiceDiscoveryError: Error {
     case notConnected
 }

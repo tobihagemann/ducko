@@ -1,7 +1,7 @@
 import CryptoKit
 
 /// SCRAM-SHA-1 mechanism (RFC 5802).
-struct SCRAMSHA1: SASLMechanism {
+struct SCRAMSHA1 {
     static let mechanismName = "SCRAM-SHA-1"
 
     private var state: SCRAMState<Insecure.SHA1>

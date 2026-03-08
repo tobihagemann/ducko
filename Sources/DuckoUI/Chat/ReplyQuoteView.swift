@@ -1,4 +1,3 @@
-import DuckoCore
 import SwiftUI
 
 struct ReplyQuoteView: View {

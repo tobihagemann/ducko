@@ -97,7 +97,7 @@ struct SASLAuthenticator {
 
     // MARK: - Active Mechanism
 
-    /// Enum-based wrapper to avoid `any SASLMechanism` existential.
+    /// Enum-based dispatch for SASL mechanism types.
     enum ActiveMechanism {
         case scramSHA256(SCRAMSHA256)
         case scramSHA1(SCRAMSHA1)

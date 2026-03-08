@@ -9,7 +9,6 @@ public final class VCardModule: XMPPModule, Sendable {
     public struct VCard: Sendable {
         public let fullName: String?
         public let nickname: String?
-        public let photoType: String?
         public let photoData: [UInt8]?
         public let photoHash: String?
     }
@@ -58,24 +57,16 @@ public final class VCardModule: XMPPModule, Sendable {
         return vcard
     }
 
-    /// Fetches the current user's own vCard.
-    public func fetchOwnVCard(forceRefresh: Bool = false) async throws -> VCard? {
-        guard let connectedJID = state.withLock({ $0.context })?.connectedJID() else { return nil }
-        return try await fetchVCard(for: connectedJID.bareJID, forceRefresh: forceRefresh)
-    }
-
     // MARK: - Parsing
 
     private func parseVCard(_ element: XMLElement) -> VCard {
         let fullName = element.childText(named: "FN")
         let nickname = element.childText(named: "NICKNAME")
 
-        var photoType: String?
         var photoData: [UInt8]?
         var photoHash: String?
 
         if let photo = element.child(named: "PHOTO") {
-            photoType = photo.childText(named: "TYPE")
             if let binval = photo.childText(named: "BINVAL"),
                let decoded = Base64.decode(binval) {
                 photoData = decoded
@@ -87,7 +78,6 @@ public final class VCardModule: XMPPModule, Sendable {
         return VCard(
             fullName: fullName,
             nickname: nickname,
-            photoType: photoType,
             photoData: photoData,
             photoHash: photoHash
         )

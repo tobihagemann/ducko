@@ -1,6 +1,6 @@
 /// Replaces common text emoticons with emoji in outgoing messages.
-public struct EmojiFilter: MessageFilter, Sendable {
-    public let priority = 100
+struct EmojiFilter: MessageFilter {
+    let priority = 100
 
     private static let replacements: [(pattern: String, emoji: String)] = [
         (":)", "\u{1F60A}"),
@@ -12,9 +12,9 @@ public struct EmojiFilter: MessageFilter, Sendable {
         (":O", "\u{1F62E}")
     ]
 
-    public init() {}
+    init() {}
 
-    public func filter(_ content: MessageContent, direction: FilterDirection, context: FilterContext) async -> MessageContent {
+    func filter(_ content: MessageContent, direction: FilterDirection, context: FilterContext) async -> MessageContent {
         guard direction == .outgoing else { return content }
 
         var body = content.body

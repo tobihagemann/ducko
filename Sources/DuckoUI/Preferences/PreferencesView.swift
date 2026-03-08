@@ -1,4 +1,3 @@
-import DuckoCore
 import SwiftUI
 
 public struct PreferencesView: View {

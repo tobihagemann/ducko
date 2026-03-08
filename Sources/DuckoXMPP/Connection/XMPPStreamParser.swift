@@ -124,6 +124,7 @@ final class XMPPStreamParser {
 
 // MARK: - SAX2 Callbacks
 
+// periphery:ignore:parameters prefix,nb_defaulted
 // swiftlint:disable:next function_parameter_count
 private func saxStartElementNs(
     _ ctx: UnsafeMutableRawPointer?,
@@ -183,6 +184,7 @@ private func saxStartElementNs(
     )
 }
 
+// periphery:ignore:parameters localname,prefix,URI
 private func saxEndElementNs(
     _ ctx: UnsafeMutableRawPointer?,
     _ localname: UnsafePointer<xmlChar>?,

@@ -9,10 +9,7 @@ extension AttachmentRecord {
             mimeType: mimeType,
             fileName: fileName,
             fileSize: fileSize,
-            width: width,
-            height: height,
-            thumbnailData: thumbnailData,
-            localPath: localPath
+            thumbnailData: thumbnailData
         )
     }
 }

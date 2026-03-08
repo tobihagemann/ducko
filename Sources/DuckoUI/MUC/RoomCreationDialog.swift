@@ -1,6 +1,7 @@
 import DuckoCore
 import SwiftUI
 
+// periphery:ignore - specced feature, not yet wired into navigation
 struct RoomCreationDialog: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss

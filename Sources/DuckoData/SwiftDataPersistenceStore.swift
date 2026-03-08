@@ -3,7 +3,7 @@ import DuckoXMPP
 import Foundation
 import SwiftData
 
-public enum PersistenceStoreError: Error {
+enum PersistenceStoreError: Error {
     case parentNotFound(String)
 }
 

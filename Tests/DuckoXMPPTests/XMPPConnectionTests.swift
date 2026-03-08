@@ -62,11 +62,6 @@ actor MockTransport: XMPPTransport {
 
     // MARK: - Test Helpers
 
-    /// Simulates receiving data from the network.
-    func simulateReceive(_ bytes: [UInt8]) {
-        receivedContinuation.yield(bytes)
-    }
-
     /// Simulates receiving a UTF-8 string from the network.
     func simulateReceive(_ string: String) {
         receivedContinuation.yield(Array(string.utf8))

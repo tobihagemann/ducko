@@ -152,7 +152,7 @@ public final class JingleModule: XMPPModule, Sendable {
         case .transportReplace:
             handleTransportReplace(jingle, sid: sid, from: iq.from, context: context)
         case .transportAccept:
-            handleTransportAccept(sid: sid, context: context)
+            handleTransportAccept(sid: sid)
         case .transportReject:
             handleTransportReject(sid: sid, context: context)
         case .sessionInfo:
@@ -360,7 +360,7 @@ public final class JingleModule: XMPPModule, Sendable {
         continuation?.resume()
     }
 
-    private func handleTransportAccept(sid: String, context: ModuleContext) {
+    private func handleTransportAccept(sid: String) {
         let continuation = state.withLock { state -> CheckedContinuation<Void, Error>? in
             state.sessions[sid]?.transportState = .pending
             return state.transportReadyContinuations.removeValue(forKey: sid)
@@ -589,7 +589,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
         let sid = context.generateID()
         let transportSID = context.generateID()
-        let candidates = await buildCandidates(context: context, sessionSID: sid, transportSID: transportSID)
+        let candidates = await buildCandidates(context: context, sessionSID: sid)
 
         let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: transportSID, candidates: candidates))
         let content = JingleContent(
@@ -1068,8 +1068,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func buildCandidates(
         context: ModuleContext,
-        sessionSID: String,
-        transportSID: String
+        sessionSID: String
     ) async -> [SOCKS5Transport.Candidate] {
         var candidates: [SOCKS5Transport.Candidate] = []
 

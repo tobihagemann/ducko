@@ -91,7 +91,6 @@ enum VCardModuleTests {
             }
 
             let vcard = try await fetchTask.value
-            #expect(vcard?.photoType == "image/png")
             #expect(vcard?.photoData == Array("test photo data".utf8))
             #expect(vcard?.photoHash != nil)
             #expect(vcard?.photoHash?.isEmpty == false)

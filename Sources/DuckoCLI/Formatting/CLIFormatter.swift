@@ -17,10 +17,6 @@ protocol CLIFormatter: Sendable {
     func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String
     func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String
     func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String
-    func formatFileOffer(fileName: String, fileSize: Int64, from: String, sid: String) -> String
-    func formatJingleTransferProgress(fileName: String, fileSize: Int64, progress: Double, state: String) -> String
-    func formatJingleTransferCompleted(sid: String) -> String
-    func formatJingleTransferFailed(sid: String, reason: String) -> String
 }
 
 func jingleProgressState(bytesTransferred: Int64, totalBytes: Int64) -> (progress: Double, state: String) {

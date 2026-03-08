@@ -1,4 +1,1 @@
-import Testing
-@testable import DuckoUI
-
-struct DuckoUITests {}
+// Tests are in dedicated files per view/component.

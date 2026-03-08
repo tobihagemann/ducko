@@ -1,5 +1,5 @@
 /// Jingle action per XEP-0166 §7.
-public enum JingleAction: String, Sendable {
+enum JingleAction: String {
     case sessionInitiate = "session-initiate"
     case sessionAccept = "session-accept"
     case sessionTerminate = "session-terminate"
@@ -216,13 +216,13 @@ public enum JingleTransportDescription: Sendable, Hashable {
 }
 
 /// A Jingle content element containing file description and transport.
-public struct JingleContent: Sendable {
-    public let name: String
-    public let creator: String
-    public let description: JingleFileDescription
-    public let transport: JingleTransportDescription
+struct JingleContent {
+    let name: String
+    let creator: String
+    let description: JingleFileDescription
+    let transport: JingleTransportDescription
 
-    public init(name: String, creator: String, description: JingleFileDescription, transport: JingleTransportDescription) {
+    init(name: String, creator: String, description: JingleFileDescription, transport: JingleTransportDescription) {
         self.name = name
         self.creator = creator
         self.description = description
@@ -230,7 +230,7 @@ public struct JingleContent: Sendable {
     }
 
     /// Parses from a `<content>` element.
-    public init?(from element: XMLElement) {
+    init?(from element: XMLElement) {
         guard element.name == "content",
               let name = element.attribute("name"),
               let creator = element.attribute("creator") else { return nil }
@@ -248,7 +248,7 @@ public struct JingleContent: Sendable {
     }
 
     /// Serializes to a `<content>` element.
-    public func toXML() -> XMLElement {
+    func toXML() -> XMLElement {
         var content = XMLElement(name: "content", attributes: ["creator": creator, "name": name])
         content.addChild(description.toXML())
         content.addChild(transport.toXML())
@@ -257,22 +257,16 @@ public struct JingleContent: Sendable {
 }
 
 /// IBB session state for tracking in-band data transfer.
-public struct IBBSessionState: Sendable {
-    public let ibbSID: String
-    public let blockSize: Int
-    public var receivedData: [UInt8] = []
-    public var nextExpectedSeq: UInt16 = 0
-    public let expectedSize: Int64
-
-    public init(ibbSID: String, blockSize: Int, expectedSize: Int64) {
-        self.ibbSID = ibbSID
-        self.blockSize = blockSize
-        self.expectedSize = expectedSize
-    }
+struct IBBSessionState {
+    let ibbSID: String
+    let blockSize: Int
+    var receivedData: [UInt8] = []
+    var nextExpectedSeq: UInt16 = 0
+    let expectedSize: Int64
 }
 
 /// Transport connection state within a Jingle session.
-public enum TransportState: Sendable {
+enum TransportState {
     case pending
     case connecting
     case connected(candidateCID: String)
@@ -281,19 +275,19 @@ public enum TransportState: Sendable {
 }
 
 /// State of a Jingle session.
-public struct JingleSession: Sendable {
-    public let peer: FullJID
-    public let role: Role
-    public var transportState: TransportState
-    public let content: JingleContent
+struct JingleSession {
+    let peer: FullJID
+    let role: Role
+    var transportState: TransportState
+    let content: JingleContent
 
     /// Whether this side initiated or is responding.
-    public enum Role: Sendable {
+    enum Role {
         case initiator
         case responder
     }
 
-    public init(
+    init(
         peer: FullJID,
         role: Role,
         transportState: TransportState = .pending,

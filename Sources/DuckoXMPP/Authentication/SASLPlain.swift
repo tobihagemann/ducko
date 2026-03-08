@@ -1,7 +1,7 @@
 /// SASL PLAIN mechanism (RFC 4616).
 ///
 /// Single-step: `\0authcid\0password` base64-encoded in `<auth>`.
-struct SASLPlain: SASLMechanism {
+struct SASLPlain {
     static let mechanismName = "PLAIN"
 
     mutating func start(authcid: String, password: String) -> XMLElement {
@@ -13,11 +13,11 @@ struct SASLPlain: SASLMechanism {
         return auth
     }
 
-    mutating func handleChallenge(_ challenge: XMLElement) -> SASLAuthResponse {
+    mutating func handleChallenge(_: XMLElement) -> SASLAuthResponse {
         .failure(.invalidState("PLAIN does not expect challenges"))
     }
 
-    mutating func handleSuccess(_ success: XMLElement) -> SASLAuthResponse {
+    mutating func handleSuccess(_: XMLElement) -> SASLAuthResponse {
         .success
     }
 }

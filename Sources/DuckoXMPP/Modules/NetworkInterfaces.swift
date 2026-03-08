@@ -1,15 +1,15 @@
 import Darwin
 
 /// Enumerates local network interface addresses for direct SOCKS5 candidates.
-public enum NetworkInterfaces {
+enum NetworkInterfaces {
     /// A network interface address.
-    public struct Address: Sendable {
-        public let ip: String
-        public let isIPv4: Bool
+    struct Address {
+        let ip: String
+        let isIPv4: Bool
     }
 
     /// Returns non-loopback, non-link-local addresses for all active interfaces.
-    public static func localAddresses() -> [Address] {
+    static func localAddresses() -> [Address] {
         var ifaddrs: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddrs) == 0, let first = ifaddrs else { return [] }
         defer { freeifaddrs(first) }

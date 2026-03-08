@@ -8,12 +8,14 @@ final class AttachmentRecord {
     var mimeType: String?
     var fileName: String?
     var fileSize: Int64?
+    @Attribute(.externalStorage) var thumbnailData: Data?
+    // Retained for schema compatibility — no longer mapped to domain model
     var width: Int?
     var height: Int?
-    @Attribute(.externalStorage) var thumbnailData: Data?
     var localPath: String?
     var message: MessageRecord?
 
+    // periphery:ignore
     init(
         id: UUID,
         url: String,

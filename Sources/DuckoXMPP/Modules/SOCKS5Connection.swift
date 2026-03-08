@@ -8,11 +8,11 @@ private let log = Logger(subsystem: "com.ducko.xmpp", category: "socks5")
 ///
 /// Connects to a SOCKS5 proxy, performs the SOCKS5 handshake with the
 /// XEP-0065 destination address (SHA-1 hash), and provides raw byte I/O.
-public actor SOCKS5Connection {
+actor SOCKS5Connection {
     // MARK: - Types
 
     /// Errors from the SOCKS5 connection.
-    public enum SOCKS5Error: Error {
+    enum SOCKS5Error: Error {
         case connectionFailed(String)
         case handshakeFailed(String)
         case notConnected
@@ -29,7 +29,7 @@ public actor SOCKS5Connection {
 
     /// Computes the SOCKS5 destination address per XEP-0065 §5.3.2:
     /// `SHA1(SID + initiatorJID + targetJID)` as a 40-char lowercase hex string.
-    public nonisolated static func destinationAddress(
+    nonisolated static func destinationAddress(
         sid: String,
         initiatorJID: String,
         targetJID: String
@@ -42,12 +42,12 @@ public actor SOCKS5Connection {
     }
 
     /// SOCKS5 greeting: version 5, 1 method, NO AUTH (0x00).
-    public nonisolated static let greetingBytes: [UInt8] = [0x05, 0x01, 0x00]
+    nonisolated static let greetingBytes: [UInt8] = [0x05, 0x01, 0x00]
 
     /// Builds a SOCKS5 CONNECT request for a domain address.
     ///
     /// Format: `[VER=5, CMD=1, RSV=0, ATYP=3, LEN, ADDR..., PORT_HI=0, PORT_LO=0]`
-    public nonisolated static func connectRequest(
+    nonisolated static func connectRequest(
         destinationAddress: String
     ) -> [UInt8] {
         let addrBytes = Array(destinationAddress.utf8)
@@ -59,7 +59,7 @@ public actor SOCKS5Connection {
     }
 
     /// Validates the SOCKS5 greeting response (server method selection).
-    public nonisolated static func validateGreetingResponse(
+    nonisolated static func validateGreetingResponse(
         _ response: [UInt8]
     ) throws {
         guard response.count == 2 else {
@@ -80,7 +80,7 @@ public actor SOCKS5Connection {
     }
 
     /// Validates the SOCKS5 CONNECT response.
-    public nonisolated static func validateConnectResponse(
+    nonisolated static func validateConnectResponse(
         _ response: [UInt8]
     ) throws {
         guard response.count >= 2 else {
@@ -104,13 +104,13 @@ public actor SOCKS5Connection {
 
     /// Adopts an already-connected socket file descriptor for data transfer.
     /// Used by SOCKS5Listener after accepting and validating an incoming connection.
-    public func adopt(fd newFD: Int32) throws {
+    func adopt(fd newFD: Int32) throws {
         guard fd == -1 else { throw SOCKS5Error.alreadyConnected }
         fd = newFD
     }
 
     /// Connects to a SOCKS5 proxy and performs the handshake.
-    public func connect(
+    func connect(
         host: String,
         port: UInt16,
         destinationAddress: String
@@ -138,7 +138,7 @@ public actor SOCKS5Connection {
     }
 
     /// Sends data over the established SOCKS5 connection.
-    public func send(_ data: [UInt8]) async throws {
+    func send(_ data: [UInt8]) async throws {
         guard fd >= 0 else { throw SOCKS5Error.notConnected }
 
         let fdCopy = fd
@@ -148,7 +148,7 @@ public actor SOCKS5Connection {
     }
 
     /// Receives exactly `count` bytes from the connection.
-    public func receive(_ count: Int) async throws -> [UInt8] {
+    func receive(_ count: Int) async throws -> [UInt8] {
         guard fd >= 0 else { throw SOCKS5Error.notConnected }
 
         let fdCopy = fd
@@ -158,7 +158,7 @@ public actor SOCKS5Connection {
     }
 
     /// Closes the SOCKS5 connection.
-    public func close() {
+    func close() {
         if fd >= 0 {
             Darwin.close(fd)
             fd = -1

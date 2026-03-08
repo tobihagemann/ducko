@@ -19,18 +19,3 @@ enum SASLAuthError: Error {
     case invalidState(String)
     case iterationCountTooLow(Int)
 }
-
-/// A SASL authentication mechanism.
-protocol SASLMechanism: Sendable {
-    /// The IANA-registered mechanism name (e.g. "SCRAM-SHA-256").
-    static var mechanismName: String { get }
-
-    /// Produces the initial `<auth>` element to send to the server.
-    mutating func start(authcid: String, password: String) -> XMLElement
-
-    /// Handles a `<challenge>` from the server.
-    mutating func handleChallenge(_ challenge: XMLElement) -> SASLAuthResponse
-
-    /// Handles a `<success>` from the server.
-    mutating func handleSuccess(_ success: XMLElement) -> SASLAuthResponse
-}

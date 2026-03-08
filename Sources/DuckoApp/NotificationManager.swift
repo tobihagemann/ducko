@@ -1,5 +1,4 @@
 import AppKit
-import DuckoCore
 import UserNotifications
 
 /// NSObject subclass required for UNUserNotificationCenterDelegate conformance —

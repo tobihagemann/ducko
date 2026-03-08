@@ -1,5 +1,5 @@
 /// Errors from XMPP client operations.
-public enum XMPPClientError: Error, Sendable {
+enum XMPPClientError: Error {
     case notConnected
     case alreadyConnected
     case tlsNegotiationFailed(String)

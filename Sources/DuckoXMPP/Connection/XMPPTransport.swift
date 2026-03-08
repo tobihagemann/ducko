@@ -1,5 +1,5 @@
 /// Errors from XMPP connection operations.
-public enum XMPPConnectionError: Error, Sendable {
+enum XMPPConnectionError: Error {
     case alreadyConnected
     case notConnected
     case connectionFailed(String)

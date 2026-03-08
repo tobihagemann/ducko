@@ -35,7 +35,7 @@ case "${1:-}" in
         swiftlint lint --strict --quiet
 
         echo "Scanning for unused code..."
-        periphery scan --quiet
+        periphery scan --quiet --strict
         ;;
 
     *)
@@ -49,7 +49,7 @@ case "${1:-}" in
         swiftlint lint --strict --quiet
 
         echo "Scanning for unused code..."
-        periphery scan --quiet
+        periphery scan --quiet --strict
         ;;
 esac
 

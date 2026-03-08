@@ -1,12 +1,12 @@
 import Foundation
 
 /// Detects URLs in message bodies using NSDataDetector and populates `detectedURLs`.
-public struct LinkDetectionFilter: MessageFilter, Sendable {
-    public let priority = 10
+struct LinkDetectionFilter: MessageFilter {
+    let priority = 10
 
-    public init() {}
+    init() {}
 
-    public func filter(_ content: MessageContent, direction: FilterDirection, context: FilterContext) async -> MessageContent {
+    func filter(_ content: MessageContent, direction: FilterDirection, context: FilterContext) async -> MessageContent {
         guard !content.body.isEmpty else { return content }
 
         let body = content.body

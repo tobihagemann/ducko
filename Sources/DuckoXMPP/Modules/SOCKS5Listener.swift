@@ -8,11 +8,11 @@ private let log = Logger(subsystem: "com.ducko.xmpp", category: "socks5-listener
 /// Listens on an ephemeral port for a single incoming SOCKS5 connection,
 /// validates the handshake, and returns a `SOCKS5Connection` wrapping the
 /// accepted socket.
-public actor SOCKS5Listener {
+actor SOCKS5Listener {
     // MARK: - Types
 
     /// Errors from the SOCKS5 listener.
-    public enum ListenerError: Error {
+    enum ListenerError: Error {
         case alreadyListening
         case socketCreationFailed(Int32)
         case bindFailed(Int32)
@@ -24,13 +24,12 @@ public actor SOCKS5Listener {
     // MARK: - State
 
     private var listenFD: Int32 = -1
-    private var boundPort: UInt16 = 0
 
     // MARK: - Public API
 
     /// Starts listening on an ephemeral port.
     /// - Returns: The port number assigned by the OS.
-    public func start() throws -> UInt16 {
+    func start() throws -> UInt16 {
         guard listenFD == -1 else { throw ListenerError.alreadyListening }
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
@@ -75,7 +74,6 @@ public actor SOCKS5Listener {
 
         listenFD = fd
         let port = UInt16(bigEndian: boundAddr.sin_port)
-        boundPort = port
         log.info("SOCKS5 listener started on port \(port)")
         return port
     }
@@ -86,7 +84,7 @@ public actor SOCKS5Listener {
     /// - Parameters:
     ///   - expectedDstAddr: The expected SOCKS5 DST.ADDR (SHA-1 hash string).
     ///   - timeout: Maximum seconds to wait for a connection.
-    public func accept(expectedDstAddr: String, timeout: Double = 60) async throws -> SOCKS5Connection {
+    func accept(expectedDstAddr: String, timeout: Double = 60) async throws -> SOCKS5Connection {
         guard listenFD >= 0 else {
             throw ListenerError.acceptFailed("Not listening")
         }
@@ -132,11 +130,10 @@ public actor SOCKS5Listener {
     }
 
     /// Closes the listening socket.
-    public func close() {
+    func close() {
         if listenFD >= 0 {
             Darwin.close(listenFD)
             listenFD = -1
-            boundPort = 0
         }
     }
 

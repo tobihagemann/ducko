@@ -1,7 +1,7 @@
 import Foundation
 
-public enum CredentialStoreFactory {
-    public static func makeDefault() -> any CredentialStore {
+enum CredentialStoreFactory {
+    static func makeDefault() -> any CredentialStore {
         if BuildEnvironment.useKeychain {
             return KeychainCredentialStore()
         }

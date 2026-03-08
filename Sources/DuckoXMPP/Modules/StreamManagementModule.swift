@@ -18,8 +18,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         var incomingCounter: UInt32 = 0
         var outgoingCounter: UInt32 = 0
         var outgoingQueue: [XMLElement] = []
-        var resumptionID: String?
-        var maxResumeSeconds: Int?
         var enableContinuation: CheckedContinuation<Void, any Error>?
     }
 
@@ -79,8 +77,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
             state.incomingCounter = 0
             state.outgoingCounter = 0
             state.outgoingQueue.removeAll()
-            state.resumptionID = nil
-            state.maxResumeSeconds = nil
             return cont
         }
         continuation?.resume(throwing: XMPPClientError.notConnected)
@@ -122,10 +118,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         switch element.name {
         case "enabled":
             let continuation = state.withLock { state -> CheckedContinuation<Void, any Error>? in
-                state.resumptionID = element.attribute("id")
-                if let maxStr = element.attribute("max") {
-                    state.maxResumeSeconds = Int(maxStr)
-                }
                 state.enabled = true
                 let cont = state.enableContinuation
                 state.enableContinuation = nil

@@ -1,4 +1,1 @@
-import Testing
-@testable import DuckoCore
-
-struct DuckoCoreTests {}
+// Tests are in dedicated files.
