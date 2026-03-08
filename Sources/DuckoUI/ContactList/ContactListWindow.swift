@@ -8,6 +8,7 @@ struct ContactListWindow: View {
     @State private var isShowingNewChat = false
     @State private var isShowingAddContact = false
     @State private var isShowingJoinRoom = false
+    @State private var isShowingProfile = false
     @State private var preferences = ContactListPreferences()
 
     private var account: Account? {
@@ -43,6 +44,15 @@ struct ContactListWindow: View {
                     Label("View Options", systemImage: "line.3.horizontal.decrease.circle")
                 }
                 .accessibilityIdentifier("sort-mode-menu")
+            }
+
+            ToolbarItem {
+                Button {
+                    isShowingProfile = true
+                } label: {
+                    Label("My Profile", systemImage: "person.crop.circle")
+                }
+                .accessibilityIdentifier("my-profile-toolbar-button")
             }
 
             ToolbarItem {
@@ -99,6 +109,9 @@ struct ContactListWindow: View {
             RoomJoinDialog { jidString in
                 openWindow(id: "chat", value: jidString)
             }
+        }
+        .sheet(isPresented: $isShowingProfile) {
+            ProfileEditView()
         }
     }
 }

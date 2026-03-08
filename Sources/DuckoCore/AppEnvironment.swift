@@ -9,6 +9,7 @@ public final class AppEnvironment {
     public let presenceService: PresenceService
     public let rosterService: RosterService
     public let fileTransferService: FileTransferService
+    public let profileService: ProfileService
     public let linkPreviewService: LinkPreviewService
 
     public init(
@@ -24,6 +25,7 @@ public final class AppEnvironment {
         let presenceService = PresenceService()
         let rosterService = RosterService(store: store)
         let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore)
+        let profileService = ProfileService()
         let fileTransferService = FileTransferService()
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
 
@@ -41,6 +43,7 @@ public final class AppEnvironment {
         presenceService.setAccountService(accountService)
         rosterService.setAccountService(accountService)
         rosterService.setPresenceService(presenceService)
+        profileService.setAccountService(accountService)
         fileTransferService.setAccountService(accountService)
         fileTransferService.setChatService(chatService)
 
@@ -56,6 +59,7 @@ public final class AppEnvironment {
         self.chatService = chatService
         self.presenceService = presenceService
         self.rosterService = rosterService
+        self.profileService = profileService
         self.fileTransferService = fileTransferService
         self.linkPreviewService = linkPreviewService
     }

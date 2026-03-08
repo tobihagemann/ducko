@@ -68,6 +68,18 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `attachment-view` | Attachment in message bubble | Chat |
 | `image-preview` | Full-size image preview sheet | Chat |
 | `link-preview` | Link preview card in message bubble | Chat |
+| `my-profile-toolbar-button` | My Profile toolbar button | Contacts |
+| `profile-edit-view` | Profile editing sheet | Contacts |
+| `profile-fullname-field` | Full Name text field | Profile |
+| `profile-nickname-field` | Nickname text field | Profile |
+| `profile-given-name-field` | Given Name text field | Profile |
+| `profile-family-name-field` | Family Name text field | Profile |
+| `profile-email-field-{index}` | Email text field (0-indexed) | Profile |
+| `profile-phone-field-{index}` | Phone text field (0-indexed) | Profile |
+| `profile-org-field` | Organization text field | Profile |
+| `profile-title-field` | Title text field | Profile |
+| `profile-save-button` | Save button | Profile |
+| `profile-cancel-button` | Cancel button | Profile |
 
 ### Script Reference
 
@@ -86,6 +98,7 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `ducko-toggle-sidebar.sh` | Toggle participant sidebar in active groupchat window | none |
 | `ducko-focus-contacts.sh` | Raise the Contacts window to the front | none |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
+| `ducko-profile.sh` | Open My Profile sheet from contact list toolbar | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
 | `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Appearance\|Notifications\|Advanced>` |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
@@ -298,6 +311,26 @@ $SCRIPTS/ducko-preferences-tab.sh Advanced
 $SCRIPTS/ducko-screenshot.sh "preferences-advanced.png"
 
 # 7. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Profile editing test
+
+Tests the vCard profile editing flow — open profile sheet, verify fields:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch (account must exist)
+$SCRIPTS/ducko-launch.sh
+
+# 2. Open My Profile sheet from toolbar
+$SCRIPTS/ducko-profile.sh
+
+# 3. Screenshot to verify profile fields loaded
+$SCRIPTS/ducko-screenshot.sh "profile-edit.png"
+
+# 4. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 

@@ -1,0 +1,262 @@
+import DuckoCore
+import SwiftUI
+
+struct ProfileEditView: View {
+    @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dismiss) private var dismiss
+    @State private var profile = ProfileInfo()
+    @State private var isLoading = true
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    private var account: Account? {
+        environment.accountService.accounts.first { $0.isEnabled }
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading profile...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                profileForm
+            }
+        }
+        .frame(minWidth: 450, minHeight: 500)
+        .accessibilityIdentifier("profile-edit-view")
+        .task {
+            await loadProfile()
+        }
+    }
+
+    // MARK: - Form
+
+    private var profileForm: some View {
+        VStack(spacing: 0) {
+            Form {
+                nameSection
+                contactSection
+                addressSection
+                organizationSection
+                otherSection
+                photoSection
+            }
+            .formStyle(.grouped)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.callout)
+                    .padding(.horizontal)
+            }
+
+            footerButtons
+        }
+    }
+
+    // MARK: - Name Section
+
+    private var nameSection: some View {
+        Section("Name") {
+            TextField("Full Name", text: binding(for: \.fullName))
+                .accessibilityIdentifier("profile-fullname-field")
+            TextField("Nickname", text: binding(for: \.nickname))
+                .accessibilityIdentifier("profile-nickname-field")
+            TextField("Given Name", text: binding(for: \.givenName))
+                .accessibilityIdentifier("profile-given-name-field")
+            TextField("Family Name", text: binding(for: \.familyName))
+                .accessibilityIdentifier("profile-family-name-field")
+            TextField("Middle Name", text: binding(for: \.middleName))
+            TextField("Prefix", text: binding(for: \.namePrefix))
+            TextField("Suffix", text: binding(for: \.nameSuffix))
+        }
+    }
+
+    // MARK: - Contact Section
+
+    @ViewBuilder
+    private var contactSection: some View {
+        Section("Email") {
+            ForEach($profile.emails) { $email in
+                let index = profile.emails.firstIndex(where: { $0.id == email.id }) ?? 0
+                HStack {
+                    TextField("Email", text: $email.address)
+                        .accessibilityIdentifier("profile-email-field-\(index)")
+                    entryTypePicker($email.types)
+                    removeButton { profile.emails.removeAll { $0.id == email.id } }
+                }
+            }
+            addButton("Add Email") { profile.emails.append(ProfileInfo.EmailEntry()) }
+        }
+
+        Section("Telephone") {
+            ForEach($profile.telephones) { $tel in
+                let index = profile.telephones.firstIndex(where: { $0.id == tel.id }) ?? 0
+                HStack {
+                    TextField("Phone", text: $tel.number)
+                        .accessibilityIdentifier("profile-phone-field-\(index)")
+                    entryTypePicker($tel.types)
+                    removeButton { profile.telephones.removeAll { $0.id == tel.id } }
+                }
+            }
+            addButton("Add Phone") { profile.telephones.append(ProfileInfo.TelephoneEntry()) }
+        }
+    }
+
+    // MARK: - Address Section
+
+    private var addressSection: some View {
+        Section("Addresses") {
+            ForEach($profile.addresses) { $adr in
+                VStack(alignment: .leading) {
+                    HStack {
+                        entryTypePicker($adr.types)
+                        Spacer()
+                        removeButton { profile.addresses.removeAll { $0.id == adr.id } }
+                    }
+                    TextField("Street", text: optionalBinding($adr.street))
+                    TextField("City", text: optionalBinding($adr.locality))
+                    TextField("Region", text: optionalBinding($adr.region))
+                    TextField("Postal Code", text: optionalBinding($adr.postalCode))
+                    TextField("Country", text: optionalBinding($adr.country))
+                }
+            }
+            addButton("Add Address") { profile.addresses.append(ProfileInfo.AddressEntry()) }
+        }
+    }
+
+    // MARK: - Organization Section
+
+    private var organizationSection: some View {
+        Section("Organization") {
+            TextField("Organization", text: binding(for: \.organization))
+                .accessibilityIdentifier("profile-org-field")
+            TextField("Title", text: binding(for: \.title))
+                .accessibilityIdentifier("profile-title-field")
+            TextField("Role", text: binding(for: \.role))
+        }
+    }
+
+    // MARK: - Other Section
+
+    private var otherSection: some View {
+        Section("Other") {
+            TextField("URL", text: binding(for: \.url))
+            TextField("Birthday", text: binding(for: \.birthday))
+            TextField("Note", text: binding(for: \.note))
+        }
+    }
+
+    // MARK: - Photo Section
+
+    @ViewBuilder
+    private var photoSection: some View {
+        if profile.photoData != nil {
+            Section("Photo") {
+                Text("Avatar set (photo editing not yet supported)")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Footer
+
+    private var footerButtons: some View {
+        HStack {
+            Button("Cancel") {
+                dismiss()
+            }
+            .keyboardShortcut(.cancelAction)
+            .accessibilityIdentifier("profile-cancel-button")
+
+            Spacer()
+
+            Button("Save") {
+                Task { await saveProfile() }
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(isSaving)
+            .accessibilityIdentifier("profile-save-button")
+        }
+        .padding()
+    }
+
+    // MARK: - Actions
+
+    private func loadProfile() async {
+        guard let accountID = account?.id else {
+            isLoading = false
+            return
+        }
+        await environment.profileService.fetchOwnProfile(accountID: accountID)
+        if let fetched = environment.profileService.ownProfile {
+            profile = fetched
+        }
+        isLoading = false
+    }
+
+    private func saveProfile() async {
+        guard let accountID = account?.id else { return }
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        do {
+            try await environment.profileService.publishProfile(profile, accountID: accountID)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    // MARK: - Binding Helpers
+
+    /// Creates a non-optional String binding for an optional String keypath.
+    private func binding(for keyPath: WritableKeyPath<ProfileInfo, String?>) -> Binding<String> {
+        Binding(
+            get: { profile[keyPath: keyPath] ?? "" },
+            set: { newValue in
+                profile[keyPath: keyPath] = newValue.isEmpty ? nil : newValue
+            }
+        )
+    }
+
+    /// Creates a non-optional String binding for a Binding<String?>.
+    private func optionalBinding(_ binding: Binding<String?>) -> Binding<String> {
+        Binding(
+            get: { binding.wrappedValue ?? "" },
+            set: { newValue in
+                binding.wrappedValue = newValue.isEmpty ? nil : newValue
+            }
+        )
+    }
+
+    private func entryTypePicker(_ types: Binding<[ProfileInfo.EntryType]>) -> some View {
+        Picker("", selection: Binding(
+            get: { types.wrappedValue.first },
+            set: { newValue in
+                types.wrappedValue = newValue.map { [$0] } ?? []
+            }
+        )) {
+            Text("").tag(ProfileInfo.EntryType?.none)
+            Text("Home").tag(ProfileInfo.EntryType?.some(.home))
+            Text("Work").tag(ProfileInfo.EntryType?.some(.work))
+        }
+        .frame(width: 80)
+    }
+
+    private func removeButton(action: @escaping () -> Void) -> some View {
+        Button(role: .destructive, action: action) {
+            Image(systemName: "minus.circle")
+        }
+        .buttonStyle(.borderless)
+    }
+
+    private func addButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: "plus.circle")
+        }
+        .buttonStyle(.borderless)
+    }
+}
