@@ -47,7 +47,7 @@ actor POSIXTransport: XMPPTransport {
         do {
             let ctx = try configureSSL(fdPtr: fdPtr, serverName: serverName)
 
-            // Run the blocking TLS handshake on a non-cooperative thread
+            // Run blocking TLS work on a non-cooperative thread
             try await Task.detached {
                 var status = SSLHandshake(ctx)
                 while status == errSSLWouldBlock {
@@ -56,6 +56,8 @@ actor POSIXTransport: XMPPTransport {
                 guard status == errSecSuccess else {
                     throw XMPPConnectionError.tlsUpgradeFailed("TLS handshake failed: OSStatus \(status)")
                 }
+
+                try validatePeerTrust(ctx: ctx)
             }.value
 
             // Publish sslContext only after handshake succeeds to prevent
@@ -255,6 +257,26 @@ actor POSIXTransport: XMPPTransport {
                 continuation.finish()
             }
         }
+    }
+}
+
+// MARK: - SSL Trust Validation
+
+/// Validates the server certificate chain after a successful TLS handshake.
+///
+/// Secure Transport requires the application to explicitly evaluate the peer trust
+/// chain. Without this, a self-signed or invalid certificate would be silently accepted.
+private func validatePeerTrust(ctx: SSLContext) throws {
+    var trust: SecTrust?
+    let status = SSLCopyPeerTrust(ctx, &trust)
+    guard status == errSecSuccess, let trust else {
+        throw XMPPConnectionError.tlsUpgradeFailed("Failed to copy peer trust: OSStatus \(status)")
+    }
+
+    var trustError: CFError?
+    guard SecTrustEvaluateWithError(trust, &trustError) else {
+        let reason = (trustError as Error?)?.localizedDescription ?? "Unknown trust evaluation error"
+        throw XMPPConnectionError.tlsUpgradeFailed("Peer trust evaluation failed: \(reason)")
     }
 }
 
