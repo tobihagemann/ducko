@@ -115,11 +115,6 @@ public final class RosterModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    /// Returns the current roster snapshot.
-    public var currentRoster: [BareJID: RosterItem] {
-        state.withLock { $0.roster }
-    }
-
     /// Adds or updates a contact in the roster.
     public func addContact(jid: BareJID, name: String? = nil, groups: [String] = []) async throws {
         guard let context = state.withLock({ $0.context }) else { return }

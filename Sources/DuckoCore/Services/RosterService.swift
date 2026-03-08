@@ -25,6 +25,10 @@ public final class RosterService {
 
     // MARK: - Public API
 
+    public func contact(jidString: String) -> Contact? {
+        groups.lazy.flatMap(\.contacts).first { $0.jid.description == jidString }
+    }
+
     public func loadContacts(for accountID: UUID) async throws {
         let contacts = try await store.fetchContacts(for: accountID)
         groups = buildGroups(from: contacts)
@@ -34,6 +38,7 @@ public final class RosterService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.addContact(jid: jid, name: name, groups: groups)
+        try await rosterModule.subscribe(to: jid)
     }
 
     public func removeContact(_ contact: Contact, accountID: UUID) async throws {

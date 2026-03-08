@@ -23,9 +23,31 @@ struct MessageBubbleView: View {
         return HTMLAttributedStringParser.parse(html)
     }
 
+    private var showAvatar: Bool {
+        theme.current.showAvatars && !message.isOutgoing && theme.current.avatarPosition == .leading
+    }
+
+    @ViewBuilder
+    private var avatarView: some View {
+        if let contact = windowState.contact, !windowState.isGroupchat {
+            AvatarView(contact: contact, size: theme.current.avatarSize)
+        } else {
+            ParticipantAvatarView(nickname: message.fromJID, size: theme.current.avatarSize)
+        }
+    }
+
     var body: some View {
-        HStack {
+        HStack(alignment: .bottom) {
             if message.isOutgoing { Spacer(minLength: 60) }
+
+            if showAvatar {
+                if position.isLastInGroup {
+                    avatarView
+                } else {
+                    Color.clear
+                        .frame(width: theme.current.avatarSize, height: theme.current.avatarSize)
+                }
+            }
 
             VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 4) {
                 if isGroupchatIncoming {

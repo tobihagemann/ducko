@@ -2,7 +2,6 @@
     "id": "bubbles",
     "name": "Bubbles",
     "author": "Ducko",
-    "version": "1.0",
     "outgoingBubbleColor": { "light": "#8B5CF6", "dark": "#7C3AED" },
     "incomingBubbleColor": { "light": "#FDE8F0", "dark": "#4A2040" },
     "outgoingTextColor": { "light": "#FFFFFF", "dark": "#FFFFFF" },

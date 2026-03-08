@@ -116,25 +116,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         }
     }
 
-    // MARK: - Public API
-
-    /// Whether Stream Management is currently enabled.
-    public var isEnabled: Bool {
-        state.withLock { $0.enabled }
-    }
-
-    /// Number of unacknowledged outgoing stanzas.
-    public var unackedCount: Int {
-        state.withLock { $0.outgoingQueue.count }
-    }
-
-    /// Sends an `<r>` element to request acknowledgment from the server.
-    public func requestAck() async throws {
-        guard let context = state.withLock({ $0.context }) else { return }
-        let r = XMLElement(name: "r", namespace: XMPPNamespaces.sm)
-        try await context.sendElement(r)
-    }
-
     // MARK: - Private
 
     private func handleSMElement(_ element: XMLElement) {

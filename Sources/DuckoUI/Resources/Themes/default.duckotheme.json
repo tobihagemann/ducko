@@ -2,7 +2,6 @@
     "id": "default",
     "name": "Default",
     "author": "Ducko",
-    "version": "1.0",
     "outgoingBubbleColor": { "light": "#5B9BD5", "dark": "#4A8BC2" },
     "incomingBubbleColor": { "light": "#E5E5EA", "dark": "#38383A" },
     "outgoingTextColor": { "light": "#FFFFFF", "dark": "#FFFFFF" },

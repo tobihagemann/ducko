@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 @MainActor @Observable
 final class ChatWindowState {
     var conversation: Conversation?
+    var contact: Contact?
     var messages: [ChatMessage] = []
     var isLoading = false
 
@@ -56,6 +57,7 @@ final class ChatWindowState {
         do {
             let conv = try await environment.chatService.openConversation(jidString: jidString, accountID: accountID)
             conversation = conv
+            contact = environment.rosterService.contact(jidString: jidString)
             messages = await environment.chatService.loadMessages(for: conv.id)
             prefetchLinkPreviews()
             await environment.chatService.selectConversation(conv.id, accountID: accountID)

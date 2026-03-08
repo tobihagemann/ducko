@@ -70,7 +70,6 @@ struct DuckoThemeTests {
         id: "test",
         name: "Test Theme",
         author: "Tester",
-        version: "1.0",
         outgoingBubbleColor: ThemeColor(light: "#5B9BD5", dark: "#4A8BC2"),
         incomingBubbleColor: ThemeColor(light: "#E5E5EA", dark: "#38383A"),
         outgoingTextColor: ThemeColor(light: "#FFFFFF", dark: "#FFFFFF"),
@@ -107,7 +106,6 @@ struct DuckoThemeTests {
         #expect(DuckoThemeTests.sampleTheme.id == "test")
         #expect(DuckoThemeTests.sampleTheme.name == "Test Theme")
         #expect(DuckoThemeTests.sampleTheme.author == "Tester")
-        #expect(DuckoThemeTests.sampleTheme.version == "1.0")
     }
 
     @Test(arguments: [

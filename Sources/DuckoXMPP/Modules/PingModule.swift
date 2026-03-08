@@ -92,17 +92,4 @@ public final class PingModule: XMPPModule, Sendable {
             }
         }
     }
-
-    // MARK: - Public API
-
-    /// Sends a ping to the given JID (or the server if `nil`).
-    public func ping(jid: JID? = nil) async throws {
-        guard let context = state.withLock({ $0.context }) else { return }
-
-        var iq = XMPPIQ(type: .get, to: jid, id: context.generateID())
-        let pingChild = XMLElement(name: "ping", namespace: XMPPNamespaces.ping)
-        iq.element.addChild(pingChild)
-
-        _ = try await context.sendIQ(iq)
-    }
 }

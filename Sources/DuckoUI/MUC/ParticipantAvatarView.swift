@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ParticipantAvatarView: View {
+    @Environment(ThemeEngine.self) private var theme
     let nickname: String
     let size: CGFloat
 
@@ -14,7 +15,7 @@ struct ParticipantAvatarView: View {
             .font(.system(size: size * 0.4, weight: .medium))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
-            .background(Color.forNickname(nickname), in: .circle)
+            .background(Color.forNickname(nickname), in: theme.current.avatarShape.clipShape(size: size))
     }
 
     private var initials: String {

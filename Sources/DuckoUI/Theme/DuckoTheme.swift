@@ -1,4 +1,4 @@
-import Foundation
+import SwiftUI
 
 public struct DuckoTheme: Codable, Sendable, Identifiable, Equatable {
     // MARK: - Metadata
@@ -6,7 +6,6 @@ public struct DuckoTheme: Codable, Sendable, Identifiable, Equatable {
     public let id: String
     public let name: String
     public let author: String
-    public let version: String
 
     // MARK: - Bubble Config
 
@@ -57,6 +56,17 @@ public struct DuckoTheme: Codable, Sendable, Identifiable, Equatable {
         case circle
         case roundedRect
         case squircle
+
+        public func clipShape(size: CGFloat) -> AnyShape {
+            switch self {
+            case .circle:
+                AnyShape(.circle)
+            case .roundedRect:
+                AnyShape(.rect(cornerRadius: size * 0.2))
+            case .squircle:
+                AnyShape(.rect(cornerRadius: size * 0.25, style: .continuous))
+            }
+        }
     }
 
     public enum AvatarPosition: String, Codable, Sendable {

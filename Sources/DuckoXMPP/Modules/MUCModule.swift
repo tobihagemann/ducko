@@ -311,21 +311,6 @@ public final class MUCModule: XMPPModule, Sendable {
         }
     }
 
-    /// Returns a snapshot of current occupants in a room.
-    public func occupants(in room: BareJID) -> [RoomOccupant] {
-        state.withLock { state in
-            guard let room = state.rooms[room] else { return [] }
-            return Array(room.occupants.values)
-        }
-    }
-
-    /// Returns the list of currently joined rooms.
-    public func joinedRooms() -> [BareJID] {
-        state.withLock { state in
-            state.rooms.filter(\.value.joined).map(\.key)
-        }
-    }
-
     /// Returns the nickname used in a given room, if any.
     public func nickname(in room: BareJID) -> String? {
         state.withLock { $0.rooms[room]?.nickname }

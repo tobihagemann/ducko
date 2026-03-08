@@ -20,6 +20,10 @@ public final class ThemeEngine {
 
     @ObservationIgnored
     private var builtInThemes: [DuckoTheme] = []
+    @ObservationIgnored
+    private var fileWatcher: DispatchSourceFileSystemObject?
+    @ObservationIgnored
+    private var debounceTask: Task<Void, Never>?
     public private(set) var availableThemes: [DuckoTheme] = []
     public private(set) var current: DuckoTheme
 
@@ -33,6 +37,13 @@ public final class ThemeEngine {
 
         let savedID = ThemeEngine.defaults.string(forKey: Keys.selectedThemeID)
         self.current = all.first { $0.id == savedID } ?? all.first { $0.id == ThemeEngine.defaultThemeID } ?? all[0]
+
+        startWatchingUserThemes()
+    }
+
+    deinit {
+        debounceTask?.cancel()
+        fileWatcher?.cancel()
     }
 
     public func selectTheme(_ theme: DuckoTheme) {
@@ -44,7 +55,9 @@ public final class ThemeEngine {
         let userThemes = ThemeEngine.loadUserThemes()
         availableThemes = builtInThemes + userThemes
 
-        if !availableThemes.contains(where: { $0.id == current.id }) {
+        if let updated = availableThemes.first(where: { $0.id == current.id }) {
+            current = updated
+        } else {
             guard let first = availableThemes.first else { return }
             current = availableThemes.first { $0.id == ThemeEngine.defaultThemeID } ?? first
         }
@@ -67,6 +80,33 @@ public final class ThemeEngine {
     }
 
     // MARK: - Private
+
+    private func startWatchingUserThemes() {
+        let themesDir = BuildEnvironment.appSupportDirectory.appendingPathComponent("Themes", isDirectory: true)
+        try? FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
+
+        let fd = open(themesDir.path, O_EVTONLY)
+        guard fd >= 0 else { return }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: .main
+        )
+        source.setEventHandler { [weak self] in
+            self?.debounceTask?.cancel()
+            self?.debounceTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                self?.reloadUserThemes()
+            }
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+        source.resume()
+        fileWatcher = source
+    }
 
     private static func loadBuiltInThemes() -> [DuckoTheme] {
         guard let themesURL = Bundle.module.url(forResource: "Themes", withExtension: nil) else {

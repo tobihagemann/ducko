@@ -2,7 +2,6 @@
     "id": "classic-adium",
     "name": "Classic Adium",
     "author": "Ducko",
-    "version": "1.0",
     "outgoingBubbleColor": { "light": "#B8E986", "dark": "#6B8F3A" },
     "incomingBubbleColor": { "light": "#F5F0E1", "dark": "#3A3530" },
     "outgoingTextColor": { "light": "#000000", "dark": "#FFFFFF" },

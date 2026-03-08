@@ -41,14 +41,7 @@ struct AvatarView: View {
     }
 
     private var avatarClipShape: AnyShape {
-        switch theme.current.avatarShape {
-        case .circle:
-            AnyShape(.circle)
-        case .roundedRect:
-            AnyShape(.rect(cornerRadius: size * 0.2))
-        case .squircle:
-            AnyShape(.rect(cornerRadius: size * 0.25, style: .continuous))
-        }
+        theme.current.avatarShape.clipShape(size: size)
     }
 
     private var initials: String {

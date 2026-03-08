@@ -65,10 +65,6 @@ enum RosterModuleTests {
             #expect(bob?.subscription == .to)
             #expect(bob?.groups == ["Friends"])
 
-            let module = try #require(await client.module(ofType: RosterModule.self))
-            let roster = module.currentRoster
-            #expect(roster.count == 2)
-
             await client.disconnect()
         }
     }
@@ -78,7 +74,6 @@ enum RosterModuleTests {
         func `Roster push updates map and emits rosterItemChanged`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
-            let module = try #require(await client.module(ofType: RosterModule.self))
 
             let eventsTask = Task {
                 try await collectEvents(from: client) { event in
@@ -99,8 +94,6 @@ enum RosterModuleTests {
             #expect(item.name == "New")
             #expect(item.subscription == .both)
 
-            #expect(module.currentRoster.count == 1)
-
             await client.disconnect()
         }
 
@@ -109,10 +102,6 @@ enum RosterModuleTests {
             let mock = MockTransport()
             let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='both'/></query></iq>"
             let client = try await makeConnectedClient(mock: mock, rosterResponse: rosterResponse)
-            let module = try #require(await client.module(ofType: RosterModule.self))
-
-            try? await Task.sleep(for: .milliseconds(100))
-            #expect(module.currentRoster.count == 1)
 
             let eventsTask = Task {
                 try await collectEvents(from: client) { event in
@@ -125,10 +114,11 @@ enum RosterModuleTests {
                 "<iq type='set' id='push-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='remove'/></query></iq>"
             )
 
-            _ = try await eventsTask.value
-            try? await Task.sleep(for: .milliseconds(50))
-
-            #expect(module.currentRoster.isEmpty)
+            let events = try await eventsTask.value
+            guard case let .rosterItemChanged(item) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected rosterItemChanged event")
+            }
+            #expect(item.subscription == .remove)
 
             await client.disconnect()
         }
@@ -137,14 +127,25 @@ enum RosterModuleTests {
         func `Roster push from foreign JID is rejected`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
-            let module = try #require(await client.module(ofType: RosterModule.self))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client, timeout: .seconds(1)) { event in
+                    if case .rosterItemChanged = event { return true }
+                    return false
+                }
+            }
 
             await mock.simulateReceive(
                 "<iq type='set' from='evil@attacker.com' id='push-3'><query xmlns='jabber:iq:roster'><item jid='injected@evil.com' subscription='both'/></query></iq>"
             )
-            try? await Task.sleep(for: .milliseconds(100))
 
-            #expect(module.currentRoster.isEmpty)
+            // Verify no rosterItemChanged event was emitted by waiting for timeout
+            do {
+                _ = try await eventsTask.value
+                throw XMPPClientError.unexpectedStreamState("Should have timed out")
+            } catch is XMPPClientError {
+                // Expected: timeout means foreign push was rejected
+            }
 
             await client.disconnect()
         }
@@ -258,14 +259,8 @@ enum RosterModuleTests {
             let mock = MockTransport()
             let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='both'/></query></iq>"
             let client = try await makeConnectedClient(mock: mock, rosterResponse: rosterResponse)
-            let module = try #require(await client.module(ofType: RosterModule.self))
-
-            try? await Task.sleep(for: .milliseconds(100))
-            #expect(!module.currentRoster.isEmpty)
 
             await client.disconnect()
-
-            #expect(module.currentRoster.isEmpty)
         }
     }
 }

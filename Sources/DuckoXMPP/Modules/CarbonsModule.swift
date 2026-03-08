@@ -75,11 +75,4 @@ public final class CarbonsModule: XMPPModule, Sendable {
             context.emitEvent(.messageCarbonSent(forwarded))
         }
     }
-
-    // MARK: - Public API
-
-    /// Whether carbons are currently enabled on the server.
-    public var isEnabled: Bool {
-        state.withLock { $0.enabled }
-    }
 }

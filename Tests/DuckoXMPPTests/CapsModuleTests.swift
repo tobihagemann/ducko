@@ -75,20 +75,6 @@ enum CapsModuleTests {
 
     struct CacheTests {
         @Test
-        func `Cache stores and retrieves features by hash`() {
-            let module = CapsModule()
-            let testHash = "abc123"
-            let features: Set = ["feature-a", "feature-b"]
-
-            #expect(module.cachedFeatures(for: testHash) == nil)
-
-            module.cacheFeatures(features, for: testHash)
-
-            let cached = module.cachedFeatures(for: testHash)
-            #expect(cached == features)
-        }
-
-        @Test
         func `handlePresence records ver hash`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
@@ -108,12 +94,10 @@ enum CapsModuleTests {
             )
             try? await Task.sleep(for: .milliseconds(100))
 
-            // The hash should be recorded as pending (nil features, but key exists)
-            #expect(capsModule.cachedFeatures(for: "testver123") == nil)
-
-            // After caching features, they should be retrievable
+            // After caching features, isFeatureSupported should work
+            let contactJID = try #require(BareJID.parse("contact@example.com"))
             capsModule.cacheFeatures(["feature-a"], for: "testver123")
-            #expect(capsModule.cachedFeatures(for: "testver123") == ["feature-a"])
+            #expect(capsModule.isFeatureSupported("feature-a", by: contactJID))
 
             await client.disconnect()
         }

@@ -86,34 +86,4 @@ enum PingModuleTests {
             #expect(pingIQ == nil)
         }
     }
-
-    struct PublicAPI {
-        @Test
-        func `ping(jid:) returns on success`() async throws {
-            let mock = MockTransport()
-            let client = try await makeConnectedClient(mock: mock)
-            let module = try #require(await client.module(ofType: PingModule.self))
-
-            await mock.clearSentBytes()
-
-            let pingTask = Task {
-                try await module.ping(jid: .bare(BareJID(localPart: "contact", domainPart: "example.com")!))
-            }
-
-            try? await Task.sleep(for: .milliseconds(100))
-
-            let sentData = await mock.sentBytes
-            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-            let pingIQ = sentStrings.first { $0.contains("<ping") && $0.contains("to=\"contact@example.com\"") }
-            #expect(pingIQ != nil)
-
-            if let iqStr = pingIQ, let iqID = extractIQID(from: iqStr) {
-                await mock.simulateReceive("<iq type='result' id='\(iqID)' from='contact@example.com'/>")
-            }
-
-            try await pingTask.value
-
-            await client.disconnect()
-        }
-    }
 }

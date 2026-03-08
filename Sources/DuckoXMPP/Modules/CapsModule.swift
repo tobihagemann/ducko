@@ -111,14 +111,8 @@ public final class CapsModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    /// Returns cached features for a verification hash, if known.
-    /// Returns `nil` if the hash is unknown or features haven't been fetched yet.
-    public func cachedFeatures(for ver: String) -> Set<String>? {
-        state.withLock { $0.capsCache[ver] ?? nil }
-    }
-
     /// Stores features for a verification hash in the cache.
-    public func cacheFeatures(_ features: Set<String>, for ver: String) {
+    func cacheFeatures(_ features: Set<String>, for ver: String) {
         state.withLock { $0.capsCache[ver] = features }
     }
 
