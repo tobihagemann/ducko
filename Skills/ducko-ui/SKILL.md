@@ -91,6 +91,40 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `profile-save-button` | Save button | Profile |
 | `profile-cancel-button` | Cancel button | Profile |
 
+## Context Menu Features
+
+### Contact Row
+
+Right-click a contact row in the contact list:
+
+- **Start Chat** — open a chat window with the contact
+- **Pin / Unpin** — pin or unpin the contact to the top of the list
+- **Mute / Unmute** — mute or unmute notifications
+- **Rename** — set a local alias for the contact
+- **Block / Unblock** — block or unblock the contact
+- **Remove Contact** — remove from roster
+
+### Room Row
+
+Right-click a room row in the Rooms section:
+
+- **Open Chat** — open the room chat window
+- **Pin / Unpin** — pin or unpin the room to the top of the list
+- **Mute / Unmute** — mute or unmute notifications
+- **Invite User** — invite a JID to the room
+- **Room Settings** — open room config sheet (owner only)
+- **Leave Room** — leave the room
+
+### Participant Sidebar
+
+Right-click a participant in the chat window sidebar:
+
+- **Kick** — kick participant (moderator required)
+- **Ban** — ban participant (admin/owner required)
+- **Grant Voice** — grant voice to visitor (moderator required)
+- **Revoke Voice** — revoke voice from participant (moderator required)
+- **Change Nickname** — change own nickname (self only)
+
 ### Script Reference
 
 | Script | Purpose | Arguments |

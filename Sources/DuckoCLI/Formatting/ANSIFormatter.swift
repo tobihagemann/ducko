@@ -362,4 +362,56 @@ struct ANSIFormatter: CLIFormatter {
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "\(Color.dim)[\(jid) is typing...]\(Color.reset)" : nil
     }
+
+    func formatProfile(_ profile: ProfileInfo) -> String {
+        var lines: [String] = []
+        appendProfileNameFields(profile, to: &lines)
+        appendProfileDetailFields(profile, to: &lines)
+        if lines.isEmpty {
+            return "\(Color.dim)(no profile data)\(Color.reset)"
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendProfileNameFields(_ profile: ProfileInfo, to lines: inout [String]) {
+        if let fullName = profile.fullName {
+            lines.append("\(Color.bold)Full Name:\(Color.reset) \(fullName)")
+        }
+        if let nickname = profile.nickname {
+            lines.append("\(Color.bold)Nickname:\(Color.reset) \(nickname)")
+        }
+        if let givenName = profile.givenName {
+            lines.append("\(Color.bold)Given Name:\(Color.reset) \(givenName)")
+        }
+        if let familyName = profile.familyName {
+            lines.append("\(Color.bold)Family Name:\(Color.reset) \(familyName)")
+        }
+        if let organization = profile.organization {
+            lines.append("\(Color.bold)Organization:\(Color.reset) \(organization)")
+        }
+        if let title = profile.title {
+            lines.append("\(Color.bold)Title:\(Color.reset) \(title)")
+        }
+        if let role = profile.role {
+            lines.append("\(Color.bold)Role:\(Color.reset) \(role)")
+        }
+    }
+
+    private func appendProfileDetailFields(_ profile: ProfileInfo, to lines: inout [String]) {
+        for email in profile.emails where !email.address.isEmpty {
+            lines.append("\(Color.bold)Email:\(Color.reset) \(email.address)")
+        }
+        for tel in profile.telephones where !tel.number.isEmpty {
+            lines.append("\(Color.bold)Phone:\(Color.reset) \(tel.number)")
+        }
+        if let url = profile.url {
+            lines.append("\(Color.bold)URL:\(Color.reset) \(Color.cyan)\(url)\(Color.reset)")
+        }
+        if let birthday = profile.birthday {
+            lines.append("\(Color.bold)Birthday:\(Color.reset) \(birthday)")
+        }
+        if let note = profile.note {
+            lines.append("\(Color.bold)Note:\(Color.reset) \(note)")
+        }
+    }
 }

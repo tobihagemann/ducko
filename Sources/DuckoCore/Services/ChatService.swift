@@ -929,6 +929,18 @@ public final class ChatService {
         return messages.reversed()
     }
 
+    public func searchMessages(
+        for conversationID: UUID,
+        query: String,
+        limit: Int = 100
+    ) async throws -> [ChatMessage] {
+        let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 500)
+        return messages
+            .filter { $0.body.localizedStandardContains(query) }
+            .prefix(limit)
+            .reversed()
+    }
+
     public func fetchServerHistory(
         jid: BareJID,
         accountID: UUID,

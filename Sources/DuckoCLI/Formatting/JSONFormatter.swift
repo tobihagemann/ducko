@@ -452,6 +452,33 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    func formatProfile(_ profile: ProfileInfo) -> String {
+        var dict = ["type": "profile"]
+        addProfileNameFields(profile, to: &dict)
+        addProfileDetailFields(profile, to: &dict)
+        return encode(dict)
+    }
+
+    private func addProfileNameFields(_ profile: ProfileInfo, to dict: inout [String: String]) {
+        if let fullName = profile.fullName { dict["fullName"] = fullName }
+        if let nickname = profile.nickname { dict["nickname"] = nickname }
+        if let givenName = profile.givenName { dict["givenName"] = givenName }
+        if let familyName = profile.familyName { dict["familyName"] = familyName }
+        if let organization = profile.organization { dict["organization"] = organization }
+        if let title = profile.title { dict["title"] = title }
+        if let role = profile.role { dict["role"] = role }
+    }
+
+    private func addProfileDetailFields(_ profile: ProfileInfo, to dict: inout [String: String]) {
+        let emailAddresses = profile.emails.map(\.address).filter { !$0.isEmpty }
+        if !emailAddresses.isEmpty { dict["emails"] = emailAddresses.joined(separator: ",") }
+        let phoneNumbers = profile.telephones.map(\.number).filter { !$0.isEmpty }
+        if !phoneNumbers.isEmpty { dict["phones"] = phoneNumbers.joined(separator: ",") }
+        if let url = profile.url { dict["url"] = url }
+        if let birthday = profile.birthday { dict["birthday"] = birthday }
+        if let note = profile.note { dict["note"] = note }
+    }
+
     // MARK: - Private
 
     private func encode(_ dict: [String: String]) -> String {

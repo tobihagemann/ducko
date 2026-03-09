@@ -70,8 +70,13 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/accept [sid]` — accept incoming Jingle file transfer (uses latest offer if sid omitted)
 - `/decline [sid]` — decline incoming Jingle file transfer (uses latest offer if sid omitted)
 - `/transfers` — list active file transfers with progress
+- `/add <jid> [name]` — add contact to roster
+- `/remove <jid>` — remove contact from roster
 - `/approve <jid>` — approve subscription request
 - `/deny <jid>` — deny subscription request
+- `/profile` — view own vCard profile
+- `/reply <jid> <message>` — reply to last incoming message from JID
+- `/search <jid> <query>` — search message history with JID
 - `help` — show available commands
 - `quit` / `exit` — disconnect and exit
 
@@ -94,6 +99,7 @@ View message history from the local database. With `--server`, connects to fetch
 |---|---|
 | `--limit <n>` | Maximum number of messages (default: 20) |
 | `--before <date>` | Show messages before this ISO 8601 date (pagination) |
+| `--search <query>` | Filter messages by keyword (case-insensitive) |
 | `--server` | Fetch from server when local history is empty (requires connection) |
 
 ```
@@ -140,6 +146,32 @@ ducko roster list --account <uuid>
 ```
 
 Plain output shows `[+]` available, `[~]` away/xa, `[-]` dnd, `[ ]` offline. ANSI uses colored dots. JSON outputs one line per contact/group header.
+
+### `roster add <jid> [--name <name>] [--group <group>]`
+
+Add a contact to the roster. Connects, sends roster set + subscribe, then disconnects.
+
+```
+ducko roster add alice@example.com
+ducko roster add alice@example.com --name "Alice" --group "Friends"
+```
+
+### `roster remove <jid>`
+
+Remove a contact from the roster. Connects, sends roster remove, then disconnects.
+
+```
+ducko roster remove alice@example.com
+```
+
+### `profile`
+
+View own vCard profile. Connects, fetches the vCard, displays profile fields, then disconnects.
+
+```
+ducko profile
+ducko profile --output json
+```
 
 ### `presence [status] [message]`
 

@@ -13,6 +13,7 @@ struct DuckoCLI: AsyncParsableCommand {
             Send.self,
             Roster.self,
             Presence.self,
+            Profile.self,
             History.self,
             Room.self,
             Account.self,
@@ -366,6 +367,46 @@ extension DuckoCLI {
     }
 }
 
+// MARK: - Profile
+
+extension DuckoCLI {
+    struct Profile: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            abstract: "View own vCard profile"
+        )
+
+        @OptionGroup var global: GlobalOptions
+
+        @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+        var account: String?
+
+        func run() async throws {
+            let formatter = global.resolvedFormat.makeFormatter()
+
+            let context = try await MainActor.run {
+                try CLIBootstrap.setUp(formatter: formatter)
+            }
+            let env = context.environment
+
+            let selectedAccount = try await resolveAccount(account, environment: env)
+
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                throw CLIError.noPassword
+            }
+
+            try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+            try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+            let output = await fetchAndFormatProfile(
+                environment: env, accountID: selectedAccount.id, formatter: formatter
+            )
+            print(output)
+
+            await env.accountService.disconnect(accountID: selectedAccount.id)
+        }
+    }
+}
+
 // MARK: - History
 
 extension DuckoCLI {
@@ -388,6 +429,9 @@ extension DuckoCLI {
         @Option(name: .long, help: "Show messages before this ISO 8601 date")
         var before: String?
 
+        @Option(name: .long, help: "Filter messages by keyword (case-insensitive)")
+        var search: String?
+
         @Flag(name: .long, help: "Fetch from server when local history is empty (requires connection)")
         var server: Bool = false
 
@@ -404,6 +448,15 @@ extension DuckoCLI {
             let env = context.environment
 
             let selectedAccount = try await resolveAccount(account, environment: env)
+
+            if let search {
+                let messages = try await searchHistory(
+                    jid: bareJID, query: search, limit: limit,
+                    environment: env, accountID: selectedAccount.id
+                )
+                printHistory(messages, formatter: formatter)
+                return
+            }
 
             let beforeDate = try parseBeforeDate(before)
             var messages = try await fetchHistory(
@@ -808,6 +861,9 @@ private func printREPLHelp() {
     print("  /add <jid> [name]        Add contact to roster")
     print("  /remove <jid>            Remove contact from roster")
     print("  /history <jid> [limit]   Show message history")
+    print("  /profile                 View own vCard profile")
+    print("  /reply <jid> <message>   Reply to last incoming message")
+    print("  /search <jid> <query>    Search message history")
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
     print("  /join <room> [nick]      Join a MUC room")
@@ -856,7 +912,34 @@ private func dispatchREPLCommand(
         await handleStatusCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
     } else if input == "/who" {
         await handleWhoCommand(formatter: formatter, environment: environment)
-    } else if input.hasPrefix("/add ") {
+    } else if input == "/sendfile" || input.hasPrefix("/sendfile ")
+        || input == "/accept" || input.hasPrefix("/accept ")
+        || input == "/decline" || input.hasPrefix("/decline ")
+        || input == "/transfers" {
+        await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
+    } else if isMiscREPLCommand(input) {
+        await dispatchMiscREPLCommand(input, context: context)
+    } else {
+        return await dispatchRoomREPLCommand(input, context: context, currentRoom: currentRoom)
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func isMiscREPLCommand(_ input: String) -> Bool {
+    input.hasPrefix("/add ") || input.hasPrefix("/remove ")
+        || input.hasPrefix("/approve ") || input.hasPrefix("/deny ")
+        || input == "/history" || input.hasPrefix("/history ")
+        || input == "/profile"
+        || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
+}
+
+private func dispatchMiscREPLCommand(
+    _ input: String, context: REPLContext
+) async {
+    let formatter = context.formatter
+    let environment = context.environment
+    let accountID = context.accountID
+    if input.hasPrefix("/add ") {
         await handleAddCommand(input, formatter: formatter, environment: environment, accountID: accountID)
     } else if input.hasPrefix("/remove ") {
         await handleJIDCommand(
@@ -881,15 +964,13 @@ private func dispatchREPLCommand(
         }
     } else if input == "/history" || input.hasPrefix("/history ") {
         await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
-    } else if input == "/sendfile" || input.hasPrefix("/sendfile ")
-        || input == "/accept" || input.hasPrefix("/accept ")
-        || input == "/decline" || input.hasPrefix("/decline ")
-        || input == "/transfers" {
-        await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
-    } else {
-        return await dispatchRoomREPLCommand(input, context: context, currentRoom: currentRoom)
+    } else if input == "/profile" {
+        await handleProfileREPLCommand(context: context)
+    } else if input.hasPrefix("/reply ") {
+        await handleReplyREPLCommand(input, context: context)
+    } else if input.hasPrefix("/search ") {
+        await handleSearchREPLCommand(input, context: context)
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
 }
 
 private func dispatchFileTransferREPLCommand(
@@ -1369,6 +1450,95 @@ private func handleHistoryCommand(
         printHistory(messages, formatter: formatter)
     } catch {
         print(formatter.formatError(error))
+    }
+}
+
+private func handleProfileREPLCommand(context: REPLContext) async {
+    let output = await fetchAndFormatProfile(
+        environment: context.environment, accountID: context.accountID, formatter: context.formatter
+    )
+    print(output)
+}
+
+private func fetchAndFormatProfile(
+    environment: AppEnvironment, accountID: UUID, formatter: any CLIFormatter
+) async -> String {
+    await environment.profileService.fetchOwnProfile(accountID: accountID)
+    let profile = await MainActor.run { environment.profileService.ownProfile }
+    if let profile {
+        return formatter.formatProfile(profile)
+    }
+    return formatter.formatProfile(ProfileInfo())
+}
+
+private func handleReplyREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/reply ".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2 else {
+        print("Usage: /reply <jid> <message>")
+        return
+    }
+    let jidString = String(parts[0])
+    let body = String(parts[1])
+    guard let bareJID = BareJID.parse(jidString) else {
+        print(context.formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+    do {
+        let messages = try await fetchHistory(
+            jid: bareJID, before: nil, limit: 10,
+            environment: context.environment, accountID: context.accountID
+        )
+        guard let lastIncoming = messages.last(where: { !$0.isOutgoing && $0.stanzaID != nil }),
+              let replyStanzaID = lastIncoming.stanzaID
+        else {
+            print("No recent incoming message to reply to.")
+            return
+        }
+        try await context.environment.chatService.sendReply(
+            toJIDString: jidString, body: body,
+            replyToStanzaID: replyStanzaID,
+            accountID: context.accountID
+        )
+        print(context.formatter.formatMessage(ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: jidString,
+            body: body,
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            replyToID: replyStanzaID
+        )))
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+}
+
+private func handleSearchREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/search ".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2 else {
+        print("Usage: /search <jid> <query>")
+        return
+    }
+    let jidString = String(parts[0])
+    let query = String(parts[1])
+    guard let bareJID = BareJID.parse(jidString) else {
+        print(context.formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+    do {
+        let messages = try await searchHistory(
+            jid: bareJID, query: query, limit: 20,
+            environment: context.environment, accountID: context.accountID
+        )
+        printHistory(messages, formatter: context.formatter)
+    } catch {
+        print(context.formatter.formatError(error))
     }
 }
 

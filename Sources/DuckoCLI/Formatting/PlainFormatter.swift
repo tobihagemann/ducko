@@ -329,4 +329,34 @@ struct PlainFormatter: CLIFormatter {
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "[\(jid) is typing...]" : nil
     }
+
+    func formatProfile(_ profile: ProfileInfo) -> String {
+        var lines: [String] = []
+        appendProfileNameFields(profile, to: &lines)
+        appendProfileDetailFields(profile, to: &lines)
+        if lines.isEmpty { return "(no profile data)" }
+        return lines.joined(separator: "\n")
+    }
+
+    private func appendProfileNameFields(_ profile: ProfileInfo, to lines: inout [String]) {
+        if let fullName = profile.fullName { lines.append("Full Name: \(fullName)") }
+        if let nickname = profile.nickname { lines.append("Nickname: \(nickname)") }
+        if let givenName = profile.givenName { lines.append("Given Name: \(givenName)") }
+        if let familyName = profile.familyName { lines.append("Family Name: \(familyName)") }
+        if let organization = profile.organization { lines.append("Organization: \(organization)") }
+        if let title = profile.title { lines.append("Title: \(title)") }
+        if let role = profile.role { lines.append("Role: \(role)") }
+    }
+
+    private func appendProfileDetailFields(_ profile: ProfileInfo, to lines: inout [String]) {
+        for email in profile.emails where !email.address.isEmpty {
+            lines.append("Email: \(email.address)")
+        }
+        for tel in profile.telephones where !tel.number.isEmpty {
+            lines.append("Phone: \(tel.number)")
+        }
+        if let url = profile.url { lines.append("URL: \(url)") }
+        if let birthday = profile.birthday { lines.append("Birthday: \(birthday)") }
+        if let note = profile.note { lines.append("Note: \(note)") }
+    }
 }

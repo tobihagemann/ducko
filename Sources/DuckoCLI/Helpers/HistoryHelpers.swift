@@ -20,12 +20,30 @@ func fetchHistory(
     jid: BareJID, before: Date?, limit: Int,
     environment: AppEnvironment, accountID: UUID
 ) async throws -> [ChatMessage] {
-    try await environment.chatService.loadConversations(for: accountID)
-    let conversations = await MainActor.run { environment.chatService.openConversations }
-    guard let conversation = conversations.first(where: { $0.jid == jid }) else {
+    guard let conversation = try await resolveConversation(jid: jid, environment: environment, accountID: accountID) else {
         return []
     }
     return try await environment.chatService.fetchMessageHistory(for: conversation.id, before: before, limit: limit)
+}
+
+func searchHistory(
+    jid: BareJID, query: String, limit: Int,
+    environment: AppEnvironment, accountID: UUID
+) async throws -> [ChatMessage] {
+    guard let conversation = try await resolveConversation(jid: jid, environment: environment, accountID: accountID) else {
+        return []
+    }
+    return try await environment.chatService.searchMessages(for: conversation.id, query: query, limit: limit)
+}
+
+private func resolveConversation(
+    jid: BareJID,
+    environment: AppEnvironment,
+    accountID: UUID
+) async throws -> Conversation? {
+    try await environment.chatService.loadConversations(for: accountID)
+    let conversations = await MainActor.run { environment.chatService.openConversations }
+    return conversations.first(where: { $0.jid == jid })
 }
 
 func printHistory(_ messages: [ChatMessage], formatter: any CLIFormatter) {
