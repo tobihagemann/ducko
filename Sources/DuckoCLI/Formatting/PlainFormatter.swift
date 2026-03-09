@@ -87,6 +87,7 @@ struct PlainFormatter: CLIFormatter {
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
+             .pepItemsPublished, .pepItemsRetracted,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -143,6 +144,7 @@ struct PlainFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -216,6 +218,7 @@ struct PlainFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
@@ -242,6 +245,7 @@ struct PlainFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,

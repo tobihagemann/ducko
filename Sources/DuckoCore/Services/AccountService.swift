@@ -202,6 +202,7 @@ public final class AccountService {
         builder.withModule(MUCModule())
         builder.withModule(HTTPUploadModule())
         builder.withModule(JingleModule())
+        builder.withModule(PEPModule())
         builder.withModule(BlockingModule())
         let sm = StreamManagementModule()
         builder.withModule(sm)

@@ -112,6 +112,7 @@ struct ANSIFormatter: CLIFormatter {
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
+             .pepItemsPublished, .pepItemsRetracted,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -200,6 +201,7 @@ struct ANSIFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -273,6 +275,7 @@ struct ANSIFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
@@ -299,6 +302,7 @@ struct ANSIFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,

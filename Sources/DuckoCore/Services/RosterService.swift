@@ -156,6 +156,7 @@ public final class RosterService {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,

@@ -119,6 +119,7 @@ struct JSONFormatter: CLIFormatter {
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
+             .pepItemsPublished, .pepItemsRetracted,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -164,6 +165,7 @@ struct JSONFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
@@ -237,6 +239,7 @@ struct JSONFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
@@ -392,6 +395,7 @@ struct JSONFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:

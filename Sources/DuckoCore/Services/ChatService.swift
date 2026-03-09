@@ -550,6 +550,7 @@ public final class ChatService {
              .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .archivedMessagesLoaded,
+             .pepItemsPublished, .pepItemsRetracted,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -585,6 +586,7 @@ public final class ChatService {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -605,6 +607,7 @@ public final class ChatService {
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,

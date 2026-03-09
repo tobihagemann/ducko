@@ -33,6 +33,7 @@ actor CLIEventHandler {
              .archivedMessagesLoaded,
              .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged, .roomDestroyed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,

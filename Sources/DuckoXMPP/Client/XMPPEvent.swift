@@ -36,6 +36,10 @@ public enum XMPPEvent: Sendable {
     case jingleFileTransferFailed(sid: String, reason: String)
     case jingleFileTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64)
 
+    // PEP (XEP-0163)
+    case pepItemsPublished(from: BareJID, node: String, items: [PEPItem])
+    case pepItemsRetracted(from: BareJID, node: String, itemIDs: [String])
+
     // Blocking (XEP-0191)
     case blockListLoaded([BareJID])
     case contactBlocked(BareJID)
