@@ -26,7 +26,7 @@ actor CLIEventHandler {
             return
         case .jingleFileTransferProgress:
             guard isInteractive else { break }
-        case .connected, .disconnected, .authenticationFailed,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,

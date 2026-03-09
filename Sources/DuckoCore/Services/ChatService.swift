@@ -545,7 +545,7 @@ public final class ChatService {
              .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
              .disconnected:
             await handleMUCEvent(event, accountID: accountID)
-        case .connected, .authenticationFailed,
+        case .connected, .streamResumed, .authenticationFailed,
              .presenceReceived, .iqReceived,
              .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
@@ -578,7 +578,7 @@ public final class ChatService {
             handleRoomDestroyed(room: room)
         case .disconnected:
             newlyCreatedRoomJIDs.removeAll()
-        case .connected, .authenticationFailed,
+        case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
@@ -600,7 +600,7 @@ public final class ChatService {
             await handleCarbon(forwarded, accountID: accountID, isOutgoing: false)
         case let .messageCarbonSent(forwarded):
             await handleCarbon(forwarded, accountID: accountID, isOutgoing: true)
-        case .connected, .disconnected, .authenticationFailed,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,

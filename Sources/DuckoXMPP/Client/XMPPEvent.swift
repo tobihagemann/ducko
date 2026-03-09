@@ -1,6 +1,7 @@
 /// Domain events emitted by ``XMPPClient`` for consumption by higher layers.
 public enum XMPPEvent: Sendable {
     case connected(FullJID)
+    case streamResumed(FullJID)
     case disconnected(DisconnectReason)
     case authenticationFailed(String)
     case messageReceived(XMPPMessage)

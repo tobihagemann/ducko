@@ -85,12 +85,8 @@ struct ANSIFormatter: CLIFormatter {
 
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String? {
         switch event {
-        case let .connected(jid):
-            return "\(Color.green)connected as \(jid)\(Color.reset)"
-        case let .disconnected(reason):
-            return formatDisconnect(reason)
-        case let .authenticationFailed(message):
-            return "\(Color.red)authentication failed: \(message)\(Color.reset)"
+        case .connected, .streamResumed, .disconnected, .authenticationFailed:
+            return formatConnectionEvent(event)
         case let .messageReceived(message):
             return formatIncomingMessage(message)
         case let .messageCarbonReceived(forwarded):
@@ -113,6 +109,35 @@ struct ANSIFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            return nil
+        }
+    }
+
+    private func formatConnectionEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .connected(jid):
+            return "\(Color.green)connected as \(jid)\(Color.reset)"
+        case let .streamResumed(jid):
+            return "\(Color.green)stream resumed as \(jid)\(Color.reset)"
+        case let .disconnected(reason):
+            return formatDisconnect(reason)
+        case let .authenticationFailed(message):
+            return "\(Color.red)authentication failed: \(message)\(Color.reset)"
+        case .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -193,8 +218,8 @@ struct ANSIFormatter: CLIFormatter {
             return formatIncomingRoomMessage(message)
         case let .roomDestroyed(room, reason, alternate):
             return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
-        case .connected, .disconnected, .authenticationFailed, .messageReceived,
-             .presenceReceived, .iqReceived,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
@@ -267,8 +292,8 @@ struct ANSIFormatter: CLIFormatter {
             return formatJingleTransferCompleted(sid: sid)
         case let .jingleFileTransferFailed(sid, reason):
             return formatJingleTransferFailed(sid: sid, reason: reason)
-        case .connected, .disconnected, .authenticationFailed, .messageReceived,
-             .presenceReceived, .iqReceived,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
@@ -295,8 +320,8 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
         case let .messageError(_, from, error):
             return "\(Color.red)message error from \(from.bareJID): \(error.displayText)\(Color.reset)"
-        case .connected, .disconnected, .authenticationFailed, .messageReceived,
-             .presenceReceived, .iqReceived,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,

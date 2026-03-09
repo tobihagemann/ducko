@@ -2,6 +2,16 @@ import os
 
 private let log = Logger(subsystem: "com.ducko.xmpp", category: "sm")
 
+/// State snapshot for resuming a Stream Management session across reconnects.
+public struct SMResumeState: Sendable {
+    public let resumptionId: String
+    public let incomingCounter: UInt32
+    public let outgoingCounter: UInt32
+    public let outgoingQueue: [XMLElement]
+    public let connectedJID: FullJID
+    public let location: String?
+}
+
 /// Implements XEP-0198 Stream Management — tracks incoming/outgoing stanza
 /// counts and enables reliable delivery via ack requests.
 ///
@@ -19,16 +29,59 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         var outgoingCounter: UInt32 = 0
         var outgoingQueue: [XMLElement] = []
         var enableContinuation: CheckedContinuation<Void, any Error>?
+        var resumptionId: String?
+        var location: String?
+        var connectedJID: FullJID?
+    }
+
+    /// Result of processing a `<resumed>` or `<failed>` response from the server.
+    public enum ResumeResult: Sendable {
+        case resumed(jid: FullJID, retransmitQueue: [XMLElement])
+        case failed
     }
 
     private let state: OSAllocatedUnfairLock<State>
 
-    public init() {
-        self.state = OSAllocatedUnfairLock(initialState: State())
+    public init(previousState: SMResumeState? = nil) {
+        if let previousState {
+            var initial = State()
+            initial.resumptionId = previousState.resumptionId
+            initial.incomingCounter = previousState.incomingCounter
+            initial.outgoingCounter = previousState.outgoingCounter
+            initial.outgoingQueue = previousState.outgoingQueue
+            initial.connectedJID = previousState.connectedJID
+            initial.location = previousState.location
+            self.state = OSAllocatedUnfairLock(initialState: initial)
+        } else {
+            self.state = OSAllocatedUnfairLock(initialState: State())
+        }
     }
 
     public func setUp(_ context: ModuleContext) {
         state.withLock { $0.context = context }
+    }
+
+    // MARK: - Public State Access
+
+    /// Returns a snapshot of SM session state for resumption, or `nil` if not resumable.
+    public nonisolated var resumeState: SMResumeState? {
+        state.withLock { state in
+            guard let resumptionId = state.resumptionId,
+                  let connectedJID = state.connectedJID else { return nil }
+            return SMResumeState(
+                resumptionId: resumptionId,
+                incomingCounter: state.incomingCounter,
+                outgoingCounter: state.outgoingCounter,
+                outgoingQueue: state.outgoingQueue,
+                connectedJID: connectedJID,
+                location: state.location
+            )
+        }
+    }
+
+    /// Whether this module has state that can be used to attempt stream resumption.
+    public nonisolated var isResumable: Bool {
+        state.withLock { $0.resumptionId != nil && $0.connectedJID != nil }
     }
 
     // MARK: - Lifecycle
@@ -74,12 +127,60 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
             let cont = state.enableContinuation
             state.enableContinuation = nil
             state.enabled = false
-            state.incomingCounter = 0
-            state.outgoingCounter = 0
-            state.outgoingQueue.removeAll()
+            // Preserve resume-related state across disconnect
             return cont
         }
         continuation?.resume(throwing: XMPPClientError.notConnected)
+    }
+
+    /// Clears all state including resume fields. Called on explicit disconnect or resume failure.
+    public func resetResumption() {
+        state.withLock { state in
+            state.resumptionId = nil
+            state.location = nil
+            state.connectedJID = nil
+            state.incomingCounter = 0
+            state.outgoingCounter = 0
+            state.outgoingQueue.removeAll()
+            state.enabled = false
+        }
+    }
+
+    // MARK: - Resume
+
+    /// Builds a `<resume>` element for sending to the server during stream negotiation.
+    public func buildResumeElement() -> XMLElement {
+        let (previd, h) = state.withLock { (state: inout State) -> (String, UInt32) in
+            (state.resumptionId ?? "", state.incomingCounter)
+        }
+        return XMLElement(
+            name: "resume",
+            namespace: XMPPNamespaces.sm,
+            attributes: ["previd": previd, "h": String(h)]
+        )
+    }
+
+    /// Processes a `<resumed>` or `<failed>` response from the server.
+    public func processResumeResponse(_ element: XMLElement) -> ResumeResult {
+        if element.name == "resumed", element.namespace == XMPPNamespaces.sm {
+            return state.withLock { state in
+                // Reconcile h-value: server tells us how many of our stanzas it received
+                if let hStr = element.attribute("h"), let h = UInt32(hStr) {
+                    Self.reconcileAck(h: h, state: &state)
+                }
+
+                let retransmitQueue = state.outgoingQueue
+                guard let jid = state.connectedJID else {
+                    return .failed
+                }
+                state.enabled = true
+                return .resumed(jid: jid, retransmitQueue: retransmitQueue)
+            }
+        }
+
+        // <failed> or unexpected element — reset resumption state
+        resetResumption()
+        return .failed
     }
 
     // MARK: - StanzaInterceptor
@@ -119,6 +220,11 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         case "enabled":
             let continuation = state.withLock { state -> CheckedContinuation<Void, any Error>? in
                 state.enabled = true
+                state.resumptionId = element.attribute("id")
+                state.location = element.attribute("location")
+                if let context = state.context {
+                    state.connectedJID = context.connectedJID()
+                }
                 let cont = state.enableContinuation
                 state.enableContinuation = nil
                 return cont
@@ -157,17 +263,21 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
     private func handleAck(_ element: XMLElement) {
         guard let hStr = element.attribute("h"), let h = UInt32(hStr) else { return }
         state.withLock { state in
-            let baseCounter = state.outgoingCounter &- UInt32(state.outgoingQueue.count)
-            let acked = h &- baseCounter
-            guard acked <= UInt32(state.outgoingQueue.count) else {
-                let counter = state.outgoingCounter
-                log.warning("Invalid ack h=\(h), expected at most \(counter)")
-                return
-            }
-            let toRemove = Int(acked)
-            if toRemove > 0 {
-                state.outgoingQueue.removeFirst(toRemove)
-            }
+            Self.reconcileAck(h: h, state: &state)
+        }
+    }
+
+    private static func reconcileAck(h: UInt32, state: inout State) {
+        let baseCounter = state.outgoingCounter &- UInt32(state.outgoingQueue.count)
+        let acked = h &- baseCounter
+        guard acked <= UInt32(state.outgoingQueue.count) else {
+            let counter = state.outgoingCounter
+            log.warning("Invalid ack h=\(h), expected at most \(counter)")
+            return
+        }
+        let toRemove = Int(acked)
+        if toRemove > 0 {
+            state.outgoingQueue.removeFirst(toRemove)
         }
     }
 

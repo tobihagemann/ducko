@@ -16,7 +16,7 @@ private func makeConnectedClient(mock: MockTransport) async throws -> (XMPPClien
     let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
 
     await simulateNoTLSConnect(mock, postAuthFeatures: testFeaturesBindWithSM)
-    try? await Task.sleep(for: .milliseconds(100))
+    await mock.waitForSent(count: 5) // SM <enable> sent
 
     // Respond to SM <enable> with <enabled>
     await mock.simulateReceive("<enabled xmlns='urn:xmpp:sm:3' id='sm-resume-1' max='300'/>")
@@ -24,6 +24,39 @@ private func makeConnectedClient(mock: MockTransport) async throws -> (XMPPClien
     try await connectTask.value
 
     return (client, sm)
+}
+
+/// Simulates the connect flow up to post-auth features, then expects a `<resume>` element
+/// instead of `<bind>`. Responds with the given `resumeResponse` XML.
+private func simulateResumeConnect(_ mock: MockTransport, resumeResponse: String) async {
+    await mock.waitForSent(count: 1) // stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesNoTLS)
+    await mock.waitForSent(count: 2) // auth element sent
+    await mock.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
+    await mock.waitForSent(count: 3) // post-auth stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesBindWithSM)
+    await mock.waitForSent(count: 4) // <resume> sent (instead of bind)
+    await mock.simulateReceive(resumeResponse)
+}
+
+/// Simulates the connect flow where resume fails, then falls through to normal bind.
+private func simulateResumeFailConnect(_ mock: MockTransport) async {
+    await mock.waitForSent(count: 1) // stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesNoTLS)
+    await mock.waitForSent(count: 2) // auth element sent
+    await mock.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
+    await mock.waitForSent(count: 3) // post-auth stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesBindWithSM)
+    await mock.waitForSent(count: 4) // <resume> sent
+    await mock.simulateReceive("<failed xmlns='urn:xmpp:sm:3'><item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></failed>")
+    await mock.waitForSent(count: 5) // bind IQ sent (fallback)
+    await mock.simulateReceive(testBindResult)
+    await mock.waitForSent(count: 6) // SM <enable> sent after bind
+    await mock.simulateReceive("<enabled xmlns='urn:xmpp:sm:3' id='sm-resume-2' max='300'/>")
 }
 
 // MARK: - Tests
@@ -53,7 +86,7 @@ enum StreamManagementModuleTests {
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
 
             await simulateNoTLSConnect(mock, postAuthFeatures: testFeaturesBindWithSM)
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 5) // SM <enable> sent
 
             // Respond with <failed> instead of <enabled>
             await mock.simulateReceive("<failed xmlns='urn:xmpp:sm:3'/>")
@@ -87,6 +120,40 @@ enum StreamManagementModuleTests {
             let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
             let enableSent = sentStrings.contains { $0.contains("<enable") && $0.contains("urn:xmpp:sm:3") }
             #expect(!enableSent)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Parses id, max, and location from <enabled>`() async throws {
+            let mock = MockTransport()
+            let sm = StreamManagementModule()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(sm)
+            await client.addInterceptor(sm)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+
+            await simulateNoTLSConnect(mock, postAuthFeatures: testFeaturesBindWithSM)
+            await mock.waitForSent(count: 5) // SM <enable> sent
+
+            await mock.simulateReceive(
+                "<enabled xmlns='urn:xmpp:sm:3' id='abc-123' max='300' location='alt.example.com:5222'/>"
+            )
+
+            try await connectTask.value
+
+            // Verify resume state was populated
+            let state = sm.resumeState
+            #expect(state != nil)
+            #expect(state?.resumptionId == "abc-123")
+            #expect(state?.location == "alt.example.com:5222")
+            let jid = state?.connectedJID
+            #expect(jid?.bareJID.description == "user@example.com")
 
             await client.disconnect()
         }
@@ -238,6 +305,197 @@ enum StreamManagementModuleTests {
             }
 
             await client.disconnect()
+        }
+    }
+
+    struct Resumption {
+        @Test
+        func `Resume success emits streamResumed and skips bind`() async throws {
+            // Phase 1: Connect with SM enabled
+            let mock1 = MockTransport()
+            let (client1, sm1) = try await makeConnectedClient(mock: mock1)
+
+            // Send some stanzas to populate outgoing queue
+            let message = try XMPPMessage(type: .chat, to: .bare(#require(BareJID(localPart: "contact", domainPart: "example.com"))))
+            try await client1.send(message)
+            try await client1.send(message)
+
+            // Simulate disconnect (non-requested) — SM module preserves resume state
+            await mock1.simulateDisconnect()
+            try? await Task.sleep(for: .milliseconds(100))
+
+            // Extract resume state
+            let resumeState = sm1.resumeState
+            #expect(resumeState != nil)
+            #expect(resumeState?.resumptionId == "sm-resume-1")
+
+            // Phase 2: Reconnect with previous SM state
+            let mock2 = MockTransport()
+            let sm2 = StreamManagementModule(previousState: resumeState)
+            let client2 = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock2, requireTLS: false
+            )
+            await client2.register(sm2)
+            await client2.addInterceptor(sm2)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client2, timeout: .seconds(5)) { event in
+                    if case .streamResumed = event { return true }
+                    return false
+                }
+            }
+
+            let connectTask = Task { try await client2.connect(host: "example.com", port: 5222) }
+
+            // Server responds with <resumed> acknowledging all stanzas
+            await simulateResumeConnect(mock2, resumeResponse: "<resumed xmlns='urn:xmpp:sm:3' previd='sm-resume-1' h='2'/>")
+
+            try await connectTask.value
+
+            // Verify .streamResumed event was emitted
+            let events = try await eventsTask.value
+            let resumedEvent = events.first { if case .streamResumed = $0 { return true }; return false }
+            #expect(resumedEvent != nil)
+
+            // Verify no bind IQ was sent
+            let sentData = await mock2.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let bindSent = sentStrings.contains { $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
+            #expect(!bindSent)
+
+            // Verify <resume> was sent
+            let resumeSent = sentStrings.contains { $0.contains("<resume") && $0.contains("previd") }
+            #expect(resumeSent)
+
+            await client2.disconnect()
+        }
+
+        @Test
+        func `Resume failure falls through to normal bind`() async throws {
+            // Phase 1: Connect with SM enabled
+            let mock1 = MockTransport()
+            let (_, sm1) = try await makeConnectedClient(mock: mock1)
+
+            await mock1.simulateDisconnect()
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let resumeState = sm1.resumeState
+            #expect(resumeState != nil)
+
+            // Phase 2: Reconnect — resume will fail
+            let mock2 = MockTransport()
+            let sm2 = StreamManagementModule(previousState: resumeState)
+            let client2 = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock2, requireTLS: false
+            )
+            await client2.register(sm2)
+            await client2.addInterceptor(sm2)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client2, timeout: .seconds(5)) { event in
+                    if case .connected = event { return true }
+                    return false
+                }
+            }
+
+            let connectTask = Task { try await client2.connect(host: "example.com", port: 5222) }
+
+            await simulateResumeFailConnect(mock2)
+
+            try await connectTask.value
+
+            // Verify .connected event (not .streamResumed)
+            let events = try await eventsTask.value
+            let connectedEvent = events.first { if case .connected = $0 { return true }; return false }
+            #expect(connectedEvent != nil)
+
+            let resumedEvent = events.first { if case .streamResumed = $0 { return true }; return false }
+            #expect(resumedEvent == nil)
+
+            await client2.disconnect()
+        }
+
+        @Test
+        func `H-value reconciliation retransmits unacked stanzas`() async throws {
+            // Phase 1: Connect and send 5 stanzas
+            let mock1 = MockTransport()
+            let (client1, sm1) = try await makeConnectedClient(mock: mock1)
+
+            let message = try XMPPMessage(type: .chat, to: .bare(#require(BareJID(localPart: "contact", domainPart: "example.com"))))
+            for _ in 0 ..< 5 {
+                try await client1.send(message)
+            }
+
+            // Server acks 0 before disconnect
+            await mock1.simulateDisconnect()
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let resumeState = sm1.resumeState
+            let queueCount = resumeState?.outgoingQueue.count ?? 0
+            #expect(queueCount == 5)
+
+            // Phase 2: Reconnect — server acks 2 in <resumed>
+            let mock2 = MockTransport()
+            let sm2 = StreamManagementModule(previousState: resumeState)
+            let client2 = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock2, requireTLS: false
+            )
+            await client2.register(sm2)
+            await client2.addInterceptor(sm2)
+
+            let connectTask = Task { try await client2.connect(host: "example.com", port: 5222) }
+
+            // Server says h='2' — acked 2 of our 5 stanzas
+            await simulateResumeConnect(mock2, resumeResponse: "<resumed xmlns='urn:xmpp:sm:3' previd='sm-resume-1' h='2'/>")
+
+            try await connectTask.value
+
+            // After resume, 3 unacked stanzas should be retransmitted
+            let sentData = await mock2.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            // Count retransmitted message stanzas (after the <resume> element)
+            let messageSentCount = sentStrings.count(where: { $0.contains("<message") })
+            #expect(messageSentCount == 3)
+
+            await client2.disconnect()
+        }
+
+        @Test
+        func `State preserved across non-requested disconnect`() async throws {
+            let mock = MockTransport()
+            let (_, sm) = try await makeConnectedClient(mock: mock)
+
+            // Before disconnect, SM should be enabled with resume state
+            #expect(sm.isResumable)
+
+            // Simulate non-requested disconnect
+            await mock.simulateDisconnect()
+            try? await Task.sleep(for: .milliseconds(100))
+
+            // Resume state should still be available
+            let state = sm.resumeState
+            #expect(state != nil)
+            #expect(state?.resumptionId == "sm-resume-1")
+            #expect(state?.connectedJID.bareJID.description == "user@example.com")
+        }
+
+        @Test
+        func `resetResumption clears all state`() async throws {
+            let mock = MockTransport()
+            let (_, sm) = try await makeConnectedClient(mock: mock)
+
+            #expect(sm.isResumable)
+
+            sm.resetResumption()
+
+            #expect(!sm.isResumable)
+            #expect(sm.resumeState == nil)
         }
     }
 }

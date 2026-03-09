@@ -13,6 +13,8 @@ public final class AccountService {
     private let store: any PersistenceStore
     private let credentialStore: any CredentialStore
     private var clients: [UUID: XMPPClient] = [:]
+    private var smModules: [UUID: StreamManagementModule] = [:]
+    private var smResumeStates: [UUID: SMResumeState] = [:]
     private var passwords: [UUID: String] = [:]
     private var eventTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
@@ -87,6 +89,8 @@ public final class AccountService {
     public func disconnect(accountID: UUID) async {
         cancelReconnect(for: accountID, resetAttempts: true)
         passwords[accountID] = nil
+        smResumeStates[accountID] = nil
+        smModules[accountID] = nil
         eventTasks[accountID]?.cancel()
         eventTasks[accountID] = nil
 
@@ -179,10 +183,41 @@ public final class AccountService {
 
         connectionStates[accountID] = .connecting
 
+        let previousSMState = smResumeStates.removeValue(forKey: accountID)
+        let (client, sm) = await buildClient(account: account, previousSMState: previousSMState)
+        clients[accountID] = client
+        smModules[accountID] = sm
+
+        startEventConsumption(for: accountID, client: client)
+
+        do {
+            if let location = previousSMState?.location {
+                let parts = location.split(separator: ":")
+                let host = String(parts[0])
+                let port = parts.count > 1 ? UInt16(parts[1]) ?? 5222 : 5222
+                try await client.connect(host: host, port: port)
+            } else if let host = account.host, let port = account.port {
+                try await client.connect(host: host, port: UInt16(port))
+            } else {
+                try await client.connect()
+            }
+        } catch {
+            // Restore SM state so the next retry can attempt resumption
+            if let smState = sm.resumeState {
+                smResumeStates[accountID] = smState
+            }
+            connectionStates[accountID] = .error(error.localizedDescription)
+            throw error
+        }
+    }
+
+    private func buildClient(
+        account: Account, previousSMState: SMResumeState?
+    ) async -> (XMPPClient, StreamManagementModule) {
         var builder = XMPPClientBuilder(
             domain: account.jid.domainPart,
             username: account.jid.localPart ?? "",
-            password: passwords[accountID] ?? ""
+            password: passwords[account.id] ?? ""
         )
         builder.withRequireTLS(account.requireTLS)
         let rosterModule = RosterModule()
@@ -204,25 +239,10 @@ public final class AccountService {
         builder.withModule(JingleModule())
         builder.withModule(PEPModule())
         builder.withModule(BlockingModule())
-        let sm = StreamManagementModule()
+        let sm = StreamManagementModule(previousState: previousSMState)
         builder.withModule(sm)
         builder.withInterceptor(sm)
-
-        let client = await builder.build()
-        clients[accountID] = client
-
-        startEventConsumption(for: accountID, client: client)
-
-        do {
-            if let host = account.host, let port = account.port {
-                try await client.connect(host: host, port: UInt16(port))
-            } else {
-                try await client.connect()
-            }
-        } catch {
-            connectionStates[accountID] = .error(error.localizedDescription)
-            throw error
-        }
+        return await (builder.build(), sm)
     }
 
     // MARK: - Private: Event Consumption
@@ -240,27 +260,44 @@ public final class AccountService {
 
     private func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
-        case let .connected(jid):
+        case let .connected(jid), let .streamResumed(jid):
             connectionStates[accountID] = .connected(jid)
             reconnectAttempts[accountID] = 0
         case let .disconnected(reason):
-            clients[accountID] = nil
-            eventTasks[accountID]?.cancel()
-            eventTasks[accountID] = nil
             switch reason {
             case .requested:
+                smResumeStates[accountID] = nil
                 connectionStates[accountID] = .disconnected
             case let .streamError(condition, text):
+                smResumeStates[accountID] = smModules[accountID]?.resumeState
                 let message = text ?? condition?.rawValue ?? "Stream error"
                 connectionStates[accountID] = .error(message)
                 scheduleReconnect(accountID: accountID)
             case let .connectionLost(message):
+                smResumeStates[accountID] = smModules[accountID]?.resumeState
                 connectionStates[accountID] = .error(message)
                 scheduleReconnect(accountID: accountID)
             }
+            smModules[accountID] = nil
+            clients[accountID] = nil
+            eventTasks[accountID]?.cancel()
+            eventTasks[accountID] = nil
         case let .authenticationFailed(message):
             connectionStates[accountID] = .error(message)
-        default:
+        case .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged, .roomSubjectChanged,
+             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .pepItemsPublished, .pepItemsRetracted,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             break
         }
 

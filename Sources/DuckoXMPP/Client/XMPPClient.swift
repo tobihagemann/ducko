@@ -143,10 +143,12 @@ public actor XMPPClient {
         let reader = EventReader(connection.events)
 
         do {
-            try await performHandshake(reader: reader)
+            let resumed = try await performHandshake(reader: reader)
             startReader(reader: reader)
-            for module in modules.values {
-                try await module.handleConnect()
+            if !resumed {
+                for module in modules.values {
+                    try await module.handleConnect()
+                }
             }
         } catch {
             log.error("Handshake failed: \(String(describing: error), privacy: .public)")
@@ -158,7 +160,8 @@ public actor XMPPClient {
     }
 
     /// Drives the full XMPP handshake consuming events via the reader.
-    private func performHandshake(reader: EventReader) async throws {
+    /// Returns `true` if the session was resumed (skip `handleConnect` on modules).
+    private func performHandshake(reader: EventReader) async throws -> Bool {
         // 1. Open initial stream
         try await openStream()
         let features1 = try await reader.awaitFeatures()
@@ -190,21 +193,27 @@ public actor XMPPClient {
         let features3 = try await reader.awaitFeatures()
         serverFeaturesLock.withLock { $0 = features3 }
 
-        // 5. Resource binding
+        // 5. Attempt SM resume (before bind)
+        if try await attemptSMResume(features: features3, reader: reader) {
+            return true
+        }
+
+        // 6. Resource binding
         state = .bindingResource
         let fullJID = try await bindResource(reader: reader)
 
-        // 6. Session establishment (if required)
+        // 7. Session establishment (if required)
         if let session = features3.child(named: "session", namespace: XMPPNamespaces.session),
            session.child(named: "optional") == nil {
             try await establishSession(reader: reader)
         }
 
-        // 7. Connected
+        // 8. Connected
         log.notice("Connected as \(fullJID)")
         connectedJIDLock.withLock { $0 = fullJID }
         state = .connected(fullJID)
         eventContinuation.yield(.connected(fullJID))
+        return false
     }
 
     // MARK: - Disconnect
@@ -294,6 +303,35 @@ public actor XMPPClient {
         }
 
         try await connection.upgradeTLS(serverName: domain)
+    }
+
+    /// Attempts to resume a previous SM session. Returns `true` if resumed.
+    private func attemptSMResume(features: XMLElement, reader: EventReader) async throws -> Bool {
+        guard let sm = modules[ObjectIdentifier(StreamManagementModule.self)] as? StreamManagementModule,
+              sm.isResumable,
+              features.child(named: "sm", namespace: XMPPNamespaces.sm) != nil else {
+            return false
+        }
+
+        let resumeElement = sm.buildResumeElement()
+        try await connection.send(XMPPStreamWriter.stanza(resumeElement))
+        let response = try await reader.awaitStanza()
+        let result = sm.processResumeResponse(response)
+
+        switch result {
+        case let .resumed(jid, retransmitQueue):
+            for stanza in retransmitQueue {
+                try await connection.send(XMPPStreamWriter.stanza(stanza))
+            }
+            log.notice("Stream resumed as \(jid)")
+            connectedJIDLock.withLock { $0 = jid }
+            state = .connected(jid)
+            eventContinuation.yield(.streamResumed(jid))
+            return true
+        case .failed:
+            log.info("Stream resumption failed, falling back to normal bind")
+            return false
+        }
     }
 
     // MARK: - Private: Authentication

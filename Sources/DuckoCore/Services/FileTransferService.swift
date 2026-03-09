@@ -191,7 +191,7 @@ public final class FileTransferService {
         case let .jingleFileTransferFailed(sid, reason):
             updateTransferState(forSID: sid, state: .failed(reason))
             incomingOffers.removeAll { $0.sid == sid }
-        case .connected, .disconnected, .authenticationFailed,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,

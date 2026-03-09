@@ -92,12 +92,8 @@ struct JSONFormatter: CLIFormatter {
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String? {
         let account = accountID.uuidString
         switch event {
-        case let .connected(jid):
-            return encode(["type": "connected", "jid": jid.description, "account": account])
-        case let .disconnected(reason):
-            return formatDisconnect(reason, account: account)
-        case let .authenticationFailed(message):
-            return encode(["type": "authentication_failed", "message": message, "account": account])
+        case .connected, .streamResumed, .disconnected, .authenticationFailed:
+            return formatConnectionEvent(event, account: account)
         case let .messageReceived(message):
             return formatIncomingMessage(message, account: account)
         case let .messageCarbonReceived(forwarded):
@@ -120,6 +116,35 @@ struct JSONFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            return nil
+        }
+    }
+
+    private func formatConnectionEvent(_ event: XMPPEvent, account: String) -> String? {
+        switch event {
+        case let .connected(jid):
+            return encode(["type": "connected", "jid": jid.description, "account": account])
+        case let .streamResumed(jid):
+            return encode(["type": "stream_resumed", "jid": jid.description, "account": account])
+        case let .disconnected(reason):
+            return formatDisconnect(reason, account: account)
+        case let .authenticationFailed(message):
+            return encode(["type": "authentication_failed", "message": message, "account": account])
+        case .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -158,8 +183,8 @@ struct JSONFormatter: CLIFormatter {
             ]
             if let text = error.text { dict["text"] = text }
             return encode(dict)
-        case .connected, .disconnected, .authenticationFailed, .messageReceived,
-             .presenceReceived, .iqReceived,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
@@ -231,8 +256,8 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "jingle_transfer_completed", "sid": sid, "account": account])
         case let .jingleFileTransferFailed(sid, reason):
             return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason, "account": account])
-        case .connected, .disconnected, .authenticationFailed, .messageReceived,
-             .presenceReceived, .iqReceived,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
@@ -387,8 +412,8 @@ struct JSONFormatter: CLIFormatter {
             return formatIncomingRoomMessage(message, account: account)
         case let .roomDestroyed(room, reason, alternate):
             return formatRoomDestroyedEvent(room: room, reason: reason, alternate: alternate, account: account)
-        case .connected, .disconnected, .authenticationFailed, .messageReceived,
-             .presenceReceived, .iqReceived,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,

@@ -149,7 +149,7 @@ public final class RosterService {
             if presence.presenceType == .unavailable {
                 await updateLastSeen(jid: from.bareJID, date: Date(), accountID: accountID)
             }
-        case .connected, .disconnected, .authenticationFailed,
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
