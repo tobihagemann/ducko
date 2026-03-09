@@ -53,7 +53,7 @@ enum CapsModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.register(CapsModule())
 
@@ -80,7 +80,7 @@ enum CapsModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             let capsModule = CapsModule()
             await client.register(capsModule)
@@ -110,7 +110,7 @@ enum CapsModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             let capsModule = CapsModule()
             await client.register(capsModule)
@@ -164,7 +164,7 @@ enum CapsModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             let capsModule = CapsModule()
             await client.register(capsModule)
@@ -211,7 +211,7 @@ enum CapsModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             let capsModule = CapsModule()
             await client.register(capsModule)
@@ -253,7 +253,7 @@ enum CapsModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             let capsModule = CapsModule()
             await client.register(capsModule)

@@ -83,7 +83,7 @@ struct PlainFormatter: CLIFormatter {
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
             return formatJingleEvent(event)
         case .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
@@ -138,7 +138,7 @@ struct PlainFormatter: CLIFormatter {
             return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -210,7 +210,7 @@ struct PlainFormatter: CLIFormatter {
             return formatJingleTransferFailed(sid: sid, reason: reason)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -237,7 +237,7 @@ struct PlainFormatter: CLIFormatter {
             return "message error from \(from.bareJID): \(error.displayText)"
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -328,6 +328,25 @@ struct PlainFormatter: CLIFormatter {
 
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "[\(jid) is typing...]" : nil
+    }
+
+    func formatTLSInfo(_ info: TLSInfo) -> String {
+        var lines: [String] = []
+        lines.append("TLS Version: \(info.protocolVersion)")
+        lines.append("Cipher Suite: \(info.cipherSuite)")
+        if let subject = info.certificateSubject {
+            lines.append("Subject: \(subject)")
+        }
+        if let issuer = info.certificateIssuer {
+            lines.append("Issuer: \(issuer)")
+        }
+        if let expiry = info.certificateExpiry {
+            lines.append("Expires: \(iso8601(expiry))")
+        }
+        if let fingerprint = info.certificateSHA256 {
+            lines.append("SHA-256: \(fingerprint)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     func formatProfile(_ profile: ProfileInfo) -> String {

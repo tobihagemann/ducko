@@ -89,7 +89,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -108,7 +108,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -124,7 +124,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let eventsTask = Task {
@@ -157,7 +157,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "wrong"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let eventsTask = Task {
@@ -200,7 +200,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -231,7 +231,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -265,7 +265,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -297,7 +297,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.register(chatModule)
 
@@ -332,7 +332,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let eventsTask = Task {
@@ -365,7 +365,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let eventsTask = Task {
@@ -401,7 +401,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -472,7 +472,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -503,7 +503,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -540,7 +540,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
 
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
@@ -575,7 +575,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.addInterceptor(interceptor)
 
@@ -616,7 +616,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.addInterceptor(interceptor)
 
@@ -691,7 +691,7 @@ enum XMPPClientTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.register(module)
 

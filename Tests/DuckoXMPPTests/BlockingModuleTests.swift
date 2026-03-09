@@ -11,7 +11,7 @@ private func makeConnectedClient(mock: MockTransport, blocklistResponse: String 
     let client = XMPPClient(
         domain: "example.com",
         credentials: .init(username: "user", password: "pass"),
-        transport: mock
+        transport: mock, requireTLS: false
     )
     await client.register(BlockingModule())
 
@@ -38,7 +38,7 @@ enum BlockingModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.register(BlockingModule())
 

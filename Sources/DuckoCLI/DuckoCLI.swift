@@ -880,6 +880,7 @@ private func printREPLHelp() {
     print("  /decline [sid]           Decline incoming file transfer")
     print("  /transfers               List active transfers")
     print("  /rooms [service]         Discover available rooms")
+    print("  /connection-info         Show TLS connection info")
     print("  help                     Show this help")
     print("  quit                     Disconnect and exit")
 }
@@ -929,7 +930,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
     input.hasPrefix("/add ") || input.hasPrefix("/remove ")
         || input.hasPrefix("/approve ") || input.hasPrefix("/deny ")
         || input == "/history" || input.hasPrefix("/history ")
-        || input == "/profile"
+        || input == "/profile" || input == "/connection-info"
         || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
 }
 
@@ -966,6 +967,8 @@ private func dispatchMiscREPLCommand(
         await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
     } else if input == "/profile" {
         await handleProfileREPLCommand(context: context)
+    } else if input == "/connection-info" {
+        await handleConnectionInfoREPLCommand(context: context)
     } else if input.hasPrefix("/reply ") {
         await handleReplyREPLCommand(input, context: context)
     } else if input.hasPrefix("/search ") {
@@ -1469,6 +1472,15 @@ private func fetchAndFormatProfile(
         return formatter.formatProfile(profile)
     }
     return formatter.formatProfile(ProfileInfo())
+}
+
+private func handleConnectionInfoREPLCommand(context: REPLContext) async {
+    let info = await MainActor.run { context.environment.accountService.tlsInfo(for: context.accountID) }
+    if let info {
+        print(context.formatter.formatTLSInfo(info))
+    } else {
+        print("No TLS connection info available.")
+    }
 }
 
 private func handleReplyREPLCommand(_ input: String, context: REPLContext) async {

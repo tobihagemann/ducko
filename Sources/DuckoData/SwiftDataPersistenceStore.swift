@@ -36,6 +36,8 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
                 host: account.host,
                 port: account.port,
                 resource: account.resource,
+                requireTLS: account.requireTLS,
+                rosterVersion: account.rosterVersion,
                 createdAt: account.createdAt
             )
             modelContext.insert(record)

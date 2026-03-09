@@ -547,7 +547,8 @@ public final class ChatService {
             await handleMUCEvent(event, accountID: accountID)
         case .connected, .authenticationFailed,
              .presenceReceived, .iqReceived,
-             .rosterItemChanged, .presenceUpdated, .presenceSubscriptionRequest,
+             .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
              .archivedMessagesLoaded,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -578,7 +579,7 @@ public final class ChatService {
             newlyCreatedRoomJIDs.removeAll()
         case .connected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -599,7 +600,7 @@ public final class ChatService {
             await handleCarbon(forwarded, accountID: accountID, isOutgoing: true)
         case .connected, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,

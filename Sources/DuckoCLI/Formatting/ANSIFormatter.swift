@@ -108,7 +108,7 @@ struct ANSIFormatter: CLIFormatter {
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
             return formatJingleEvent(event)
         case .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
@@ -194,7 +194,7 @@ struct ANSIFormatter: CLIFormatter {
             return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -267,7 +267,7 @@ struct ANSIFormatter: CLIFormatter {
             return formatJingleTransferFailed(sid: sid, reason: reason)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -294,7 +294,7 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.red)message error from \(from.bareJID): \(error.displayText)\(Color.reset)"
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -361,6 +361,25 @@ struct ANSIFormatter: CLIFormatter {
 
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {
         state == .composing ? "\(Color.dim)[\(jid) is typing...]\(Color.reset)" : nil
+    }
+
+    func formatTLSInfo(_ info: TLSInfo) -> String {
+        var lines: [String] = []
+        lines.append("\(Color.bold)TLS Version:\(Color.reset) \(info.protocolVersion)")
+        lines.append("\(Color.bold)Cipher Suite:\(Color.reset) \(info.cipherSuite)")
+        if let subject = info.certificateSubject {
+            lines.append("\(Color.bold)Subject:\(Color.reset) \(subject)")
+        }
+        if let issuer = info.certificateIssuer {
+            lines.append("\(Color.bold)Issuer:\(Color.reset) \(issuer)")
+        }
+        if let expiry = info.certificateExpiry {
+            lines.append("\(Color.bold)Expires:\(Color.reset) \(iso8601(expiry))")
+        }
+        if let fingerprint = info.certificateSHA256 {
+            lines.append("\(Color.bold)SHA-256:\(Color.reset) \(fingerprint)")
+        }
+        return lines.joined(separator: "\n")
     }
 
     func formatProfile(_ profile: ProfileInfo) -> String {

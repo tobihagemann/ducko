@@ -10,6 +10,8 @@ public struct Account: Sendable, Identifiable {
     public var host: String?
     public var port: Int?
     public var resource: String?
+    public var requireTLS: Bool
+    public var rosterVersion: String?
     public var createdAt: Date
 
     public init(
@@ -21,6 +23,8 @@ public struct Account: Sendable, Identifiable {
         host: String? = nil,
         port: Int? = nil,
         resource: String? = nil,
+        requireTLS: Bool = true,
+        rosterVersion: String? = nil,
         createdAt: Date
     ) {
         self.id = id
@@ -31,6 +35,10 @@ public struct Account: Sendable, Identifiable {
         self.host = host
         self.port = port
         self.resource = resource
+        self.requireTLS = requireTLS
+        self.rosterVersion = rosterVersion
         self.createdAt = createdAt
     }
 }
+
+public typealias TLSInfo = DuckoXMPP.TLSInfo

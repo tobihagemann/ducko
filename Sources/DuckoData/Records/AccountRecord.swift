@@ -11,6 +11,8 @@ final class AccountRecord {
     var host: String?
     var port: Int?
     var resource: String?
+    var requireTLS: Bool = true
+    var rosterVersion: String?
     @Relationship(deleteRule: .cascade, inverse: \ContactRecord.account)
     var contacts: [ContactRecord]
     @Relationship(deleteRule: .cascade, inverse: \ConversationRecord.account)
@@ -26,6 +28,8 @@ final class AccountRecord {
         host: String? = nil,
         port: Int? = nil,
         resource: String? = nil,
+        requireTLS: Bool = true,
+        rosterVersion: String? = nil,
         contacts: [ContactRecord] = [],
         conversations: [ConversationRecord] = [],
         createdAt: Date = Date()
@@ -38,6 +42,8 @@ final class AccountRecord {
         self.host = host
         self.port = port
         self.resource = resource
+        self.requireTLS = requireTLS
+        self.rosterVersion = rosterVersion
         self.contacts = contacts
         self.conversations = conversations
         self.createdAt = createdAt

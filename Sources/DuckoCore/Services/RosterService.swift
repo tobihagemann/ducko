@@ -137,6 +137,8 @@ public final class RosterService {
             await handleRosterLoaded(items, accountID: accountID)
         case let .rosterItemChanged(item):
             await handleRosterItemChanged(item, accountID: accountID)
+        case let .rosterVersionChanged(version):
+            await handleRosterVersionChanged(version, accountID: accountID)
         case let .blockListLoaded(jids):
             await handleBlockListLoaded(jids, accountID: accountID)
         case let .contactBlocked(jid):
@@ -169,6 +171,14 @@ public final class RosterService {
     private func handleRosterLoaded(_ items: [RosterItem], accountID: UUID) async {
         let existingContacts = await (try? store.fetchContacts(for: accountID)) ?? []
 
+        // Empty roster response with a cached version means "up-to-date" — use cached contacts
+        if items.isEmpty {
+            if !existingContacts.isEmpty {
+                groups = buildGroups(from: existingContacts)
+                return
+            }
+        }
+
         // Build set of JIDs on the server roster
         let rosterJIDs = Set(items.map(\.jid))
 
@@ -186,6 +196,13 @@ public final class RosterService {
         }
 
         groups = buildGroups(from: updatedContacts)
+    }
+
+    private func handleRosterVersionChanged(_ version: String, accountID: UUID) async {
+        guard var account = accountService?.accounts.first(where: { $0.id == accountID }) else { return }
+        account.rosterVersion = version
+        try? await store.saveAccount(account)
+        try? await accountService?.loadAccounts()
     }
 
     private func handleRosterItemChanged(_ item: RosterItem, accountID: UUID) async {

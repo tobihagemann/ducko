@@ -12,7 +12,7 @@ private func makeConnectedClient(mock: MockTransport, rosterResponse: String = e
     let client = XMPPClient(
         domain: "example.com",
         credentials: .init(username: "user", password: "pass"),
-        transport: mock
+        transport: mock, requireTLS: false
     )
     await client.register(RosterModule())
 
@@ -36,7 +36,7 @@ enum RosterModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.register(RosterModule())
 

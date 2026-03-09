@@ -122,11 +122,17 @@ struct AccountsPreferencesView: View {
 
 private struct AccountDetailView: View {
     @Environment(AppEnvironment.self) private var environment
+    @State private var isShowingConnectionInfo = false
     let account: Account
     let onEdit: () -> Void
 
     private var connectionState: AccountService.ConnectionState? {
         environment.accountService.connectionStates[account.id]
+    }
+
+    private var isConnected: Bool {
+        if case .connected = connectionState { return true }
+        return false
     }
 
     var body: some View {
@@ -154,6 +160,7 @@ private struct AccountDetailView: View {
             Section("Status") {
                 LabeledContent("Enabled", value: account.isEnabled ? "Yes" : "No")
                 LabeledContent("Connect on Launch", value: account.connectOnLaunch ? "Yes" : "No")
+                LabeledContent("Require TLS", value: account.requireTLS ? "Yes" : "No")
                 LabeledContent("Connection", value: connectionLabel)
             }
 
@@ -163,6 +170,13 @@ private struct AccountDetailView: View {
                         onEdit()
                     }
 
+                    let info = isConnected ? environment.accountService.tlsInfo(for: account.id) : nil
+                    if info != nil {
+                        Button("Connection Info...") {
+                            isShowingConnectionInfo = true
+                        }
+                    }
+
                     Spacer()
 
                     connectionButton
@@ -170,6 +184,11 @@ private struct AccountDetailView: View {
             }
         }
         .formStyle(.grouped)
+        .sheet(isPresented: $isShowingConnectionInfo) {
+            if let info = environment.accountService.tlsInfo(for: account.id) {
+                ConnectionInfoView(tlsInfo: info)
+            }
+        }
     }
 
     private var connectionLabel: String {
@@ -212,6 +231,7 @@ private struct AccountEditSheet: View {
     @State private var resource: String
     @State private var connectOnLaunch: Bool
     @State private var isEnabled: Bool
+    @State private var requireTLS: Bool
 
     private let accountID: UUID
 
@@ -223,6 +243,7 @@ private struct AccountEditSheet: View {
         _resource = State(initialValue: account.resource ?? "")
         _connectOnLaunch = State(initialValue: account.connectOnLaunch)
         _isEnabled = State(initialValue: account.isEnabled)
+        _requireTLS = State(initialValue: account.requireTLS)
     }
 
     var body: some View {
@@ -233,6 +254,8 @@ private struct AccountEditSheet: View {
                 TextField("Port (optional)", text: $portString)
                 TextField("Resource (optional)", text: $resource)
                 Toggle("Connect on Launch", isOn: $connectOnLaunch)
+                Toggle("Require TLS", isOn: $requireTLS)
+                    .accessibilityIdentifier("requireTLSToggle")
                 Toggle("Enabled", isOn: $isEnabled)
             }
             .formStyle(.grouped)
@@ -262,6 +285,7 @@ private struct AccountEditSheet: View {
         account.port = Int(portString)
         account.resource = resource.isEmpty ? nil : resource
         account.connectOnLaunch = connectOnLaunch
+        account.requireTLS = requireTLS
         account.isEnabled = isEnabled
         Task {
             try? await environment.accountService.updateAccount(account)

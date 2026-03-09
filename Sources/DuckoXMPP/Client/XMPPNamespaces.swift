@@ -6,6 +6,7 @@ public enum XMPPNamespaces {
     public static let bind = "urn:ietf:params:xml:ns:xmpp-bind"
     public static let session = "urn:ietf:params:xml:ns:xmpp-session"
     public static let roster = "jabber:iq:roster"
+    public static let rosterVersioning = "urn:xmpp:features:rosterver"
     public static let discoInfo = "http://jabber.org/protocol/disco#info"
     public static let discoItems = "http://jabber.org/protocol/disco#items"
     public static let caps = "http://jabber.org/protocol/caps"

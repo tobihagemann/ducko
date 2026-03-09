@@ -28,7 +28,7 @@ actor CLIEventHandler {
             guard isInteractive else { break }
         case .connected, .disconnected, .authenticationFailed,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .archivedMessagesLoaded,
              .deliveryReceiptReceived, .chatMarkerReceived,

@@ -193,7 +193,7 @@ public final class FileTransferService {
             incomingOffers.removeAll { $0.sid == sid }
         case .connected, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,

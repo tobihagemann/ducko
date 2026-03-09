@@ -55,6 +55,16 @@ actor XMPPConnection {
         try await transport.upgradeTLS(serverName: serverName)
     }
 
+    /// Returns TLS info from the transport, if available.
+    var tlsInfo: TLSInfo? {
+        get async {
+            if let posix = transport as? POSIXTransport {
+                return await posix.tlsInfo
+            }
+            return nil
+        }
+    }
+
     // MARK: - Stream Reset
 
     /// Resets the parser for a new XMPP stream (e.g. after SASL authentication).
@@ -73,6 +83,12 @@ actor XMPPConnection {
     }
 
     // MARK: - Disconnecting
+
+    /// Sends the closing `</stream:stream>` tag and briefly waits for the server's response.
+    func sendStreamClose() async {
+        try? await transport.send(XMPPStreamWriter.streamClosing())
+        try? await Task.sleep(for: .milliseconds(100))
+    }
 
     /// Clean shutdown: stops tasks, closes parser, disconnects transport, finishes event stream.
     func disconnect() async {

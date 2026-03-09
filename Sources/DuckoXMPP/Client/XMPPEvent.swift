@@ -8,6 +8,7 @@ public enum XMPPEvent: Sendable {
     case iqReceived(XMPPIQ)
     case rosterLoaded([RosterItem])
     case rosterItemChanged(RosterItem)
+    case rosterVersionChanged(String)
     case presenceUpdated(from: JID, presence: XMPPPresence)
     case presenceSubscriptionRequest(from: BareJID)
     case messageCarbonReceived(ForwardedMessage)

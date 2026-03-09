@@ -13,6 +13,8 @@ extension AccountRecord {
             host: host,
             port: port,
             resource: resource,
+            requireTLS: requireTLS,
+            rosterVersion: rosterVersion,
             createdAt: createdAt
         )
     }
@@ -25,5 +27,7 @@ extension AccountRecord {
         host = account.host
         port = account.port
         resource = account.resource
+        requireTLS = account.requireTLS
+        rosterVersion = account.rosterVersion
     }
 }

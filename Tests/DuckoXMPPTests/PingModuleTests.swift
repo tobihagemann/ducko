@@ -7,7 +7,7 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
     let client = XMPPClient(
         domain: "example.com",
         credentials: .init(username: "user", password: "pass"),
-        transport: mock
+        transport: mock, requireTLS: false
     )
     await client.register(PingModule(pingInterval: .milliseconds(200)))
 

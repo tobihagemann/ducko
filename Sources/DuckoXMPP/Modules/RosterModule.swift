@@ -7,12 +7,25 @@ public final class RosterModule: XMPPModule, Sendable {
     private struct State {
         var context: ModuleContext?
         var roster: [BareJID: RosterItem] = [:]
+        var version: String?
+        var rosterVersionProvider: (@Sendable () -> String?)?
     }
 
     private let state: OSAllocatedUnfairLock<State>
 
     public var features: [String] {
         [XMPPNamespaces.roster]
+    }
+
+    // periphery:ignore - specced feature, not yet wired
+    /// The current roster version string, if available.
+    public var currentVersion: String? {
+        state.withLock { $0.version }
+    }
+
+    /// Sets a closure the service layer provides to return the persisted roster version on connect.
+    public func setRosterVersionProvider(_ provider: (@Sendable () -> String?)?) {
+        state.withLock { $0.rosterVersionProvider = provider }
     }
 
     public init() {
@@ -28,9 +41,18 @@ public final class RosterModule: XMPPModule, Sendable {
     public func handleConnect() async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
-        // Request full roster
+        // Check if server supports roster versioning
+        let serverFeatures = context.serverStreamFeatures()
+        let supportsVersioning = serverFeatures?.child(named: "ver", namespace: XMPPNamespaces.rosterVersioning) != nil
+
+        // Request roster (with version if supported)
         var iq = XMPPIQ(type: .get, id: context.generateID())
-        let query = XMLElement(name: "query", namespace: XMPPNamespaces.roster)
+        var query = XMLElement(name: "query", namespace: XMPPNamespaces.roster)
+        if supportsVersioning {
+            let provider = state.withLock { $0.rosterVersionProvider }
+            let ver = provider?() ?? ""
+            query.setAttribute("ver", value: ver)
+        }
         iq.element.addChild(query)
 
         let result: XMLElement?
@@ -41,9 +63,20 @@ public final class RosterModule: XMPPModule, Sendable {
             return
         }
 
-        guard let result else { return }
+        // Empty result (no <query> child) means roster is up-to-date — use cached roster
+        guard let result else {
+            log.info("Roster up-to-date, using cached version")
+            context.emitEvent(.rosterLoaded([]))
+            return
+        }
 
         let items = result.children(named: "item").compactMap(RosterItem.parse)
+
+        // Track version from roster result
+        if let ver = result.attribute("ver") {
+            state.withLock { $0.version = ver }
+            context.emitEvent(.rosterVersionChanged(ver))
+        }
 
         state.withLock { state in
             state.roster.removeAll()
@@ -81,6 +114,12 @@ public final class RosterModule: XMPPModule, Sendable {
             }
         }
 
+        // Track version from roster push
+        if let ver = query.attribute("ver") {
+            state.withLock { $0.version = ver }
+            context.emitEvent(.rosterVersionChanged(ver))
+        }
+
         // Process roster push items
         for child in query.children(named: "item") {
             guard let item = RosterItem.parse(child) else { continue }
@@ -97,18 +136,20 @@ public final class RosterModule: XMPPModule, Sendable {
             context.emitEvent(.rosterItemChanged(item))
         }
 
-        // Acknowledge the roster push per RFC 6121 §2.1.6
-        if let stanzaID = iq.id {
-            Task {
-                var result = XMPPIQ(type: .result, id: stanzaID)
-                if let from = iq.from {
-                    result.to = .bare(from.bareJID)
-                }
-                do {
-                    try await context.sendStanza(result)
-                } catch {
-                    log.warning("Failed to acknowledge roster push: \(error)")
-                }
+        acknowledgeRosterPush(iq: iq, context: context)
+    }
+
+    private func acknowledgeRosterPush(iq: XMPPIQ, context: ModuleContext) {
+        guard let stanzaID = iq.id else { return }
+        Task {
+            var result = XMPPIQ(type: .result, id: stanzaID)
+            if let from = iq.from {
+                result.to = .bare(from.bareJID)
+            }
+            do {
+                try await context.sendStanza(result)
+            } catch {
+                log.warning("Failed to acknowledge roster push: \(error)")
             }
         }
     }

@@ -18,6 +18,7 @@ public actor XMPPClient {
     private var readerTask: Task<Void, Never>?
     private var pendingIQs: [String: PendingIQ] = [:]
     private let idCounter = Atomic<UInt64>(0)
+    private let tlsInfoLock = OSAllocatedUnfairLock<TLSInfo?>(initialState: nil)
     private let connectedJIDLock = OSAllocatedUnfairLock<FullJID?>(initialState: nil)
     private let featuresLock = OSAllocatedUnfairLock<Set<String>>(initialState: [])
     private let serverFeaturesLock = OSAllocatedUnfairLock<XMLElement?>(initialState: nil)
@@ -56,13 +57,16 @@ public actor XMPPClient {
 
     // MARK: - Init
 
-    public init(domain: String, credentials: Credentials, transport: (any XMPPTransport)? = nil) {
+    private let requireTLS: Bool
+
+    public init(domain: String, credentials: Credentials, transport: (any XMPPTransport)? = nil, requireTLS: Bool = true) {
         let (stream, continuation) = AsyncStream.makeStream(of: XMPPEvent.self)
         self.events = stream
         self.eventContinuation = continuation
         self.domain = domain
         self.credentials = credentials
         self.connection = XMPPConnection(transport: transport ?? POSIXTransport())
+        self.requireTLS = requireTLS
     }
 
     // MARK: - Module Registration
@@ -83,6 +87,13 @@ public actor XMPPClient {
 
     public func addInterceptor(_ interceptor: any StanzaInterceptor) {
         interceptors.append(interceptor)
+    }
+
+    // MARK: - TLS Info
+
+    /// Returns TLS connection info, or `nil` if TLS is not active.
+    public nonisolated var tlsInfo: TLSInfo? {
+        tlsInfoLock.withLock { $0 }
     }
 
     // MARK: - Features
@@ -158,8 +169,12 @@ public actor XMPPClient {
             state = .negotiatingTLS
             try await negotiateTLS(reader: reader)
             log.info("TLS established")
+            let info = await connection.tlsInfo
+            tlsInfoLock.withLock { $0 = info }
             try await openStream()
             postTLSFeatures = try await reader.awaitFeatures()
+        } else if requireTLS {
+            throw XMPPClientError.tlsRequired
         } else {
             postTLSFeatures = features1
         }
@@ -195,6 +210,13 @@ public actor XMPPClient {
     // MARK: - Disconnect
 
     public func disconnect() async {
+        // Send unavailable presence before closing
+        if case .connected = state {
+            let unavailable = XMPPPresence(type: .unavailable)
+            try? await connection.send(XMPPStreamWriter.stanza(unavailable.element))
+        }
+
+        await connection.sendStreamClose()
         await cleanUp(reason: .requested)
         await connection.disconnect()
     }
@@ -507,6 +529,7 @@ public actor XMPPClient {
         state = .disconnected
         connectedJIDLock.withLock { $0 = nil }
         serverFeaturesLock.withLock { $0 = nil }
+        tlsInfoLock.withLock { $0 = nil }
 
         for pending in pendingIQs.values {
             pending.timeoutTask.cancel()

@@ -1,4 +1,6 @@
+import CryptoKit
 import Darwin
+import Foundation
 @preconcurrency import Security
 
 /// POSIX socket transport with in-place STARTTLS support via Security.framework.
@@ -13,6 +15,7 @@ actor POSIXTransport: XMPPTransport {
     private var fd: Int32 = -1
     private var sslContext: SSLContext?
     private var receiveTask: Task<Void, Never>?
+    private(set) var tlsInfo: TLSInfo?
 
     nonisolated let receivedData: AsyncStream<[UInt8]>
     private nonisolated let receivedContinuation: AsyncStream<[UInt8]>.Continuation
@@ -63,8 +66,10 @@ actor POSIXTransport: XMPPTransport {
             // Publish sslContext only after handshake succeeds to prevent
             // the receive task from calling SSLRead during the handshake
             sslContext = ctx
+            tlsInfo = extractTLSInfo(ctx: ctx)
         } catch {
             sslContext = nil
+            tlsInfo = nil
             fdPtr.deallocate()
             throw error
         }
@@ -103,6 +108,7 @@ actor POSIXTransport: XMPPTransport {
         SSLGetConnection(ctx, &connRef)
         connRef?.assumingMemoryBound(to: Int32.self).deallocate()
         sslContext = nil
+        tlsInfo = nil
     }
 
     private func setNonBlocking(_ enabled: Bool) {
@@ -257,6 +263,104 @@ actor POSIXTransport: XMPPTransport {
                 continuation.finish()
             }
         }
+    }
+}
+
+// MARK: - TLS Info Extraction
+
+/// OID for the certificate issuer field in `SecCertificateCopyValues`.
+private let certIssuerOID = "2.16.840.1.113741.2.1.1.1.5"
+
+/// OID for the certificate validity period in `SecCertificateCopyValues`.
+private let certValidityOID = "2.16.840.1.113741.2.1.1.1.8"
+
+private func extractTLSInfo(ctx: SSLContext) -> TLSInfo {
+    var protocol_: SSLProtocol = .sslProtocolUnknown
+    SSLGetNegotiatedProtocolVersion(ctx, &protocol_)
+    let protocolString = formatSSLProtocol(protocol_)
+
+    var cipher: SSLCipherSuite = 0
+    SSLGetNegotiatedCipher(ctx, &cipher)
+    let cipherString = formatCipherSuite(cipher)
+
+    // Certificate details
+    var trust: SecTrust?
+    SSLCopyPeerTrust(ctx, &trust)
+    let certInfo = trust.flatMap(extractCertificateInfo)
+
+    return TLSInfo(
+        protocolVersion: protocolString,
+        cipherSuite: cipherString,
+        certificateSubject: certInfo?.subject,
+        certificateIssuer: certInfo?.issuer,
+        certificateExpiry: certInfo?.expiry,
+        certificateSHA256: certInfo?.sha256
+    )
+}
+
+private struct CertInfo {
+    let subject: String?
+    let issuer: String?
+    let expiry: Date?
+    let sha256: String?
+}
+
+private func extractCertificateInfo(_ trust: SecTrust) -> CertInfo? {
+    guard SecTrustGetCertificateCount(trust) > 0 else { return nil }
+    guard let cert = SecTrustGetCertificateAtIndex(trust, 0) else { return nil }
+
+    let subject = SecCertificateCopySubjectSummary(cert) as String?
+
+    // Extract certificate DER data for fingerprint
+    let derData = SecCertificateCopyData(cert) as Data
+    let sha256Hash = SHA256.hash(data: derData)
+    let fingerprint = sha256Hash.map { String(format: "%02X", $0) }.joined(separator: ":")
+
+    // Extract issuer and expiry from certificate values
+    var issuer: String?
+    var expiry: Date?
+    if let values = SecCertificateCopyValues(cert, nil, nil) as? [String: Any] {
+        if let issuerEntry = values[certIssuerOID] as? [String: Any],
+           let issuerValue = issuerEntry[kSecPropertyKeyValue as String] {
+            issuer = issuerValue as? String ?? String(describing: issuerValue)
+        }
+        if let validityEntry = values[certValidityOID] as? [String: Any],
+           let validityArray = validityEntry[kSecPropertyKeyValue as String] as? [[String: Any]] {
+            for item in validityArray {
+                let label = item[kSecPropertyKeyLabel as String] as? String
+                if label == "Not Valid After", let date = item[kSecPropertyKeyValue as String] as? Date {
+                    expiry = date
+                }
+            }
+        }
+    }
+
+    return CertInfo(subject: subject, issuer: issuer, expiry: expiry, sha256: fingerprint)
+}
+
+private func formatSSLProtocol(_ proto: SSLProtocol) -> String {
+    switch proto {
+    case .tlsProtocol1: "TLS 1.0"
+    case .tlsProtocol11: "TLS 1.1"
+    case .tlsProtocol12: "TLS 1.2"
+    case .tlsProtocol13: "TLS 1.3"
+    case .dtlsProtocol1: "DTLS 1.0"
+    case .dtlsProtocol12: "DTLS 1.2"
+    default: "Unknown"
+    }
+}
+
+private func formatCipherSuite(_ suite: SSLCipherSuite) -> String {
+    // Map common cipher suites to readable names
+    switch suite {
+    case UInt16(TLS_AES_128_GCM_SHA256): "TLS_AES_128_GCM_SHA256"
+    case UInt16(TLS_AES_256_GCM_SHA384): "TLS_AES_256_GCM_SHA384"
+    case UInt16(TLS_CHACHA20_POLY1305_SHA256): "TLS_CHACHA20_POLY1305_SHA256"
+    case UInt16(TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256): "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+    case UInt16(TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384): "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+    case UInt16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256): "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+    case UInt16(TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384): "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+    default: "0x\(String(format: "%04X", suite))"
     }
 }
 

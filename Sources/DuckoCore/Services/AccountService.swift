@@ -160,6 +160,11 @@ public final class AccountService {
         clients[accountID]
     }
 
+    /// Returns TLS connection info for a connected account.
+    public func tlsInfo(for accountID: UUID) -> TLSInfo? {
+        clients[accountID]?.tlsInfo
+    }
+
     // MARK: - Private: Connection
 
     private func performConnect(accountID: UUID) async throws {
@@ -179,8 +184,12 @@ public final class AccountService {
             username: account.jid.localPart ?? "",
             password: passwords[accountID] ?? ""
         )
+        builder.withRequireTLS(account.requireTLS)
+        let rosterModule = RosterModule()
+        let rosterVersion = account.rosterVersion
+        rosterModule.setRosterVersionProvider { rosterVersion }
         builder.withModule(ChatModule())
-        builder.withModule(RosterModule())
+        builder.withModule(rosterModule)
         builder.withModule(PresenceModule())
         builder.withModule(ServiceDiscoveryModule())
         builder.withModule(CapsModule())

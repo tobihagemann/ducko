@@ -5,10 +5,16 @@ public struct XMPPClientBuilder {
     private var transport: (any XMPPTransport)?
     private var interceptors: [any StanzaInterceptor] = []
     private var modules: [any XMPPModule] = []
+    private var requireTLS: Bool = true
 
     public init(domain: String, username: String, password: String) {
         self.domain = domain
         self.credentials = XMPPClient.Credentials(username: username, password: password)
+    }
+
+    /// Sets whether TLS is required (default: `true`).
+    public mutating func withRequireTLS(_ requireTLS: Bool) {
+        self.requireTLS = requireTLS
     }
 
     /// Sets a custom transport (e.g. for testing with ``MockTransport``).
@@ -28,7 +34,7 @@ public struct XMPPClientBuilder {
 
     /// Creates and configures the client. Must be `async` because ``XMPPClient/register(_:)`` is actor-isolated.
     public func build() async -> XMPPClient {
-        let client = XMPPClient(domain: domain, credentials: credentials, transport: transport)
+        let client = XMPPClient(domain: domain, credentials: credentials, transport: transport, requireTLS: requireTLS)
 
         for interceptor in interceptors {
             await client.addInterceptor(interceptor)

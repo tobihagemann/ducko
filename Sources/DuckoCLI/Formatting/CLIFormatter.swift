@@ -18,6 +18,7 @@ protocol CLIFormatter: Sendable {
     func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String
     func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String
     func formatProfile(_ profile: ProfileInfo) -> String
+    func formatTLSInfo(_ info: TLSInfo) -> String
 }
 
 func jingleProgressState(bytesTransferred: Int64, totalBytes: Int64) -> (progress: Double, state: String) {

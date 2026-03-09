@@ -8,7 +8,7 @@ private func makeConnectedClient(mock: MockTransport) async throws -> (XMPPClien
     let client = XMPPClient(
         domain: "example.com",
         credentials: .init(username: "user", password: "pass"),
-        transport: mock
+        transport: mock, requireTLS: false
     )
     await client.register(sm)
     await client.addInterceptor(sm)
@@ -45,7 +45,7 @@ enum StreamManagementModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.register(sm)
             await client.addInterceptor(sm)
@@ -70,7 +70,7 @@ enum StreamManagementModuleTests {
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
-                transport: mock
+                transport: mock, requireTLS: false
             )
             await client.register(sm)
             await client.addInterceptor(sm)

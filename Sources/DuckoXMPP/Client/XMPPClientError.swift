@@ -2,6 +2,7 @@
 enum XMPPClientError: Error {
     case notConnected
     case alreadyConnected
+    case tlsRequired
     case tlsNegotiationFailed(String)
     case authenticationFailed(String)
     case bindingFailed(String)

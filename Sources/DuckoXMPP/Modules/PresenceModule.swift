@@ -85,4 +85,15 @@ public final class PresenceModule: XMPPModule, Sendable {
         if let priority { presence.priority = priority }
         try await context.sendStanza(presence)
     }
+
+    // periphery:ignore - specced feature, not yet wired
+    /// Sends a directed presence to a specific JID.
+    public func sendDirectedPresence(to jid: JID, show: XMPPPresence.Show? = nil, status: String? = nil, priority: Int? = nil) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var presence = XMPPPresence(to: jid)
+        presence.show = show
+        presence.status = status
+        if let priority { presence.priority = priority }
+        try await context.sendStanza(presence)
+    }
 }

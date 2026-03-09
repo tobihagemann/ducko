@@ -90,6 +90,13 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `profile-title-field` | Title text field | Profile |
 | `profile-save-button` | Save button | Profile |
 | `profile-cancel-button` | Cancel button | Profile |
+| `requireTLSToggle` | Require TLS toggle | Account Edit |
+| `tlsVersion` | TLS Version label | Connection Info |
+| `cipherSuite` | Cipher Suite label | Connection Info |
+| `certSubject` | Certificate Subject label | Connection Info |
+| `certIssuer` | Certificate Issuer label | Connection Info |
+| `certExpiry` | Certificate Expiry label | Connection Info |
+| `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
 
 ## Context Menu Features
 

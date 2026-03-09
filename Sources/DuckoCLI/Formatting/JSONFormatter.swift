@@ -115,7 +115,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
             return formatJingleEvent(event, account: account)
         case .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
@@ -159,7 +159,7 @@ struct JSONFormatter: CLIFormatter {
             return encode(dict)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -231,7 +231,7 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason, "account": account])
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -386,7 +386,7 @@ struct JSONFormatter: CLIFormatter {
             return formatRoomDestroyedEvent(room: room, reason: reason, alternate: alternate, account: account)
         case .connected, .disconnected, .authenticationFailed, .messageReceived,
              .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
@@ -449,6 +449,19 @@ struct JSONFormatter: CLIFormatter {
         if body.hasPrefix("/me ") {
             dict["action"] = "true"
         }
+        return encode(dict)
+    }
+
+    func formatTLSInfo(_ info: TLSInfo) -> String {
+        var dict: [String: String] = [
+            "type": "tls_info",
+            "tls_version": info.protocolVersion,
+            "cipher_suite": info.cipherSuite
+        ]
+        if let subject = info.certificateSubject { dict["subject"] = subject }
+        if let issuer = info.certificateIssuer { dict["issuer"] = issuer }
+        if let expiry = info.certificateExpiry { dict["expires"] = formatTimestamp(expiry) }
+        if let fingerprint = info.certificateSHA256 { dict["sha256"] = fingerprint }
         return encode(dict)
     }
 
