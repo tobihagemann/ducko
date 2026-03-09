@@ -36,6 +36,7 @@ actor CLIEventHandler {
              .pepItemsPublished, .pepItemsRetracted,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged, .roomDestroyed,
+             .mucSelfPingFailed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             break

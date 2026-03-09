@@ -30,6 +30,7 @@ public enum XMPPEvent: Sendable {
     case roomInviteReceived(RoomInvite)
     case roomMessageReceived(XMPPMessage)
     case roomDestroyed(room: BareJID, reason: String?, alternateVenue: BareJID?)
+    case mucSelfPingFailed(room: BareJID, reason: MUCSelfPingFailure)
 
     // Jingle File Transfer (XEP-0166/0234)
     case jingleFileTransferReceived(JingleFileOffer)
@@ -52,6 +53,12 @@ public enum DisconnectReason: Sendable {
     case requested
     case streamError(XMPPStreamError?, text: String?)
     case connectionLost(String)
+}
+
+/// Reason for MUC self-ping failure per XEP-0410.
+public enum MUCSelfPingFailure: Sendable {
+    case notJoined
+    case nickChanged(String)
 }
 
 /// Chat state notification per XEP-0085.

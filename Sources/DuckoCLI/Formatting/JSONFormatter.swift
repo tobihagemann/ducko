@@ -105,7 +105,8 @@ struct JSONFormatter: CLIFormatter {
             return formatMiscEvent(event, account: account)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .roomDestroyed:
+             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .mucSelfPingFailed:
             return formatMUCEvent(event, account: account)
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
@@ -142,7 +143,7 @@ struct JSONFormatter: CLIFormatter {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
-             .roomDestroyed,
+             .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -194,7 +195,7 @@ struct JSONFormatter: CLIFormatter {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
-             .roomDestroyed,
+             .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -268,7 +269,7 @@ struct JSONFormatter: CLIFormatter {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
-             .roomDestroyed,
+             .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -412,7 +413,8 @@ struct JSONFormatter: CLIFormatter {
             return formatIncomingRoomMessage(message, account: account)
         case let .roomDestroyed(room, reason, alternate):
             return formatRoomDestroyedEvent(room: room, reason: reason, alternate: alternate, account: account)
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+        case .mucSelfPingFailed,
+             .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,

@@ -188,6 +188,35 @@ enum JingleModuleTests {
         }
     }
 
+    struct IBBOpenHandshake {
+        @Test
+        func `Incoming IBB open is acknowledged`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // Simulate session-initiate + transport-replace to set up IBB
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+
+            // Simulate IBB open from the initiator
+            await mock.clearSentBytes()
+            await mock.simulateReceive("""
+            <iq type='set' id='ibb-open-1' from='peer@example.com/res'>\
+            <open xmlns='http://jabber.org/protocol/ibb' sid='ibb-sid-1' block-size='4096' stanza='iq'/>\
+            </iq>
+            """)
+
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let ackIQ = sentStrings.first { $0.contains("type=\"result\"") && $0.contains("ibb-open-1") }
+            #expect(ackIQ != nil)
+
+            await client.disconnect()
+        }
+    }
+
     struct DisconnectClearsSession {
         @Test
         func `handleDisconnect clears sessions and emits failed events`() async throws {

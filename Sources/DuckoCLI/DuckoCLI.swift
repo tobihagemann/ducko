@@ -881,6 +881,7 @@ private func printREPLHelp() {
     print("  /transfers               List active transfers")
     print("  /rooms [service]         Discover available rooms")
     print("  /connection-info         Show TLS connection info")
+    print("  /pref chatstates on|off  Toggle chat state notifications")
     print("  help                     Show this help")
     print("  quit                     Disconnect and exit")
 }
@@ -932,6 +933,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input == "/history" || input.hasPrefix("/history ")
         || input == "/profile" || input == "/connection-info"
         || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
+        || input.hasPrefix("/pref ")
 }
 
 private func dispatchMiscREPLCommand(
@@ -973,6 +975,40 @@ private func dispatchMiscREPLCommand(
         await handleReplyREPLCommand(input, context: context)
     } else if input.hasPrefix("/search ") {
         await handleSearchREPLCommand(input, context: context)
+    } else if input.hasPrefix("/pref ") {
+        await handlePrefREPLCommand(input)
+    }
+}
+
+@MainActor
+private func handlePrefREPLCommand(_ input: String) async {
+    let args = input.dropFirst("/pref ".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard let key = parts.first else {
+        print("Usage: /pref chatstates on|off")
+        return
+    }
+
+    switch String(key) {
+    case "chatstates":
+        guard parts.count == 2 else {
+            let current = ChatPreferences.shared.enableChatStates ? "on" : "off"
+            print("Chat states: \(current)")
+            return
+        }
+        let value = String(parts[1]).lowercased()
+        switch value {
+        case "on":
+            ChatPreferences.shared.enableChatStates = true
+            print("Chat states enabled.")
+        case "off":
+            ChatPreferences.shared.enableChatStates = false
+            print("Chat states disabled.")
+        default:
+            print("Usage: /pref chatstates on|off")
+        }
+    default:
+        print("Unknown preference: \(key). Available: chatstates")
     }
 }
 

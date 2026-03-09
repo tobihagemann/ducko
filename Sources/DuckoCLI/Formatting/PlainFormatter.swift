@@ -73,7 +73,8 @@ struct PlainFormatter: CLIFormatter {
             return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .roomDestroyed:
+             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .mucSelfPingFailed:
             return formatMUCEvent(event)
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
@@ -110,7 +111,7 @@ struct PlainFormatter: CLIFormatter {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
-             .roomDestroyed,
+             .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -162,6 +163,8 @@ struct PlainFormatter: CLIFormatter {
             return formatIncomingRoomMessage(message)
         case let .roomDestroyed(room, reason, alternate):
             return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
+        case .mucSelfPingFailed:
+            return nil
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -247,7 +250,7 @@ struct PlainFormatter: CLIFormatter {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
-             .roomDestroyed,
+             .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -274,7 +277,7 @@ struct PlainFormatter: CLIFormatter {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
-             .roomDestroyed,
+             .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:

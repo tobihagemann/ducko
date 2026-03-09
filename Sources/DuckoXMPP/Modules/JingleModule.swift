@@ -466,6 +466,8 @@ public final class JingleModule: XMPPModule, Sendable {
         guard let context else { return }
 
         switch child.name {
+        case "open":
+            handleIBBOpen(iq, open: child, context: context)
         case "data":
             handleIBBData(iq, data: child, context: context)
         case "close":
@@ -473,6 +475,11 @@ public final class JingleModule: XMPPModule, Sendable {
         default:
             break
         }
+    }
+
+    private func handleIBBOpen(_ iq: XMPPIQ, open element: XMLElement, context: ModuleContext) {
+        guard element.attribute("sid") != nil else { return }
+        acknowledgeIQ(iq, context: context)
     }
 
     private func handleIBBData(_ iq: XMPPIQ, data element: XMLElement, context: ModuleContext) {
@@ -741,6 +748,16 @@ public final class JingleModule: XMPPModule, Sendable {
         let session = state.withLock { $0.sessions[sid] }
         guard let session else { throw JingleError.sessionNotFound }
 
+        // Send IBB open handshake if not yet sent
+        let needsOpen = state.withLock { !($0.ibbStates[sid]?.hasOpened ?? true) }
+        if needsOpen {
+            try await sendIBBOpen(
+                ibbSID: ibbState.ibbSID, blockSize: ibbState.blockSize,
+                peer: session.peer, context: context
+            )
+            state.withLock { $0.ibbStates[sid]?.hasOpened = true }
+        }
+
         let totalBytes = Int64(data.count)
         let blockSize = ibbState.blockSize
         var offset = 0
@@ -758,6 +775,37 @@ public final class JingleModule: XMPPModule, Sendable {
             let transferred = Int64(offset)
             context.emitEvent(.jingleFileTransferProgress(sid: sid, bytesTransferred: transferred, totalBytes: totalBytes))
         }
+
+        // Send IBB close after data transfer
+        try await sendIBBClose(ibbSID: ibbState.ibbSID, peer: session.peer, context: context)
+    }
+
+    private func sendIBBOpen(
+        ibbSID: String, blockSize: Int,
+        peer: FullJID, context: ModuleContext
+    ) async throws {
+        var iq = XMPPIQ(type: .set, to: .full(peer), id: context.generateID())
+        let open = XMLElement(
+            name: "open",
+            namespace: XMPPNamespaces.ibb,
+            attributes: ["sid": ibbSID, "block-size": String(blockSize), "stanza": "iq"]
+        )
+        iq.element.addChild(open)
+        _ = try await context.sendIQ(iq)
+    }
+
+    private func sendIBBClose(
+        ibbSID: String,
+        peer: FullJID, context: ModuleContext
+    ) async throws {
+        var iq = XMPPIQ(type: .set, to: .full(peer), id: context.generateID())
+        let close = XMLElement(
+            name: "close",
+            namespace: XMPPNamespaces.ibb,
+            attributes: ["sid": ibbSID]
+        )
+        iq.element.addChild(close)
+        _ = try await context.sendIQ(iq)
     }
 
     private func sendIBBChunk(

@@ -33,12 +33,18 @@ public final class ChatStatesModule: XMPPModule, Sendable {
     // MARK: - Sending
 
     /// Sends a standalone chat state notification to the given JID.
-    public func sendChatState(_ chatState: ChatState, to recipient: JID) async throws {
+    /// Pass `messageType: .groupchat` for MUC — `<gone/>` will be suppressed per XEP-0085.
+    public func sendChatState(_ chatState: ChatState, to recipient: JID, messageType: XMPPMessage.MessageType = .chat) async throws {
+        // XEP-0085: "A client SHOULD NOT generate <gone/> notifications in groupchat"
+        if messageType == .groupchat, chatState == .gone { return }
+
         guard let context = state.withLock({ $0 }) else { return }
-        var message = XMPPMessage(type: .chat, to: recipient, id: context.generateID())
+        var message = XMPPMessage(type: messageType, to: recipient, id: context.generateID())
         let child = XMLElement(name: chatState.rawValue, namespace: XMPPNamespaces.chatStates)
         message.element.addChild(child)
-        message.element.addChild(XMLElement(name: "private", namespace: XMPPNamespaces.carbons))
+        if messageType == .chat {
+            message.element.addChild(XMLElement(name: "private", namespace: XMPPNamespaces.carbons))
+        }
         try await context.sendStanza(message)
     }
 }

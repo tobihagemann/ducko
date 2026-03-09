@@ -76,6 +76,7 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/deny <jid>` — deny subscription request
 - `/profile` — view own vCard profile
 - `/connection-info` — show TLS connection info (protocol, cipher, certificate)
+- `/pref chatstates on|off` — toggle chat state notifications (typing indicators)
 - `/reply <jid> <message>` — reply to last incoming message from JID
 - `/search <jid> <query>` — search message history with JID
 - `help` — show available commands

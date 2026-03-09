@@ -46,7 +46,8 @@ public final class ChatModule: XMPPModule, Sendable {
         to recipient: JID,
         body: String,
         id: String? = nil,
-        requestReceipt: Bool = false
+        requestReceipt: Bool = false,
+        includeChatState: Bool = true
     ) async throws {
         guard let context = state.withLock({ $0 }) else { return }
         let stanzaID = id ?? context.generateID()
@@ -56,6 +57,10 @@ public final class ChatModule: XMPPModule, Sendable {
             let request = XMLElement(name: "request", namespace: XMPPNamespaces.receipts)
             message.element.addChild(request)
         }
+        if includeChatState {
+            let active = XMLElement(name: "active", namespace: XMPPNamespaces.chatStates)
+            message.element.addChild(active)
+        }
         try await context.sendStanza(message)
     }
 
@@ -64,7 +69,8 @@ public final class ChatModule: XMPPModule, Sendable {
         to recipient: JID,
         body: String,
         replacingID: String,
-        id: String? = nil
+        id: String? = nil,
+        includeChatState: Bool = true
     ) async throws {
         guard let context = state.withLock({ $0 }) else { return }
         let stanzaID = id ?? context.generateID()
@@ -76,6 +82,10 @@ public final class ChatModule: XMPPModule, Sendable {
             attributes: ["id": replacingID]
         )
         message.element.addChild(replace)
+        if includeChatState {
+            let active = XMLElement(name: "active", namespace: XMPPNamespaces.chatStates)
+            message.element.addChild(active)
+        }
         try await context.sendStanza(message)
     }
 
@@ -85,7 +95,8 @@ public final class ChatModule: XMPPModule, Sendable {
         body: String,
         replyToID: String,
         replyToJID: JID,
-        id: String? = nil
+        id: String? = nil,
+        includeChatState: Bool = true
     ) async throws {
         guard let context = state.withLock({ $0 }) else { return }
         let stanzaID = id ?? context.generateID()
@@ -97,6 +108,10 @@ public final class ChatModule: XMPPModule, Sendable {
             attributes: ["to": replyToJID.description, "id": replyToID]
         )
         message.element.addChild(reply)
+        if includeChatState {
+            let active = XMLElement(name: "active", namespace: XMPPNamespaces.chatStates)
+            message.element.addChild(active)
+        }
         try await context.sendStanza(message)
     }
 }

@@ -47,7 +47,8 @@ public final class ChatService {
 
         let recipient = JID.bare(jid)
         let stanzaID = client.generateID()
-        try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true)
+        let chatStatesEnabled = ChatPreferences.shared.enableChatStates
+        try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, includeChatState: chatStatesEnabled)
 
         // Persist outgoing message
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
@@ -106,6 +107,7 @@ public final class ChatService {
     // MARK: - Typing
 
     public func userIsTyping(in jid: BareJID, accountID: UUID) async {
+        guard ChatPreferences.shared.enableChatStates else { return }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let module = await client.module(ofType: ChatStatesModule.self) else { return }
 
@@ -145,7 +147,8 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
-        try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID)
+        let chatStatesEnabled = ChatPreferences.shared.enableChatStates
+        try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
         try await store.updateMessageBody(stanzaID: originalStanzaID, newBody: newBody, isEdited: true, editedAt: Date())
         await reloadActiveMessages()
     }
@@ -178,12 +181,14 @@ public final class ChatService {
         let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
 
         let stanzaID = client.generateID()
+        let chatStatesEnabled = ChatPreferences.shared.enableChatStates
         try await chatModule.sendReply(
             to: .bare(jid),
             body: filtered.body,
             replyToID: replyToStanzaID,
             replyToJID: .bare(jid),
-            id: stanzaID
+            id: stanzaID,
+            includeChatState: chatStatesEnabled
         )
 
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
@@ -543,7 +548,7 @@ public final class ChatService {
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
              .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
-             .disconnected:
+             .mucSelfPingFailed, .disconnected:
             await handleMUCEvent(event, accountID: accountID)
         case .connected, .streamResumed, .authenticationFailed,
              .presenceReceived, .iqReceived,
@@ -562,12 +567,8 @@ public final class ChatService {
         switch event {
         case let .roomJoined(room, occupancy, isNewlyCreated):
             await handleRoomJoined(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated, accountID: accountID)
-        case let .roomOccupantJoined(room, occupant):
-            handleRoomOccupantJoined(room: room, occupant: occupant)
-        case let .roomOccupantLeft(room, occupant):
-            handleRoomOccupantLeft(room: room, occupant: occupant)
-        case let .roomOccupantNickChanged(room, oldNickname, occupant):
-            handleRoomOccupantNickChanged(room: room, oldNickname: oldNickname, occupant: occupant, accountID: accountID)
+        case .roomOccupantJoined, .roomOccupantLeft, .roomOccupantNickChanged:
+            handleMUCOccupantEvent(event, accountID: accountID)
         case let .roomMessageReceived(xmppMessage):
             await handleRoomMessageReceived(xmppMessage, accountID: accountID)
         case let .roomSubjectChanged(room, subject, _):
@@ -576,6 +577,8 @@ public final class ChatService {
             handleRoomInviteReceived(invite)
         case let .roomDestroyed(room, _, _):
             handleRoomDestroyed(room: room)
+        case let .mucSelfPingFailed(room, reason):
+            await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
         case .disconnected:
             newlyCreatedRoomJIDs.removeAll()
         case .connected, .streamResumed, .authenticationFailed,
@@ -590,6 +593,50 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
+            break
+        }
+    }
+
+    private func handleMUCOccupantEvent(_ event: XMPPEvent, accountID: UUID) {
+        switch event {
+        case let .roomOccupantJoined(room, occupant):
+            handleRoomOccupantJoined(room: room, occupant: occupant)
+        case let .roomOccupantLeft(room, occupant):
+            handleRoomOccupantLeft(room: room, occupant: occupant)
+        case let .roomOccupantNickChanged(room, oldNickname, occupant):
+            handleRoomOccupantNickChanged(room: room, oldNickname: oldNickname, occupant: occupant, accountID: accountID)
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
+             .roomJoined, .roomSubjectChanged,
+             .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed, .mucSelfPingFailed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            break
+        }
+    }
+
+    private func handleMUCSelfPingFailed(room: BareJID, reason: MUCSelfPingFailure, accountID: UUID) async {
+        switch reason {
+        case .notJoined:
+            log.warning("MUC self-ping: not joined \(room), triggering rejoin")
+            let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
+            let conversation = conversations.first { $0.jid == room && $0.type == .groupchat }
+            let nickname = conversation?.roomNickname ?? room.localPart ?? "user"
+            do {
+                try await joinRoom(jid: room, nickname: nickname, accountID: accountID)
+            } catch {
+                log.warning("MUC self-ping rejoin failed for \(room): \(error)")
+            }
+        case .nickChanged:
             break
         }
     }
@@ -611,7 +658,7 @@ public final class ChatService {
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
-             .roomDestroyed,
+             .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:

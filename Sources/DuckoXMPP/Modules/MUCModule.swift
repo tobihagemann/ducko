@@ -6,12 +6,17 @@ private let log = Logger(subsystem: "com.ducko.xmpp", category: "muc")
 public final class MUCModule: XMPPModule, Sendable {
     // MARK: - State
 
+    /// Self-ping interval for detecting silent MUC disconnections (XEP-0410).
+    private static let selfPingInterval: Duration = .seconds(900)
+
     private struct RoomState {
         var nickname: String
         var password: String?
         var history: RoomHistoryFetch = .initial
         var occupants: [String: RoomOccupant] = [:]
         var subject: String?
+        var lastActivity: ContinuousClock.Instant = .now
+        var selfPingTask: Task<Void, Never>?
     }
 
     private struct State {
@@ -52,11 +57,20 @@ public final class MUCModule: XMPPModule, Sendable {
     }
 
     public func handleDisconnect() async {
-        state.withLock { state in
+        let tasks = state.withLock { state -> [Task<Void, Never>] in
+            var tasks: [Task<Void, Never>] = []
             for key in state.rooms.keys {
                 state.rooms[key]?.occupants.removeAll()
+                if let task = state.rooms[key]?.selfPingTask {
+                    tasks.append(task)
+                    state.rooms[key]?.selfPingTask = nil
+                }
             }
             state.pendingNickChanges.removeAll()
+            return tasks
+        }
+        for task in tasks {
+            task.cancel()
         }
     }
 
@@ -121,10 +135,13 @@ public final class MUCModule: XMPPModule, Sendable {
         if info.isSelfPresence, let destroy = info.mucUser?.child(named: "destroy") {
             let reason = destroy.child(named: "reason")?.textContent
             let alternateVenue = destroy.attribute("jid").flatMap { BareJID.parse($0) }
-            state.withLock { state in
+            let pingTask = state.withLock { state -> Task<Void, Never>? in
+                let task = state.rooms[info.roomJID]?.selfPingTask
                 state.rooms.removeValue(forKey: info.roomJID)
                 state.pendingNickChanges.removeValue(forKey: info.roomJID)
+                return task
             }
+            pingTask?.cancel()
             log.info("Room \(info.roomJID) was destroyed")
             context?.emitEvent(.roomDestroyed(room: info.roomJID, reason: reason, alternateVenue: alternateVenue))
             return
@@ -166,6 +183,7 @@ public final class MUCModule: XMPPModule, Sendable {
     ) {
         let occupancy = state.withLock { state -> RoomOccupancy in
             state.rooms[roomJID]?.occupants[nickname] = occupant
+            state.rooms[roomJID]?.lastActivity = .now
             guard let room = state.rooms[roomJID] else {
                 return RoomOccupancy(nickname: nickname, occupants: [occupant], subject: nil)
             }
@@ -178,10 +196,14 @@ public final class MUCModule: XMPPModule, Sendable {
         let isNewlyCreated = statusCodes.contains(201)
         log.info("Joined room \(roomJID) as \(nickname)\(isNewlyCreated ? " [new room]" : "")")
         context?.emitEvent(.roomJoined(room: roomJID, occupancy: occupancy, isNewlyCreated: isNewlyCreated))
+        startSelfPing(for: roomJID)
     }
 
     private func handleOccupantJoined(roomJID: BareJID, nickname: String, occupant: RoomOccupant, context: ModuleContext?) {
-        state.withLock { $0.rooms[roomJID]?.occupants[nickname] = occupant }
+        state.withLock {
+            $0.rooms[roomJID]?.occupants[nickname] = occupant
+            $0.rooms[roomJID]?.lastActivity = .now
+        }
         log.info("Occupant \(nickname) joined \(roomJID)")
         context?.emitEvent(.roomOccupantJoined(room: roomJID, occupant: occupant))
     }
@@ -192,14 +214,17 @@ public final class MUCModule: XMPPModule, Sendable {
         occupant: RoomOccupant,
         context: ModuleContext?
     ) {
-        let isSelf = state.withLock { state -> Bool in
+        let (isSelf, pingTask) = state.withLock { state -> (Bool, Task<Void, Never>?) in
             state.rooms[roomJID]?.occupants.removeValue(forKey: nickname)
             let selfLeft = state.rooms[roomJID]?.nickname == nickname
+            var task: Task<Void, Never>?
             if selfLeft {
+                task = state.rooms[roomJID]?.selfPingTask
                 state.rooms.removeValue(forKey: roomJID)
             }
-            return selfLeft
+            return (selfLeft, task)
         }
+        pingTask?.cancel()
 
         if isSelf {
             log.info("Left room \(roomJID)")
@@ -245,7 +270,10 @@ public final class MUCModule: XMPPModule, Sendable {
         // Group message
         guard message.body != nil else { return }
 
-        let context = state.withLock { $0.context }
+        let context = state.withLock { state -> ModuleContext? in
+            state.rooms[roomJID]?.lastActivity = .now
+            return state.context
+        }
         context?.emitEvent(.roomMessageReceived(message))
     }
 
@@ -283,11 +311,15 @@ public final class MUCModule: XMPPModule, Sendable {
     public func joinRoom(_ room: BareJID, nickname: String, password: String? = nil, history: RoomHistoryFetch = .initial) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
-        state.withLock { state in
-            state.rooms[room] = RoomState(nickname: nickname, password: password, history: history)
+        let (existingPingTask, effectivePassword) = state.withLock { state -> (Task<Void, Never>?, String?) in
+            let task = state.rooms[room]?.selfPingTask
+            let pw = password ?? state.rooms[room]?.password
+            state.rooms[room] = RoomState(nickname: nickname, password: pw, history: history)
+            return (task, pw)
         }
+        existingPingTask?.cancel()
 
-        let presence = buildJoinPresence(room: room, nickname: nickname, password: password, history: history, context: context)
+        let presence = buildJoinPresence(room: room, nickname: nickname, password: effectivePassword, history: history, context: context)
         try await context.sendStanza(presence)
         log.info("Joining room \(room) as \(nickname)")
     }
@@ -296,12 +328,14 @@ public final class MUCModule: XMPPModule, Sendable {
     public func leaveRoom(_ room: BareJID) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
-        let nickname = state.withLock { state -> String? in
+        let (nickname, pingTask) = state.withLock { state -> (String?, Task<Void, Never>?) in
             let nick = state.rooms[room]?.nickname
+            let task = state.rooms[room]?.selfPingTask
             state.rooms.removeValue(forKey: room)
             state.pendingNickChanges.removeValue(forKey: room)
-            return nick
+            return (nick, task)
         }
+        pingTask?.cancel()
         guard let nickname else { return }
 
         guard let fullJID = FullJID(bareJID: room, resourcePart: nickname) else { return }
@@ -473,6 +507,82 @@ public final class MUCModule: XMPPModule, Sendable {
         query.addChild(destroy)
         iq.element.addChild(query)
         _ = try await context.sendIQ(iq)
+    }
+
+    // MARK: - Self-Ping (XEP-0410)
+
+    private func startSelfPing(for room: BareJID) {
+        // Cancel any existing task
+        let existing = state.withLock { $0.rooms[room]?.selfPingTask }
+        existing?.cancel()
+
+        let task = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: Self.selfPingInterval)
+                } catch {
+                    return
+                }
+                guard let self, !Task.isCancelled else { return }
+                await performSelfPing(for: room)
+            }
+        }
+        state.withLock { $0.rooms[room]?.selfPingTask = task }
+    }
+
+    private func performSelfPing(for room: BareJID) async {
+        let (nickname, context, lastActivity) = state.withLock { state in
+            (state.rooms[room]?.nickname, state.context, state.rooms[room]?.lastActivity)
+        }
+        guard let nickname, let context, let lastActivity else { return }
+
+        // Skip ping if recent activity
+        let elapsed = ContinuousClock.now - lastActivity
+        if elapsed < Self.selfPingInterval {
+            return
+        }
+
+        guard let fullJID = FullJID(bareJID: room, resourcePart: nickname) else { return }
+
+        var pingIQ = XMPPIQ(type: .get, to: .full(fullJID), id: context.generateID())
+        let pingChild = XMLElement(name: "ping", namespace: XMPPNamespaces.ping)
+        pingIQ.element.addChild(pingChild)
+
+        do {
+            _ = try await context.sendIQ(pingIQ)
+            // Success — still joined
+            state.withLock { $0.rooms[room]?.lastActivity = .now }
+        } catch let error as XMPPStanzaError {
+            handleSelfPingError(error, room: room, nickname: nickname, context: context)
+        } catch {
+            // Timeout or network error — retry on next interval
+            log.debug("Self-ping timeout for \(room): \(error)")
+        }
+    }
+
+    private func handleSelfPingError(_ error: XMPPStanzaError, room: BareJID, nickname: String, context: ModuleContext) {
+        switch error.condition {
+        case .serviceUnavailable, .featureNotImplemented:
+            // Server doesn't support ping but we're still joined
+            state.withLock { $0.rooms[room]?.lastActivity = .now }
+        case .itemNotFound:
+            // Nickname changed or room configuration issue
+            log.warning("Self-ping item-not-found for \(room)")
+            context.emitEvent(.mucSelfPingFailed(room: room, reason: .nickChanged(nickname)))
+        case .notAcceptable:
+            // Not joined — trigger rejoin
+            log.warning("Self-ping not-acceptable for \(room) — not joined")
+            context.emitEvent(.mucSelfPingFailed(room: room, reason: .notJoined))
+        case .remoteServerNotFound, .remoteServerTimeout:
+            // Transient — retry on next interval
+            log.debug("Self-ping remote error for \(room): \(error.condition.rawValue)")
+        case .badRequest, .conflict, .forbidden, .gone, .internalServerError,
+             .jidMalformed, .notAllowed, .notAuthorized, .policyViolation,
+             .recipientUnavailable, .redirect, .registrationRequired,
+             .resourceConstraint, .subscriptionRequired, .undefinedCondition,
+             .unexpectedRequest:
+            log.debug("Self-ping error for \(room): \(error.condition.rawValue)")
+        }
     }
 
     // MARK: - Private Helpers

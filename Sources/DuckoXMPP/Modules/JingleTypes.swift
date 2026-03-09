@@ -263,6 +263,7 @@ struct IBBSessionState {
     var receivedData: [UInt8] = []
     var nextExpectedSeq: UInt16 = 0
     let expectedSize: Int64
+    var hasOpened: Bool = false
 }
 
 /// Transport connection state within a Jingle session.

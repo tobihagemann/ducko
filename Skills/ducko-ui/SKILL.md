@@ -90,6 +90,7 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `profile-title-field` | Title text field | Profile |
 | `profile-save-button` | Save button | Profile |
 | `profile-cancel-button` | Cancel button | Profile |
+| `chatStatesToggle` | Chat states (typing indicators) toggle | Preferences (Chat) |
 | `requireTLSToggle` | Require TLS toggle | Account Edit |
 | `tlsVersion` | TLS Version label | Connection Info |
 | `cipherSuite` | Cipher Suite label | Connection Info |
@@ -152,7 +153,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
 | `ducko-profile.sh` | Open My Profile sheet from contact list toolbar | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
-| `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Appearance\|Notifications\|Advanced>` |
+| `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Appearance\|Notifications\|Advanced>` |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
 
@@ -377,17 +378,21 @@ $SCRIPTS/ducko-screenshot.sh "preferences-general.png"
 $SCRIPTS/ducko-preferences-tab.sh Accounts
 $SCRIPTS/ducko-screenshot.sh "preferences-accounts.png"
 
-# 5. Navigate to Appearance tab (theme grid with live preview bubbles)
+# 5. Navigate to Chat tab (chat states toggle)
+$SCRIPTS/ducko-preferences-tab.sh Chat
+$SCRIPTS/ducko-screenshot.sh "preferences-chat.png"
+
+# 6. Navigate to Appearance tab (theme grid with live preview bubbles)
 $SCRIPTS/ducko-preferences-tab.sh Appearance
 $SCRIPTS/ducko-screenshot.sh "preferences-appearance.png"
 
-# 6. Navigate to Notifications and Advanced tabs
+# 7. Navigate to Notifications and Advanced tabs
 $SCRIPTS/ducko-preferences-tab.sh Notifications
 $SCRIPTS/ducko-screenshot.sh "preferences-notifications.png"
 $SCRIPTS/ducko-preferences-tab.sh Advanced
 $SCRIPTS/ducko-screenshot.sh "preferences-advanced.png"
 
-# 7. Cleanup
+# 8. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 
