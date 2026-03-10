@@ -2,8 +2,6 @@
 
 Use this procedure only when GitHub Actions CI is unavailable.
 
-All commands require `dangerouslyDisableSandbox: true`.
-
 ## Prerequisites
 
 Set environment variables (e.g., in `.env.local`):

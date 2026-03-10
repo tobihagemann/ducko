@@ -446,7 +446,6 @@ To allow these scripts in `settings.local.json` without prompts:
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss
 - Arguments passed via `osascript - "$ARG" << 'APPLESCRIPT'` + `on run argv` (no shell injection)
 - Credentials are arguments, never hardcoded
-- All scripts require `dangerouslyDisableSandbox: true` — the launch script for `swift build`, and all osascript scripts because the sandbox blocks System Events' `hiservices-xpcservice`
 - Element targeting uses `entire contents` + `AXIdentifier` matching for reliability across window sizes
 - The contact list window is a singleton (`Window`, not `WindowGroup`). The "New Chat" button is in its toolbar.
 - Chat windows are data-driven (`WindowGroup` keyed by JID string). `ducko-send.sh` targets the frontmost chat window.

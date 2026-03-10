@@ -38,8 +38,6 @@ swift run DuckoCLI                   # run CLI
 
 After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., `.build/debug/DuckoCLI`).
 
-Always use `dangerouslyDisableSandbox: true` for `swift build` and `swift test` commands.
-
 ## Packaging
 
 `version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.
