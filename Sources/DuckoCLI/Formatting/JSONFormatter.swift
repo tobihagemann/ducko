@@ -354,6 +354,17 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    func formatBookmark(_ bookmark: RoomBookmark) -> String {
+        var dict: [String: String] = [
+            "type": "bookmark",
+            "jid": bookmark.jidString,
+            "autojoin": bookmark.autojoin ? "true" : "false"
+        ]
+        if let name = bookmark.name { dict["name"] = name }
+        if let nick = bookmark.nickname { dict["nickname"] = nick }
+        return encode(dict)
+    }
+
     func formatRoomParticipant(_ participant: RoomParticipant) -> String {
         var dict: [String: String] = [
             "type": "room_participant",

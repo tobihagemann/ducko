@@ -90,6 +90,14 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `profile-title-field` | Title text field | Profile |
 | `profile-save-button` | Save button | Profile |
 | `profile-cancel-button` | Cancel button | Profile |
+| `bookmarks-toolbar-button` | Bookmarks toolbar button | Contacts |
+| `bookmark-row-{jid}` | Individual bookmark row | Bookmarks |
+| `add-bookmark-button` | Add Bookmark toolbar button | Bookmarks |
+| `bookmark-jid-field` | Room JID field in Add Bookmark sheet | Bookmarks |
+| `bookmark-nickname-field` | Nickname field in Add Bookmark sheet | Bookmarks |
+| `bookmark-autojoin-toggle` | Auto-join toggle in Add Bookmark sheet | Bookmarks |
+| `add-bookmark-confirm-button` | Add button in Add Bookmark sheet | Bookmarks |
+| `remove-bookmark-button` | Remove bookmark button (per row) | Bookmarks |
 | `chatStatesToggle` | Chat states (typing indicators) toggle | Preferences (Chat) |
 | `requireTLSToggle` | Require TLS toggle | Account Edit |
 | `tlsVersion` | TLS Version label | Connection Info |

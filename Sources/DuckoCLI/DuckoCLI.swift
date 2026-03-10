@@ -16,6 +16,7 @@ struct DuckoCLI: AsyncParsableCommand {
             Profile.self,
             History.self,
             Room.self,
+            Bookmarks.self,
             Account.self,
             Interactive.self
         ],
@@ -680,6 +681,154 @@ extension DuckoCLI {
                 try await env.chatService.sendGroupMessage(toJIDString: jid, body: body, accountID: selectedAccount.id)
 
                 try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+    }
+
+    struct Bookmarks: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "bookmarks",
+            abstract: "Manage PEP bookmarks",
+            subcommands: [List.self, Add.self, Remove.self],
+            defaultSubcommand: List.self
+        )
+
+        struct List: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "List server-side bookmarks"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                await env.bookmarksService.loadBookmarks(accountID: selectedAccount.id)
+                let bookmarks = await MainActor.run { env.bookmarksService.bookmarks }
+
+                guard !bookmarks.isEmpty else {
+                    print("No bookmarks.")
+                    await env.accountService.disconnect(accountID: selectedAccount.id)
+                    return
+                }
+
+                for bookmark in bookmarks {
+                    print(formatter.formatBookmark(bookmark))
+                }
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Add: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Add a bookmark"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The room JID")
+            var jid: String
+
+            @Option(name: .long, help: "Display name for the room")
+            var name: String?
+
+            @Option(name: .long, help: "Nickname to use in the room")
+            var nick: String?
+
+            @Flag(name: .long, help: "Auto-join room on connect")
+            var autojoin = false
+
+            @Option(name: .long, help: "Room password")
+            var password: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let pw = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: pw)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let bookmark = RoomBookmark(
+                    jidString: jid,
+                    name: name,
+                    autojoin: autojoin,
+                    nickname: nick,
+                    password: password
+                )
+                try await env.bookmarksService.addBookmark(bookmark, accountID: selectedAccount.id)
+
+                print("Added bookmark for \(jid).")
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Remove: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Remove a bookmark"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The room JID to remove")
+            var jid: String
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                try await env.bookmarksService.removeBookmark(jidString: jid, accountID: selectedAccount.id)
+
+                print("Removed bookmark for \(jid).")
+
                 await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }

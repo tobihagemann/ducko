@@ -153,6 +153,20 @@ struct ANSIFormatter: CLIFormatter {
         return room.jidString
     }
 
+    func formatBookmark(_ bookmark: RoomBookmark) -> String {
+        var line = "\(Color.bold)\(bookmark.name ?? bookmark.jidString)\(Color.reset)"
+        if bookmark.name != nil {
+            line += " (\(bookmark.jidString))"
+        }
+        if bookmark.autojoin {
+            line += " \(Color.green)[autojoin]\(Color.reset)"
+        }
+        if let nick = bookmark.nickname {
+            line += " \(Color.dim)nick: \(nick)\(Color.reset)"
+        }
+        return line
+    }
+
     func formatRoomParticipant(_ participant: RoomParticipant) -> String {
         var line = "  \(Color.green)\(participant.nickname)\(Color.reset)"
         if let jid = participant.jidString {

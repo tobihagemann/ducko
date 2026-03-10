@@ -8,6 +8,7 @@ struct ContactListWindow: View {
     @State private var isShowingNewChat = false
     @State private var isShowingAddContact = false
     @State private var isShowingJoinRoom = false
+    @State private var isShowingBookmarks = false
     @State private var isShowingProfile = false
     @State private var preferences = ContactListPreferences()
 
@@ -74,6 +75,15 @@ struct ContactListWindow: View {
 
             ToolbarItem {
                 Button {
+                    isShowingBookmarks = true
+                } label: {
+                    Label("Bookmarks", systemImage: "bookmark")
+                }
+                .accessibilityIdentifier("bookmarks-toolbar-button")
+            }
+
+            ToolbarItem {
+                Button {
                     isShowingNewChat = true
                 } label: {
                     Label("New Chat", systemImage: "square.and.pencil")
@@ -109,6 +119,12 @@ struct ContactListWindow: View {
             RoomJoinDialog { jidString in
                 openWindow(id: "chat", value: jidString)
             }
+        }
+        .sheet(isPresented: $isShowingBookmarks) {
+            NavigationStack {
+                BookmarkListView()
+            }
+            .frame(minWidth: 400, minHeight: 300)
         }
         .sheet(isPresented: $isShowingProfile) {
             ProfileEditView()

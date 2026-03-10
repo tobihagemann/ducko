@@ -188,6 +188,32 @@ ducko presence available          # set available
 ducko presence --output json      # JSON output
 ```
 
+### `bookmarks list`
+
+List server-side PEP bookmarks. Connects, retrieves bookmarks, then disconnects.
+
+```
+ducko bookmarks list
+ducko bookmarks list --output json
+```
+
+### `bookmarks add <jid> [--name <name>] [--nick <nick>] [--autojoin] [--password <pw>]`
+
+Add a bookmark for a room. Publishes to PEP with XEP-0223 persistent storage options.
+
+```
+ducko bookmarks add chat@conference.example.com --name "Main Chat" --autojoin
+ducko bookmarks add chat@conference.example.com --nick alice --autojoin
+```
+
+### `bookmarks remove <jid>`
+
+Remove a bookmark. Retracts the PEP item.
+
+```
+ducko bookmarks remove chat@conference.example.com
+```
+
 ### `room list [--service <jid>]`
 
 Discover available rooms on a MUC service. Auto-discovers the server's MUC service if `--service` is omitted.

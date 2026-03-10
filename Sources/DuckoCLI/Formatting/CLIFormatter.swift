@@ -17,6 +17,7 @@ protocol CLIFormatter: Sendable {
     func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String
     func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String
     func formatFileMessage(fileName: String, url: String, fileSize: Int64?) -> String
+    func formatBookmark(_ bookmark: RoomBookmark) -> String
     func formatProfile(_ profile: ProfileInfo) -> String
     func formatTLSInfo(_ info: TLSInfo) -> String
 }

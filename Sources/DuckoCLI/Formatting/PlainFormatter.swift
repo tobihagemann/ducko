@@ -306,6 +306,20 @@ struct PlainFormatter: CLIFormatter {
         return room.jidString
     }
 
+    func formatBookmark(_ bookmark: RoomBookmark) -> String {
+        var line = bookmark.name ?? bookmark.jidString
+        if bookmark.name != nil {
+            line += " (\(bookmark.jidString))"
+        }
+        if bookmark.autojoin {
+            line += " [autojoin]"
+        }
+        if let nick = bookmark.nickname {
+            line += " nick: \(nick)"
+        }
+        return line
+    }
+
     func formatRoomParticipant(_ participant: RoomParticipant) -> String {
         var line = "  \(participant.nickname)"
         if let jid = participant.jidString {
