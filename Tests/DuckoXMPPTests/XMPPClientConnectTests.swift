@@ -108,3 +108,32 @@ func `Parser reset enables post-SASL stream re-open`() async throws {
 
     try await task.value
 }
+
+// MARK: - Direct TLS Connect
+
+@Test
+func `Direct TLS connect skips STARTTLS`() async throws {
+    let mock = MockTransport()
+    let client = XMPPClient(
+        domain: "example.com",
+        credentials: .init(username: "user", password: "pass"),
+        transport: mock,
+        requireTLS: false
+    )
+
+    let connectTask = Task { try await client.connectWithTLS(host: "example.com", port: 5223) }
+    await simulateDirectTLSConnect(mock)
+
+    try await connectTask.value
+
+    // Transport should report TLS active (set by connectWithTLS on MockTransport)
+    let isTLS = await mock.isTLSUpgraded
+    #expect(isTLS)
+
+    // Verify no STARTTLS stanza was sent — sent bytes should be:
+    // 1. stream opening, 2. auth, 3. post-auth stream opening, 4. bind IQ
+    let sentCount = await mock.sentBytes.count
+    #expect(sentCount == 4)
+
+    await client.disconnect()
+}

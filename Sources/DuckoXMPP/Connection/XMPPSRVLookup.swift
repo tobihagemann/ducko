@@ -7,6 +7,7 @@ struct SRVRecord: Comparable {
     let weight: UInt16
     let port: UInt16
     let target: String
+    let directTLS: Bool
 
     static func < (lhs: SRVRecord, rhs: SRVRecord) -> Bool {
         if lhs.priority != rhs.priority {
@@ -17,40 +18,48 @@ struct SRVRecord: Comparable {
     }
 }
 
-/// DNS SRV resolution per RFC 6120 §3.2.
+/// DNS SRV resolution per RFC 6120 §3.2 and XEP-0368.
 ///
-/// Resolves `_xmpp-client._tcp.{domain}` to get host/port records.
-/// Falls back to `domain:5222` on any failure.
+/// Resolves both `_xmpp-client._tcp.{domain}` (STARTTLS) and `_xmpps-client._tcp.{domain}`
+/// (direct TLS) to get host/port records. Falls back to `domain:5222` on any failure.
 enum XMPPSRVLookup {
     static func resolve(domain: String, timeout: Duration = .seconds(5)) async -> [SRVRecord] {
-        do {
-            return try await withThrowingTaskGroup(of: [SRVRecord].self) { group in
-                group.addTask {
-                    try await querySRV(domain: domain)
-                }
-                group.addTask {
-                    try await Task.sleep(for: timeout)
-                    throw CancellationError()
-                }
-                if let result = try await group.next(), !result.isEmpty {
-                    group.cancelAll()
-                    return result.sorted()
-                }
-                group.cancelAll()
+        await withTaskGroup(of: [SRVRecord]?.self) { group in
+            group.addTask {
+                await (try? querySRV(domain: domain, directTLS: false)) ?? []
+            }
+            group.addTask {
+                await (try? querySRV(domain: domain, directTLS: true)) ?? []
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil // Timeout signal
+            }
+
+            var allRecords: [SRVRecord] = []
+            var queryCount = 0
+            for await result in group {
+                guard let records = result else { break } // Timeout
+                allRecords.append(contentsOf: records)
+                queryCount += 1
+                if queryCount >= 2 { break }
+            }
+            group.cancelAll()
+
+            if allRecords.isEmpty {
                 return fallback(domain: domain)
             }
-        } catch {
-            return fallback(domain: domain)
+            return allRecords.sorted()
         }
     }
 
     private static func fallback(domain: String) -> [SRVRecord] {
-        [SRVRecord(priority: 0, weight: 0, port: 5222, target: domain)]
+        [SRVRecord(priority: 0, weight: 0, port: 5222, target: domain, directTLS: false)]
     }
 
-    private static func querySRV(domain: String) async throws -> [SRVRecord] {
+    private static func querySRV(domain: String, directTLS: Bool) async throws -> [SRVRecord] {
         try await Task.detached {
-            try srvQuery(domain: domain)
+            try srvQuery(domain: domain, directTLS: directTLS)
         }.value
     }
 }
@@ -58,6 +67,7 @@ enum XMPPSRVLookup {
 // MARK: - DNS SRV Query
 
 private struct SRVQueryData {
+    let directTLS: Bool
     var records: [SRVRecord] = []
     var isDone = false
 }
@@ -66,12 +76,13 @@ private struct SRVQueryData {
 ///
 /// Runs entirely on the calling thread — no async/callback nesting needed.
 /// The DNS-SD callback fires synchronously during `DNSServiceProcessResult`.
-private func srvQuery(domain: String) throws -> [SRVRecord] {
-    let name = "_xmpp-client._tcp.\(domain)"
+private func srvQuery(domain: String, directTLS: Bool) throws -> [SRVRecord] {
+    let prefix = directTLS ? "_xmpps-client._tcp" : "_xmpp-client._tcp"
+    let name = "\(prefix).\(domain)"
     var sdRef: DNSServiceRef?
 
     let dataPtr = UnsafeMutablePointer<SRVQueryData>.allocate(capacity: 1)
-    dataPtr.initialize(to: SRVQueryData())
+    dataPtr.initialize(to: SRVQueryData(directTLS: directTLS))
     defer { dataPtr.deinitialize(count: 1); dataPtr.deallocate() }
 
     let callback: DNSServiceQueryRecordReply = {
@@ -84,7 +95,7 @@ private func srvQuery(domain: String) throws -> [SRVRecord] {
             return
         }
 
-        if let record = srvParseSRVRecord(rdata, length: rdlen) {
+        if let record = srvParseSRVRecord(rdata, length: rdlen, directTLS: data.pointee.directTLS) {
             data.pointee.records.append(record)
         }
 
@@ -129,7 +140,7 @@ private func srvQuery(domain: String) throws -> [SRVRecord] {
 }
 
 /// Parses a single SRV record from DNS rdata, or `nil` if the data is too short or the target is empty.
-private func srvParseSRVRecord(_ rdata: UnsafeRawPointer?, length: UInt16) -> SRVRecord? {
+private func srvParseSRVRecord(_ rdata: UnsafeRawPointer?, length: UInt16, directTLS: Bool) -> SRVRecord? {
     guard let rdata, length >= 7 else { return nil }
     let ptr = rdata.assumingMemoryBound(to: UInt8.self)
     let priority = UInt16(ptr[0]) << 8 | UInt16(ptr[1])
@@ -137,7 +148,7 @@ private func srvParseSRVRecord(_ rdata: UnsafeRawPointer?, length: UInt16) -> SR
     let port = UInt16(ptr[4]) << 8 | UInt16(ptr[5])
     let target = srvParseDNSName(ptr + 6, length: Int(length) - 6)
     guard !target.isEmpty, target != "." else { return nil }
-    return SRVRecord(priority: priority, weight: weight, port: port, target: target)
+    return SRVRecord(priority: priority, weight: weight, port: port, target: target, directTLS: directTLS)
 }
 
 /// Parses a DNS wire-format name (sequence of length-prefixed labels) into a dotted string.

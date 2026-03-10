@@ -126,6 +126,13 @@ public actor XMPPClient {
         }
     }
 
+    /// Direct TLS connect — TLS from the first byte, no STARTTLS upgrade.
+    public func connectWithTLS(host: String, port: UInt16) async throws {
+        try await performConnect { [connection, domain] in
+            try await connection.connectWithTLS(host: host, port: port, serverName: domain)
+        }
+    }
+
     private func performConnect(establish: () async throws -> Void) async throws {
         guard case .disconnected = state else {
             throw XMPPClientError.alreadyConnected
@@ -166,12 +173,17 @@ public actor XMPPClient {
         try await openStream()
         let features1 = try await reader.awaitFeatures()
 
-        // 2. STARTTLS if offered
+        // 2. TLS — skip STARTTLS if direct TLS is already active
         let postTLSFeatures: XMLElement
-        if features1.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {
+        if await connection.isDirectTLS {
+            log.info("Direct TLS active")
+            let info = await connection.tlsInfo
+            tlsInfoLock.withLock { $0 = info }
+            postTLSFeatures = features1
+        } else if features1.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {
             state = .negotiatingTLS
             try await negotiateTLS(reader: reader)
-            log.info("TLS established")
+            log.info("TLS established via STARTTLS")
             let info = await connection.tlsInfo
             tlsInfoLock.withLock { $0 = info }
             try await openStream()

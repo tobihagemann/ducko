@@ -34,6 +34,30 @@ actor POSIXTransport: XMPPTransport {
         startReceiving()
     }
 
+    func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
+        guard fd == -1 else { throw XMPPConnectionError.alreadyConnected }
+
+        fd = try await resolveAndConnect(host: host, port: port)
+        // Socket stays blocking for SSLHandshake
+
+        let fdPtr = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+        fdPtr.pointee = fd
+
+        do {
+            try await performSSLHandshake(fdPtr: fdPtr, serverName: serverName, alpnProtocols: ["xmpp-client"])
+        } catch {
+            sslContext = nil
+            tlsInfo = nil
+            fdPtr.deallocate()
+            close(fd)
+            fd = -1
+            throw error
+        }
+
+        setNonBlocking(true)
+        startReceiving()
+    }
+
     func upgradeTLS(serverName: String) async throws {
         guard fd >= 0 else { throw XMPPConnectionError.notConnected }
 
@@ -48,25 +72,7 @@ actor POSIXTransport: XMPPTransport {
         fdPtr.pointee = fd
 
         do {
-            let ctx = try configureSSL(fdPtr: fdPtr, serverName: serverName)
-
-            // Run blocking TLS work on a non-cooperative thread
-            try await Task.detached {
-                var status = SSLHandshake(ctx)
-                while status == errSSLWouldBlock {
-                    status = SSLHandshake(ctx)
-                }
-                guard status == errSecSuccess else {
-                    throw XMPPConnectionError.tlsUpgradeFailed("TLS handshake failed: OSStatus \(status)")
-                }
-
-                try validatePeerTrust(ctx: ctx)
-            }.value
-
-            // Publish sslContext only after handshake succeeds to prevent
-            // the receive task from calling SSLRead during the handshake
-            sslContext = ctx
-            tlsInfo = extractTLSInfo(ctx: ctx)
+            try await performSSLHandshake(fdPtr: fdPtr, serverName: serverName)
         } catch {
             sslContext = nil
             tlsInfo = nil
@@ -76,6 +82,32 @@ actor POSIXTransport: XMPPTransport {
 
         setNonBlocking(true)
         startReceiving()
+    }
+
+    private func performSSLHandshake(
+        fdPtr: UnsafeMutablePointer<Int32>,
+        serverName: String,
+        alpnProtocols: [String]? = nil
+    ) async throws {
+        let ctx = try configureSSL(fdPtr: fdPtr, serverName: serverName, alpnProtocols: alpnProtocols)
+
+        // Run blocking TLS work on a non-cooperative thread
+        try await Task.detached {
+            var status = SSLHandshake(ctx)
+            while status == errSSLWouldBlock {
+                status = SSLHandshake(ctx)
+            }
+            guard status == errSecSuccess else {
+                throw XMPPConnectionError.tlsUpgradeFailed("TLS handshake failed: OSStatus \(status)")
+            }
+
+            try validatePeerTrust(ctx: ctx)
+        }.value
+
+        // Publish sslContext only after handshake succeeds to prevent
+        // the receive task from calling SSLRead during the handshake
+        sslContext = ctx
+        tlsInfo = extractTLSInfo(ctx: ctx)
     }
 
     func send(_ bytes: [UInt8]) async throws {
@@ -122,7 +154,8 @@ actor POSIXTransport: XMPPTransport {
 
     private func configureSSL(
         fdPtr: UnsafeMutablePointer<Int32>,
-        serverName: String
+        serverName: String,
+        alpnProtocols: [String]? = nil
     ) throws -> SSLContext {
         guard let ctx = SSLCreateContext(nil, .clientSide, .streamType) else {
             throw XMPPConnectionError.tlsUpgradeFailed("Failed to create SSL context")
@@ -141,6 +174,11 @@ actor POSIXTransport: XMPPTransport {
         status = SSLSetPeerDomainName(ctx, serverName, serverName.utf8.count)
         guard status == errSecSuccess else {
             throw XMPPConnectionError.tlsUpgradeFailed("SSLSetPeerDomainName failed: \(status)")
+        }
+
+        // ALPN is a SHOULD per XEP-0368 — non-fatal if unsupported
+        if let alpnProtocols {
+            _ = SSLSetALPNProtocols(ctx, alpnProtocols as CFArray)
         }
 
         return ctx

@@ -12,8 +12,15 @@ enum XMPPConnectionError: Error {
 /// Abstracts the network transport for testability.
 public protocol XMPPTransport: Sendable {
     func connect(host: String, port: UInt16) async throws
+    func connectWithTLS(host: String, port: UInt16, serverName: String) async throws
     func upgradeTLS(serverName: String) async throws
     func send(_ bytes: [UInt8]) async throws
     var receivedData: AsyncStream<[UInt8]> { get }
     func disconnect() async
+}
+
+public extension XMPPTransport {
+    func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
+        throw XMPPConnectionError.tlsUpgradeFailed("Direct TLS not supported")
+    }
 }

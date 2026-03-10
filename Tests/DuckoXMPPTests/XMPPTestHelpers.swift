@@ -63,6 +63,11 @@ func simulateNoTLSConnect(_ mock: MockTransport, rosterResponse: String) async {
     await mock.simulateReceive(rosterResponse)
 }
 
+/// Simulates a direct TLS connect handshake (TLS already active, no STARTTLS negotiation).
+func simulateDirectTLSConnect(_ mock: MockTransport, postAuthFeatures: String = testFeaturesBind) async {
+    await simulateNoTLSConnect(mock, postAuthFeatures: postAuthFeatures)
+}
+
 // MARK: - Event Collection
 
 /// Collects events until `predicate` returns `true`, with a timeout.

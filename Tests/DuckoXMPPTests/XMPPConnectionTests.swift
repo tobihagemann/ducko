@@ -28,6 +28,16 @@ actor MockTransport: XMPPTransport {
         connectedPort = port
     }
 
+    func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
+        guard !isConnected else {
+            throw XMPPConnectionError.alreadyConnected
+        }
+        isConnected = true
+        isTLSUpgraded = true
+        connectedHost = host
+        connectedPort = port
+    }
+
     func upgradeTLS(serverName: String) async throws {
         guard isConnected else {
             throw XMPPConnectionError.notConnected
@@ -269,15 +279,31 @@ struct SRVRecordTests {
     @Test
     func `Sorts by priority then weight`() {
         let records = [
-            SRVRecord(priority: 20, weight: 50, port: 5222, target: "low-pri.example.com"),
-            SRVRecord(priority: 10, weight: 30, port: 5222, target: "high-pri-low-weight.example.com"),
-            SRVRecord(priority: 10, weight: 70, port: 5222, target: "high-pri-high-weight.example.com")
+            SRVRecord(priority: 20, weight: 50, port: 5222, target: "low-pri.example.com", directTLS: false),
+            SRVRecord(priority: 10, weight: 30, port: 5222, target: "high-pri-low-weight.example.com", directTLS: false),
+            SRVRecord(priority: 10, weight: 70, port: 5222, target: "high-pri-high-weight.example.com", directTLS: false)
         ]
 
         let sorted = records.sorted()
         #expect(sorted[0].target == "high-pri-high-weight.example.com")
         #expect(sorted[1].target == "high-pri-low-weight.example.com")
         #expect(sorted[2].target == "low-pri.example.com")
+    }
+
+    @Test
+    func `Sorts mixed directTLS and STARTTLS records by priority then weight`() {
+        let records = [
+            SRVRecord(priority: 20, weight: 50, port: 5222, target: "starttls.example.com", directTLS: false),
+            SRVRecord(priority: 10, weight: 30, port: 5223, target: "directtls.example.com", directTLS: true),
+            SRVRecord(priority: 10, weight: 70, port: 5222, target: "starttls-high.example.com", directTLS: false)
+        ]
+
+        let sorted = records.sorted()
+        #expect(sorted[0].target == "starttls-high.example.com")
+        #expect(sorted[0].directTLS == false)
+        #expect(sorted[1].target == "directtls.example.com")
+        #expect(sorted[1].directTLS == true)
+        #expect(sorted[2].target == "starttls.example.com")
     }
 
     @Test
@@ -290,5 +316,6 @@ struct SRVRecordTests {
         #expect(records.count == 1)
         #expect(records[0].port == 5222)
         #expect(records[0].target == "this-domain-does-not-exist-12345.invalid")
+        #expect(records[0].directTLS == false)
     }
 }

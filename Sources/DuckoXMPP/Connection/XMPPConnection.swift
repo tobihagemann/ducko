@@ -7,6 +7,7 @@ actor XMPPConnection {
     private let transport: any XMPPTransport
     private var parser: XMPPStreamParser
     private var receiveTask: Task<Void, Never>?
+    private(set) var isDirectTLS = false
 
     private let eventContinuation: AsyncStream<XMLStreamEvent>.Continuation
 
@@ -29,7 +30,11 @@ actor XMPPConnection {
         var lastError: (any Error)?
         for record in records {
             do {
-                try await connect(host: record.target, port: record.port)
+                if record.directTLS {
+                    try await connectWithTLS(host: record.target, port: record.port, serverName: domain)
+                } else {
+                    try await connect(host: record.target, port: record.port)
+                }
                 return
             } catch {
                 lastError = error
@@ -40,7 +45,15 @@ actor XMPPConnection {
 
     /// Direct connect to a specific host and port.
     func connect(host: String, port: UInt16) async throws {
+        isDirectTLS = false
         try await transport.connect(host: host, port: port)
+        startReceiving()
+    }
+
+    /// Direct TLS connect — TLS from the first byte, no STARTTLS upgrade.
+    func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
+        try await transport.connectWithTLS(host: host, port: port, serverName: serverName)
+        isDirectTLS = true
         startReceiving()
     }
 
@@ -94,6 +107,7 @@ actor XMPPConnection {
     func disconnect() async {
         stopTasks()
         _ = parser.close()
+        isDirectTLS = false
         await transport.disconnect()
         eventContinuation.finish()
     }
