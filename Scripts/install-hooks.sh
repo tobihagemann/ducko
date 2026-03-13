@@ -12,7 +12,7 @@ mkdir -p "${HOOKS_DIR}"
 
 cat > "${HOOKS_DIR}/pre-commit" << 'HOOK'
 #!/bin/bash
-exec ./Scripts/lint.sh
+exec ./Scripts/lint.sh --check
 HOOK
 
 chmod +x "${HOOKS_DIR}/pre-commit"
