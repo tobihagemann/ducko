@@ -105,7 +105,6 @@ struct ContactListWindow: View {
             try? await environment.chatService.loadConversations(for: accountID)
             try? await environment.rosterService.loadContacts(for: accountID)
             environment.presenceService.startIdleMonitoring(accountID: accountID)
-            await environment.rosterService.fetchAvatars(accountID: accountID)
         }
         .sheet(isPresented: $isShowingNewChat) {
             NewChatSheet { jidString in

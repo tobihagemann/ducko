@@ -88,6 +88,9 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `profile-phone-field-{index}` | Phone text field (0-indexed) | Profile |
 | `profile-org-field` | Organization text field | Profile |
 | `profile-title-field` | Title text field | Profile |
+| `profile-avatar-preview` | Avatar preview image/initials | Profile |
+| `profile-change-photo-button` | Change Photo button | Profile |
+| `profile-remove-photo-button` | Remove Photo button | Profile |
 | `profile-save-button` | Save button | Profile |
 | `profile-cancel-button` | Cancel button | Profile |
 | `bookmarks-toolbar-button` | Bookmarks toolbar button | Contacts |
@@ -160,6 +163,8 @@ Right-click a participant in the chat window sidebar:
 | `ducko-room-settings.sh` | Open Room Settings sheet via context menu | `ROOM_JID` |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
 | `ducko-profile.sh` | Open My Profile sheet from contact list toolbar | none |
+| `ducko-avatar.sh` | Upload an avatar image via profile sheet | `IMAGE_PATH` |
+| `ducko-avatar-remove.sh` | Remove current avatar via profile sheet | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
 | `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Appearance\|Notifications\|Advanced>` |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
@@ -419,6 +424,29 @@ $SCRIPTS/ducko-profile.sh
 
 # 3. Screenshot to verify profile fields loaded
 $SCRIPTS/ducko-screenshot.sh "profile-edit.png"
+
+# 4. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Avatar upload/remove test
+
+Tests avatar upload and removal via the profile sheet:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and open profile
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-profile.sh
+
+# 2. Upload avatar
+$SCRIPTS/ducko-avatar.sh "/path/to/test-image.png"
+$SCRIPTS/ducko-screenshot.sh "avatar-uploaded.png"
+
+# 3. Remove avatar
+$SCRIPTS/ducko-avatar-remove.sh
+$SCRIPTS/ducko-screenshot.sh "avatar-removed.png"
 
 # 4. Cleanup
 $SCRIPTS/ducko-stop.sh

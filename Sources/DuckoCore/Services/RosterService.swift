@@ -75,28 +75,6 @@ public final class RosterService {
         presenceService?.removeSubscriptionRequest(jid)
     }
 
-    public func fetchAvatars(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
-        guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
-
-        // Deduplicate contacts across groups
-        var seen = Set<BareJID>()
-        let uniqueContacts = groups.flatMap(\.contacts).filter { seen.insert($0.jid).inserted }
-
-        for contact in uniqueContacts {
-            guard contact.avatarData == nil else { continue }
-            guard let vcard = try? await vcardModule.fetchVCard(for: contact.jid) else { continue }
-            guard let photoData = vcard.photoData else { continue }
-
-            var updated = contact
-            updated.avatarData = Data(photoData)
-            updated.avatarHash = vcard.photoHash
-            try? await store.upsertContact(updated)
-        }
-
-        try? await loadContacts(for: accountID)
-    }
-
     public func renameContact(_ contact: Contact, newAlias: String, accountID: UUID) async throws {
         var updated = contact
         updated.localAlias = newAlias.isEmpty ? nil : newAlias

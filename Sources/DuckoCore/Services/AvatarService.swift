@@ -115,7 +115,6 @@ public final class AvatarService {
         try? await presenceModule.broadcastPresence()
     }
 
-    // periphery:ignore - specced feature, not yet wired to UI
     /// Removes the user's avatar.
     public func removeAvatar(accountID: UUID) async throws {
         guard let client = accountService?.client(for: accountID) else { return }
@@ -351,7 +350,6 @@ public final class AvatarService {
         }
     }
 
-    // periphery:ignore - called by removeAvatar which is specced but not yet wired
     private func clearVCardPhoto(accountID: UUID) async {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }

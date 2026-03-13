@@ -1,13 +1,20 @@
+import AppKit
 import DuckoCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ProfileEditView: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(ThemeEngine.self) private var theme
     @Environment(\.dismiss) private var dismiss
     @State private var profile = ProfileInfo()
     @State private var isLoading = true
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var isSelectingPhoto = false
+    @State private var isPublishingAvatar = false
+    @State private var avatarErrorMessage: String?
+    @State private var avatarImage: NSImage?
 
     private var account: Account? {
         environment.accountService.accounts.first { $0.isEnabled }
@@ -149,14 +156,90 @@ struct ProfileEditView: View {
 
     // MARK: - Photo Section
 
-    @ViewBuilder
     private var photoSection: some View {
-        if profile.photoData != nil {
-            Section("Photo") {
-                Text("Avatar set (photo editing not yet supported)")
-                    .foregroundStyle(.secondary)
+        Section("Photo") {
+            VStack(spacing: 12) {
+                avatarPreview
+                    .accessibilityIdentifier("profile-avatar-preview")
+
+                if let avatarErrorMessage {
+                    Text(avatarErrorMessage)
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                }
+
+                HStack(spacing: 12) {
+                    Button("Change Photo") {
+                        isSelectingPhoto = true
+                    }
+                    .disabled(isPublishingAvatar)
+                    .accessibilityIdentifier("profile-change-photo-button")
+
+                    if profile.photoData != nil {
+                        Button("Remove Photo", role: .destructive) {
+                            Task { await removePhoto() }
+                        }
+                        .disabled(isPublishingAvatar)
+                        .accessibilityIdentifier("profile-remove-photo-button")
+                    }
+                }
+
+                if isPublishingAvatar {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
+            .frame(maxWidth: .infinity)
         }
+        .fileImporter(
+            isPresented: $isSelectingPhoto,
+            allowedContentTypes: [.png, .jpeg, .gif],
+            allowsMultipleSelection: false
+        ) { result in
+            Task { await handlePhotoSelected(result) }
+        }
+        .onChange(of: profile.photoData) {
+            avatarImage = profile.photoData.flatMap(NSImage.init(data:))
+        }
+    }
+
+    @ViewBuilder
+    private var avatarPreview: some View {
+        let size: CGFloat = 80
+        let clipShape = theme.current.avatarShape.clipShape(size: size)
+
+        if let avatarImage {
+            Image(nsImage: avatarImage)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(clipShape)
+        } else {
+            Text(profileInitials)
+                .font(.system(size: size * 0.4, weight: .medium))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+                .background(
+                    LinearGradient(
+                        colors: [.blue, .blue.opacity(0.7)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    in: clipShape
+                )
+        }
+    }
+
+    private var profileInitials: String {
+        let name = profile.fullName ?? ""
+        let parts = name.split(separator: " ")
+        if parts.count >= 2 {
+            return String(parts[0].prefix(1) + parts[1].prefix(1)).uppercased()
+        }
+        if !name.isEmpty {
+            return String(name.prefix(2)).uppercased()
+        }
+        return "?"
     }
 
     // MARK: - Footer
@@ -192,8 +275,54 @@ struct ProfileEditView: View {
         await environment.profileService.fetchOwnProfile(accountID: accountID)
         if let fetched = environment.profileService.ownProfile {
             profile = fetched
+            avatarImage = fetched.photoData.flatMap(NSImage.init(data:))
         }
         isLoading = false
+    }
+
+    private func handlePhotoSelected(_ result: Result<[URL], Error>) async {
+        guard case let .success(urls) = result, let url = urls.first else { return }
+        guard let accountID = account?.id else { return }
+
+        guard url.startAccessingSecurityScopedResource() else { return }
+        defer { url.stopAccessingSecurityScopedResource() }
+
+        guard let imageData = try? Data(contentsOf: url) else { return }
+
+        let utType = UTType(filenameExtension: url.pathExtension)
+        let mimeType = utType?.preferredMIMEType ?? "image/png"
+
+        isPublishingAvatar = true
+        avatarErrorMessage = nil
+        defer { isPublishingAvatar = false }
+
+        do {
+            try await environment.avatarService.publishAvatar(
+                imageData: imageData, mimeType: mimeType, accountID: accountID
+            )
+            profile.photoData = imageData
+            profile.photoType = mimeType
+            avatarImage = NSImage(data: imageData)
+        } catch {
+            avatarErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func removePhoto() async {
+        guard let accountID = account?.id else { return }
+
+        isPublishingAvatar = true
+        avatarErrorMessage = nil
+        defer { isPublishingAvatar = false }
+
+        do {
+            try await environment.avatarService.removeAvatar(accountID: accountID)
+            profile.photoData = nil
+            profile.photoType = nil
+            avatarImage = nil
+        } catch {
+            avatarErrorMessage = error.localizedDescription
+        }
     }
 
     private func saveProfile() async {
