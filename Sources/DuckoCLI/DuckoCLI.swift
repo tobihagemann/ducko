@@ -1233,6 +1233,7 @@ private func printREPLHelp() {
     print("  /avatar [jid]            View avatar info (own or contact's)")
     print("  /connection-info         Show TLS connection info")
     print("  /pref chatstates on|off  Toggle chat state notifications")
+    print("  /pref markers on|off      Toggle displayed markers (read receipts)")
     print("  help                     Show this help")
     print("  quit                     Disconnect and exit")
 }
@@ -1350,30 +1351,37 @@ private func handlePrefREPLCommand(_ input: String) async {
     let args = input.dropFirst("/pref ".count).trimmingCharacters(in: .whitespaces)
     let parts = args.split(separator: " ", maxSplits: 1)
     guard let key = parts.first else {
-        print("Usage: /pref chatstates on|off")
+        print("Usage: /pref <chatstates|markers> on|off")
         return
     }
+    let valueArg = parts.count == 2 ? String(parts[1]) : nil
 
     switch String(key) {
     case "chatstates":
-        guard parts.count == 2 else {
-            let current = ChatPreferences.shared.enableChatStates ? "on" : "off"
-            print("Chat states: \(current)")
-            return
-        }
-        let value = String(parts[1]).lowercased()
-        switch value {
-        case "on":
-            ChatPreferences.shared.enableChatStates = true
-            print("Chat states enabled.")
-        case "off":
-            ChatPreferences.shared.enableChatStates = false
-            print("Chat states disabled.")
-        default:
-            print("Usage: /pref chatstates on|off")
-        }
+        togglePref(name: "Chat states", key: "chatstates", value: valueArg, get: { ChatPreferences.shared.enableChatStates }, set: { ChatPreferences.shared.enableChatStates = $0 })
+    case "markers":
+        togglePref(name: "Displayed markers", key: "markers", value: valueArg, get: { ChatPreferences.shared.enableDisplayedMarkers }, set: { ChatPreferences.shared.enableDisplayedMarkers = $0 })
     default:
-        print("Unknown preference: \(key). Available: chatstates")
+        print("Unknown preference: \(key). Available: chatstates, markers")
+    }
+}
+
+@MainActor
+private func togglePref(name: String, key: String, value: String?, get: () -> Bool, set: (Bool) -> Void) {
+    guard let value else {
+        let current = get() ? "on" : "off"
+        print("\(name): \(current)")
+        return
+    }
+    switch value.lowercased() {
+    case "on":
+        set(true)
+        print("\(name) enabled.")
+    case "off":
+        set(false)
+        print("\(name) disabled.")
+    default:
+        print("Usage: /pref \(key) on|off")
     }
 }
 

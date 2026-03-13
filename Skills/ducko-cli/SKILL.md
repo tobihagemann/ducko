@@ -78,6 +78,7 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/profile` — view own vCard profile
 - `/connection-info` — show TLS connection info (protocol, cipher, certificate)
 - `/pref chatstates on|off` — toggle chat state notifications (typing indicators)
+- `/pref markers on|off` — toggle displayed markers (read receipts)
 - `/reply <jid> <message>` — reply to last incoming message from JID
 - `/retract <jid>` — retract last sent message to JID
 - `/search <jid> <query>` — search message history with JID

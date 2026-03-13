@@ -61,6 +61,7 @@ public final class ChatModule: XMPPModule, Sendable {
         body: String,
         id: String? = nil,
         requestReceipt: Bool = false,
+        markable: Bool = false,
         includeChatState: Bool = true
     ) async throws {
         guard let context = state.withLock({ $0 }) else { return }
@@ -70,6 +71,10 @@ public final class ChatModule: XMPPModule, Sendable {
         if requestReceipt {
             let request = XMLElement(name: "request", namespace: XMPPNamespaces.receipts)
             message.element.addChild(request)
+        }
+        if markable {
+            let markableElement = XMLElement(name: "markable", namespace: XMPPNamespaces.chatMarkers)
+            message.element.addChild(markableElement)
         }
         if includeChatState {
             let active = XMLElement(name: "active", namespace: XMPPNamespaces.chatStates)

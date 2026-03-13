@@ -362,11 +362,15 @@ public final class MUCModule: XMPPModule, Sendable {
     }
 
     /// Sends a groupchat message to a room.
-    public func sendMessage(to room: BareJID, body: String, id: String? = nil) async throws {
+    public func sendMessage(to room: BareJID, body: String, id: String? = nil, markable: Bool = false) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
         let stanzaID = id ?? context.generateID()
         var message = XMPPMessage(type: .groupchat, to: .bare(room), id: stanzaID)
         message.body = body
+        if markable {
+            let markableElement = XMLElement(name: "markable", namespace: XMPPNamespaces.chatMarkers)
+            message.element.addChild(markableElement)
+        }
         try await context.sendStanza(message)
     }
 

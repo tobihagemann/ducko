@@ -52,16 +52,19 @@ public final class ReceiptsModule: XMPPModule, Sendable {
     // MARK: - Sending
 
     /// Sends a `displayed` chat marker to indicate the message was read.
-    public func sendDisplayedMarker(to recipient: JID, messageID: String) async throws {
+    public func sendDisplayedMarker(to recipient: JID, messageID: String, messageType: XMPPMessage.MessageType = .chat) async throws {
         guard let context = state.withLock({ $0 }) else { return }
-        var message = XMPPMessage(type: .chat, to: recipient, id: context.generateID())
+        var message = XMPPMessage(type: messageType, to: recipient, id: context.generateID())
         let marker = XMLElement(
             name: "displayed",
             namespace: XMPPNamespaces.chatMarkers,
             attributes: ["id": messageID]
         )
         message.element.addChild(marker)
-        message.element.addChild(XMLElement(name: "private", namespace: XMPPNamespaces.carbons))
+        // Carbons suppression only applies to 1:1 chat messages
+        if messageType == .chat {
+            message.element.addChild(XMLElement(name: "private", namespace: XMPPNamespaces.carbons))
+        }
         try await context.sendStanza(message)
     }
 

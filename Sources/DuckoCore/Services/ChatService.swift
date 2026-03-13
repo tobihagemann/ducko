@@ -48,7 +48,7 @@ public final class ChatService {
         let recipient = JID.bare(jid)
         let stanzaID = client.generateID()
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
-        try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, includeChatState: chatStatesEnabled)
+        try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled)
 
         // Persist outgoing message
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
@@ -271,21 +271,43 @@ public final class ChatService {
     public func sendDisplayedMarker(
         to jid: BareJID,
         messageStanzaID: String,
-        accountID: UUID
+        accountID: UUID,
+        messageType: DuckoXMPP.XMPPMessage.MessageType = .chat
     ) async throws {
+        guard ChatPreferences.shared.enableDisplayedMarkers else { return }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let module = await client.module(ofType: ReceiptsModule.self) else { return }
-        try await module.sendDisplayedMarker(to: .bare(jid), messageID: messageStanzaID)
+        try await module.sendDisplayedMarker(to: .bare(jid), messageID: messageStanzaID, messageType: messageType)
     }
 
     // MARK: - Private: Displayed Markers
 
     private func sendDisplayedMarkerForLatest(conversationID: UUID, accountID: UUID) async {
-        guard let conversation = openConversations.first(where: { $0.id == conversationID }),
-              conversation.type == .chat else { return }
-        let latestIncoming = messages.last { !$0.isOutgoing && $0.stanzaID != nil }
-        guard let stanzaID = latestIncoming?.stanzaID else { return }
-        try? await sendDisplayedMarker(to: conversation.jid, messageStanzaID: stanzaID, accountID: accountID)
+        guard let conversation = openConversations.first(where: { $0.id == conversationID }) else { return }
+
+        switch conversation.type {
+        case .chat:
+            guard let message = messages.last(where: { !$0.isOutgoing && $0.stanzaID != nil }) else { return }
+            await sendDisplayedMarkerIfNeeded(for: message, in: conversation, accountID: accountID)
+        case .groupchat:
+            guard let message = messages.last(where: { !$0.isOutgoing && $0.serverID != nil }) else { return }
+            await sendDisplayedMarkerIfNeeded(for: message, in: conversation, accountID: accountID)
+        }
+    }
+
+    private func sendDisplayedMarkerIfNeeded(for message: ChatMessage, in conversation: Conversation, accountID: UUID) async {
+        switch conversation.type {
+        case .chat:
+            if let stanzaID = message.stanzaID {
+                try? await sendDisplayedMarker(to: conversation.jid, messageStanzaID: stanzaID, accountID: accountID)
+            }
+        case .groupchat:
+            guard let serverID = message.serverID,
+                  let client = accountService?.client(for: accountID),
+                  let mucModule = await client.module(ofType: MUCModule.self),
+                  mucModule.nickname(in: conversation.jid) != nil else { return }
+            try? await sendDisplayedMarker(to: conversation.jid, messageStanzaID: serverID, accountID: accountID, messageType: .groupchat)
+        }
     }
 
     // MARK: - MUC
@@ -309,7 +331,7 @@ public final class ChatService {
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         let stanzaID = client.generateID()
-        try await mucModule.sendMessage(to: room, body: body, id: stanzaID)
+        try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true)
 
         // Persist outgoing group message
         let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
@@ -902,7 +924,17 @@ public final class ChatService {
             type: "groupchat",
             attachments: oobAttachments
         )
-        try? await persistMessage(message, in: conversation, incrementUnread: true, accountID: accountID)
+        await persistAndNotify(message, in: conversation, accountID: accountID)
+    }
+
+    private func persistAndNotify(_ message: ChatMessage, in conversation: Conversation, accountID: UUID) async {
+        let isActiveConversation = conversation.id == activeConversationID
+        try? await persistMessage(message, in: conversation, incrementUnread: !isActiveConversation, accountID: accountID)
+
+        if isActiveConversation {
+            try? await store.markMessagesRead(in: conversation.id)
+            await sendDisplayedMarkerIfNeeded(for: message, in: conversation, accountID: accountID)
+        }
 
         onIncomingMessage?(message, conversation)
     }
@@ -1009,17 +1041,7 @@ public final class ChatService {
             replyToID: replyToID,
             attachments: oobAttachments
         )
-        let isActiveConversation = conversation.id == activeConversationID
-        try? await persistMessage(message, in: conversation, incrementUnread: !isActiveConversation, accountID: accountID)
-
-        if isActiveConversation {
-            try? await store.markMessagesRead(in: conversation.id)
-            if conversation.type == .chat, let stanzaID = message.stanzaID {
-                try? await sendDisplayedMarker(to: conversation.jid, messageStanzaID: stanzaID, accountID: accountID)
-            }
-        }
-
-        onIncomingMessage?(message, conversation)
+        await persistAndNotify(message, in: conversation, accountID: accountID)
     }
 
     private func handleCarbon(_ forwarded: ForwardedMessage, accountID: UUID, isOutgoing: Bool) async {

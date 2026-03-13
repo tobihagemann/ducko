@@ -4,6 +4,7 @@ import Foundation
 public final class ChatPreferences {
     private enum Keys {
         static let enableChatStates = "chatEnableChatStates"
+        static let enableDisplayedMarkers = "chatEnableDisplayedMarkers"
     }
 
     private nonisolated(unsafe) static let defaults: UserDefaults = {
@@ -19,8 +20,14 @@ public final class ChatPreferences {
         didSet { Self.defaults.set(enableChatStates, forKey: Keys.enableChatStates) }
     }
 
+    public var enableDisplayedMarkers: Bool {
+        didSet { Self.defaults.set(enableDisplayedMarkers, forKey: Keys.enableDisplayedMarkers) }
+    }
+
     private init() {
         let stored = Self.defaults.object(forKey: Keys.enableChatStates) as? Bool
         self.enableChatStates = stored ?? true
+        let storedMarkers = Self.defaults.object(forKey: Keys.enableDisplayedMarkers) as? Bool
+        self.enableDisplayedMarkers = storedMarkers ?? true
     }
 }
