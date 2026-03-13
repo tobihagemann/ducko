@@ -10,8 +10,14 @@ struct RoomJoinDialog: View {
     @State private var password = ""
     @State private var errorMessage: String?
     @State private var discoveredRooms: [DiscoveredRoom] = []
+    @State private var searchedChannels: [SearchedChannel] = []
+    @State private var searchText = ""
     @State private var mucService: String?
     @State private var isBrowsing = false
+    @State private var isSearching = false
+    @State private var hasMoreResults = false
+    @State private var lastSearchQuery = ""
+    @State private var lastCursor: String?
 
     private var account: Account? {
         environment.accountService.accounts.first
@@ -51,6 +57,18 @@ struct RoomJoinDialog: View {
             }
 
             HStack {
+                TextField("Search channels...", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 150)
+                    .onSubmit { searchChannels() }
+                    .accessibilityIdentifier("channel-search-field")
+
+                Button("Search") {
+                    searchChannels()
+                }
+                .disabled(searchText.isEmpty || isSearching)
+                .accessibilityIdentifier("channel-search-button")
+
                 Button("Browse Rooms") {
                     browseRooms()
                 }
@@ -73,35 +91,10 @@ struct RoomJoinDialog: View {
                 .accessibilityIdentifier("join-room-button")
             }
 
-            if !discoveredRooms.isEmpty {
-                Divider()
-
-                Text("Available Rooms")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                List(discoveredRooms) { room in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(room.name ?? room.jidString)
-                                .fontWeight(.medium)
-                            if room.name != nil {
-                                Text(room.jidString)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Spacer()
-
-                        Button("Join") {
-                            roomJID = room.jidString
-                            joinRoom()
-                        }
-                    }
-                }
-                .listStyle(.plain)
-                .frame(height: 150)
+            if !searchedChannels.isEmpty {
+                channelSearchResults
+            } else if !discoveredRooms.isEmpty {
+                discoveredRoomsList
             }
         }
         .padding(20)
@@ -114,6 +107,98 @@ struct RoomJoinDialog: View {
             mucService = await environment.chatService.discoverMUCService(accountID: accountID)
         }
     }
+
+    // MARK: - Results Views
+
+    private var channelSearchResults: some View {
+        VStack(spacing: 4) {
+            Divider()
+
+            Text("Search Results")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            List(searchedChannels) { channel in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(channel.name ?? channel.jidString)
+                            .fontWeight(.medium)
+                        if channel.name != nil {
+                            Text(channel.jidString)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    if let userCount = channel.userCount {
+                        Text("\(userCount) users")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let isOpen = channel.isOpen {
+                        Text(isOpen ? "Open" : "Closed")
+                            .font(.caption2)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 2)
+                            .background(isOpen ? Color.green.opacity(0.2) : Color.red.opacity(0.2))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
+
+                    Button("Join") {
+                        roomJID = channel.jidString
+                        joinRoom()
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .frame(height: 150)
+
+            if hasMoreResults {
+                Button("Load More") {
+                    loadMoreResults()
+                }
+                .disabled(isSearching)
+            }
+        }
+    }
+
+    private var discoveredRoomsList: some View {
+        VStack(spacing: 4) {
+            Divider()
+
+            Text("Available Rooms")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            List(discoveredRooms) { room in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(room.name ?? room.jidString)
+                            .fontWeight(.medium)
+                        if room.name != nil {
+                            Text(room.jidString)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button("Join") {
+                        roomJID = room.jidString
+                        joinRoom()
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .frame(height: 150)
+        }
+    }
+
+    // MARK: - Actions
 
     private func joinRoom() {
         let trimmedInput = roomJID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -160,6 +245,7 @@ struct RoomJoinDialog: View {
     private func browseRooms() {
         guard let accountID = account?.id else { return }
         isBrowsing = true
+        searchedChannels = []
         Task {
             await ensureMUCService(accountID: accountID)
             guard let service = mucService else {
@@ -173,6 +259,41 @@ struct RoomJoinDialog: View {
                 errorMessage = error.localizedDescription
             }
             isBrowsing = false
+        }
+    }
+
+    private func searchChannels() {
+        guard let accountID = account?.id, !searchText.isEmpty else { return }
+        isSearching = true
+        discoveredRooms = []
+        lastSearchQuery = searchText
+        lastCursor = nil
+        Task {
+            do {
+                let result = try await environment.chatService.searchChannels(keyword: searchText, accountID: accountID)
+                searchedChannels = result.channels
+                hasMoreResults = result.hasMore
+                lastCursor = result.lastCursor
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isSearching = false
+        }
+    }
+
+    private func loadMoreResults() {
+        guard let accountID = account?.id, let cursor = lastCursor else { return }
+        isSearching = true
+        Task {
+            do {
+                let result = try await environment.chatService.searchChannels(keyword: lastSearchQuery, accountID: accountID, after: cursor)
+                searchedChannels.append(contentsOf: result.channels)
+                hasMoreResults = result.hasMore
+                lastCursor = result.lastCursor
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isSearching = false
         }
     }
 }

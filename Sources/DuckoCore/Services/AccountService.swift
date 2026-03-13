@@ -158,6 +158,91 @@ public final class AccountService {
         try await loadAccounts()
     }
 
+    // MARK: - Server Info
+
+    /// Fetches XEP-0157 server contact addresses via disco#info.
+    public func fetchServerInfo(accountID: UUID) async throws -> ServerInfo {
+        guard let client = clients[accountID] else {
+            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+        }
+        guard let disco = await client.module(ofType: ServiceDiscoveryModule.self) else {
+            return ServerInfo(contactAddresses: [])
+        }
+        guard let account = accounts.first(where: { $0.id == accountID }),
+              let domainJID = JID.parse(account.jid.domainPart) else {
+            return ServerInfo(contactAddresses: [])
+        }
+
+        let info = try await disco.queryInfo(for: domainJID)
+        var addresses: [ContactAddress] = []
+        for form in info.forms {
+            let formType = form.first { $0.variable == "FORM_TYPE" }?.values.first
+            guard formType == XMPPNamespaces.serverInfo else { continue }
+            for field in form {
+                guard let type = ContactAddressType(rawValue: field.variable) else { continue }
+                for value in field.values {
+                    addresses.append(ContactAddress(type: type, address: value))
+                }
+            }
+        }
+        return ServerInfo(contactAddresses: addresses)
+    }
+
+    // MARK: - Registration
+
+    /// Registers a new account on a server via XEP-0077 pre-auth registration.
+    public func registerAccount(
+        domain: String,
+        username: String,
+        password: String,
+        email: String? = nil
+    ) async throws -> UUID {
+        try await XMPPRegistrationClient.register(
+            domain: domain,
+            username: username,
+            password: password,
+            email: email
+        )
+
+        let jidString = "\(username)@\(domain)"
+        let accountID = try await createAccount(jidString: jidString)
+        do {
+            try await connect(accountID: accountID, password: password)
+            await savePassword(accountID: accountID)
+        } catch {
+            try? await deleteAccount(accountID)
+            throw error
+        }
+        try await loadAccounts()
+        return accountID
+    }
+
+    /// Changes the password for a connected account via XEP-0077.
+    public func changePassword(accountID: UUID, newPassword: String) async throws {
+        guard let client = clients[accountID] else {
+            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+        }
+        guard let regModule = await client.module(ofType: RegistrationModule.self) else {
+            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+        }
+        try await regModule.changePassword(newPassword: newPassword)
+        passwords[accountID] = newPassword
+        await savePassword(accountID: accountID)
+    }
+
+    // periphery:ignore - specced feature, not yet wired
+    /// Cancels (unregisters) a connected account via XEP-0077.
+    public func cancelAccount(accountID: UUID) async throws {
+        guard let client = clients[accountID] else {
+            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+        }
+        guard let regModule = await client.module(ofType: RegistrationModule.self) else {
+            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+        }
+        try await regModule.cancelRegistration()
+        try await deleteAccount(accountID)
+    }
+
     // MARK: - Client Access
 
     func client(for accountID: UUID) -> XMPPClient? {
@@ -243,6 +328,8 @@ public final class AccountService {
         builder.withModule(pepModule)
         builder.withModule(BlockingModule())
         builder.withModule(StylingModule())
+        builder.withModule(ChannelSearchModule())
+        builder.withModule(RegistrationModule())
         let sm = StreamManagementModule(previousState: previousSMState)
         builder.withModule(sm)
         builder.withInterceptor(sm)

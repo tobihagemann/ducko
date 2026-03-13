@@ -443,6 +443,37 @@ struct ANSIFormatter: CLIFormatter {
         return lines.joined(separator: "\n")
     }
 
+    func formatServerInfo(_ info: ServerInfo) -> String {
+        guard !info.contactAddresses.isEmpty else {
+            return "\(Color.dim)(no server contact information)\(Color.reset)"
+        }
+        var lines: [String] = []
+        let grouped = Dictionary(grouping: info.contactAddresses, by: \.type)
+        for type in ContactAddressType.allCases {
+            guard let addresses = grouped[type], !addresses.isEmpty else { continue }
+            lines.append("\(Color.bold)\(type.displayName):\(Color.reset)")
+            for address in addresses {
+                lines.append("  \(Color.cyan)\(address.address)\(Color.reset)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    func formatSearchedChannel(_ channel: SearchedChannel) -> String {
+        var line = "\(Color.bold)\(channel.name ?? channel.jidString)\(Color.reset)"
+        if channel.name != nil {
+            line += " (\(channel.jidString))"
+        }
+        if let userCount = channel.userCount {
+            line += " \(Color.dim)\(userCount) users\(Color.reset)"
+        }
+        if let isOpen = channel.isOpen {
+            let badge = isOpen ? "\(Color.green)[open]\(Color.reset)" : "\(Color.red)[closed]\(Color.reset)"
+            line += " \(badge)"
+        }
+        return line
+    }
+
     func formatProfile(_ profile: ProfileInfo) -> String {
         var lines: [String] = []
         appendProfileNameFields(profile, to: &lines)

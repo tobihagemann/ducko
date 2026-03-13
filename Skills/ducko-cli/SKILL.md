@@ -233,13 +233,33 @@ Publish own avatar from an image file (PNG recommended). Publishes via PEP and u
 ducko avatar set photo.png
 ```
 
-### `room list [--service <jid>]`
+### `account register --server <domain> --username <user> --password <pw> [--email <email>]`
 
-Discover available rooms on a MUC service. Auto-discovers the server's MUC service if `--service` is omitted.
+Register a new account on a server via XEP-0077 In-Band Registration. Creates the account on the remote server, then saves it locally.
+
+```
+ducko account register --server example.com --username alice --password secret
+ducko account register --server example.com --username alice --password secret --email alice@mail.com
+```
+
+### `server-info`
+
+Show server contact information (XEP-0157). Connects, queries disco#info for the server's contact addresses, then disconnects.
+
+```
+ducko server-info
+ducko server-info --output json
+```
+
+### `room list [--service <jid>] [--search <keyword>]`
+
+Discover available rooms on a MUC service. Auto-discovers the server's MUC service if `--service` is omitted. Use `--search` / `-q` to search via XEP-0433 Extended Channel Search.
 
 ```
 ducko room list
 ducko room list --service conference.example.com
+ducko room list --search "test"
+ducko room list -q "general"
 ```
 
 ### `room join <jid> [--nickname <nick>]`

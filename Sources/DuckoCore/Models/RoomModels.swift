@@ -82,6 +82,43 @@ public struct DiscoveredRoom: Sendable, Identifiable {
     }
 }
 
+// MARK: - Channel Search Result
+
+public struct ChannelSearchResult: Sendable {
+    public let channels: [SearchedChannel]
+    public let hasMore: Bool
+    public let lastCursor: String?
+
+    public init(channels: [SearchedChannel], hasMore: Bool, lastCursor: String?) {
+        self.channels = channels
+        self.hasMore = hasMore
+        self.lastCursor = lastCursor
+    }
+}
+
+// MARK: - Searched Channel
+
+/// Bridge type for XEP-0433 channel search results — DuckoUI-safe (String JIDs).
+public struct SearchedChannel: Sendable, Identifiable {
+    public var id: String {
+        jidString
+    }
+
+    public let jidString: String
+    public let name: String?
+    public let userCount: Int?
+    public let isOpen: Bool?
+    public let description: String?
+
+    public init(jidString: String, name: String?, userCount: Int?, isOpen: Bool?, description: String?) {
+        self.jidString = jidString
+        self.name = name
+        self.userCount = userCount
+        self.isOpen = isOpen
+        self.description = description
+    }
+}
+
 // MARK: - Room Config Field
 
 /// Bridge type for `DataFormField` so DuckoUI can edit room config without importing DuckoXMPP.

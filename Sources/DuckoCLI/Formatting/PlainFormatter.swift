@@ -405,6 +405,36 @@ struct PlainFormatter: CLIFormatter {
         return lines.joined(separator: "\n")
     }
 
+    func formatServerInfo(_ info: ServerInfo) -> String {
+        guard !info.contactAddresses.isEmpty else {
+            return "(no server contact information)"
+        }
+        var lines: [String] = []
+        let grouped = Dictionary(grouping: info.contactAddresses, by: \.type)
+        for type in ContactAddressType.allCases {
+            guard let addresses = grouped[type], !addresses.isEmpty else { continue }
+            lines.append("\(type.displayName):")
+            for address in addresses {
+                lines.append("  \(address.address)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    func formatSearchedChannel(_ channel: SearchedChannel) -> String {
+        var line = channel.name ?? channel.jidString
+        if channel.name != nil {
+            line += " (\(channel.jidString))"
+        }
+        if let userCount = channel.userCount {
+            line += " \(userCount) users"
+        }
+        if let isOpen = channel.isOpen {
+            line += isOpen ? " [open]" : " [closed]"
+        }
+        return line
+    }
+
     func formatProfile(_ profile: ProfileInfo) -> String {
         var lines: [String] = []
         appendProfileNameFields(profile, to: &lines)

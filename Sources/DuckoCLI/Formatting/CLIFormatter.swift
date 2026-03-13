@@ -20,6 +20,8 @@ protocol CLIFormatter: Sendable {
     func formatBookmark(_ bookmark: RoomBookmark) -> String
     func formatProfile(_ profile: ProfileInfo) -> String
     func formatTLSInfo(_ info: TLSInfo) -> String
+    func formatServerInfo(_ info: ServerInfo) -> String
+    func formatSearchedChannel(_ channel: SearchedChannel) -> String
 }
 
 func jingleProgressState(bytesTransferred: Int64, totalBytes: Int64) -> (progress: Double, state: String) {

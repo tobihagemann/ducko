@@ -518,6 +518,31 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    func formatServerInfo(_ info: ServerInfo) -> String {
+        var dict = ["type": "server_info"]
+        for address in info.contactAddresses {
+            let key = address.type.rawValue
+            if let existing = dict[key] {
+                dict[key] = existing + "," + address.address
+            } else {
+                dict[key] = address.address
+            }
+        }
+        return encode(dict)
+    }
+
+    func formatSearchedChannel(_ channel: SearchedChannel) -> String {
+        var dict: [String: String] = [
+            "type": "searched_channel",
+            "jid": channel.jidString
+        ]
+        if let name = channel.name { dict["name"] = name }
+        if let userCount = channel.userCount { dict["users"] = "\(userCount)" }
+        if let isOpen = channel.isOpen { dict["is_open"] = isOpen ? "true" : "false" }
+        if let description = channel.description { dict["description"] = description }
+        return encode(dict)
+    }
+
     func formatProfile(_ profile: ProfileInfo) -> String {
         var dict = ["type": "profile"]
         addProfileNameFields(profile, to: &dict)

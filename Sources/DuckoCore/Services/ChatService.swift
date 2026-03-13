@@ -391,6 +391,32 @@ public final class ChatService {
         return rooms.map { DiscoveredRoom(jidString: $0.jid.description, name: $0.name) }
     }
 
+    /// Searches for public channels via XEP-0433 Extended Channel Search.
+    public func searchChannels(
+        keyword: String,
+        accountID: UUID,
+        after: String? = nil
+    ) async throws -> ChannelSearchResult {
+        guard let client = accountService?.client(for: accountID) else { return ChannelSearchResult(channels: [], hasMore: false, lastCursor: nil) }
+        guard let searchModule = await client.module(ofType: ChannelSearchModule.self) else { return ChannelSearchResult(channels: [], hasMore: false, lastCursor: nil) }
+
+        let query = ChannelSearchModule.SearchQuery(keyword: keyword, after: after)
+        let result = try await searchModule.search(query)
+
+        let channels = result.items.map {
+            SearchedChannel(
+                jidString: $0.address.description,
+                name: $0.name,
+                userCount: $0.userCount,
+                isOpen: $0.isOpen,
+                description: $0.description
+            )
+        }
+
+        let hasMore = !result.items.isEmpty && result.lastID != nil
+        return ChannelSearchResult(channels: channels, hasMore: hasMore, lastCursor: result.lastID)
+    }
+
     public func setRoomSubject(jidString: String, subject: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
@@ -810,9 +836,20 @@ public final class ChatService {
         pendingInvites.append(pending)
     }
 
+    private func isOwnRoomMessage(nickname: String?, room: BareJID, accountID: UUID) async -> Bool {
+        guard let nickname,
+              let client = accountService?.client(for: accountID),
+              let mucModule = await client.module(ofType: MUCModule.self) else { return false }
+        return nickname == mucModule.nickname(in: room)
+    }
+
     private func handleRoomMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
-        guard let body = xmppMessage.body,
-              let from = xmppMessage.from else { return }
+        let oobAttachments = parseOOBAttachments(from: xmppMessage.element)
+        guard let from = xmppMessage.from else { return }
+
+        // Accept messages with body or OOB attachments
+        let body = xmppMessage.body ?? oobAttachments.first?.url
+        guard let body else { return }
 
         let roomJID = from.bareJID
 
@@ -823,13 +860,8 @@ public final class ChatService {
         }
 
         // Skip own messages (the server echoes them back)
-        if let senderNickname,
-           let client = accountService?.client(for: accountID),
-           let mucModule = await client.module(ofType: MUCModule.self) {
-            let ownNickname = mucModule.nickname(in: roomJID)
-            if senderNickname == ownNickname {
-                return
-            }
+        if await isOwnRoomMessage(nickname: senderNickname, room: roomJID, accountID: accountID) {
+            return
         }
 
         // Deduplicate replayed stanzas (stream recovery, MAM catchup)
@@ -867,7 +899,8 @@ public final class ChatService {
             isRead: false,
             isDelivered: false,
             isEdited: false,
-            type: "groupchat"
+            type: "groupchat",
+            attachments: oobAttachments
         )
         try? await persistMessage(message, in: conversation, incrementUnread: true, accountID: accountID)
 
@@ -931,9 +964,15 @@ public final class ChatService {
             return
         }
 
+        // Parse OOB attachments before body check — OOB-only messages have no body
+        let oobAttachments = parseOOBAttachments(from: xmppMessage.element)
+
         guard xmppMessage.messageType == .chat,
-              let body = xmppMessage.body,
               let fromJID = xmppMessage.from?.bareJID else { return }
+
+        // Accept messages with body or OOB attachments
+        let body = xmppMessage.body ?? oobAttachments.first?.url
+        guard let body else { return }
 
         let stanzaID = xmppMessage.id
         if await isDuplicate(stanzaID: stanzaID, from: fromJID, accountID: accountID) {
@@ -967,7 +1006,8 @@ public final class ChatService {
             isDelivered: false,
             isEdited: false,
             type: "chat",
-            replyToID: replyToID
+            replyToID: replyToID,
+            attachments: oobAttachments
         )
         let isActiveConversation = conversation.id == activeConversationID
         try? await persistMessage(message, in: conversation, incrementUnread: !isActiveConversation, accountID: accountID)
@@ -984,9 +1024,14 @@ public final class ChatService {
 
     private func handleCarbon(_ forwarded: ForwardedMessage, accountID: UUID, isOutgoing: Bool) async {
         let jid = isOutgoing ? forwarded.message.to?.bareJID : forwarded.message.from?.bareJID
+        let oobAttachments = parseOOBAttachments(from: forwarded.message.element)
+
         guard forwarded.message.messageType != .groupchat,
-              let body = forwarded.message.body,
               let jid else { return }
+
+        // Accept messages with body or OOB attachments
+        let body = forwarded.message.body ?? oobAttachments.first?.url
+        guard let body else { return }
 
         // Skip retractions — handled by .messageRetracted event
         if forwarded.message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil {
@@ -1028,7 +1073,8 @@ public final class ChatService {
             isRead: true,
             isDelivered: false,
             isEdited: false,
-            type: "chat"
+            type: "chat",
+            attachments: oobAttachments
         )
         try? await persistMessage(message, in: conversation, accountID: accountID)
     }
@@ -1038,6 +1084,17 @@ public final class ChatService {
         let isoStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
         let basicStyle = Date.ISO8601FormatStyle()
         return (try? isoStyle.parse(stamp)) ?? (try? basicStyle.parse(stamp)) ?? Date()
+    }
+
+    /// Parses XEP-0066 `<x xmlns='jabber:x:oob'>` elements into attachments.
+    private func parseOOBAttachments(from element: DuckoXMPP.XMLElement) -> [Attachment] {
+        element.children(named: "x")
+            .filter { $0.namespace == XMPPNamespaces.oob }
+            .compactMap { oob -> Attachment? in
+                guard let urlString = oob.child(named: "url")?.textContent, !urlString.isEmpty else { return nil }
+                let desc = oob.child(named: "desc")?.textContent
+                return Attachment(id: UUID(), url: urlString, fileName: desc)
+            }
     }
 
     private func persistMessage(

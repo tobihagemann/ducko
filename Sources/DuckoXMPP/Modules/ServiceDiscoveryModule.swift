@@ -24,6 +24,13 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
     public struct InfoResult: Sendable {
         public let identities: [Identity]
         public let features: Set<String>
+        public let forms: [[DataFormField]]
+
+        public init(identities: [Identity], features: Set<String>, forms: [[DataFormField]] = []) {
+            self.identities = identities
+            self.features = features
+            self.forms = forms
+        }
     }
 
     /// A single disco#items item.
@@ -151,7 +158,11 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
             }
         }
 
-        return InfoResult(identities: identities, features: features)
+        let forms = result.children(named: "x")
+            .filter { $0.namespace == XMPPNamespaces.dataForms }
+            .map { parseDataForm($0) }
+
+        return InfoResult(identities: identities, features: features, forms: forms)
     }
 
     /// Queries a remote entity for its disco#items.

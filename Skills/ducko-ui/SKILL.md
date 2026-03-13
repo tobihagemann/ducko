@@ -111,6 +111,16 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
 | `retract-button` | Retract context menu button (own msgs) | Chat |
 | `retracted-message` | Retracted message tombstone | Chat |
+| `setup-mode-picker` | Login/Register segmented control | Account Setup |
+| `register-server-field` | Server domain field (Register mode) | Account Setup |
+| `register-username-field` | Username field (Register mode) | Account Setup |
+| `register-password-field` | Password field (Register mode) | Account Setup |
+| `register-email-field` | Email field (Register mode) | Account Setup |
+| `register-button` | Register button (Register mode) | Account Setup |
+| `channel-search-field` | Channel search keyword field | Join Room |
+| `channel-search-button` | Channel search button | Join Room |
+| `new-password-field` | New password field | Change Password |
+| `confirm-password-field` | Confirm password field | Change Password |
 
 ## Context Menu Features
 

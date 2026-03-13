@@ -20,6 +20,7 @@ struct DuckoCLI: AsyncParsableCommand {
             Bookmarks.self,
             Avatar.self,
             Account.self,
+            ServerInfoCommand.self,
             Interactive.self
         ],
         defaultSubcommand: Interactive.self
@@ -513,6 +514,9 @@ extension DuckoCLI {
             @Option(name: .long, help: "MUC service JID (auto-discovered if omitted)")
             var service: String?
 
+            @Option(name: [.customShort("q"), .long], help: "Search for channels by keyword (XEP-0433)")
+            var search: String?
+
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
@@ -530,18 +534,28 @@ extension DuckoCLI {
                 try await env.accountService.connect(accountID: selectedAccount.id, password: password)
                 try await waitForConnected(accountID: selectedAccount.id, environment: env)
 
-                let serviceJID: String
-                if let service {
-                    serviceJID = service
-                } else {
-                    guard let discovered = await env.chatService.discoverMUCService(accountID: selectedAccount.id) else {
-                        throw CLIError.noMUCService
+                if let search {
+                    let channels = try await env.chatService.searchChannels(keyword: search, accountID: selectedAccount.id).channels
+                    for channel in channels {
+                        print(formatter.formatSearchedChannel(channel))
                     }
-                    serviceJID = discovered
-                }
+                    if channels.isEmpty {
+                        print("No channels found.")
+                    }
+                } else {
+                    let serviceJID: String
+                    if let service {
+                        serviceJID = service
+                    } else {
+                        guard let discovered = await env.chatService.discoverMUCService(accountID: selectedAccount.id) else {
+                            throw CLIError.noMUCService
+                        }
+                        serviceJID = discovered
+                    }
 
-                let rooms = try await env.chatService.discoverRooms(on: serviceJID, accountID: selectedAccount.id)
-                printDiscoveredRooms(rooms, formatter: formatter)
+                    let rooms = try await env.chatService.discoverRooms(on: serviceJID, accountID: selectedAccount.id)
+                    printDiscoveredRooms(rooms, formatter: formatter)
+                }
 
                 await env.accountService.disconnect(accountID: selectedAccount.id)
             }
@@ -950,7 +964,7 @@ extension DuckoCLI {
     struct Account: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage XMPP accounts",
-            subcommands: [List.self, Add.self, Delete.self],
+            subcommands: [List.self, Add.self, Delete.self, Register.self],
             defaultSubcommand: List.self
         )
 
@@ -1044,6 +1058,79 @@ extension DuckoCLI {
                 try await env.accountService.deleteAccount(account.id)
                 print("Account deleted: \(jid)")
             }
+        }
+
+        struct Register: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Register a new account on a server via XEP-0077"
+            )
+
+            @Option(name: .long, help: "Server domain (e.g. example.com)")
+            var server: String
+
+            @Option(name: .long, help: "Username for the new account")
+            var username: String
+
+            @Option(name: .long, help: "Password for the new account (prompted if omitted)")
+            var password: String?
+
+            @Option(name: .long, help: "Email address (optional)")
+            var email: String?
+
+            func run() async throws {
+                guard let resolvedPassword = password ?? CredentialHelper.getPassword() else {
+                    throw CLIError.noPassword
+                }
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: PlainFormatter())
+                }
+                let env = context.environment
+
+                let accountID = try await env.accountService.registerAccount(
+                    domain: server,
+                    username: username,
+                    password: resolvedPassword,
+                    email: email
+                )
+                await env.accountService.disconnect(accountID: accountID)
+                print("Account registered: \(username)@\(server)")
+            }
+        }
+    }
+
+    struct ServerInfoCommand: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "server-info",
+            abstract: "Show server contact information (XEP-0157)"
+        )
+
+        @OptionGroup var global: GlobalOptions
+
+        @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+        var account: String?
+
+        func run() async throws {
+            let formatter = global.resolvedFormat.makeFormatter()
+
+            let context = try await MainActor.run {
+                try CLIBootstrap.setUp(formatter: formatter)
+            }
+            let env = context.environment
+
+            let selectedAccount = try await resolveAccount(account, environment: env)
+
+            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                throw CLIError.noPassword
+            }
+
+            try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+            try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+            let info = try await env.accountService.fetchServerInfo(accountID: selectedAccount.id)
+            print(formatter.formatServerInfo(info))
+
+            await env.accountService.disconnect(accountID: selectedAccount.id)
         }
     }
 }

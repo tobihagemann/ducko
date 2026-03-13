@@ -123,6 +123,8 @@ struct AccountsPreferencesView: View {
 private struct AccountDetailView: View {
     @Environment(AppEnvironment.self) private var environment
     @State private var isShowingConnectionInfo = false
+    @State private var isShowingServerInfo = false
+    @State private var isShowingChangePassword = false
     let account: Account
     let onEdit: () -> Void
 
@@ -177,6 +179,16 @@ private struct AccountDetailView: View {
                         }
                     }
 
+                    if isConnected {
+                        Button("Server Info...") {
+                            isShowingServerInfo = true
+                        }
+
+                        Button("Change Password...") {
+                            isShowingChangePassword = true
+                        }
+                    }
+
                     Spacer()
 
                     connectionButton
@@ -188,6 +200,12 @@ private struct AccountDetailView: View {
             if let info = environment.accountService.tlsInfo(for: account.id) {
                 ConnectionInfoView(tlsInfo: info)
             }
+        }
+        .sheet(isPresented: $isShowingServerInfo) {
+            ServerInfoView(accountID: account.id)
+        }
+        .sheet(isPresented: $isShowingChangePassword) {
+            ChangePasswordSheet(accountID: account.id)
         }
     }
 
@@ -358,6 +376,68 @@ private struct AccountAddSheet: View {
             } catch {
                 errorMessage = error.localizedDescription
                 isAdding = false
+            }
+        }
+    }
+}
+
+// MARK: - Change Password Sheet
+
+private struct ChangePasswordSheet: View {
+    @Environment(AppEnvironment.self) private var environment
+    @Environment(\.dismiss) private var dismiss
+
+    let accountID: UUID
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+    @State private var errorMessage: String?
+    @State private var isChanging = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                SecureField("New Password", text: $newPassword)
+                    .accessibilityIdentifier("new-password-field")
+                SecureField("Confirm Password", text: $confirmPassword)
+                    .accessibilityIdentifier("confirm-password-field")
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                }
+            }
+            .formStyle(.grouped)
+
+            HStack {
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Change Password") {
+                    changePassword()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(newPassword.isEmpty || newPassword != confirmPassword || isChanging)
+            }
+            .padding()
+        }
+        .frame(width: 400)
+    }
+
+    private func changePassword() {
+        errorMessage = nil
+        isChanging = true
+        Task {
+            do {
+                try await environment.accountService.changePassword(accountID: accountID, newPassword: newPassword)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                isChanging = false
             }
         }
     }

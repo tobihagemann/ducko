@@ -50,4 +50,10 @@ public enum XMPPNamespaces {
     public static let messageModerate = "urn:xmpp:message-moderate:1"
     public static let fallbackIndication = "urn:xmpp:fallback:0"
     public static let processingHints = "urn:xmpp:hints"
+    public static let oob = "jabber:x:oob"
+    public static let serverInfo = "http://jabber.org/network/serverinfo"
+    public static let channelSearch = "urn:xmpp:channel-search:0"
+    public static let channelSearchQuery = "urn:xmpp:channel-search:0:search"
+    public static let register = "jabber:iq:register"
+    public static let registerFeature = "http://jabber.org/features/iq-register"
 }
