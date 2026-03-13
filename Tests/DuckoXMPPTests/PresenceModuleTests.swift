@@ -31,7 +31,7 @@ enum PresenceModuleTests {
             // The mock records all sent bytes — find the presence stanza.
             let sentData = await mock.sentBytes
             let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-            let hasPresence = sentStrings.contains { $0.contains("<presence/>") || $0.contains("<presence ") }
+            let hasPresence = sentStrings.contains { $0.contains("<presence") }
             #expect(hasPresence)
 
             await client.disconnect()

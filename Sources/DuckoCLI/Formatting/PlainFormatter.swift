@@ -85,6 +85,7 @@ struct PlainFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -108,6 +109,7 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
@@ -173,6 +175,7 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -247,6 +250,7 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .deliveryReceiptReceived,
              .chatMarkerReceived, .messageCorrected, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
@@ -274,6 +278,7 @@ struct PlainFormatter: CLIFormatter {
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,

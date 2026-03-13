@@ -200,6 +200,7 @@ public final class FileTransferService {
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,

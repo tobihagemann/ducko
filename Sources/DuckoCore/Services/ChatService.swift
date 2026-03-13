@@ -556,6 +556,7 @@ public final class ChatService {
              .presenceUpdated, .presenceSubscriptionRequest,
              .archivedMessagesLoaded,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -590,6 +591,7 @@ public final class ChatService {
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
@@ -614,6 +616,7 @@ public final class ChatService {
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .roomJoined, .roomSubjectChanged,
              .roomInviteReceived, .roomMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
@@ -655,6 +658,7 @@ public final class ChatService {
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,

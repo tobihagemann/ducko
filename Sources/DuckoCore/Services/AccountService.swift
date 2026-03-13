@@ -239,6 +239,7 @@ public final class AccountService {
         builder.withModule(JingleModule())
         let pepModule = PEPModule()
         pepModule.registerNotifyInterest(XMPPNamespaces.bookmarks2)
+        pepModule.registerNotifyInterest(XMPPNamespaces.avatarMetadata)
         builder.withModule(pepModule)
         builder.withModule(BlockingModule())
         let sm = StreamManagementModule(previousState: previousSMState)
@@ -300,6 +301,7 @@ public final class AccountService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             break
         }

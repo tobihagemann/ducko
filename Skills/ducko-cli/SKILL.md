@@ -74,6 +74,7 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/remove <jid>` — remove contact from roster
 - `/approve <jid>` — approve subscription request
 - `/deny <jid>` — deny subscription request
+- `/avatar [jid]` — view avatar info (own if no JID, contact's if given)
 - `/profile` — view own vCard profile
 - `/connection-info` — show TLS connection info (protocol, cipher, certificate)
 - `/pref chatstates on|off` — toggle chat state notifications (typing indicators)
@@ -212,6 +213,23 @@ Remove a bookmark. Retracts the PEP item.
 
 ```
 ducko bookmarks remove chat@conference.example.com
+```
+
+### `avatar get <jid> [--save <path>]`
+
+Fetch and save a contact's avatar. Tries PEP (XEP-0084) first, falls back to vCard (XEP-0054). Saves to `<jid>.png` by default.
+
+```
+ducko avatar get alice@example.com
+ducko avatar get alice@example.com --save alice.jpg
+```
+
+### `avatar set <path>`
+
+Publish own avatar from an image file (PNG recommended). Publishes via PEP and updates vCard if server lacks XEP-0398 conversion.
+
+```
+ducko avatar set photo.png
 ```
 
 ### `room list [--service <jid>]`

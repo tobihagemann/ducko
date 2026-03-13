@@ -80,7 +80,7 @@ Project-specific agent skills live in `Skills/`. Both `.claude/skills/` and `.ag
 
 - **No Objective-C**: pure Swift, no `@objc`, no NSObject subclasses
 - **Value types preferred**: structs and enums over classes, except where reference semantics are required (`@Observable`, `@Model`, actors)
-- **XMLElement naming**: our `XMLElement` struct (in DuckoXMPP) conflicts with Foundation's `NSXMLElement`. Do not `import Foundation` in files that use `XMLElement` directly. Use stdlib alternatives instead of Foundation string helpers in those files.
+- **XMLElement naming**: our `XMLElement` struct (in DuckoXMPP) conflicts with Foundation's `NSXMLElement`. In DuckoXMPP files, do not `import Foundation` — use stdlib alternatives instead. In DuckoCore files (which always import Foundation), use `DuckoXMPP.XMLElement` to disambiguate.
 - **Testing**: use Swift Testing (`import Testing`, `@Test`, `#expect`, `#require`), not XCTest. Struct-based suites, parameterized tests via `@Test(arguments:)`.
 - **Concurrency**: value types (struct/enum) are automatically `Sendable`. Never use `@unchecked Sendable`. Use actors for mutable shared state.
 - **libxml2 / CLibxml2**: DuckoXMPP uses libxml2 via a `CLibxml2` system library target (`Sources/CLibxml2/`). For C callbacks that need a back-reference to a Swift class, use the `Unmanaged.passUnretained(self).toOpaque()` pattern — do not use NSObject or `@objc`.

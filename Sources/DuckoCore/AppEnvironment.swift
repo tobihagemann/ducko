@@ -10,6 +10,7 @@ public final class AppEnvironment {
     public let rosterService: RosterService
     public let fileTransferService: FileTransferService
     public let bookmarksService: BookmarksService
+    public let avatarService: AvatarService
     public let profileService: ProfileService
     public let linkPreviewService: LinkPreviewService
 
@@ -28,17 +29,19 @@ public final class AppEnvironment {
         let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore)
         let bookmarksService = BookmarksService()
         bookmarksService.autoJoinEnabled = true
+        let avatarService = AvatarService(store: store)
         let profileService = ProfileService()
         let fileTransferService = FileTransferService()
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
 
-        accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService, weak fileTransferService, weak bookmarksService] event, accountID in
+        accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService, weak fileTransferService, weak bookmarksService, weak avatarService] event, accountID in
             Task { @MainActor in
                 await chatService?.handleEvent(event, accountID: accountID)
                 presenceService?.handleEvent(event, accountID: accountID)
                 await rosterService?.handleEvent(event, accountID: accountID)
                 fileTransferService?.handleJingleEvent(event, accountID: accountID)
                 await bookmarksService?.handleEvent(event, accountID: accountID)
+                await avatarService?.handleEvent(event, accountID: accountID)
             }
             onExternalEvent?(event, accountID)
         }
@@ -49,6 +52,8 @@ public final class AppEnvironment {
         rosterService.setPresenceService(presenceService)
         bookmarksService.setAccountService(accountService)
         bookmarksService.setChatService(chatService)
+        avatarService.setAccountService(accountService)
+        avatarService.setRosterService(rosterService)
         profileService.setAccountService(accountService)
         fileTransferService.setAccountService(accountService)
         fileTransferService.setChatService(chatService)
@@ -66,6 +71,7 @@ public final class AppEnvironment {
         self.presenceService = presenceService
         self.rosterService = rosterService
         self.bookmarksService = bookmarksService
+        self.avatarService = avatarService
         self.profileService = profileService
         self.fileTransferService = fileTransferService
         self.linkPreviewService = linkPreviewService

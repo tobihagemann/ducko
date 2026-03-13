@@ -42,6 +42,9 @@ public enum XMPPEvent: Sendable {
     case pepItemsPublished(from: BareJID, node: String, items: [PEPItem])
     case pepItemsRetracted(from: BareJID, node: String, itemIDs: [String])
 
+    /// Avatar (XEP-0153 vCard-Based Avatars)
+    case vcardAvatarHashReceived(from: BareJID, hash: String?)
+
     // Blocking (XEP-0191)
     case blockListLoaded([BareJID])
     case contactBlocked(BareJID)

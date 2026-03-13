@@ -119,6 +119,7 @@ public final class BookmarksService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             break
         }

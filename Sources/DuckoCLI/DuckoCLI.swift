@@ -2,6 +2,7 @@ import ArgumentParser
 import DuckoCore
 import DuckoXMPP
 import Foundation
+import UniformTypeIdentifiers
 
 @main
 struct DuckoCLI: AsyncParsableCommand {
@@ -17,6 +18,7 @@ struct DuckoCLI: AsyncParsableCommand {
             History.self,
             Room.self,
             Bookmarks.self,
+            Avatar.self,
             Account.self,
             Interactive.self
         ],
@@ -834,6 +836,117 @@ extension DuckoCLI {
         }
     }
 
+    struct Avatar: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "avatar",
+            abstract: "Manage user avatars",
+            subcommands: [Get.self, Set.self]
+        )
+
+        struct Get: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Fetch and save a contact's avatar"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The JID to fetch the avatar from")
+            var jid: String
+
+            @Option(name: .long, help: "File path to save the avatar (default: <jid>.png)")
+            var save: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                guard let bareJID = BareJID.parse(jid) else {
+                    throw CLIError.invalidJID(jid)
+                }
+
+                guard let avatar = await env.avatarService.fetchAvatar(for: bareJID, accountID: selectedAccount.id) else {
+                    print("No avatar found for \(jid).")
+                    await env.accountService.disconnect(accountID: selectedAccount.id)
+                    return
+                }
+
+                let ext = avatar.mimeType.contains("png") ? "png" : "jpg"
+                let filePath = save ?? "\(jid).\(ext)"
+                try avatar.data.write(to: URL(fileURLWithPath: filePath))
+
+                print("Saved avatar to \(filePath)")
+                print("Hash: \(avatar.hash)")
+                print("Type: \(avatar.mimeType)")
+                print("Size: \(avatar.data.count) bytes")
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Set: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Publish own avatar from an image file"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "Path to the image file (PNG recommended)")
+            var path: String
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                let url = URL(fileURLWithPath: path)
+                let imageData = try Data(contentsOf: url)
+
+                let ext = url.pathExtension
+                let mimeType = UTType(filenameExtension: ext)?.preferredMIMEType ?? "image/png"
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                try await env.avatarService.publishAvatar(imageData: imageData, mimeType: mimeType, accountID: selectedAccount.id)
+
+                let hash = await MainActor.run { env.avatarService.ownAvatarHash ?? "unknown" }
+                print("Avatar published successfully.")
+                print("Hash: \(hash)")
+                print("Size: \(imageData.count) bytes")
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+    }
+
     struct Account: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage XMPP accounts",
@@ -1029,6 +1142,7 @@ private func printREPLHelp() {
     print("  /decline [sid]           Decline incoming file transfer")
     print("  /transfers               List active transfers")
     print("  /rooms [service]         Discover available rooms")
+    print("  /avatar [jid]            View avatar info (own or contact's)")
     print("  /connection-info         Show TLS connection info")
     print("  /pref chatstates on|off  Toggle chat state notifications")
     print("  help                     Show this help")
@@ -1081,6 +1195,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input.hasPrefix("/approve ") || input.hasPrefix("/deny ")
         || input == "/history" || input.hasPrefix("/history ")
         || input == "/profile" || input == "/connection-info"
+        || input == "/avatar" || input.hasPrefix("/avatar ")
         || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
         || input.hasPrefix("/pref ")
 }
@@ -1116,7 +1231,15 @@ private func dispatchMiscREPLCommand(
         }
     } else if input == "/history" || input.hasPrefix("/history ") {
         await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
-    } else if input == "/profile" {
+    } else {
+        await dispatchInfoREPLCommand(input, context: context)
+    }
+}
+
+private func dispatchInfoREPLCommand(
+    _ input: String, context: REPLContext
+) async {
+    if input == "/profile" {
         await handleProfileREPLCommand(context: context)
     } else if input == "/connection-info" {
         await handleConnectionInfoREPLCommand(context: context)
@@ -1124,6 +1247,8 @@ private func dispatchMiscREPLCommand(
         await handleReplyREPLCommand(input, context: context)
     } else if input.hasPrefix("/search ") {
         await handleSearchREPLCommand(input, context: context)
+    } else if input == "/avatar" || input.hasPrefix("/avatar ") {
+        await handleAvatarREPLCommand(input, context: context)
     } else if input.hasPrefix("/pref ") {
         await handlePrefREPLCommand(input)
     }
@@ -1639,6 +1764,36 @@ private func handleHistoryCommand(
     } catch {
         print(formatter.formatError(error))
     }
+}
+
+private func handleAvatarREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/avatar".count).trimmingCharacters(in: .whitespaces)
+
+    if args.isEmpty {
+        // Show own avatar info
+        let hash = await MainActor.run { context.environment.avatarService.ownAvatarHash }
+        if let hash {
+            print("Own avatar hash: \(hash)")
+        } else {
+            print("No avatar set.")
+        }
+        return
+    }
+
+    guard let jid = BareJID.parse(args) else {
+        print("Invalid JID: \(args)")
+        return
+    }
+
+    guard let avatar = await context.environment.avatarService.fetchAvatar(for: jid, accountID: context.accountID) else {
+        print("No avatar found for \(jid).")
+        return
+    }
+
+    print("Avatar for \(jid):")
+    print("  Hash: \(avatar.hash)")
+    print("  Type: \(avatar.mimeType)")
+    print("  Size: \(avatar.data.count) bytes")
 }
 
 private func handleProfileREPLCommand(context: REPLContext) async {
