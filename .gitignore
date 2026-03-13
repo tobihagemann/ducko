@@ -1,28 +1,14 @@
 # SwiftPM
 .build/
-.swiftpm/xcode/xcuserdata/
+.swiftpm/
 
 # VS Code
 .vscode/
-
-# Xcode
-*.xcodeproj/
-*.xcworkspace/
-xcuserdata/
-DerivedData/
 
 # macOS
 .DS_Store
 ._*
 
-# Docs
-docs/
-
 # App bundles & packaging artifacts
 *.app/
 *.dmg
-
-# Environment & Secrets
-.env
-.env.local
-.env.*.local
