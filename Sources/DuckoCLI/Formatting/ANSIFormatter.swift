@@ -24,7 +24,7 @@ struct ANSIFormatter: CLIFormatter {
         let body = if message.body.hasPrefix("/me ") {
             "* \(message.fromJID) \(message.body.dropFirst(4))"
         } else {
-            "\(message.fromJID): \(message.body)"
+            "\(message.fromJID): \(styledBody(message.body))"
         }
         var line = "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(body)\(Color.reset)"
         if message.isEdited {
@@ -199,7 +199,7 @@ struct ANSIFormatter: CLIFormatter {
         let formatted = if body.hasPrefix("/me ") {
             "* \(jid) \(body.dropFirst(4))"
         } else {
-            "\(jid): \(body)"
+            "\(jid): \(styledBody(body))"
         }
         return "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(formatted) [carbon]\(Color.reset)"
     }
@@ -210,7 +210,7 @@ struct ANSIFormatter: CLIFormatter {
         let formatted = if body.hasPrefix("/me ") {
             "* \(from) \(body.dropFirst(4))"
         } else {
-            "\(from): \(body)"
+            "\(from): \(styledBody(body))"
         }
         return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(formatted)\(Color.reset)"
     }
@@ -291,7 +291,7 @@ struct ANSIFormatter: CLIFormatter {
         let formatted = if body.hasPrefix("/me ") {
             "* \(nickname) \(body.dropFirst(4))"
         } else {
-            "\(from.bareJID)/\(nickname): \(body)"
+            "\(from.bareJID)/\(nickname): \(styledBody(body))"
         }
         return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(formatted)\(Color.reset)"
     }
@@ -359,6 +359,11 @@ struct ANSIFormatter: CLIFormatter {
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
+    }
+
+    private func styledBody(_ body: String) -> String {
+        let blocks = MessageStylingParser.parse(body)
+        return MessageStylingANSIRenderer.render(blocks)
     }
 
     private func formatDisconnect(_ reason: DisconnectReason) -> String {

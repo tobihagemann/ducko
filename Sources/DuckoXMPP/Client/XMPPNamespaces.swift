@@ -45,4 +45,5 @@ public enum XMPPNamespaces {
     public static let avatarMetadata = "urn:xmpp:avatar:metadata"
     public static let vcardAvatarUpdate = "vcard-temp:x:update"
     public static let pepVCardConversion = "urn:xmpp:pep-vcard-conversion:0"
+    public static let styling = "urn:xmpp:styling:0"
 }

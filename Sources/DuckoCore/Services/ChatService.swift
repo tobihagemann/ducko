@@ -769,13 +769,18 @@ public final class ChatService {
             return
         }
 
+        let content = MessageContent(body: body, isUnstyled: xmppMessage.isUnstyled)
+        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
+        let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
+
         let fromLabel = senderNickname ?? roomJID.description
         let message = ChatMessage(
             id: UUID(),
             conversationID: conversation.id,
             stanzaID: xmppMessage.id,
             fromJID: fromLabel,
-            body: body,
+            body: filtered.body,
+            htmlBody: filtered.htmlBody,
             timestamp: Date(),
             isOutgoing: false,
             isRead: false,
@@ -856,7 +861,7 @@ public final class ChatService {
             return
         }
 
-        let content = MessageContent(body: body)
+        let content = MessageContent(body: body, isUnstyled: xmppMessage.isUnstyled)
         let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: fromJID))
         let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
 
@@ -908,7 +913,7 @@ public final class ChatService {
             return
         }
 
-        let content = MessageContent(body: body)
+        let content = MessageContent(body: body, isUnstyled: forwarded.message.isUnstyled)
         let filterDirection: FilterDirection = isOutgoing ? .outgoing : .incoming
         let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
         let filtered = await filterPipeline.process(content, direction: filterDirection, context: filterContext)

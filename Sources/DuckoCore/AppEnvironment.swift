@@ -58,12 +58,7 @@ public final class AppEnvironment {
         fileTransferService.setAccountService(accountService)
         fileTransferService.setChatService(chatService)
 
-        Task {
-            await pipeline.register(LinkDetectionFilter())
-            await pipeline.register(EmojiFilter())
-            await pipeline.register(MentionFilter())
-            await pipeline.register(LinkPreviewFilter(previewService: linkPreviewService))
-        }
+        Self.registerFilters(pipeline: pipeline, linkPreviewService: linkPreviewService)
 
         self.credentialStore = resolvedCredentialStore
         self.accountService = accountService
@@ -75,5 +70,15 @@ public final class AppEnvironment {
         self.profileService = profileService
         self.fileTransferService = fileTransferService
         self.linkPreviewService = linkPreviewService
+    }
+
+    private static func registerFilters(pipeline: MessageFilterPipeline, linkPreviewService: LinkPreviewService) {
+        Task {
+            await pipeline.register(StylingFilter())
+            await pipeline.register(LinkDetectionFilter())
+            await pipeline.register(EmojiFilter())
+            await pipeline.register(MentionFilter())
+            await pipeline.register(LinkPreviewFilter(previewService: linkPreviewService))
+        }
     }
 }

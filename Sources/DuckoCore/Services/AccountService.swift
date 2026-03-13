@@ -242,6 +242,7 @@ public final class AccountService {
         pepModule.registerNotifyInterest(XMPPNamespaces.avatarMetadata)
         builder.withModule(pepModule)
         builder.withModule(BlockingModule())
+        builder.withModule(StylingModule())
         let sm = StreamManagementModule(previousState: previousSMState)
         builder.withModule(sm)
         builder.withInterceptor(sm)

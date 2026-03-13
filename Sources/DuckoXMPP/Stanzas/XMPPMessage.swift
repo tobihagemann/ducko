@@ -39,4 +39,9 @@ public struct XMPPMessage: XMPPStanza {
         get { element.childText(named: "subject") }
         set { element.setChildText(named: "subject", to: newValue) }
     }
+
+    /// Whether the message contains a XEP-0393 `<unstyled/>` hint.
+    public var isUnstyled: Bool {
+        element.child(named: "unstyled", namespace: XMPPNamespaces.styling) != nil
+    }
 }

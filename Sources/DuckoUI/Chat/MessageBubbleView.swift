@@ -72,7 +72,7 @@ struct MessageBubbleView: View {
                     Text(message.fromJID)
                         .font(.caption)
                         .fontWeight(.semibold)
-                        .foregroundStyle(Color.forNickname(message.fromJID))
+                        .foregroundStyle(Color.forNickname(message.fromJID, colorScheme: colorScheme))
                         .padding(.leading, 4)
                 }
 
