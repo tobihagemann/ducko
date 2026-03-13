@@ -46,4 +46,8 @@ public enum XMPPNamespaces {
     public static let vcardAvatarUpdate = "vcard-temp:x:update"
     public static let pepVCardConversion = "urn:xmpp:pep-vcard-conversion:0"
     public static let styling = "urn:xmpp:styling:0"
+    public static let messageRetract = "urn:xmpp:message-retract:1"
+    public static let messageModerate = "urn:xmpp:message-moderate:1"
+    public static let fallbackIndication = "urn:xmpp:fallback:0"
+    public static let processingHints = "urn:xmpp:hints"
 }

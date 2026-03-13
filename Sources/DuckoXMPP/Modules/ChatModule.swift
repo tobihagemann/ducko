@@ -1,9 +1,16 @@
 import os
 
+/// XEP-0424 fallback body for clients that don't support message retraction.
+private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
+
 /// Handles 1:1 `<message type="chat">` stanzas, including XEP-0308 corrections
 /// and XEP-0461 replies.
 public final class ChatModule: XMPPModule, Sendable {
     private let state: OSAllocatedUnfairLock<ModuleContext?>
+
+    public var features: [String] {
+        [XMPPNamespaces.messageRetract]
+    }
 
     public init() {
         self.state = OSAllocatedUnfairLock(initialState: nil)
@@ -24,6 +31,13 @@ public final class ChatModule: XMPPModule, Sendable {
             let stanzaError = XMPPStanzaError.parse(from: message.element.child(named: "error"))
                 ?? XMPPStanzaError(errorType: .cancel, condition: .undefinedCondition)
             context?.emitEvent(.messageError(messageID: message.id, from: from, error: stanzaError))
+            return
+        }
+
+        // XEP-0424: Message retraction
+        if let retract = message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract),
+           let originalID = retract.attribute("id") {
+            context?.emitEvent(.messageRetracted(originalID: originalID, from: from))
             return
         }
 
@@ -112,6 +126,24 @@ public final class ChatModule: XMPPModule, Sendable {
             let active = XMLElement(name: "active", namespace: XMPPNamespaces.chatStates)
             message.element.addChild(active)
         }
+        try await context.sendStanza(message)
+    }
+
+    /// Sends a message retraction (XEP-0424) for a previously sent message.
+    public func sendRetraction(to recipient: JID, originalID: String) async throws {
+        guard let context = state.withLock({ $0 }) else { return }
+        var message = XMPPMessage(type: .chat, to: recipient, id: context.generateID())
+        let retract = XMLElement(
+            name: "retract",
+            namespace: XMPPNamespaces.messageRetract,
+            attributes: ["id": originalID]
+        )
+        message.element.addChild(retract)
+        let fallback = XMLElement(name: "fallback", namespace: XMPPNamespaces.fallbackIndication, attributes: ["for": XMPPNamespaces.messageRetract])
+        message.element.addChild(fallback)
+        message.body = retractionFallbackBody
+        let store = XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+        message.element.addChild(store)
         try await context.sendStanza(message)
     }
 }

@@ -101,7 +101,7 @@ struct JSONFormatter: CLIFormatter {
         case let .messageCarbonSent(forwarded):
             return formatCarbonEvent(forwarded, isOutgoing: true, account: account)
         case .presenceSubscriptionRequest, .deliveryReceiptReceived,
-             .messageCorrected, .messageError:
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             return formatMiscEvent(event, account: account)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
@@ -139,7 +139,7 @@ struct JSONFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -185,6 +185,12 @@ struct JSONFormatter: CLIFormatter {
                 "account": account
             ]
             if let text = error.text { dict["text"] = text }
+            return encode(dict)
+        case let .messageRetracted(originalID, from):
+            return encode(["type": "message_retracted", "original_id": originalID, "from": from.bareJID.description, "account": account])
+        case let .messageModerated(originalID, moderator, room, reason):
+            var dict: [String: String] = ["type": "message_moderated", "original_id": originalID, "moderator": moderator, "room": room.description, "account": account]
+            if let reason { dict["reason"] = reason }
             return encode(dict)
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
@@ -267,7 +273,7 @@ struct JSONFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -436,7 +442,7 @@ struct JSONFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,

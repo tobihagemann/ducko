@@ -1125,6 +1125,7 @@ private func printREPLHelp() {
     print("  /history <jid> [limit]   Show message history")
     print("  /profile                 View own vCard profile")
     print("  /reply <jid> <message>   Reply to last incoming message")
+    print("  /retract <jid>           Retract last sent message")
     print("  /search <jid> <query>    Search message history")
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
@@ -1197,6 +1198,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input == "/profile" || input == "/connection-info"
         || input == "/avatar" || input.hasPrefix("/avatar ")
         || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
+        || input.hasPrefix("/retract ")
         || input.hasPrefix("/pref ")
 }
 
@@ -1249,6 +1251,8 @@ private func dispatchInfoREPLCommand(
         await handleSearchREPLCommand(input, context: context)
     } else if input == "/avatar" || input.hasPrefix("/avatar ") {
         await handleAvatarREPLCommand(input, context: context)
+    } else if input.hasPrefix("/retract ") {
+        await handleRetractREPLCommand(input, context: context)
     } else if input.hasPrefix("/pref ") {
         await handlePrefREPLCommand(input)
     }
@@ -1820,6 +1824,45 @@ private func handleConnectionInfoREPLCommand(context: REPLContext) async {
         print(context.formatter.formatTLSInfo(info))
     } else {
         print("No TLS connection info available.")
+    }
+}
+
+private func handleRetractREPLCommand(_ input: String, context: REPLContext) async {
+    let jidString = input.dropFirst("/retract ".count).trimmingCharacters(in: .whitespaces)
+    guard !jidString.isEmpty else {
+        print("Usage: /retract <jid>")
+        return
+    }
+    guard let bareJID = BareJID.parse(jidString) else {
+        print(context.formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+    do {
+        let messages = try await fetchHistory(
+            jid: bareJID, before: nil, limit: 10,
+            environment: context.environment, accountID: context.accountID
+        )
+        guard let lastOutgoing = messages.last(where: { $0.isOutgoing && $0.stanzaID != nil && !$0.isRetracted }),
+              let stanzaID = lastOutgoing.stanzaID
+        else {
+            print("No recent outgoing message to retract.")
+            return
+        }
+        let isGroupchat = lastOutgoing.type == "groupchat"
+        if isGroupchat {
+            try await context.environment.chatService.retractGroupMessage(
+                stanzaID: stanzaID, inRoomJIDString: jidString,
+                accountID: context.accountID
+            )
+        } else {
+            try await context.environment.chatService.retractMessage(
+                stanzaID: stanzaID, toJIDString: jidString,
+                accountID: context.accountID
+            )
+        }
+        print("Retracted message: \(stanzaID)")
+    } catch {
+        print(context.formatter.formatError(error))
     }
 }
 

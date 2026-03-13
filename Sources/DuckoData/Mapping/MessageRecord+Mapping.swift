@@ -21,6 +21,8 @@ extension MessageRecord {
             type: type,
             replyToID: replyToID,
             errorText: errorText,
+            isRetracted: isRetracted,
+            retractedAt: retractedAt,
             attachments: attachments.map { $0.toDomain() }
         )
     }

@@ -12,12 +12,13 @@ actor CLIEventHandler {
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
-        case .messageReceived, .messageCarbonReceived, .messageCarbonSent,
+        case let .messageReceived(message):
+            if shouldSkipRawMessage(message) { return }
+            ringBell()
+        case .messageCarbonReceived, .messageCarbonSent,
              .roomMessageReceived, .roomInviteReceived,
              .jingleFileTransferReceived:
-            if isInteractive, !(formatter is JSONFormatter) {
-                print("\u{07}", terminator: "")
-            }
+            ringBell()
         case let .chatStateChanged(from, state):
             guard isInteractive else { return }
             if let output = formatter.formatTypingIndicator(from: from, state: state) {
@@ -32,7 +33,7 @@ actor CLIEventHandler {
              .presenceUpdated, .presenceSubscriptionRequest,
              .archivedMessagesLoaded,
              .deliveryReceiptReceived, .chatMarkerReceived,
-             .messageCorrected, .messageError,
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -44,5 +45,16 @@ actor CLIEventHandler {
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }
         print(output)
+    }
+
+    private func shouldSkipRawMessage(_ message: XMPPMessage) -> Bool {
+        message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil
+            || message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil
+    }
+
+    private func ringBell() {
+        if isInteractive, !(formatter is JSONFormatter) {
+            print("\u{07}", terminator: "")
+        }
     }
 }

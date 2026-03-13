@@ -21,6 +21,8 @@ final class MessageRecord {
     var attachments: [AttachmentRecord]
     var replyToID: String?
     var errorText: String?
+    var isRetracted: Bool = false
+    var retractedAt: Date?
 
     init(
         id: UUID,
@@ -39,7 +41,9 @@ final class MessageRecord {
         conversation: ConversationRecord? = nil,
         attachments: [AttachmentRecord] = [],
         replyToID: String? = nil,
-        errorText: String? = nil
+        errorText: String? = nil,
+        isRetracted: Bool = false,
+        retractedAt: Date? = nil
     ) {
         self.id = id
         self.stanzaID = stanzaID
@@ -58,5 +62,7 @@ final class MessageRecord {
         self.attachments = attachments
         self.replyToID = replyToID
         self.errorText = errorText
+        self.isRetracted = isRetracted
+        self.retractedAt = retractedAt
     }
 }

@@ -118,6 +118,23 @@ actor MockPersistenceStore: PersistenceStore {
         }
     }
 
+    func markMessageRetracted(stanzaID: String, retractedAt: Date) async throws {
+        applyRetraction(matching: { $0.stanzaID == stanzaID }, retractedAt: retractedAt)
+    }
+
+    func markMessageRetractedByServerID(_ serverID: String, retractedAt: Date) async throws {
+        applyRetraction(matching: { $0.serverID == serverID }, retractedAt: retractedAt)
+    }
+
+    private func applyRetraction(matching predicate: (ChatMessage) -> Bool, retractedAt: Date) {
+        for index in messages.indices where predicate(messages[index]) {
+            messages[index].isRetracted = true
+            messages[index].retractedAt = retractedAt
+            messages[index].body = ""
+            messages[index].htmlBody = nil
+        }
+    }
+
     // MARK: - Link Previews
 
     func fetchLinkPreview(for url: String) async throws -> LinkPreview? {

@@ -76,43 +76,56 @@ struct MessageBubbleView: View {
                         .padding(.leading, 4)
                 }
 
-                if let replied = repliedMessage {
-                    ReplyQuoteView(
-                        senderName: replied.isOutgoing ? "You" : replied.fromJID,
-                        bodyPreview: replied.body
-                    )
-                }
-
-                if isImageOnlyMessage {
-                    AttachmentView(attachment: message.attachments[0], isOutgoing: message.isOutgoing)
+                if message.isRetracted {
+                    Text("This message was retracted")
+                        .italic()
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, theme.current.bubblePadding)
+                        .padding(.vertical, theme.current.bubblePadding * 0.67)
+                        .background(
+                            theme.bubbleColor(isOutgoing: message.isOutgoing, colorScheme: colorScheme),
+                            in: .rect(cornerRadius: theme.current.bubbleCornerRadius)
+                        )
+                        .accessibilityIdentifier("retracted-message")
                 } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(message.attachments) { attachment in
-                            AttachmentView(attachment: attachment, isOutgoing: message.isOutgoing)
-                        }
+                    if let replied = repliedMessage {
+                        ReplyQuoteView(
+                            senderName: replied.isOutgoing ? "You" : replied.fromJID,
+                            bodyPreview: replied.body
+                        )
+                    }
 
-                        if !message.body.isEmpty {
-                            if isActionMessage {
-                                Text("* \(actionSenderName) \(actionText)")
-                                    .italic()
-                            } else if let attributedString = parsedHTMLBody {
-                                Text(attributedString)
-                            } else {
-                                Text(message.body)
+                    if isImageOnlyMessage {
+                        AttachmentView(attachment: message.attachments[0], isOutgoing: message.isOutgoing)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(message.attachments) { attachment in
+                                AttachmentView(attachment: attachment, isOutgoing: message.isOutgoing)
+                            }
+
+                            if !message.body.isEmpty {
+                                if isActionMessage {
+                                    Text("* \(actionSenderName) \(actionText)")
+                                        .italic()
+                                } else if let attributedString = parsedHTMLBody {
+                                    Text(attributedString)
+                                } else {
+                                    Text(message.body)
+                                }
+                            }
+
+                            if theme.current.showLinkPreviews, let preview = windowState.linkPreview(for: message) {
+                                LinkPreviewCard(preview: preview)
                             }
                         }
-
-                        if theme.current.showLinkPreviews, let preview = windowState.linkPreview(for: message) {
-                            LinkPreviewCard(preview: preview)
-                        }
+                        .padding(.horizontal, theme.current.bubblePadding)
+                        .padding(.vertical, theme.current.bubblePadding * 0.67)
+                        .background(
+                            theme.bubbleColor(isOutgoing: message.isOutgoing, colorScheme: colorScheme),
+                            in: .rect(cornerRadius: theme.current.bubbleCornerRadius)
+                        )
+                        .foregroundStyle(theme.textColor(isOutgoing: message.isOutgoing, colorScheme: colorScheme))
                     }
-                    .padding(.horizontal, theme.current.bubblePadding)
-                    .padding(.vertical, theme.current.bubblePadding * 0.67)
-                    .background(
-                        theme.bubbleColor(isOutgoing: message.isOutgoing, colorScheme: colorScheme),
-                        in: .rect(cornerRadius: theme.current.bubbleCornerRadius)
-                    )
-                    .foregroundStyle(theme.textColor(isOutgoing: message.isOutgoing, colorScheme: colorScheme))
                 }
 
                 MessageMetadataView(

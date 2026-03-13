@@ -1,6 +1,9 @@
 import DuckoCore
+import os
 import SwiftUI
 import UniformTypeIdentifiers
+
+private let log = Logger(subsystem: "com.ducko.ui", category: "chat-window")
 
 @MainActor @Observable
 final class ChatWindowState {
@@ -132,6 +135,24 @@ final class ChatWindowState {
     func cancelReplyOrEdit() {
         replyingTo = nil
         editingMessage = nil
+    }
+
+    // MARK: - Retraction
+
+    func retractMessage(_ message: ChatMessage) async {
+        guard let accountID = environment.accountService.accounts.first?.id,
+              let stanzaID = message.stanzaID else { return }
+
+        do {
+            if isGroupchat {
+                try await environment.chatService.retractGroupMessage(stanzaID: stanzaID, inRoomJIDString: jidString, accountID: accountID)
+            } else {
+                try await environment.chatService.retractMessage(stanzaID: stanzaID, toJIDString: jidString, accountID: accountID)
+            }
+            await refreshMessages()
+        } catch {
+            log.warning("Failed to retract message: \(error)")
+        }
     }
 
     // MARK: - Infinite Scroll

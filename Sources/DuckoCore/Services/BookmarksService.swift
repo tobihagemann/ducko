@@ -111,7 +111,7 @@ public final class BookmarksService {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
-             .messageCorrected, .messageError,
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
              .roomInviteReceived, .roomMessageReceived, .roomDestroyed,

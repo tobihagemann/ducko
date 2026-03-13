@@ -18,7 +18,12 @@ struct MessageMetadataView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if message.isEdited {
+            if message.isRetracted {
+                Text(retractedLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .help(retractedTooltip)
+            } else if message.isEdited {
                 Text(editedLabel)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -67,5 +72,16 @@ struct MessageMetadataView: View {
 
     private var editedTooltip: String {
         message.editedAt?.formatted(date: .abbreviated, time: .standard) ?? ""
+    }
+
+    private var retractedLabel: String {
+        if let retractedAt = message.retractedAt {
+            return "(retracted \(retractedAt.formatted(.relative(presentation: .named))))"
+        }
+        return "(retracted)"
+    }
+
+    private var retractedTooltip: String {
+        message.retractedAt?.formatted(date: .abbreviated, time: .standard) ?? ""
     }
 }

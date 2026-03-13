@@ -165,6 +165,50 @@ public final class ChatService {
         try await sendCorrection(to: jid, originalStanzaID: originalStanzaID, newBody: newBody, accountID: accountID)
     }
 
+    // MARK: - Retractions
+
+    public func retractMessage(stanzaID: String, to jid: BareJID, accountID: UUID) async throws {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
+
+        try await chatModule.sendRetraction(to: .bare(jid), originalID: stanzaID)
+        try await store.markMessageRetracted(stanzaID: stanzaID, retractedAt: Date())
+        await reloadActiveMessages()
+    }
+
+    public func retractMessage(stanzaID: String, toJIDString jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        try await retractMessage(stanzaID: stanzaID, to: jid, accountID: accountID)
+    }
+
+    public func retractGroupMessage(stanzaID: String, inRoomJIDString roomJIDString: String, accountID: UUID) async throws {
+        guard let room = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        try await retractGroupMessage(stanzaID: stanzaID, in: room, accountID: accountID)
+    }
+
+    public func retractGroupMessage(stanzaID: String, in room: BareJID, accountID: UUID) async throws {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+
+        try await mucModule.sendRetraction(to: room, originalID: stanzaID)
+        try await store.markMessageRetracted(stanzaID: stanzaID, retractedAt: Date())
+        await reloadActiveMessages()
+    }
+
+    // periphery:ignore - specced feature (XEP-0425), not yet wired to UI
+    public func moderateMessage(serverID: String, in room: BareJID, reason: String?, accountID: UUID) async throws {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+
+        try await mucModule.moderateMessage(room: room, stanzaID: serverID, reason: reason)
+        try await store.markMessageRetractedByServerID(serverID, retractedAt: Date())
+        await reloadActiveMessages()
+    }
+
     // MARK: - Replies
 
     public func sendReply(
@@ -539,8 +583,8 @@ public final class ChatService {
             handleChatStateChanged(from: from, state: chatState)
         case let .messageCorrected(originalID, newBody, _):
             await handleMessageCorrected(originalID: originalID, newBody: newBody)
-        case let .messageError(messageID, _, error):
-            await handleMessageError(messageID: messageID, errorText: error.displayText)
+        case .messageRetracted, .messageModerated, .messageError:
+            await handleMessageUpdateEvent(event)
         case .rosterLoaded:
             Task { [weak self] in
                 await self?.syncRecentHistory(accountID: accountID)
@@ -589,7 +633,7 @@ public final class ChatService {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
-             .messageCorrected, .messageError,
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
@@ -614,7 +658,7 @@ public final class ChatService {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
-             .messageCorrected, .messageError,
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomSubjectChanged,
@@ -656,7 +700,7 @@ public final class ChatService {
              .presenceUpdated, .presenceSubscriptionRequest,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
-             .messageCorrected, .messageError,
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -689,6 +733,37 @@ public final class ChatService {
 
     private func handleMessageCorrected(originalID: String, newBody: String) async {
         try? await store.updateMessageBody(stanzaID: originalID, newBody: newBody, isEdited: true, editedAt: Date())
+        await reloadActiveMessages()
+    }
+
+    private func handleMessageUpdateEvent(_ event: XMPPEvent) async {
+        switch event {
+        case let .messageRetracted(originalID, _):
+            try? await store.markMessageRetracted(stanzaID: originalID, retractedAt: Date())
+        case let .messageModerated(originalID, _, _, _):
+            try? await store.markMessageRetractedByServerID(originalID, retractedAt: Date())
+        case let .messageError(messageID, _, error):
+            await handleMessageError(messageID: messageID, errorText: error.displayText)
+            return
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
+             .messageCorrected,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged, .roomSubjectChanged,
+             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .mucSelfPingFailed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            return
+        }
         await reloadActiveMessages()
     }
 
@@ -773,11 +848,17 @@ public final class ChatService {
         let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
         let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
 
+        // Parse XEP-0359 stanza-id assigned by the MUC server
+        let serverID: String? = xmppMessage.element.children(named: "stanza-id")
+            .first(where: { $0.namespace == XMPPNamespaces.stanzaID && $0.attribute("by") == roomJID.description })
+            .flatMap { $0.attribute("id") }
+
         let fromLabel = senderNickname ?? roomJID.description
         let message = ChatMessage(
             id: UUID(),
             conversationID: conversation.id,
             stanzaID: xmppMessage.id,
+            serverID: serverID,
             fromJID: fromLabel,
             body: filtered.body,
             htmlBody: filtered.htmlBody,
@@ -840,6 +921,11 @@ public final class ChatService {
     }
 
     private func handleMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
+        // Skip retractions — handled by .messageRetracted event
+        if xmppMessage.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil {
+            return
+        }
+
         // Skip corrections — handled by .messageCorrected event
         if xmppMessage.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil {
             return
@@ -901,6 +987,16 @@ public final class ChatService {
         guard forwarded.message.messageType != .groupchat,
               let body = forwarded.message.body,
               let jid else { return }
+
+        // Skip retractions — handled by .messageRetracted event
+        if forwarded.message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil {
+            return
+        }
+
+        // Skip corrections — handled by .messageCorrected event
+        if forwarded.message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil {
+            return
+        }
 
         if await isDuplicate(stanzaID: forwarded.message.id, from: jid, accountID: accountID) {
             return

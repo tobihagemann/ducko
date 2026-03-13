@@ -109,6 +109,8 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `certIssuer` | Certificate Issuer label | Connection Info |
 | `certExpiry` | Certificate Expiry label | Connection Info |
 | `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
+| `retract-button` | Retract context menu button (own msgs) | Chat |
+| `retracted-message` | Retracted message tombstone | Chat |
 
 ## Context Menu Features
 

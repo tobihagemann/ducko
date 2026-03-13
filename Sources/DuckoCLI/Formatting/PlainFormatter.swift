@@ -69,7 +69,7 @@ struct PlainFormatter: CLIFormatter {
         case let .messageCarbonSent(forwarded):
             return formatCarbonEvent(forwarded, isOutgoing: true)
         case .presenceSubscriptionRequest, .deliveryReceiptReceived,
-             .messageCorrected, .messageError:
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
@@ -107,7 +107,7 @@ struct PlainFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -173,7 +173,7 @@ struct PlainFormatter: CLIFormatter {
              .presenceUpdated, .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
@@ -248,7 +248,7 @@ struct PlainFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -270,6 +270,11 @@ struct PlainFormatter: CLIFormatter {
             return "message corrected by \(from.bareJID): \(newBody)"
         case let .messageError(_, from, error):
             return "message error from \(from.bareJID): \(error.displayText)"
+        case let .messageRetracted(originalID, from):
+            return "[retracted] message retracted by \(from.bareJID) (id: \(originalID))"
+        case let .messageModerated(originalID, moderator, room, reason):
+            let reasonStr = reason.map { ": \($0)" } ?? ""
+            return "[moderated] message moderated by \(moderator) in \(room) (id: \(originalID))\(reasonStr)"
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,

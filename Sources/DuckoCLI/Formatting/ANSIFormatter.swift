@@ -94,7 +94,7 @@ struct ANSIFormatter: CLIFormatter {
         case let .messageCarbonSent(forwarded):
             return formatCarbonEvent(forwarded, isOutgoing: true)
         case .presenceSubscriptionRequest, .deliveryReceiptReceived,
-             .messageCorrected, .messageError:
+             .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
@@ -132,7 +132,7 @@ struct ANSIFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -244,7 +244,7 @@ struct ANSIFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
@@ -319,7 +319,7 @@ struct ANSIFormatter: CLIFormatter {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -341,6 +341,11 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
         case let .messageError(_, from, error):
             return "\(Color.red)message error from \(from.bareJID): \(error.displayText)\(Color.reset)"
+        case let .messageRetracted(originalID, from):
+            return "\(Color.dim)\u{2298} message retracted by \(from.bareJID) (id: \(originalID))\(Color.reset)"
+        case let .messageModerated(originalID, moderator, room, reason):
+            let reasonStr = reason.map { ": \($0)" } ?? ""
+            return "\(Color.dim)\u{2298} message moderated by \(moderator) in \(room) (id: \(originalID))\(reasonStr)\(Color.reset)"
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,

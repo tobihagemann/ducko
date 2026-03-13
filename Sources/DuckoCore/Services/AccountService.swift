@@ -294,7 +294,7 @@ public final class AccountService {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageError,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
              .roomInviteReceived, .roomMessageReceived, .roomDestroyed,

@@ -672,7 +672,7 @@ enum XMPPClientTests {
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass")
             )
-            await client.register(ChatModule())
+            await client.register(NoFeatureModule())
 
             let features = await client.availableFeatures
             #expect(features.isEmpty)
@@ -741,6 +741,10 @@ private final class FeatureModuleB: XMPPModule {
         ["urn:xmpp:feature-b1"]
     }
 
+    func setUp(_ context: ModuleContext) {}
+}
+
+private final class NoFeatureModule: XMPPModule {
     func setUp(_ context: ModuleContext) {}
 }
 

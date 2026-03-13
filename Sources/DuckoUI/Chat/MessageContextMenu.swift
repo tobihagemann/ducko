@@ -7,19 +7,28 @@ struct MessageContextMenu: View {
     let windowState: ChatWindowState
 
     var body: some View {
-        Button("Copy") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(message.body, forType: .string)
+        if !message.isRetracted {
+            Button("Copy") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message.body, forType: .string)
+            }
+
+            Button("Reply") {
+                windowState.startReply(to: message)
+            }
         }
 
-        Button("Reply") {
-            windowState.startReply(to: message)
-        }
-
-        if message.isOutgoing, message.stanzaID != nil {
+        if message.isOutgoing, !message.isRetracted, message.stanzaID != nil {
             Button("Edit") {
                 windowState.startEdit(of: message)
             }
+
+            Button("Retract") {
+                Task {
+                    await windowState.retractMessage(message)
+                }
+            }
+            .accessibilityIdentifier("retract-button")
         }
     }
 }

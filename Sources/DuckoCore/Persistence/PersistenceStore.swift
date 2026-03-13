@@ -31,6 +31,8 @@ public protocol PersistenceStore: Sendable {
     func updateMessageDeliveryStatus(stanzaID: String, isDelivered: Bool) async throws
     func updateMessageBody(stanzaID: String, newBody: String, isEdited: Bool, editedAt: Date) async throws
     func updateMessageError(stanzaID: String, errorText: String) async throws
+    func markMessageRetracted(stanzaID: String, retractedAt: Date) async throws
+    func markMessageRetractedByServerID(_ serverID: String, retractedAt: Date) async throws
 
     // MARK: - Link Previews
 

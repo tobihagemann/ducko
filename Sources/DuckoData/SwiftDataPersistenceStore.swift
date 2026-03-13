@@ -309,6 +309,32 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         }
     }
 
+    public func markMessageRetracted(stanzaID: String, retractedAt: Date) throws {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.stanzaID == stanzaID }
+        )
+        descriptor.fetchLimit = 1
+        try applyRetraction(descriptor: descriptor, retractedAt: retractedAt)
+    }
+
+    public func markMessageRetractedByServerID(_ serverID: String, retractedAt: Date) throws {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.serverID == serverID }
+        )
+        descriptor.fetchLimit = 1
+        try applyRetraction(descriptor: descriptor, retractedAt: retractedAt)
+    }
+
+    private func applyRetraction(descriptor: FetchDescriptor<MessageRecord>, retractedAt: Date) throws {
+        if let record = try modelContext.fetch(descriptor).first {
+            record.isRetracted = true
+            record.retractedAt = retractedAt
+            record.body = ""
+            record.htmlBody = nil
+            try modelContext.save()
+        }
+    }
+
     // MARK: - Link Previews
 
     public func fetchLinkPreview(for url: String) throws -> LinkPreview? {

@@ -2,6 +2,9 @@ import os
 
 private let log = Logger(subsystem: "com.ducko.xmpp", category: "muc")
 
+/// XEP-0424 fallback body for clients that don't support message retraction.
+private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
+
 /// Implements XEP-0045 Multi-User Chat — room join/leave, occupant tracking, group messaging, and invitations.
 public final class MUCModule: XMPPModule, Sendable {
     // MARK: - State
@@ -267,6 +270,20 @@ public final class MUCModule: XMPPModule, Sendable {
             return
         }
 
+        // XEP-0424/0425: Message retraction or moderation
+        if let retract = message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) {
+            let context = state.withLock { $0.context }
+            if let moderated = retract.child(named: "moderated", namespace: XMPPNamespaces.messageModerate),
+               let originalID = retract.attribute("id") {
+                let moderator = moderated.attribute("by") ?? from.description
+                let reason = retract.child(named: "reason")?.textContent
+                context?.emitEvent(.messageModerated(originalID: originalID, moderator: moderator, room: roomJID, reason: reason))
+            } else if let originalID = retract.attribute("id") {
+                context?.emitEvent(.messageRetracted(originalID: originalID, from: from))
+            }
+            return
+        }
+
         // Group message
         guard message.body != nil else { return }
 
@@ -351,6 +368,45 @@ public final class MUCModule: XMPPModule, Sendable {
         var message = XMPPMessage(type: .groupchat, to: .bare(room), id: stanzaID)
         message.body = body
         try await context.sendStanza(message)
+    }
+
+    /// Sends a message retraction (XEP-0424) for a previously sent groupchat message.
+    public func sendRetraction(to room: BareJID, originalID: String) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var message = XMPPMessage(type: .groupchat, to: .bare(room), id: context.generateID())
+        let retract = XMLElement(
+            name: "retract",
+            namespace: XMPPNamespaces.messageRetract,
+            attributes: ["id": originalID]
+        )
+        message.element.addChild(retract)
+        let fallback = XMLElement(name: "fallback", namespace: XMPPNamespaces.fallbackIndication, attributes: ["for": XMPPNamespaces.messageRetract])
+        message.element.addChild(fallback)
+        message.body = retractionFallbackBody
+        let store = XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+        message.element.addChild(store)
+        try await context.sendStanza(message)
+    }
+
+    // periphery:ignore - specced feature (XEP-0425), not yet wired to UI
+    /// Sends a moderation request (XEP-0425) to retract a message by stanza-id.
+    public func moderateMessage(room: BareJID, stanzaID: String, reason: String? = nil) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
+        var moderate = XMLElement(
+            name: "moderate",
+            namespace: XMPPNamespaces.messageModerate,
+            attributes: ["id": stanzaID]
+        )
+        let retract = XMLElement(name: "retract", namespace: XMPPNamespaces.messageRetract)
+        moderate.addChild(retract)
+        if let reason {
+            var reasonElement = XMLElement(name: "reason")
+            reasonElement.addText(reason)
+            moderate.addChild(reasonElement)
+        }
+        iq.element.addChild(moderate)
+        _ = try await context.sendIQ(iq)
     }
 
     /// Sets the room subject.
