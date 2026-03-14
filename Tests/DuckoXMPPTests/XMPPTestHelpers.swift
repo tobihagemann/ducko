@@ -95,6 +95,51 @@ func collectEvents(
     }
 }
 
+// MARK: - SASL2 Constants
+
+/// Features offering SASL2 with PLAIN and inline Bind 2 + SM.
+/// Uses PLAIN only for simpler test handshakes (no challenge/response needed).
+let testFeaturesSASL2 = """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<authentication xmlns='urn:xmpp:sasl:2'>\
+<mechanism>PLAIN</mechanism>\
+<inline>\
+<bind xmlns='urn:xmpp:bind:0'/>\
+<sm xmlns='urn:xmpp:sm:3'/>\
+</inline>\
+</authentication>\
+</features>
+"""
+
+/// SASL2 success with Bind 2 and inline SM enabled.
+let testSASL2SuccessWithBind = """
+<success xmlns='urn:xmpp:sasl:2'>\
+<authorization-identifier>user@example.com/ducko</authorization-identifier>\
+<bound xmlns='urn:xmpp:bind:0'>\
+<enabled xmlns='urn:xmpp:sm:3' id='sm-resume-1' max='300'/>\
+</bound>\
+</success>
+"""
+
+/// Post-auth features after SASL2 (bind already done, only informational).
+let testPostSASL2Features = """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<sm xmlns='urn:xmpp:sm:3'/>\
+</features>
+"""
+
+/// Simulates a SASL2 + Bind 2 connect handshake using PLAIN mechanism.
+func simulateSASL2Connect(_ mock: MockTransport) async {
+    await mock.waitForSent(count: 1) // stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesSASL2)
+    await mock.waitForSent(count: 2) // <authenticate> with inline bind2 sent
+    await mock.simulateReceive(testSASL2SuccessWithBind)
+    await mock.waitForSent(count: 3) // post-auth stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testPostSASL2Features)
+}
+
 // MARK: - IQ ID Extraction
 
 /// Extracts the IQ `id` attribute value from a raw XML string.

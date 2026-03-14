@@ -174,53 +174,98 @@ public actor XMPPClient {
         let features1 = try await reader.awaitFeatures()
 
         // 2. TLS — skip STARTTLS if direct TLS is already active
-        let postTLSFeatures: XMLElement
+        let postTLSFeatures = try await negotiateTLSIfNeeded(features1, reader: reader)
+
+        // 3. Prefer SASL2 + Bind 2 when both available
+        if let sasl2Features = SASL2Authenticator.parseFeatures(postTLSFeatures),
+           sasl2Features.supportsBind2 {
+            return try await performSASL2Flow(postTLSFeatures, sasl2Features: sasl2Features, reader: reader)
+        }
+
+        // 4. Fallback: SASL1 + sequential bind
+        return try await performSASL1Flow(postTLSFeatures, reader: reader)
+    }
+
+    /// Handles TLS negotiation (STARTTLS or direct TLS). Returns post-TLS features.
+    private func negotiateTLSIfNeeded(_ features: XMLElement, reader: EventReader) async throws -> XMLElement {
         if await connection.isDirectTLS {
             log.info("Direct TLS active")
             let info = await connection.tlsInfo
             tlsInfoLock.withLock { $0 = info }
-            postTLSFeatures = features1
-        } else if features1.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {
+            return features
+        } else if features.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {
             state = .negotiatingTLS
             try await negotiateTLS(reader: reader)
             log.info("TLS established via STARTTLS")
             let info = await connection.tlsInfo
             tlsInfoLock.withLock { $0 = info }
             try await openStream()
-            postTLSFeatures = try await reader.awaitFeatures()
+            return try await reader.awaitFeatures()
         } else if requireTLS {
             throw XMPPClientError.tlsRequired
         } else {
-            postTLSFeatures = features1
+            return features
         }
+    }
 
-        // 3. SASL authentication
+    // MARK: - Private: SASL2 + Bind 2
+
+    /// Performs the SASL2 + Bind 2 authentication and binding flow.
+    private func performSASL2Flow(
+        _ features: XMLElement,
+        sasl2Features: SASL2Features,
+        reader: EventReader
+    ) async throws -> Bool {
         state = .authenticating
-        try await authenticate(features: postTLSFeatures, reader: reader)
+        let requestedCarbons = sasl2Features.supportsBind2
+            && modules[ObjectIdentifier(CarbonsModule.self)] != nil
+        let authResult = try await authenticateSASL2(features: features, sasl2Features: sasl2Features, reader: reader)
+        log.info("Authenticated via SASL2")
+
+        // Post-auth stream reset (still required after SASL2 per RFC 6120 §6.3.2)
+        await connection.resetStream()
+        try await openStream()
+        let postAuthFeatures = try await reader.awaitFeatures()
+        serverFeaturesLock.withLock { $0 = postAuthFeatures }
+
+        // Process inline results (SM enabled, carbons, etc.)
+        let fullJID = authResult.fullJID
+        connectedJIDLock.withLock { $0 = fullJID }
+        processBind2Results(authResult, requestedCarbons: requestedCarbons)
+
+        log.notice("Connected as \(fullJID) via SASL2 + Bind 2")
+        state = .connected(fullJID)
+        eventContinuation.yield(.connected(fullJID))
+        return false
+    }
+
+    /// Performs the legacy SASL1 + sequential bind flow.
+    private func performSASL1Flow(_ features: XMLElement, reader: EventReader) async throws -> Bool {
+        state = .authenticating
+        try await authenticate(features: features, reader: reader)
         log.info("Authenticated")
 
-        // 4. Post-auth stream (reset parser for new XML document)
+        // Post-auth stream (reset parser for new XML document)
         await connection.resetStream()
         try await openStream()
         let features3 = try await reader.awaitFeatures()
         serverFeaturesLock.withLock { $0 = features3 }
 
-        // 5. Attempt SM resume (before bind)
+        // Attempt SM resume (before bind)
         if try await attemptSMResume(features: features3, reader: reader) {
             return true
         }
 
-        // 6. Resource binding
+        // Resource binding
         state = .bindingResource
         let fullJID = try await bindResource(reader: reader)
 
-        // 7. Session establishment (if required)
+        // Session establishment (if required)
         if let session = features3.child(named: "session", namespace: XMPPNamespaces.session),
            session.child(named: "optional") == nil {
             try await establishSession(reader: reader)
         }
 
-        // 8. Connected
         log.notice("Connected as \(fullJID)")
         connectedJIDLock.withLock { $0 = fullJID }
         state = .connected(fullJID)
@@ -378,6 +423,77 @@ public actor XMPPClient {
                 eventContinuation.yield(.authenticationFailed(message))
                 throw XMPPClientError.authenticationFailed(message)
             }
+        }
+    }
+
+    // MARK: - Private: SASL2 Authentication
+
+    private func authenticateSASL2(
+        features: XMLElement,
+        sasl2Features: SASL2Features,
+        reader: EventReader
+    ) async throws -> SASL2Authenticator.AuthResult {
+        var authenticator = SASL2Authenticator()
+
+        // Build inline payloads
+        var inlinePayloads: [XMLElement] = []
+        if sasl2Features.supportsBind2 {
+            let hasSM = modules[ObjectIdentifier(StreamManagementModule.self)] != nil
+            let hasCarbons = modules[ObjectIdentifier(CarbonsModule.self)] != nil
+            inlinePayloads.append(buildBind2Request(
+                enableSM: hasSM && sasl2Features.supportsSM,
+                enableCarbons: hasCarbons
+            ))
+        }
+
+        let authElement: XMLElement
+        do {
+            authElement = try authenticator.begin(
+                features: features,
+                authcid: credentials.username,
+                password: credentials.password,
+                inlinePayloads: inlinePayloads
+            )
+        } catch {
+            let message = String(describing: error)
+            eventContinuation.yield(.authenticationFailed(message))
+            throw XMPPClientError.authenticationFailed(message)
+        }
+
+        try await connection.send(XMPPStreamWriter.stanza(authElement))
+
+        // Drive the SASL2 exchange
+        while true {
+            let element = try await reader.awaitStanza()
+
+            let response = authenticator.receive(element)
+            switch response {
+            case let .continueWith(reply):
+                try await connection.send(XMPPStreamWriter.stanza(reply))
+            case let .success(result):
+                return result
+            case let .failure(error):
+                let message = String(describing: error)
+                eventContinuation.yield(.authenticationFailed(message))
+                throw XMPPClientError.authenticationFailed(message)
+            }
+        }
+    }
+
+    /// Processes inline feature results from Bind 2 (SM enabled, carbons, etc.).
+    private func processBind2Results(_ authResult: SASL2Authenticator.AuthResult, requestedCarbons: Bool) {
+        if let bound = authResult.bound {
+            // SM was enabled inline — server echoes <enabled> inside <bound>
+            if let smEnabled = bound.child(named: "enabled", namespace: XMPPNamespaces.sm),
+               let sm = modules[ObjectIdentifier(StreamManagementModule.self)] as? StreamManagementModule {
+                sm.processInlineEnabled(smEnabled)
+            }
+        }
+
+        // Carbons are activated by inclusion in the bind request — server doesn't echo back
+        if requestedCarbons,
+           let carbons = modules[ObjectIdentifier(CarbonsModule.self)] as? CarbonsModule {
+            carbons.markInlineEnabled()
         }
     }
 

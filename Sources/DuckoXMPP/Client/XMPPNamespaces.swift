@@ -56,4 +56,10 @@ public enum XMPPNamespaces {
     public static let channelSearchQuery = "urn:xmpp:channel-search:0:search"
     public static let register = "jabber:iq:register"
     public static let registerFeature = "http://jabber.org/features/iq-register"
+    public static let caps2 = "urn:xmpp:caps"
+    public static let hashes2 = "urn:xmpp:hashes:2"
+    public static let sasl2 = "urn:xmpp:sasl:2"
+    public static let bind2 = "urn:xmpp:bind:0"
+    public static let isr = "https://xmpp.org/extensions/isr/0"
+    public static let isrMechanism = "HT-SHA-256-ENDP"
 }

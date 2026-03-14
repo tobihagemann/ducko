@@ -7,6 +7,7 @@ private let log = Logger(subsystem: "com.ducko.xmpp", category: "carbons")
 public final class CarbonsModule: XMPPModule, Sendable {
     private struct State {
         var context: ModuleContext?
+        var inlineEnabled: Bool = false
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -25,7 +26,19 @@ public final class CarbonsModule: XMPPModule, Sendable {
 
     // MARK: - Lifecycle
 
+    /// Marks carbons as already enabled via Bind 2 inline negotiation.
+    public func markInlineEnabled() {
+        state.withLock { $0.inlineEnabled = true }
+    }
+
     public func handleConnect() async throws {
+        // Skip if carbons were already enabled inline via Bind 2
+        let alreadyEnabled = state.withLock { $0.inlineEnabled }
+        if alreadyEnabled {
+            log.info("Message Carbons already enabled via inline negotiation")
+            return
+        }
+
         guard let context = state.withLock({ $0.context }) else { return }
 
         var iq = XMPPIQ(type: .set, id: context.generateID())
@@ -38,6 +51,10 @@ public final class CarbonsModule: XMPPModule, Sendable {
         } catch {
             log.warning("Failed to enable Message Carbons: \(error)")
         }
+    }
+
+    public func handleDisconnect() async {
+        state.withLock { $0.inlineEnabled = false }
     }
 
     // MARK: - Message Handling

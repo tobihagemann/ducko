@@ -43,7 +43,7 @@ case "${1:-}" in
         swiftformat .
 
         echo "Linting (autocorrect)..."
-        swiftlint lint --fix --strict --quiet
+        swiftlint lint --fix --quiet
 
         echo "Linting..."
         swiftlint lint --strict --quiet

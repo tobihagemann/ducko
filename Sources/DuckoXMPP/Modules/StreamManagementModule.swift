@@ -10,6 +10,28 @@ public struct SMResumeState: Sendable {
     public let outgoingQueue: [XMLElement]
     public let connectedJID: FullJID
     public let location: String?
+    public let isrToken: String?
+    public let isrMechanism: String?
+
+    public init(
+        resumptionId: String,
+        incomingCounter: UInt32,
+        outgoingCounter: UInt32,
+        outgoingQueue: [XMLElement],
+        connectedJID: FullJID,
+        location: String?,
+        isrToken: String? = nil,
+        isrMechanism: String? = nil
+    ) {
+        self.resumptionId = resumptionId
+        self.incomingCounter = incomingCounter
+        self.outgoingCounter = outgoingCounter
+        self.outgoingQueue = outgoingQueue
+        self.connectedJID = connectedJID
+        self.location = location
+        self.isrToken = isrToken
+        self.isrMechanism = isrMechanism
+    }
 }
 
 /// Implements XEP-0198 Stream Management — tracks incoming/outgoing stanza
@@ -32,6 +54,8 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         var resumptionId: String?
         var location: String?
         var connectedJID: FullJID?
+        var isrToken: String?
+        var isrMechanism: String?
     }
 
     /// Result of processing a `<resumed>` or `<failed>` response from the server.
@@ -51,6 +75,8 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
             initial.outgoingQueue = previousState.outgoingQueue
             initial.connectedJID = previousState.connectedJID
             initial.location = previousState.location
+            initial.isrToken = previousState.isrToken
+            initial.isrMechanism = previousState.isrMechanism
             self.state = OSAllocatedUnfairLock(initialState: initial)
         } else {
             self.state = OSAllocatedUnfairLock(initialState: State())
@@ -74,7 +100,9 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
                 outgoingCounter: state.outgoingCounter,
                 outgoingQueue: state.outgoingQueue,
                 connectedJID: connectedJID,
-                location: state.location
+                location: state.location,
+                isrToken: state.isrToken,
+                isrMechanism: state.isrMechanism
             )
         }
     }
@@ -87,6 +115,13 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
     // MARK: - Lifecycle
 
     public func handleConnect() async throws {
+        // Skip if SM was already enabled inline via Bind 2
+        let alreadyEnabled = state.withLock { $0.enabled }
+        if alreadyEnabled {
+            log.info("Stream Management already enabled via inline negotiation")
+            return
+        }
+
         guard let context = state.withLock({ $0.context }) else { return }
 
         guard let features = context.serverStreamFeatures(),
@@ -95,18 +130,28 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
             return
         }
 
-        let enableElement = XMLElement(
+        var enableElement = XMLElement(
             name: "enable",
             namespace: XMPPNamespaces.sm,
             attributes: ["resume": "true"]
         )
 
+        // Request ISR token if server supports it
+        if features.child(named: "isr", namespace: XMPPNamespaces.isr) != nil {
+            enableElement.addChild(XMLElement(
+                name: "isr-enable",
+                namespace: XMPPNamespaces.isr,
+                attributes: ["mechanism": XMPPNamespaces.isrMechanism]
+            ))
+        }
+
+        let element = enableElement
         do {
             try await withCheckedThrowingContinuation { cont in
                 state.withLock { $0.enableContinuation = cont }
                 Task {
                     do {
-                        try await context.sendElement(enableElement)
+                        try await context.sendElement(element)
                     } catch {
                         let pending = self.state.withLock { state -> CheckedContinuation<Void, any Error>? in
                             let c = state.enableContinuation
@@ -143,7 +188,42 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
             state.outgoingCounter = 0
             state.outgoingQueue.removeAll()
             state.enabled = false
+            state.isrToken = nil
+            state.isrMechanism = nil
         }
+    }
+
+    // MARK: - Inline Enable (Bind 2)
+
+    /// Processes an inline `<enabled>` element from Bind 2 / SASL2 success.
+    /// Called synchronously during handshake — does not use the continuation pattern.
+    public func processInlineEnabled(_ element: XMLElement) {
+        state.withLock { state in
+            state.enabled = true
+            state.resumptionId = element.attribute("id")
+            state.location = element.attribute("location")
+            if let context = state.context {
+                state.connectedJID = context.connectedJID()
+            }
+            Self.parseISRToken(from: element, into: &state)
+        }
+    }
+
+    // MARK: - ISR
+
+    /// Whether this module has an ISR token for instant stream resumption.
+    public nonisolated var hasISRToken: Bool {
+        state.withLock { $0.isrToken != nil && $0.resumptionId != nil }
+    }
+
+    /// Returns the ISR token, or `nil` if no token is available.
+    public nonisolated var isrToken: String? {
+        state.withLock { $0.isrToken }
+    }
+
+    /// Stores a new ISR token after successful ISR resume.
+    public func updateISRToken(_ token: String?) {
+        state.withLock { $0.isrToken = token }
     }
 
     // MARK: - Resume
@@ -225,6 +305,7 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
                 if let context = state.context {
                     state.connectedJID = context.connectedJID()
                 }
+                Self.parseISRToken(from: element, into: &state)
                 let cont = state.enableContinuation
                 state.enableContinuation = nil
                 return cont
@@ -278,6 +359,13 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         let toRemove = Int(acked)
         if toRemove > 0 {
             state.outgoingQueue.removeFirst(toRemove)
+        }
+    }
+
+    private static func parseISRToken(from element: XMLElement, into state: inout State) {
+        if let isrEnabled = element.child(named: "isr-enabled", namespace: XMPPNamespaces.isr) {
+            state.isrToken = isrEnabled.attribute("token")
+            state.isrMechanism = isrEnabled.attribute("mechanism")
         }
     }
 
