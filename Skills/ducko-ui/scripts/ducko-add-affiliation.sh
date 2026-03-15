@@ -15,8 +15,9 @@ ROOM_JID="$1"
 AFF_JID="$2"
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 
-# Open Room Settings sheet
+# Open Room Settings sheet and switch to Members tab
 "$SCRIPTS/ducko-room-settings.sh" "$ROOM_JID" > /dev/null 2>&1
+"$SCRIPTS/ducko-room-settings-tab.sh" Members > /dev/null 2>&1
 sleep 0.5
 
 RESULT=$(osascript - "$AFF_JID" << 'APPLESCRIPT'
@@ -26,36 +27,8 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 0.3
         tell process "DuckoApp"
-            -- Find the window with room settings
-            set settingsWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "room-settings-view" then
-                            set settingsWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if settingsWin is not missing value then exit repeat
-            end repeat
-            if settingsWin is missing value then return "ERROR: room settings not found"
-
-            -- Switch to Members tab
-            set allElems to entire contents of settingsWin
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXRadioButton" and name of elem is "Members" then
-                        click elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            delay 0.5
-
             -- Fill the JID field and click Add
-            set allElems to entire contents of settingsWin
+            set allElems to entire contents of window 1
             repeat with elem in allElems
                 try
                     set elemId to value of attribute "AXIdentifier" of elem

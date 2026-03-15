@@ -210,6 +210,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-invite-user.sh` | Invite a user to a room via context menu | `ROOM_JID INVITEE_JID` |
 | `ducko-destroy-room.sh` | Destroy a room via Room Settings sheet | `ROOM_JID` |
 | `ducko-room-config-save.sh` | Save room config in Room Settings sheet | `ROOM_JID` |
+| `ducko-room-settings-tab.sh` | Switch to a tab in the Room Settings sheet | `<General\|Members>` |
 | `ducko-add-affiliation.sh` | Add a JID to a room's affiliation list | `ROOM_JID JID` |
 | `ducko-switch-tab.sh` | Switch to a specific chat tab by JID | `JID` |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
@@ -388,8 +389,7 @@ $SCRIPTS/ducko-room-settings.sh "room@conference.example.com"
 $SCRIPTS/ducko-screenshot.sh "room-settings-general.png"
 
 # 4. Switch to Members tab to see affiliation list
-# Note: Room Settings uses a tab view — click the "Members" tab via osascript or
-# use ducko-add-affiliation.sh which switches to Members tab automatically
+$SCRIPTS/ducko-room-settings-tab.sh Members
 $SCRIPTS/ducko-screenshot.sh "room-settings-members.png"
 
 # 5. Cleanup
