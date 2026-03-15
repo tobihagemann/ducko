@@ -202,6 +202,16 @@ Right-click a participant in the chat window sidebar:
 | `ducko-room-topic.sh` | View or set the room topic | `[TEXT]` (optional; no args prints current topic) |
 | `ducko-channel-search.sh` | Search for channels in the Join Room dialog | `QUERY` |
 | `ducko-connection-info.sh` | Open Connection Info sheet from Preferences > Accounts | none |
+| `ducko-register.sh` | Register a new account via in-band registration | `SERVER USERNAME PASSWORD [EMAIL]` |
+| `ducko-change-password.sh` | Change account password via Preferences > Accounts | `NEW_PASSWORD` |
+| `ducko-toggle-preference.sh` | Toggle any preference checkbox by identifier | `IDENTIFIER` (e.g., chatStatesToggle, encryptByDefaultToggle, tofuToggle) |
+| `ducko-edit-profile.sh` | Edit profile fields and optionally save | `[--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]` |
+| `ducko-remove-contact.sh` | Remove a contact via context menu | `JID` |
+| `ducko-invite-user.sh` | Invite a user to a room via context menu | `ROOM_JID INVITEE_JID` |
+| `ducko-destroy-room.sh` | Destroy a room via Room Settings sheet | `ROOM_JID` |
+| `ducko-room-config-save.sh` | Save room config in Room Settings sheet | `ROOM_JID` |
+| `ducko-add-affiliation.sh` | Add a JID to a room's affiliation list | `ROOM_JID JID` |
+| `ducko-switch-tab.sh` | Switch to a specific chat tab by JID | `JID` |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
 
@@ -378,31 +388,11 @@ $SCRIPTS/ducko-room-settings.sh "room@conference.example.com"
 $SCRIPTS/ducko-screenshot.sh "room-settings-general.png"
 
 # 4. Switch to Members tab to see affiliation list
+# Note: Room Settings uses a tab view — click the "Members" tab via osascript or
+# use ducko-add-affiliation.sh which switches to Members tab automatically
 $SCRIPTS/ducko-screenshot.sh "room-settings-members.png"
 
 # 5. Cleanup
-$SCRIPTS/ducko-stop.sh
-```
-
-### File attachment test
-
-Tests file attachment features — paperclip picker, pending bar, and attachment rendering:
-
-```bash
-SCRIPTS="Skills/ducko-ui/scripts"
-
-# 1. Launch and open a chat
-$SCRIPTS/ducko-launch.sh
-$SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
-
-# 2. Screenshot to verify attachment button (paperclip) is visible
-$SCRIPTS/ducko-screenshot.sh "attachment-button.png"
-
-# 3. Send a message with a URL to verify link preview
-$SCRIPTS/ducko-send.sh "Check out https://example.com"
-$SCRIPTS/ducko-screenshot.sh "link-preview.png"
-
-# 4. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 
@@ -501,9 +491,8 @@ $SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
 # 2. Screenshot to verify encryption menu button in chat header
 $SCRIPTS/ducko-screenshot.sh "encryption-menu.png"
 
-# 3. Click the encryption menu to open device fingerprints sheet
-# Use Peekaboo to click the encryption-menu identifier
-# Screenshot the device fingerprints sheet
+# 3. Open the device fingerprints sheet via the encryption menu
+$SCRIPTS/ducko-encrypt.sh fingerprints
 $SCRIPTS/ducko-screenshot.sh "device-fingerprints.png"
 
 # 4. Verify device rows show trust status
