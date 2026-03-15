@@ -72,7 +72,8 @@ public final class AvatarService {
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             break
         }
     }

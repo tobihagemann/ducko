@@ -111,7 +111,8 @@ struct ANSIFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -141,7 +142,8 @@ struct ANSIFormatter: CLIFormatter {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -249,7 +251,8 @@ struct ANSIFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -326,7 +329,8 @@ struct ANSIFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -361,7 +365,8 @@ struct ANSIFormatter: CLIFormatter {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }

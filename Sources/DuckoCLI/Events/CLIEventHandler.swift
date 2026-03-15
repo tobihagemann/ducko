@@ -40,7 +40,8 @@ actor CLIEventHandler {
              .roomOccupantNickChanged, .roomSubjectChanged, .roomDestroyed,
              .mucSelfPingFailed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             break
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }

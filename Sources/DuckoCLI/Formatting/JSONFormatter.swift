@@ -118,7 +118,8 @@ struct JSONFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -148,7 +149,8 @@ struct JSONFormatter: CLIFormatter {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -207,7 +209,8 @@ struct JSONFormatter: CLIFormatter {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -280,7 +283,8 @@ struct JSONFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -447,7 +451,8 @@ struct JSONFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }

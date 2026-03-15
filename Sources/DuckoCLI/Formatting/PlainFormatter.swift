@@ -86,7 +86,8 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -116,7 +117,8 @@ struct PlainFormatter: CLIFormatter {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -178,7 +180,8 @@ struct PlainFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -255,7 +258,8 @@ struct PlainFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }
@@ -290,7 +294,8 @@ struct PlainFormatter: CLIFormatter {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             return nil
         }
     }

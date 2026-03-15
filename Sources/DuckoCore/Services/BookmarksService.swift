@@ -120,7 +120,8 @@ public final class BookmarksService {
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             break
         }
     }

@@ -62,4 +62,14 @@ public enum XMPPNamespaces {
     public static let bind2 = "urn:xmpp:bind:0"
     public static let isr = "https://xmpp.org/extensions/isr/0"
     public static let isrMechanism = "HT-SHA-256-ENDP"
+
+    // OMEMO (XEP-0384)
+    public static let omemo = "urn:xmpp:omemo:2"
+    public static let omemoDevices = "urn:xmpp:omemo:2:devices"
+
+    /// Explicit Message Encryption (XEP-0380)
+    public static let eme = "urn:xmpp:eme:0"
+
+    /// Stanza Content Encryption (XEP-0420)
+    public static let sce = "urn:xmpp:sce:1"
 }

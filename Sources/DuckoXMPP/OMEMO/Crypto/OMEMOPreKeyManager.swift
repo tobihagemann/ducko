@@ -6,7 +6,6 @@ enum OMEMOPreKeyManager {
     /// Minimum number of pre-keys to include when publishing a bundle.
     static let minimumPreKeyCount = 25
 
-    // periphery:ignore - specced OMEMO constant, used by future OMEMOService
     /// Target number of pre-keys to maintain in storage.
     static let targetPreKeyCount = 100
 

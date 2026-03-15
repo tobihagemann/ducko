@@ -325,7 +325,9 @@ public final class AccountService {
         let pepModule = PEPModule()
         pepModule.registerNotifyInterest(XMPPNamespaces.bookmarks2)
         pepModule.registerNotifyInterest(XMPPNamespaces.avatarMetadata)
+        pepModule.registerNotifyInterest(XMPPNamespaces.omemoDevices)
         builder.withModule(pepModule)
+        builder.withModule(OMEMOModule(pepModule: pepModule))
         builder.withModule(BlockingModule())
         builder.withModule(StylingModule())
         builder.withModule(ChannelSearchModule())
@@ -390,7 +392,8 @@ public final class AccountService {
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             break
         }
 

@@ -51,6 +51,11 @@ public enum XMPPEvent: Sendable {
     case blockListLoaded([BareJID])
     case contactBlocked(BareJID)
     case contactUnblocked(BareJID)
+
+    // OMEMO (XEP-0384)
+    case omemoDeviceListReceived(jid: BareJID, devices: [UInt32])
+    case omemoEncryptedMessageReceived(from: JID, decryptedBody: String?, senderDeviceID: UInt32)
+    case omemoSessionEstablished(jid: BareJID, deviceID: UInt32)
 }
 
 /// Reason the client disconnected.

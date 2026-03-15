@@ -205,7 +205,8 @@ public final class FileTransferService {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
             break
         }
     }
