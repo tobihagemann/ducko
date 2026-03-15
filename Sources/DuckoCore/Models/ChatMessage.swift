@@ -19,6 +19,7 @@ public struct ChatMessage: Sendable, Identifiable {
     public var errorText: String?
     public var isRetracted: Bool
     public var retractedAt: Date?
+    public var isEncrypted: Bool
     public var attachments: [Attachment]
 
     public init(
@@ -40,6 +41,7 @@ public struct ChatMessage: Sendable, Identifiable {
         errorText: String? = nil,
         isRetracted: Bool = false,
         retractedAt: Date? = nil,
+        isEncrypted: Bool = false,
         attachments: [Attachment] = []
     ) {
         self.id = id
@@ -60,6 +62,7 @@ public struct ChatMessage: Sendable, Identifiable {
         self.errorText = errorText
         self.isRetracted = isRetracted
         self.retractedAt = retractedAt
+        self.isEncrypted = isEncrypted
         self.attachments = attachments
     }
 }

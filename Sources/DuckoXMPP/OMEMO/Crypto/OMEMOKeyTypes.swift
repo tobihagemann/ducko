@@ -111,29 +111,29 @@ struct OMEMOSignedPreKey {
 // MARK: - Pre-Key
 
 /// A single-use X25519 key pair for one-time pre-key exchanges.
-struct OMEMOPreKey {
-    let keyID: UInt32
+public struct OMEMOPreKey: Sendable {
+    public let keyID: UInt32
     let keyPair: Curve25519.KeyAgreement.PrivateKey
 
     /// Generates a new random pre-key.
-    init(keyID: UInt32) {
+    public init(keyID: UInt32) {
         self.keyID = keyID
         self.keyPair = Curve25519.KeyAgreement.PrivateKey()
     }
 
     /// Restores a pre-key from stored raw bytes.
-    init(keyID: UInt32, rawRepresentation: [UInt8]) throws {
+    public init(keyID: UInt32, rawRepresentation: [UInt8]) throws {
         self.keyID = keyID
         self.keyPair = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: rawRepresentation)
     }
 
     /// X25519 public key bytes (32 bytes).
-    var publicKeyBytes: [UInt8] {
+    public var publicKeyBytes: [UInt8] {
         Array(keyPair.publicKey.rawRepresentation)
     }
 
     /// Private key bytes for storage (32 bytes).
-    var rawRepresentation: [UInt8] {
+    public var rawRepresentation: [UInt8] {
         Array(keyPair.rawRepresentation)
     }
 }

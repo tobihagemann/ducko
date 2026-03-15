@@ -23,6 +23,7 @@ extension MessageRecord {
             errorText: errorText,
             isRetracted: isRetracted,
             retractedAt: retractedAt,
+            isEncrypted: isEncrypted,
             attachments: attachments.map { $0.toDomain() }
         )
     }

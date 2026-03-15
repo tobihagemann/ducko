@@ -220,7 +220,8 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
             type: message.type,
             conversation: conversationRecord,
             replyToID: message.replyToID,
-            errorText: message.errorText
+            errorText: message.errorText,
+            isEncrypted: message.isEncrypted
         )
         modelContext.insert(record)
         try modelContext.save()

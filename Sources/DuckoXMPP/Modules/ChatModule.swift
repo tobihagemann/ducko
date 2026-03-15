@@ -62,7 +62,8 @@ public final class ChatModule: XMPPModule, Sendable {
         id: String? = nil,
         requestReceipt: Bool = false,
         markable: Bool = false,
-        includeChatState: Bool = true
+        includeChatState: Bool = true,
+        additionalElements: [XMLElement] = []
     ) async throws {
         guard let context = state.withLock({ $0 }) else { return }
         let stanzaID = id ?? context.generateID()
@@ -79,6 +80,9 @@ public final class ChatModule: XMPPModule, Sendable {
         if includeChatState {
             let active = XMLElement(name: "active", namespace: XMPPNamespaces.chatStates)
             message.element.addChild(active)
+        }
+        for element in additionalElements {
+            message.element.addChild(element)
         }
         try await context.sendStanza(message)
     }

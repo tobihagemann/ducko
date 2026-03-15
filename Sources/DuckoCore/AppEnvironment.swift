@@ -13,10 +13,12 @@ public final class AppEnvironment {
     public let avatarService: AvatarService
     public let profileService: ProfileService
     public let linkPreviewService: LinkPreviewService
+    public let omemoService: OMEMOService
 
     public init(
         store: any PersistenceStore,
         credentialStore: (any CredentialStore)? = nil,
+        omemoStore: (any OMEMOStore)? = nil,
         linkPreviewFetcher: any LinkPreviewFetcher = NoOpLinkPreviewFetcher(),
         onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)? = nil
     ) {
@@ -33,8 +35,9 @@ public final class AppEnvironment {
         let profileService = ProfileService()
         let fileTransferService = FileTransferService()
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
+        let omemoService = OMEMOService(omemoStore: omemoStore ?? NoOpOMEMOStore())
 
-        accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService, weak fileTransferService, weak bookmarksService, weak avatarService] event, accountID in
+        accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService, weak fileTransferService, weak bookmarksService, weak avatarService, weak omemoService] event, accountID in
             Task { @MainActor in
                 await chatService?.handleEvent(event, accountID: accountID)
                 presenceService?.handleEvent(event, accountID: accountID)
@@ -42,21 +45,10 @@ public final class AppEnvironment {
                 fileTransferService?.handleJingleEvent(event, accountID: accountID)
                 await bookmarksService?.handleEvent(event, accountID: accountID)
                 await avatarService?.handleEvent(event, accountID: accountID)
+                await omemoService?.handleEvent(event, accountID: accountID)
             }
             onExternalEvent?(event, accountID)
         }
-
-        chatService.setAccountService(accountService)
-        presenceService.setAccountService(accountService)
-        rosterService.setAccountService(accountService)
-        rosterService.setPresenceService(presenceService)
-        bookmarksService.setAccountService(accountService)
-        bookmarksService.setChatService(chatService)
-        avatarService.setAccountService(accountService)
-        avatarService.setRosterService(rosterService)
-        profileService.setAccountService(accountService)
-        fileTransferService.setAccountService(accountService)
-        fileTransferService.setChatService(chatService)
 
         Self.registerFilters(pipeline: pipeline, linkPreviewService: linkPreviewService)
 
@@ -70,6 +62,27 @@ public final class AppEnvironment {
         self.profileService = profileService
         self.fileTransferService = fileTransferService
         self.linkPreviewService = linkPreviewService
+        self.omemoService = omemoService
+
+        wireServices()
+    }
+
+    private func wireServices() {
+        chatService.setAccountService(accountService)
+        chatService.setOMEMOService(omemoService)
+        presenceService.setAccountService(accountService)
+        rosterService.setAccountService(accountService)
+        rosterService.setPresenceService(presenceService)
+        bookmarksService.setAccountService(accountService)
+        bookmarksService.setChatService(chatService)
+        avatarService.setAccountService(accountService)
+        avatarService.setRosterService(rosterService)
+        profileService.setAccountService(accountService)
+        fileTransferService.setAccountService(accountService)
+        fileTransferService.setChatService(chatService)
+        omemoService.setAccountService(accountService)
+        omemoService.setChatService(chatService)
+        accountService.setOMEMOService(omemoService)
     }
 
     private static func registerFilters(pipeline: MessageFilterPipeline, linkPreviewService: LinkPreviewService) {

@@ -51,6 +51,7 @@ actor CLIEventHandler {
     private func shouldSkipRawMessage(_ message: XMPPMessage) -> Bool {
         message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil
             || message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil
+            || message.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil
     }
 
     private func ringBell() {

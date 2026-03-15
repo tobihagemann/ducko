@@ -23,6 +23,7 @@ final class MessageRecord {
     var errorText: String?
     var isRetracted: Bool = false
     var retractedAt: Date?
+    var isEncrypted: Bool = false
 
     init(
         id: UUID,
@@ -43,7 +44,8 @@ final class MessageRecord {
         replyToID: String? = nil,
         errorText: String? = nil,
         isRetracted: Bool = false,
-        retractedAt: Date? = nil
+        retractedAt: Date? = nil,
+        isEncrypted: Bool = false
     ) {
         self.id = id
         self.stanzaID = stanzaID
@@ -64,5 +66,6 @@ final class MessageRecord {
         self.errorText = errorText
         self.isRetracted = isRetracted
         self.retractedAt = retractedAt
+        self.isEncrypted = isEncrypted
     }
 }

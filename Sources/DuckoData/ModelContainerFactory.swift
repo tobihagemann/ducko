@@ -9,7 +9,12 @@ public enum ModelContainerFactory {
         ConversationRecord.self,
         MessageRecord.self,
         AttachmentRecord.self,
-        LinkPreviewRecord.self
+        LinkPreviewRecord.self,
+        OMEMOIdentityRecord.self,
+        OMEMOPreKeyRecord.self,
+        OMEMOSignedPreKeyRecord.self,
+        OMEMOSessionRecord.self,
+        OMEMOTrustRecord.self
     ])
 
     public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {

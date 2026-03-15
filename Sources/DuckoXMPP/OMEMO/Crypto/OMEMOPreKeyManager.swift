@@ -1,13 +1,12 @@
 import CryptoKit
 
 /// Pre-key generation and bundle construction for OMEMO.
-enum OMEMOPreKeyManager {
-    // periphery:ignore - specced OMEMO constant, used by future OMEMOService
+public enum OMEMOPreKeyManager {
     /// Minimum number of pre-keys to include when publishing a bundle.
-    static let minimumPreKeyCount = 25
+    public static let minimumPreKeyCount = 25
 
     /// Target number of pre-keys to maintain in storage.
-    static let targetPreKeyCount = 100
+    public static let targetPreKeyCount = 100
 
     /// Generates a batch of one-time pre-keys with sequential IDs.
     ///
@@ -15,7 +14,7 @@ enum OMEMOPreKeyManager {
     ///   - startID: The first key ID in the batch.
     ///   - count: Number of pre-keys to generate.
     /// - Returns: Array of freshly generated pre-keys.
-    static func generatePreKeys(startID: UInt32, count: Int) -> [OMEMOPreKey] {
+    public static func generatePreKeys(startID: UInt32, count: Int) -> [OMEMOPreKey] {
         (0 ..< count).map { offset in
             OMEMOPreKey(keyID: startID + UInt32(offset))
         }

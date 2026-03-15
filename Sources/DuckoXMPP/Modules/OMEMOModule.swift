@@ -14,6 +14,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         var context: ModuleContext?
         var deviceLists: [BareJID: [UInt32]] = [:]
         var ownIdentity: OwnIdentity?
+        var pendingIdentity: OMEMOIdentityData?
         var sessions: [SessionKey: OMEMODoubleRatchetSession] = [:]
         var sessionAD: [SessionKey: [UInt8]] = [:]
         var usedPreKeyIDs: Set<UInt32> = []
@@ -38,8 +39,17 @@ public final class OMEMOModule: XMPPModule, Sendable {
     }
 
     public func handleConnect() async throws {
-        let identity = try generateOwnIdentity()
-        state.withLock { $0.ownIdentity = identity }
+        let identity: OwnIdentity
+        if let pending = state.withLock({ $0.pendingIdentity }) {
+            identity = try restoreIdentity(from: pending)
+            state.withLock {
+                $0.pendingIdentity = nil
+                $0.ownIdentity = identity
+            }
+        } else {
+            identity = try generateOwnIdentity()
+            state.withLock { $0.ownIdentity = identity }
+        }
         try await ensureOwnDeviceInList(identity.deviceID)
         try await publishOwnBundle(identity)
         let deviceID = identity.deviceID.value
@@ -63,13 +73,79 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    // periphery:ignore - specced feature, wired by DuckoCore in Prompt 19
+    // periphery:ignore - specced feature, wired by DuckoCore in Prompt 20
     /// The current device ID, or `nil` if not yet set up.
     public var ownDeviceID: UInt32? {
         state.withLock { $0.ownIdentity?.deviceID.value }
     }
 
-    // periphery:ignore - specced feature, wired by DuckoCore in Prompt 19
+    /// Exports the current identity as serializable data for persistence.
+    public var ownIdentityData: OMEMOIdentityData? {
+        state.withLock { state in
+            guard let identity = state.ownIdentity else { return nil }
+            return OMEMOIdentityData(
+                deviceID: identity.deviceID.value,
+                identityKeyRaw: identity.identityKeyPair.rawRepresentation,
+                signedPreKeyID: identity.signedPreKey.keyID,
+                signedPreKeyRaw: identity.signedPreKey.rawRepresentation,
+                signedPreKeySignature: identity.signedPreKey.signature,
+                preKeys: identity.preKeys.map {
+                    OMEMOIdentityData.PreKeyData(keyID: $0.keyID, keyRaw: $0.rawRepresentation)
+                }
+            )
+        }
+    }
+
+    /// Pre-configures identity data to be used on next `handleConnect()` instead of generating fresh.
+    public func configureIdentity(_ data: OMEMOIdentityData) {
+        state.withLock { $0.pendingIdentity = data }
+    }
+
+    /// Returns the set of pre-key IDs consumed during this session.
+    public func consumedPreKeyIDs() -> Set<UInt32> {
+        state.withLock { $0.usedPreKeyIDs }
+    }
+
+    /// Restores previously persisted sessions into the module's in-memory state.
+    public func restoreSessions(_ entries: [StoredSessionEntry]) {
+        state.withLock { state in
+            for entry in entries {
+                let key = SessionKey(jid: entry.jid, deviceID: entry.deviceID)
+                if let session = try? OMEMODoubleRatchetSession(serialized: entry.sessionData) {
+                    state.sessions[key] = session
+                    state.sessionAD[key] = entry.associatedData
+                }
+            }
+        }
+    }
+
+    /// Exports a single session's state for persistent storage.
+    public func exportSession(jid: BareJID, deviceID: UInt32) -> StoredSessionEntry? {
+        state.withLock { state in
+            let key = SessionKey(jid: jid, deviceID: deviceID)
+            guard let session = state.sessions[key],
+                  let ad = state.sessionAD[key]
+            else { return nil }
+            return StoredSessionEntry(
+                jid: jid, deviceID: deviceID,
+                sessionData: session.serialize(), associatedData: ad
+            )
+        }
+    }
+
+    /// Exports all sessions for persistent storage (e.g., on disconnect).
+    public func allSessionEntries() -> [StoredSessionEntry] {
+        state.withLock { state in
+            state.sessions.compactMap { key, session in
+                guard let ad = state.sessionAD[key] else { return nil }
+                return StoredSessionEntry(
+                    jid: key.jid, deviceID: key.deviceID,
+                    sessionData: session.serialize(), associatedData: ad
+                )
+            }
+        }
+    }
+
     /// Fetches device IDs for a JID (from cache or PEP).
     public func fetchDeviceList(
         for jid: BareJID
@@ -82,17 +158,26 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return devices
     }
 
-    // periphery:ignore - specced feature, wired by DuckoCore in Prompt 19
-    /// Encrypts a message for all known devices of the recipient.
+    /// Encrypts a message for the recipient's devices.
+    ///
+    /// - Parameters:
+    ///   - plaintext: Message body to encrypt.
+    ///   - recipientJID: The recipient's bare JID.
+    ///   - recipientDeviceIDs: Specific device IDs to encrypt for, or `nil` to encrypt for all known devices.
     public func encryptMessage(
         plaintext: String,
-        to recipientJID: BareJID
+        to recipientJID: BareJID,
+        recipientDeviceIDs: [UInt32]? = nil
     ) async throws -> EncryptedMessageElements {
         let identity = try requireOwnIdentity()
         let contentKey = randomBytes(32)
         let sceBytes = buildSCEEnvelope(body: plaintext)
         let payload = try encryptPayload(sceBytes, contentKey: contentKey)
-        let recipientDevices = try await fetchDeviceList(for: recipientJID)
+        let recipientDevices: [UInt32] = if let recipientDeviceIDs {
+            recipientDeviceIDs
+        } else {
+            try await fetchDeviceList(for: recipientJID)
+        }
         var keys: [XMLElement] = []
         for deviceID in recipientDevices {
             let key = try await encryptKeyForDevice(
@@ -127,6 +212,29 @@ public final class OMEMOModule: XMPPModule, Sendable {
     }
 
     // MARK: - Identity Generation
+
+    private func restoreIdentity(from data: OMEMOIdentityData) throws -> OwnIdentity {
+        let context = state.withLock { $0.context }
+        guard let connectedJID = context?.connectedJID() else {
+            throw OMEMOModuleError.notSetUp
+        }
+        let identityKeyPair = try OMEMOIdentityKeyPair(rawRepresentation: data.identityKeyRaw)
+        let signedPreKey = try OMEMOSignedPreKey(
+            keyID: data.signedPreKeyID,
+            rawRepresentation: data.signedPreKeyRaw,
+            signature: data.signedPreKeySignature
+        )
+        let preKeys = try data.preKeys.map {
+            try OMEMOPreKey(keyID: $0.keyID, rawRepresentation: $0.keyRaw)
+        }
+        return OwnIdentity(
+            deviceID: OMEMODeviceID(value: data.deviceID),
+            identityKeyPair: identityKeyPair,
+            signedPreKey: signedPreKey,
+            preKeys: preKeys,
+            connectedJID: connectedJID
+        )
+    }
 
     private func generateOwnIdentity() throws -> OwnIdentity {
         let deviceID = OMEMODeviceID.random()
@@ -221,7 +329,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
         )
     }
 
-    // periphery:ignore - called by encryptMessage path
     private func fetchBundle(
         from jid: BareJID, deviceID: UInt32
     ) async throws -> OMEMOBundle {
@@ -282,8 +389,14 @@ public final class OMEMOModule: XMPPModule, Sendable {
                 decryptedBody: result.body,
                 senderDeviceID: result.senderDeviceID
             ))
+        } catch OMEMOModuleError.notForThisDevice {
+            // Not addressed to us — ignore silently
         } catch {
             log.warning("OMEMO decryption failed: \(error)")
+            let context = state.withLock { $0.context }
+            context?.emitEvent(.omemoEncryptedMessageReceived(
+                from: from, decryptedBody: nil, senderDeviceID: 0
+            ))
         }
     }
 
@@ -418,7 +531,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Encryption
 
-    // periphery:ignore - called by encryptMessage path
     private func encryptPayload(
         _ plaintext: [UInt8], contentKey: [UInt8]
     ) throws -> String {
@@ -430,7 +542,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return Base64.encode(combined)
     }
 
-    // periphery:ignore - called by encryptMessage path
     private func encryptKeyForDevice(
         contentKey: [UInt8], jid: BareJID,
         deviceID: UInt32, identity: OwnIdentity
@@ -466,7 +577,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Session Management
 
-    // periphery:ignore - called by encryptMessage path
     private func getOrEstablishSession(
         sessionKey: SessionKey, identity: OwnIdentity
     ) async throws -> SessionResult {
@@ -483,7 +593,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
         )
     }
 
-    // periphery:ignore - called by encryptMessage path
     private func establishSession(
         sessionKey: SessionKey, identity: OwnIdentity
     ) async throws -> SessionResult {
@@ -739,7 +848,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return encrypted
     }
 
-    // periphery:ignore - called by encryptMessage path
     private func buildKeyElement(
         deviceID: UInt32, data: [UInt8], isKex: Bool
     ) -> XMLElement {
@@ -752,7 +860,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Key Wire Format
 
-    // periphery:ignore - called by encryptMessage path
     private func serializeKeyExchange(
         ratchetMessage: OMEMORatchetMessage,
         identity: OwnIdentity, kexInfo: InitiatorKexInfo
@@ -851,7 +958,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
         "\(XMPPNamespaces.omemo):bundles:\(deviceID)"
     }
 
-    // periphery:ignore - called by encryptMessage path
     private func randomBytes(_ count: Int) -> [UInt8] {
         (0 ..< count).map { _ in UInt8.random(in: 0 ... 255) }
     }
@@ -895,7 +1001,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
 // MARK: - Public Types
 
 public extension OMEMOModule {
-    // periphery:ignore - specced feature, returned by encryptMessage
     /// Elements to attach to an outgoing message for OMEMO encryption.
     struct EncryptedMessageElements: Sendable {
         /// `<encrypted xmlns='urn:xmpp:omemo:2'>` with header and payload.
@@ -905,6 +1010,63 @@ public extension OMEMOModule {
         /// Fallback body for non-OMEMO clients.
         public let fallbackBody: String
     }
+
+    /// Serializable identity data for persistent storage.
+    struct OMEMOIdentityData: Sendable {
+        public let deviceID: UInt32
+        /// Ed25519 seed (32 bytes).
+        public let identityKeyRaw: [UInt8]
+        public let signedPreKeyID: UInt32
+        /// X25519 private key raw (32 bytes).
+        public let signedPreKeyRaw: [UInt8]
+        /// Ed25519 signature over the signed pre-key (64 bytes).
+        public let signedPreKeySignature: [UInt8]
+        public let preKeys: [PreKeyData]
+
+        public struct PreKeyData: Sendable {
+            public let keyID: UInt32
+            /// X25519 private key raw (32 bytes).
+            public let keyRaw: [UInt8]
+
+            public init(keyID: UInt32, keyRaw: [UInt8]) {
+                self.keyID = keyID
+                self.keyRaw = keyRaw
+            }
+        }
+
+        public init(
+            deviceID: UInt32,
+            identityKeyRaw: [UInt8],
+            signedPreKeyID: UInt32,
+            signedPreKeyRaw: [UInt8],
+            signedPreKeySignature: [UInt8],
+            preKeys: [PreKeyData]
+        ) {
+            self.deviceID = deviceID
+            self.identityKeyRaw = identityKeyRaw
+            self.signedPreKeyID = signedPreKeyID
+            self.signedPreKeyRaw = signedPreKeyRaw
+            self.signedPreKeySignature = signedPreKeySignature
+            self.preKeys = preKeys
+        }
+    }
+
+    /// Serializable session entry for persistent storage.
+    struct StoredSessionEntry: Sendable {
+        public let jid: BareJID
+        public let deviceID: UInt32
+        /// Serialized `OMEMODoubleRatchetSession` bytes.
+        public let sessionData: [UInt8]
+        /// X3DH associated data (64 bytes).
+        public let associatedData: [UInt8]
+
+        public init(jid: BareJID, deviceID: UInt32, sessionData: [UInt8], associatedData: [UInt8]) {
+            self.jid = jid
+            self.deviceID = deviceID
+            self.sessionData = sessionData
+            self.associatedData = associatedData
+        }
+    }
 }
 
 // MARK: - Errors
@@ -912,7 +1074,6 @@ public extension OMEMOModule {
 /// Errors from OMEMO protocol operations (distinct from crypto errors).
 enum OMEMOModuleError: Error {
     case notSetUp
-    // periphery:ignore - specced feature, used by encryptMessage path
     case bundleNotFound
     case noSession
     case notForThisDevice
@@ -936,7 +1097,6 @@ private struct OwnIdentity {
     let connectedJID: FullJID
 }
 
-// periphery:ignore - used by encryptMessage path
 private struct SessionResult {
     let session: OMEMODoubleRatchetSession
     let ad: [UInt8]

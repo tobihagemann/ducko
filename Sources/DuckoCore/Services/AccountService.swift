@@ -19,6 +19,7 @@ public final class AccountService {
     private var eventTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectAttempts: [UUID: Int] = [:]
+    private weak var omemoService: OMEMOService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
 
     public enum ConnectionState: Sendable {
@@ -243,6 +244,12 @@ public final class AccountService {
         try await deleteAccount(accountID)
     }
 
+    // MARK: - Wiring
+
+    func setOMEMOService(_ service: OMEMOService) {
+        omemoService = service
+    }
+
     // MARK: - Client Access
 
     func client(for accountID: UUID) -> XMPPClient? {
@@ -327,7 +334,12 @@ public final class AccountService {
         pepModule.registerNotifyInterest(XMPPNamespaces.avatarMetadata)
         pepModule.registerNotifyInterest(XMPPNamespaces.omemoDevices)
         builder.withModule(pepModule)
-        builder.withModule(OMEMOModule(pepModule: pepModule))
+        let omemoModule: OMEMOModule = if let omemoService {
+            await omemoService.buildModule(for: account.jid, pepModule: pepModule)
+        } else {
+            OMEMOModule(pepModule: pepModule)
+        }
+        builder.withModule(omemoModule)
         builder.withModule(BlockingModule())
         builder.withModule(StylingModule())
         builder.withModule(ChannelSearchModule())

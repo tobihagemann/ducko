@@ -18,6 +18,7 @@ public final class ChatService {
     private let store: any PersistenceStore
     private let filterPipeline: MessageFilterPipeline
     private weak var accountService: AccountService?
+    private weak var omemoService: OMEMOService?
     private var typingDebounce: [BareJID: Task<Void, Never>] = [:]
 
     public init(store: any PersistenceStore, filterPipeline: MessageFilterPipeline) {
@@ -29,6 +30,10 @@ public final class ChatService {
 
     func setAccountService(_ service: AccountService) {
         accountService = service
+    }
+
+    func setOMEMOService(_ service: OMEMOService) {
+        omemoService = service
     }
 
     // MARK: - Public API
@@ -48,11 +53,24 @@ public final class ChatService {
         let recipient = JID.bare(jid)
         let stanzaID = client.generateID()
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
-        try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled)
 
-        // Persist outgoing message
+        // Encrypt if peer has trusted OMEMO devices
+        var isEncrypted = false
+        if let omemoService, await omemoService.shouldEncrypt(jid: jid, accountID: accountID) {
+            let elements = try await omemoService.encryptMessage(body: filtered.body, to: jid, accountID: accountID)
+            let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+            try await chatModule.sendMessage(
+                to: recipient, body: elements.fallbackBody, id: stanzaID,
+                requestReceipt: true, markable: true, includeChatState: chatStatesEnabled,
+                additionalElements: [elements.encrypted, elements.encryption, storeHint]
+            )
+            isEncrypted = true
+        } else {
+            try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled)
+        }
+
+        // Persist with the original body (not the OMEMO fallback)
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
-
         let message = ChatMessage(
             id: UUID(),
             conversationID: conversation.id,
@@ -65,7 +83,8 @@ public final class ChatService {
             isRead: true,
             isDelivered: false,
             isEdited: false,
-            type: "chat"
+            type: "chat",
+            isEncrypted: isEncrypted
         )
         try await persistMessage(message, in: conversation, accountID: accountID)
     }
@@ -95,6 +114,11 @@ public final class ChatService {
             throw ChatServiceError.invalidJID(jidString)
         }
         return try await openConversation(for: jid, accountID: accountID)
+    }
+
+    /// Persists an encrypted message received via OMEMO. Called by OMEMOService.
+    func persistEncryptedMessage(_ message: ChatMessage, in conversation: Conversation, accountID: UUID) async {
+        await persistAndNotify(message, in: conversation, accountID: accountID)
     }
 
     public func sendMessage(toJIDString jidString: String, body: String, accountID: UUID) async throws {
@@ -1001,6 +1025,11 @@ public final class ChatService {
             return
         }
 
+        // Skip encrypted messages — handled by .omemoEncryptedMessageReceived event
+        if xmppMessage.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil {
+            return
+        }
+
         // Parse OOB attachments before body check — OOB-only messages have no body
         let oobAttachments = parseOOBAttachments(from: xmppMessage.element)
 
@@ -1067,6 +1096,11 @@ public final class ChatService {
 
         // Skip corrections — handled by .messageCorrected event
         if forwarded.message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil {
+            return
+        }
+
+        // Skip encrypted messages — handled by .omemoEncryptedMessageReceived event
+        if forwarded.message.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil {
             return
         }
 

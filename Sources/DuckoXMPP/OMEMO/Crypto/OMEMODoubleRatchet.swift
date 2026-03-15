@@ -2,7 +2,7 @@ import CryptoKit
 
 /// Double Ratchet session state for OMEMO end-to-end encryption.
 ///
-/// All state is value types for safe copying and future persistence.
+/// All state is value types for safe copying and persistence.
 /// Use `mutating func` for encrypt/decrypt — the caller manages synchronization.
 struct OMEMODoubleRatchetSession {
     /// Our current DH ratchet key pair (sending).
@@ -244,6 +244,123 @@ struct OMEMODoubleRatchetSession {
         let rkSend = OMEMOCrypto.kdfRK(rootKey: rootKey, dhOutput: dhSend)
         rootKey = rkSend.rootKey
         sendChainKey = rkSend.chainKey
+    }
+
+    // MARK: - Serialization
+
+    /// Serializes the session state to bytes for persistent storage.
+    func serialize() -> [UInt8] {
+        var bytes: [UInt8] = []
+
+        // DH send key pair (32 bytes)
+        bytes.append(contentsOf: dhSendKeyPair.rawRepresentation)
+
+        // DH recv public key: length (4 LE) + bytes
+        if let recvKey = dhRecvPublicKey {
+            appendLE(UInt32(recvKey.count), to: &bytes)
+            bytes.append(contentsOf: recvKey)
+        } else {
+            appendLE(UInt32(0), to: &bytes)
+        }
+
+        // Root key (32 bytes)
+        bytes.append(contentsOf: rootKey)
+
+        // Send chain key: flag (1) + optional 32 bytes
+        appendOptionalKey(sendChainKey, to: &bytes)
+
+        // Recv chain key: flag (1) + optional 32 bytes
+        appendOptionalKey(recvChainKey, to: &bytes)
+
+        // Counters (4 LE each)
+        appendLE(sendMessageNumber, to: &bytes)
+        appendLE(recvMessageNumber, to: &bytes)
+        appendLE(previousSendCount, to: &bytes)
+
+        // Skipped keys: count (4 LE) + entries
+        appendLE(UInt32(skippedKeyOrder.count), to: &bytes)
+        for keyID in skippedKeyOrder {
+            bytes.append(contentsOf: keyID.publicKey)
+            appendLE(keyID.messageNumber, to: &bytes)
+            if let messageKey = skippedMessageKeys[keyID] {
+                bytes.append(contentsOf: messageKey)
+            }
+        }
+
+        return bytes
+    }
+
+    /// Restores a session from previously serialized bytes.
+    init(serialized bytes: [UInt8]) throws {
+        var offset = 0
+
+        func readBytes(_ count: Int) throws -> [UInt8] {
+            guard offset + count <= bytes.count else { throw OMEMOCryptoError.invalidKeyLength }
+            let result = Array(bytes[offset ..< offset + count])
+            offset += count
+            return result
+        }
+
+        func readLE() throws -> UInt32 {
+            let b = try readBytes(4)
+            return UInt32(b[0]) | UInt32(b[1]) << 8 | UInt32(b[2]) << 16 | UInt32(b[3]) << 24
+        }
+
+        // DH send key pair
+        let sendKeyRaw = try readBytes(32)
+        self.dhSendKeyPair = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: sendKeyRaw)
+
+        // DH recv public key
+        let recvKeyLen = try readLE()
+        if recvKeyLen > 0 {
+            self.dhRecvPublicKey = try readBytes(Int(recvKeyLen))
+        } else {
+            self.dhRecvPublicKey = nil
+        }
+
+        // Root key
+        self.rootKey = try readBytes(32)
+
+        // Send chain key
+        let hasSendCK = try readBytes(1)[0]
+        self.sendChainKey = hasSendCK != 0 ? try readBytes(32) : nil
+
+        // Recv chain key
+        let hasRecvCK = try readBytes(1)[0]
+        self.recvChainKey = hasRecvCK != 0 ? try readBytes(32) : nil
+
+        // Counters
+        self.sendMessageNumber = try readLE()
+        self.recvMessageNumber = try readLE()
+        self.previousSendCount = try readLE()
+
+        // Skipped keys
+        let skippedCount = try readLE()
+        self.skippedMessageKeys = [:]
+        self.skippedKeyOrder = []
+        for _ in 0 ..< skippedCount {
+            let publicKey = try readBytes(32)
+            let messageNumber = try readLE()
+            let messageKey = try readBytes(32)
+            let keyID = SkippedKeyID(publicKey: publicKey, messageNumber: messageNumber)
+            skippedMessageKeys[keyID] = messageKey
+            skippedKeyOrder.append(keyID)
+        }
+    }
+
+    // MARK: - Serialization Helpers
+
+    private func appendLE(_ value: UInt32, to buffer: inout [UInt8]) {
+        buffer.append(contentsOf: withUnsafeBytes(of: value.littleEndian) { Array($0) })
+    }
+
+    private func appendOptionalKey(_ key: [UInt8]?, to buffer: inout [UInt8]) {
+        if let key {
+            buffer.append(1)
+            buffer.append(contentsOf: key)
+        } else {
+            buffer.append(0)
+        }
     }
 }
 

@@ -19,7 +19,8 @@ struct DuckoApp: App {
         do {
             let container = try ModelContainerFactory.makeContainer()
             let store = SwiftDataPersistenceStore(modelContainer: container)
-            self.environment = AppEnvironment(store: store, linkPreviewFetcher: LPLinkPreviewFetcher())
+            let omemoStore = SwiftDataOMEMOStore(modelContainer: container)
+            self.environment = AppEnvironment(store: store, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
         } catch {
             fatalError("Failed to create model container: \(error)")
         }
