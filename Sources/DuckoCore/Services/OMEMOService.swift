@@ -1,3 +1,4 @@
+import CryptoKit
 import DuckoXMPP
 import Foundation
 import os
@@ -214,7 +215,10 @@ public final class OMEMOService {
     public func ownDeviceInfo(accountID: UUID) async -> OMEMODeviceInfo? {
         guard let accountJID = accountJIDString(for: accountID) else { return nil }
         guard let identity = try? await omemoStore.loadIdentity(for: accountJID) else { return nil }
-        let fingerprint = omemoFingerprint(from: Array(identity.identityKeyData))
+        guard let privateKey = try? Curve25519.Signing.PrivateKey(rawRepresentation: identity.identityKeyData) else {
+            return nil
+        }
+        let fingerprint = omemoFingerprint(from: privateKey.publicKey.rawRepresentation)
         return OMEMODeviceInfo(
             peerJID: accountJID, deviceID: identity.deviceID,
             fingerprint: fingerprint, trustLevel: .verified
