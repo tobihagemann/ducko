@@ -175,6 +175,7 @@ public actor SwiftDataOMEMOStore: OMEMOStore {
         try modelContext.save()
     }
 
+    // periphery:ignore - protocol requirement
     public func deleteSession(accountJID: String, peerJID: String, deviceID: UInt32) throws {
         let peerDeviceID = Int64(deviceID)
         let descriptor = FetchDescriptor<OMEMOSessionRecord>(

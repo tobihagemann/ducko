@@ -77,6 +77,7 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/avatar [jid]` — view avatar info (own if no JID, contact's if given)
 - `/profile` — view own vCard profile
 - `/connection-info` — show TLS connection info (protocol, cipher, certificate)
+- `/encrypt <jid> on|off` — toggle OMEMO encryption for a conversation
 - `/pref chatstates on|off` — toggle chat state notifications (typing indicators)
 - `/pref markers on|off` — toggle displayed markers (read receipts)
 - `/reply <jid> <message>` — reply to last incoming message from JID
@@ -288,6 +289,40 @@ Send a single message to a room. Joins the room, sends the message, then leaves 
 ducko room send chat@conference.example.com "Hello everyone"
 ```
 
+### `omemo fingerprint`
+
+Display own OMEMO device fingerprint. Connects, retrieves the local device's identity key, then disconnects.
+
+```
+ducko omemo fingerprint
+ducko omemo fingerprint --output json
+```
+
+### `omemo devices <jid>`
+
+List a contact's OMEMO devices with trust status. Connects, fetches the device list, then disconnects.
+
+```
+ducko omemo devices alice@example.com
+ducko omemo devices alice@example.com --output json
+```
+
+### `omemo trust <jid> <device-id>`
+
+Trust an OMEMO device. Marks the device as trusted for future encrypted sessions.
+
+```
+ducko omemo trust alice@example.com 12345
+```
+
+### `omemo untrust <jid> <device-id>`
+
+Untrust an OMEMO device. Marks the device as untrusted, preventing encrypted sessions with it.
+
+```
+ducko omemo untrust alice@example.com 12345
+```
+
 ## Output Formats
 
 ### Plain
@@ -296,13 +331,14 @@ ducko room send chat@conference.example.com "Hello everyone"
 [2026-02-27T10:00:00Z] <- alice@example.com: Hello
 [2026-02-27T10:00:05Z] -> alice@example.com: Hi there [delivered]
 [2026-02-27T10:00:10Z] <- alice@example.com: corrected text [edited]
+[2026-02-27T10:00:15Z] <- alice@example.com: Secret message [encrypted]
 ```
 
-`<-` = incoming, `->` = outgoing. Markers: `[delivered]` for delivery receipts, `[edited]` for corrected messages, `[error: ...]` for errors.
+`<-` = incoming, `->` = outgoing. Markers: `[delivered]` for delivery receipts, `[edited]` for corrected messages, `[encrypted]` for OMEMO-encrypted messages, `[error: ...]` for errors.
 
 ### ANSI
 
-Same as plain with color codes (green incoming, cyan outgoing, red errors, dim timestamps). Delivery shown as green checkmark, edited as dim `[edited]`. Default in terminal.
+Same as plain with color codes (green incoming, cyan outgoing, red errors, dim timestamps). Delivery shown as green checkmark, edited as dim `[edited]`, encrypted shown as lock icon. Default in terminal.
 
 ### JSON
 
@@ -310,7 +346,7 @@ Same as plain with color codes (green incoming, cyan outgoing, red errors, dim t
 {"body":"Hello","direction":"incoming","from":"alice@example.com","timestamp":"2026-02-27T10:00:00Z","type":"message"}
 ```
 
-Optional keys: `"delivered":"true"`, `"edited":"true"`, `"error":"..."`. Keys are sorted alphabetically. Use `--output json` when piping to `jq` or processing programmatically.
+Optional keys: `"delivered":"true"`, `"edited":"true"`, `"encrypted":"true"`, `"error":"..."`. Keys are sorted alphabetically. Use `--output json` when piping to `jq` or processing programmatically.
 
 ## Examples
 

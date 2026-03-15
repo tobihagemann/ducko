@@ -12,6 +12,9 @@ struct PlainFormatter: CLIFormatter {
             "\(message.fromJID): \(message.body)"
         }
         var line = "[\(timestamp)] \(direction) \(body)"
+        if message.isEncrypted {
+            line += " [encrypted]"
+        }
         if message.isEdited {
             line += " [edited]"
         }
@@ -86,8 +89,38 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            return nil
+        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+            return formatOMEMOEvent(event)
+        }
+    }
+
+    private func formatOMEMOEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .omemoDeviceListReceived(jid, devices):
+            return "OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))"
+        case let .omemoSessionEstablished(jid, deviceID):
+            return "OMEMO session established with \(jid) device \(deviceID)"
+        case .omemoEncryptedMessageReceived:
+            return nil
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed, .mucSelfPingFailed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
     }

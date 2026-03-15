@@ -122,6 +122,15 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `channel-search-button` | Channel search button | Join Room |
 | `new-password-field` | New password field | Change Password |
 | `confirm-password-field` | Confirm password field | Change Password |
+| `encrypted-indicator` | Lock icon on encrypted messages | Chat |
+| `encryption-menu` | Encryption menu button in chat header | Chat |
+| `device-fingerprints-sheet` | Device fingerprints sheet | Chat |
+| `device-row-{deviceID}` | Individual device row | Device Fingerprints |
+| `trust-button-{deviceID}` | Trust device button | Device Fingerprints |
+| `untrust-button-{deviceID}` | Untrust device button | Device Fingerprints |
+| `verify-button-{deviceID}` | Verify device button | Device Fingerprints |
+| `encryptByDefaultToggle` | Encrypt by default preference toggle | Preferences (Chat) |
+| `tofuToggle` | Trust on first use preference toggle | Preferences (Chat) |
 
 ## Context Menu Features
 
@@ -462,6 +471,38 @@ $SCRIPTS/ducko-avatar-remove.sh
 $SCRIPTS/ducko-screenshot.sh "avatar-removed.png"
 
 # 4. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Device trust management test
+
+Tests OMEMO encryption UI — encryption menu, device fingerprints sheet, and trust actions:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and open a chat
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
+
+# 2. Screenshot to verify encryption menu button in chat header
+$SCRIPTS/ducko-screenshot.sh "encryption-menu.png"
+
+# 3. Click the encryption menu to open device fingerprints sheet
+# Use Peekaboo to click the encryption-menu identifier
+# Screenshot the device fingerprints sheet
+$SCRIPTS/ducko-screenshot.sh "device-fingerprints.png"
+
+# 4. Verify device rows show trust status
+# Each device row has trust-button-{deviceID} or untrust-button-{deviceID}
+$SCRIPTS/ducko-screenshot.sh "device-trust-status.png"
+
+# 5. Test encryption preference toggles
+$SCRIPTS/ducko-preferences.sh
+$SCRIPTS/ducko-preferences-tab.sh Chat
+$SCRIPTS/ducko-screenshot.sh "encryption-preferences.png"
+
+# 6. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 

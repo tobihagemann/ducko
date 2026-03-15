@@ -21,6 +21,7 @@ struct DuckoCLI: AsyncParsableCommand {
             Avatar.self,
             Account.self,
             ServerInfoCommand.self,
+            OMEMO.self,
             Interactive.self
         ],
         defaultSubcommand: Interactive.self
@@ -1133,6 +1134,191 @@ extension DuckoCLI {
             await env.accountService.disconnect(accountID: selectedAccount.id)
         }
     }
+
+    // MARK: - OMEMO
+
+    struct OMEMO: AsyncParsableCommand {
+        static let configuration = CommandConfiguration(
+            commandName: "omemo",
+            abstract: "OMEMO encryption management",
+            subcommands: [Fingerprint.self, Devices.self, Trust.self, Untrust.self]
+        )
+
+        struct Fingerprint: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Display your own OMEMO device fingerprint"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let fingerprint = await env.omemoService.ownFingerprint(accountID: selectedAccount.id)
+                if let fingerprint {
+                    print(formatFingerprintHex(fingerprint))
+                } else {
+                    print("No OMEMO identity found.")
+                }
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Devices: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "List a contact's OMEMO devices with trust status"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The contact JID")
+            var jid: String
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
+                if devices.isEmpty {
+                    print("No known OMEMO devices for \(jid).")
+                } else {
+                    for device in devices {
+                        let fp = device.fingerprint.isEmpty ? "(no fingerprint)" : formatFingerprintHex(device.fingerprint)
+                        print("  \(device.deviceID)  \(fp)  [\(device.trustLevel.rawValue)]")
+                    }
+                }
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Trust: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Trust a contact's OMEMO device"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The contact JID")
+            var jid: String
+
+            @Argument(help: "The device ID to trust")
+            var deviceID: UInt32
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                // Look up existing trust record for fingerprint
+                let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
+                guard let device = devices.first(where: { $0.deviceID == deviceID }) else {
+                    print("Device \(deviceID) not found for \(jid).")
+                    await env.accountService.disconnect(accountID: selectedAccount.id)
+                    return
+                }
+
+                try await env.omemoService.trustDevice(
+                    accountID: selectedAccount.id, peerJID: jid,
+                    deviceID: deviceID, fingerprint: device.fingerprint
+                )
+                print("Trusted device \(deviceID) for \(jid).")
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+
+        struct Untrust: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Untrust a contact's OMEMO device"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Account UUID (uses first account if omitted)")
+            var account: String?
+
+            @Argument(help: "The contact JID")
+            var jid: String
+
+            @Argument(help: "The device ID to untrust")
+            var deviceID: UInt32
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+                let env = context.environment
+
+                let selectedAccount = try await resolveAccount(account, environment: env)
+
+                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
+                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+
+                try await env.omemoService.untrustDevice(
+                    accountID: selectedAccount.id, peerJID: jid, deviceID: deviceID
+                )
+                print("Untrusted device \(deviceID) for \(jid).")
+
+                await env.accountService.disconnect(accountID: selectedAccount.id)
+            }
+        }
+    }
 }
 
 // MARK: - Room Loop
@@ -1232,6 +1418,7 @@ private func printREPLHelp() {
     print("  /rooms [service]         Discover available rooms")
     print("  /avatar [jid]            View avatar info (own or contact's)")
     print("  /connection-info         Show TLS connection info")
+    print("  /encrypt <jid> on|off    Toggle OMEMO encryption for a conversation")
     print("  /pref chatstates on|off  Toggle chat state notifications")
     print("  /pref markers on|off      Toggle displayed markers (read receipts)")
     print("  help                     Show this help")
@@ -1287,6 +1474,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input == "/avatar" || input.hasPrefix("/avatar ")
         || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
         || input.hasPrefix("/retract ")
+        || input.hasPrefix("/encrypt ")
         || input.hasPrefix("/pref ")
 }
 
@@ -1341,6 +1529,8 @@ private func dispatchInfoREPLCommand(
         await handleAvatarREPLCommand(input, context: context)
     } else if input.hasPrefix("/retract ") {
         await handleRetractREPLCommand(input, context: context)
+    } else if input.hasPrefix("/encrypt ") {
+        await handleEncryptREPLCommand(input, context: context)
     } else if input.hasPrefix("/pref ") {
         await handlePrefREPLCommand(input)
     }
@@ -1383,6 +1573,38 @@ private func togglePref(name: String, key: String, value: String?, get: () -> Bo
     default:
         print("Usage: /pref \(key) on|off")
     }
+}
+
+private func handleEncryptREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/encrypt ".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2 else {
+        print("Usage: /encrypt <jid> on|off")
+        return
+    }
+    let jidString = String(parts[0])
+    let toggle = String(parts[1]).lowercased()
+    guard toggle == "on" || toggle == "off" else {
+        print("Usage: /encrypt <jid> on|off")
+        return
+    }
+    let enabled = toggle == "on"
+    do {
+        let conversation = try await context.environment.chatService.openConversation(
+            jidString: jidString, accountID: context.accountID
+        )
+        try await context.environment.chatService.setEncryptionEnabled(
+            enabled, for: conversation.id, accountID: context.accountID
+        )
+        let state = enabled ? "enabled" : "disabled"
+        print("Encryption \(state) for \(jidString).")
+    } catch {
+        print("Error: \(error)")
+    }
+}
+
+private func formatFingerprintHex(_ hex: String) -> String {
+    OMEMODeviceInfo.formatFingerprint(hex)
 }
 
 private func dispatchFileTransferREPLCommand(

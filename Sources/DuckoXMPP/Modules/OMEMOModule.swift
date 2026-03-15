@@ -195,9 +195,50 @@ public final class OMEMOModule: XMPPModule, Sendable {
             )
             keys.append(key)
         }
+        return buildEncryptedElements(
+            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
+        )
+    }
+
+    /// Encrypts a message for multiple recipients (group chat OMEMO).
+    public func encryptGroupMessage(
+        plaintext: String,
+        recipients: [(jid: BareJID, deviceIDs: [UInt32])]
+    ) async throws -> EncryptedMessageElements {
+        let identity = try requireOwnIdentity()
+        let contentKey = randomBytes(32)
+        let sceBytes = buildSCEEnvelope(body: plaintext)
+        let payload = try encryptPayload(sceBytes, contentKey: contentKey)
+        var keys: [XMLElement] = []
+        for recipient in recipients {
+            for deviceID in recipient.deviceIDs {
+                let key = try await encryptKeyForDevice(
+                    contentKey: contentKey, jid: recipient.jid,
+                    deviceID: deviceID, identity: identity
+                )
+                keys.append(key)
+            }
+        }
+        let ownJID = identity.connectedJID.bareJID
+        let ownDevices = try await fetchDeviceList(for: ownJID)
+        for deviceID in ownDevices where deviceID != identity.deviceID.value {
+            let key = try await encryptKeyForDevice(
+                contentKey: contentKey, jid: ownJID,
+                deviceID: deviceID, identity: identity
+            )
+            keys.append(key)
+        }
+        return buildEncryptedElements(
+            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
+        )
+    }
+
+    private func buildEncryptedElements(
+        keys: [XMLElement], payload: String,
+        senderDeviceID: UInt32
+    ) -> EncryptedMessageElements {
         let encrypted = buildEncryptedElement(
-            keys: keys, payload: payload,
-            senderDeviceID: identity.deviceID.value
+            keys: keys, payload: payload, senderDeviceID: senderDeviceID
         )
         let encryption = XMLElement(
             name: "encryption",

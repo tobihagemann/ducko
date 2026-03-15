@@ -108,11 +108,13 @@ public final class OMEMOService {
 
     // MARK: - Encryption
 
-    /// Returns `true` if the peer has at least one trusted OMEMO device.
-    func shouldEncrypt(jid: BareJID, accountID: UUID) async -> Bool {
+    /// Returns `true` if encryption is enabled for the conversation and the peer has trusted devices.
+    func shouldEncrypt(jid: BareJID, accountID: UUID, conversationEncryptionEnabled: Bool) async -> Bool {
+        guard conversationEncryptionEnabled else { return false }
         guard let accountJID = accountJIDString(for: accountID) else { return false }
         let devices = await (try? omemoStore.loadAllTrustedDevices(for: jid.description, accountJID: accountJID)) ?? []
-        return devices.contains { $0.trustLevel.isTrustedForEncryption }
+        let tofu = OMEMOPreferences.shared.trustOnFirstUse
+        return devices.contains { $0.trustLevel.isTrustedForEncryption(trustOnFirstUse: tofu) }
     }
 
     /// Encrypts a message body and returns the OMEMO stanza elements.
@@ -143,39 +145,124 @@ public final class OMEMOService {
     private func trustedDeviceIDs(for jid: BareJID, accountID: UUID) async -> [UInt32] {
         guard let accountJID = accountJIDString(for: accountID) else { return [] }
         let allDevices = await (try? omemoStore.loadAllTrustedDevices(for: jid.description, accountJID: accountJID)) ?? []
-        return allDevices.filter(\.trustLevel.isTrustedForEncryption).map(\.deviceID)
+        let tofu = OMEMOPreferences.shared.trustOnFirstUse
+        return allDevices.filter { $0.trustLevel.isTrustedForEncryption(trustOnFirstUse: tofu) }.map(\.deviceID)
     }
 
     // MARK: - Trust Management
 
-    // periphery:ignore - specced feature, wired in Prompt 20
     public func trustDevice(accountID: UUID, peerJID: String, deviceID: UInt32, fingerprint: String) async throws {
         try await setTrustLevel(.trusted, accountID: accountID, peerJID: peerJID, deviceID: deviceID, fingerprint: fingerprint)
     }
 
-    // periphery:ignore - specced feature, wired in Prompt 20
     public func untrustDevice(accountID: UUID, peerJID: String, deviceID: UInt32) async throws {
         guard let accountJID = accountJIDString(for: accountID) else { return }
         guard let existing = try await omemoStore.loadTrust(accountJID: accountJID, peerJID: peerJID, deviceID: deviceID) else { return }
         try await setTrustLevel(.untrusted, accountID: accountID, peerJID: peerJID, deviceID: deviceID, fingerprint: existing.fingerprint)
     }
 
-    // periphery:ignore - specced feature, wired in Prompt 20
     public func verifyDevice(accountID: UUID, peerJID: String, deviceID: UInt32, fingerprint: String) async throws {
         try await setTrustLevel(.verified, accountID: accountID, peerJID: peerJID, deviceID: deviceID, fingerprint: fingerprint)
     }
 
-    // periphery:ignore - specced feature, wired in Prompt 20
+    // periphery:ignore - public API for trust inspection (used by CLI trust subcommands)
     public func trustedDevices(for peerJID: String, accountID: UUID) async throws -> [OMEMOTrust] {
         guard let accountJID = accountJIDString(for: accountID) else { return [] }
         return try await omemoStore.loadAllTrustedDevices(for: peerJID, accountJID: accountJID)
     }
 
-    // periphery:ignore - specced feature, wired in Prompt 20
-    public func ownFingerprint(accountID: UUID) async throws -> String? {
+    public func ownFingerprint(accountID: UUID) async -> String? {
+        await ownDeviceInfo(accountID: accountID)?.fingerprint
+    }
+
+    /// Returns device info for all known devices of a peer, suitable for UI display.
+    public func deviceInfoList(for peerJID: String, accountID: UUID) async -> [OMEMODeviceInfo] {
+        guard let accountJID = accountJIDString(for: accountID) else { return [] }
+        let devices = await (try? omemoStore.loadAllTrustedDevices(for: peerJID, accountJID: accountJID)) ?? []
+        return devices.map {
+            OMEMODeviceInfo(
+                peerJID: $0.peerJID, deviceID: $0.deviceID,
+                fingerprint: $0.fingerprint, trustLevel: $0.trustLevel
+            )
+        }
+    }
+
+    /// Returns own device info (device ID + fingerprint) for side-by-side verification.
+    public func ownDeviceInfo(accountID: UUID) async -> OMEMODeviceInfo? {
         guard let accountJID = accountJIDString(for: accountID) else { return nil }
-        guard let identity = try await omemoStore.loadIdentity(for: accountJID) else { return nil }
-        return identity.identityKeyData.map { String(format: "%02x", $0) }.joined()
+        guard let identity = try? await omemoStore.loadIdentity(for: accountJID) else { return nil }
+        let fingerprint = identity.identityKeyData.map { String(format: "%02x", $0) }.joined()
+        return OMEMODeviceInfo(
+            peerJID: accountJID, deviceID: identity.deviceID,
+            fingerprint: fingerprint, trustLevel: .verified
+        )
+    }
+
+    // MARK: - Group Chat Encryption
+
+    /// Encrypts a message for all members of a group chat room.
+    func encryptGroupMessage(
+        body: String,
+        roomJID _: BareJID,
+        memberJIDs: [BareJID],
+        accountID: UUID
+    ) async throws -> OMEMOModule.EncryptedMessageElements {
+        guard let client = accountService?.client(for: accountID) else {
+            throw OMEMOServiceError.notConnected
+        }
+        guard let omemoModule = await client.module(ofType: OMEMOModule.self) else {
+            throw OMEMOServiceError.omemoNotAvailable
+        }
+
+        let recipients = await buildGroupRecipients(memberJIDs: memberJIDs, accountID: accountID)
+        guard !recipients.isEmpty else {
+            throw OMEMOServiceError.noTrustedRecipients
+        }
+
+        let elements = try await omemoModule.encryptGroupMessage(plaintext: body, recipients: recipients)
+        await saveModuleSessions(module: omemoModule, accountID: accountID)
+        return elements
+    }
+
+    // periphery:ignore - specced feature, wired by UI when enabling group encryption
+    /// Validates whether a room is suitable for OMEMO group encryption.
+    public func validateRoomForOMEMO(
+        memberJIDs: [BareJID],
+        accountID: UUID
+    ) async -> RoomOMEMOValidation {
+        var membersWithoutOMEMO: [String] = []
+        var encryptableMembers = 0
+
+        for jid in memberJIDs {
+            let deviceIDs = await trustedDeviceIDs(for: jid, accountID: accountID)
+            if deviceIDs.isEmpty {
+                membersWithoutOMEMO.append(jid.description)
+            } else {
+                encryptableMembers += 1
+            }
+        }
+
+        return RoomOMEMOValidation(
+            membersWithoutOMEMO: membersWithoutOMEMO,
+            totalMembers: memberJIDs.count,
+            encryptableMembers: encryptableMembers
+        )
+    }
+
+    private func buildGroupRecipients(
+        memberJIDs: [BareJID],
+        accountID: UUID
+    ) async -> [(jid: BareJID, deviceIDs: [UInt32])] {
+        // Exclude own JID — encryptGroupMessage encrypts for own devices separately
+        let ownJID = accountService?.accounts.first(where: { $0.id == accountID })?.jid
+        var recipients: [(jid: BareJID, deviceIDs: [UInt32])] = []
+        for jid in memberJIDs where jid != ownJID {
+            let deviceIDs = await trustedDeviceIDs(for: jid, accountID: accountID)
+            if !deviceIDs.isEmpty {
+                recipients.append((jid: jid, deviceIDs: deviceIDs))
+            }
+        }
+        return recipients
     }
 
     // MARK: - Private Event Handlers
@@ -349,7 +436,6 @@ public final class OMEMOService {
         log.info("Replenished pre-keys: \(count) new, \(allPreKeys.count) total available")
     }
 
-    // periphery:ignore - called by trust management API
     private func setTrustLevel(
         _ level: OMEMOTrustLevel, accountID: UUID,
         peerJID: String, deviceID: UInt32, fingerprint: String
@@ -372,4 +458,12 @@ public final class OMEMOService {
 enum OMEMOServiceError: Error {
     case notConnected
     case omemoNotAvailable
+    case noTrustedRecipients
+}
+
+// periphery:ignore - specced feature, used by validateRoomForOMEMO
+public struct RoomOMEMOValidation: Sendable {
+    public let membersWithoutOMEMO: [String]
+    public let totalMembers: Int
+    public let encryptableMembers: Int
 }

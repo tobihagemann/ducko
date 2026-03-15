@@ -12,6 +12,13 @@ struct MessageMetadataView: View {
                 .font(theme.current.timestampFont.resolved)
                 .foregroundStyle(.secondary)
 
+            if message.isEncrypted {
+                Image(systemName: "lock.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.green)
+                    .accessibilityIdentifier("encrypted-indicator")
+            }
+
             if message.isOutgoing, message.isDelivered {
                 Image(systemName: "checkmark")
                     .font(.caption2)

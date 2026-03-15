@@ -27,6 +27,9 @@ struct ANSIFormatter: CLIFormatter {
             "\(message.fromJID): \(styledBody(message.body))"
         }
         var line = "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(body)\(Color.reset)"
+        if message.isEncrypted {
+            line += " \(Color.green)\(Color.dim)[encrypted]\(Color.reset)"
+        }
         if message.isEdited {
             line += " \(Color.dim)[edited]\(Color.reset)"
         }
@@ -104,6 +107,8 @@ struct ANSIFormatter: CLIFormatter {
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
             return formatJingleEvent(event)
+        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+            return formatOMEMOEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
@@ -111,8 +116,36 @@ struct ANSIFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            return nil
+        }
+    }
+
+    private func formatOMEMOEvent(_ event: XMPPEvent) -> String? {
+        switch event {
+        case let .omemoDeviceListReceived(jid, devices):
+            return "\(Color.dim)OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))\(Color.reset)"
+        case let .omemoSessionEstablished(jid, deviceID):
+            return "\(Color.green)OMEMO session established with \(jid) device \(deviceID)\(Color.reset)"
+        case .omemoEncryptedMessageReceived:
+            return nil
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed, .mucSelfPingFailed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
     }

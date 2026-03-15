@@ -20,12 +20,10 @@ actor CLIEventHandler {
              .jingleFileTransferReceived:
             ringBell()
         case let .chatStateChanged(from, state):
-            guard isInteractive else { return }
-            if let output = formatter.formatTypingIndicator(from: from, state: state) {
-                print(output)
-            }
+            handleChatState(from: from, state: state)
             return
-        case .jingleFileTransferProgress:
+        case .jingleFileTransferProgress,
+             .omemoDeviceListReceived, .omemoSessionEstablished:
             guard isInteractive else { break }
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .presenceReceived, .iqReceived,
@@ -41,11 +39,18 @@ actor CLIEventHandler {
              .mucSelfPingFailed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoEncryptedMessageReceived:
             break
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }
         print(output)
+    }
+
+    private func handleChatState(from: BareJID, state: ChatState) {
+        guard isInteractive else { return }
+        if let output = formatter.formatTypingIndicator(from: from, state: state) {
+            print(output)
+        }
     }
 
     private func shouldSkipRawMessage(_ message: XMPPMessage) -> Bool {

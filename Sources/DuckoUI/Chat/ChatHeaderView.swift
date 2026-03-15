@@ -5,6 +5,7 @@ struct ChatHeaderView: View {
     @Environment(AppEnvironment.self) private var environment
     let conversation: Conversation
     var windowState: ChatWindowState?
+    @State private var showDeviceFingerprints = false
 
     private var connectionState: AccountService.ConnectionState {
         environment.accountService.connectionStates[conversation.accountID] ?? .disconnected
@@ -42,6 +43,32 @@ struct ChatHeaderView: View {
             }
 
             Spacer()
+
+            Menu {
+                Button(conversation.encryptionEnabled ? "Disable Encryption" : "Enable Encryption") {
+                    Task {
+                        try? await environment.chatService.setEncryptionEnabled(
+                            !conversation.encryptionEnabled,
+                            for: conversation.id, accountID: conversation.accountID
+                        )
+                    }
+                }
+                Button("Device Fingerprints…") {
+                    showDeviceFingerprints = true
+                }
+            } label: {
+                Image(systemName: conversation.encryptionEnabled ? "lock.fill" : "lock.open")
+                    .foregroundStyle(conversation.encryptionEnabled ? Color.green : .secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .accessibilityIdentifier("encryption-menu")
+            .sheet(isPresented: $showDeviceFingerprints) {
+                DeviceFingerprintsSheet(
+                    peerJID: conversation.jid.description,
+                    accountID: conversation.accountID
+                )
+            }
 
             if isGroupchat, let windowState {
                 Button {

@@ -88,6 +88,15 @@ public enum OMEMOTrustLevel: String, Sendable, Codable {
     public var isTrustedForEncryption: Bool {
         self == .trusted || self == .verified
     }
+
+    /// Whether this trust level allows encrypting, respecting the TOFU preference.
+    public func isTrustedForEncryption(trustOnFirstUse: Bool) -> Bool {
+        switch self {
+        case .trusted, .verified: true
+        case .undecided: trustOnFirstUse
+        case .untrusted: false
+        }
+    }
 }
 
 // MARK: - Protocol
@@ -113,13 +122,12 @@ public protocol OMEMOStore: Sendable {
 
     func loadSessions(for accountJID: String) async throws -> [OMEMOStoredSession]
     func saveSession(_ session: OMEMOStoredSession) async throws
-    // periphery:ignore - specced feature, wired in Prompt 20
+    // periphery:ignore - needed for session replacement on broken sessions
     func deleteSession(accountJID: String, peerJID: String, deviceID: UInt32) async throws
 
     // MARK: - Trust
 
     func saveTrust(_ trust: OMEMOTrust) async throws
-    // periphery:ignore - specced feature, wired in Prompt 20
     func loadTrust(accountJID: String, peerJID: String, deviceID: UInt32) async throws -> OMEMOTrust?
     func loadAllTrustedDevices(for peerJID: String, accountJID: String) async throws -> [OMEMOTrust]
 }

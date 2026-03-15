@@ -25,6 +25,9 @@ struct JSONFormatter: CLIFormatter {
         if message.isDelivered {
             dict["delivered"] = "true"
         }
+        if message.isEncrypted {
+            dict["encrypted"] = "true"
+        }
         if message.isEdited {
             dict["edited"] = "true"
         }
@@ -118,8 +121,48 @@ struct JSONFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
+            return nil
+        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+            return formatOMEMOEvent(event, account: account)
+        }
+    }
+
+    private func formatOMEMOEvent(_ event: XMPPEvent, account: String) -> String? {
+        switch event {
+        case let .omemoDeviceListReceived(jid, devices):
+            return encode([
+                "type": "omemo_device_list",
+                "jid": jid.description,
+                "devices": devices.map(String.init).joined(separator: ","),
+                "account": account
+            ])
+        case let .omemoSessionEstablished(jid, deviceID):
+            return encode([
+                "type": "omemo_session_established",
+                "jid": jid.description,
+                "deviceID": "\(deviceID)",
+                "account": account
+            ])
+        case .omemoEncryptedMessageReceived:
+            return nil
+        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+             .messageReceived, .presenceReceived, .iqReceived,
+             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .presenceUpdated, .presenceSubscriptionRequest,
+             .messageCarbonReceived, .messageCarbonSent,
+             .archivedMessagesLoaded,
+             .chatStateChanged, .deliveryReceiptReceived,
+             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
+             .pepItemsPublished, .pepItemsRetracted,
+             .vcardAvatarHashReceived,
+             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
+             .roomOccupantNickChanged,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomDestroyed, .mucSelfPingFailed,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
     }

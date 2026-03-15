@@ -14,6 +14,7 @@ public struct Conversation: Sendable, Identifiable {
     public var unreadCount: Int
     public var roomSubject: String?
     public var roomNickname: String?
+    public var encryptionEnabled: Bool
     public var createdAt: Date
 
     public enum ConversationType: String, Sendable {
@@ -33,6 +34,7 @@ public struct Conversation: Sendable, Identifiable {
         unreadCount: Int,
         roomSubject: String? = nil,
         roomNickname: String? = nil,
+        encryptionEnabled: Bool = false,
         createdAt: Date
     ) {
         self.id = id
@@ -47,6 +49,7 @@ public struct Conversation: Sendable, Identifiable {
         self.unreadCount = unreadCount
         self.roomSubject = roomSubject
         self.roomNickname = roomNickname
+        self.encryptionEnabled = encryptionEnabled
         self.createdAt = createdAt
     }
 }

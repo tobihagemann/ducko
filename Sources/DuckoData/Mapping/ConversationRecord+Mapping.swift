@@ -19,6 +19,7 @@ extension ConversationRecord {
             unreadCount: unreadCount,
             roomSubject: roomSubject,
             roomNickname: roomNickname,
+            encryptionEnabled: encryptionEnabled,
             createdAt: createdAt
         )
     }
@@ -34,5 +35,6 @@ extension ConversationRecord {
         unreadCount = conversation.unreadCount
         roomSubject = conversation.roomSubject
         roomNickname = conversation.roomNickname
+        encryptionEnabled = conversation.encryptionEnabled
     }
 }
