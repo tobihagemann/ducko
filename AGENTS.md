@@ -26,6 +26,14 @@ These boundaries are strict:
 - DuckoUI must never import DuckoData or DuckoXMPP
 - DuckoCLI must never import DuckoUI or Sparkle
 
+## Feature Parity
+
+DuckoApp (GUI) and DuckoCLI (CLI) are independent consumers of DuckoCore. When adding features:
+
+- **CLI formatters**: Update `ANSIFormatter`, `PlainFormatter`, and `JSONFormatter` for any new `XMPPEvent` cases or changed event semantics.
+- **REPL commands**: Add corresponding REPL commands (e.g., `/pm`, `/moderate`) when the GUI gets new interactive features.
+- **ducko-ui scripts**: Add automation scripts in `Skills/ducko-ui/scripts/` for new UI elements (buttons, context menu items, sheets). Update the ducko-ui skill's script inventory and accessibility identifier list.
+
 ## Build & Test
 
 ```
