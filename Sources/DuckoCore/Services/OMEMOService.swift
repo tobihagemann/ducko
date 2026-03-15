@@ -4,6 +4,10 @@ import os
 
 private let log = Logger(subsystem: "com.ducko.core", category: "omemo")
 
+private func omemoFingerprint(from identityKey: some Sequence<UInt8>) -> String {
+    identityKey.map { String(format: "%02x", $0) }.joined()
+}
+
 @MainActor @Observable
 public final class OMEMOService {
     private let omemoStore: any OMEMOStore
@@ -30,6 +34,8 @@ public final class OMEMOService {
     func buildModule(for accountJID: BareJID, pepModule: PEPModule) async -> OMEMOModule {
         let module = OMEMOModule(pepModule: pepModule)
         let jidString = accountJID.description
+
+        wireIdentityKeyValidator(on: module, accountJID: jidString)
 
         // Restore persisted identity
         if let stored = try? await omemoStore.loadIdentity(for: jidString) {
@@ -79,8 +85,11 @@ public final class OMEMOService {
             await handleDeviceListReceived(jid: jid, devices: devices, accountID: accountID)
         case let .omemoEncryptedMessageReceived(from, decryptedBody, _):
             await handleEncryptedMessageReceived(from: from, decryptedBody: decryptedBody, accountID: accountID)
-        case let .omemoSessionEstablished(jid, deviceID):
-            await handleSessionEstablished(jid: jid, deviceID: deviceID, accountID: accountID)
+        case let .omemoSessionEstablished(jid, deviceID, identityKey):
+            await handleSessionEstablished(
+                jid: jid, deviceID: deviceID,
+                identityKey: identityKey, accountID: accountID
+            )
         case .connected:
             await handleConnected(accountID: accountID)
         case .disconnected:
@@ -130,10 +139,15 @@ public final class OMEMOService {
             throw OMEMOServiceError.omemoNotAvailable
         }
 
-        // Filter by trusted devices
+        // Filter recipient and own devices by trust
         let deviceIDs = await trustedDeviceIDs(for: jid, accountID: accountID)
+        guard !deviceIDs.isEmpty else {
+            throw OMEMOServiceError.noTrustedRecipients
+        }
+        let ownDeviceIDs = await trustedOwnDeviceIDs(accountID: accountID)
         let elements = try await omemoModule.encryptMessage(
-            plaintext: body, to: jid, recipientDeviceIDs: deviceIDs.isEmpty ? nil : deviceIDs
+            plaintext: body, to: jid,
+            recipientDeviceIDs: deviceIDs, ownDeviceIDs: ownDeviceIDs
         )
 
         // Persist updated sessions
@@ -147,6 +161,15 @@ public final class OMEMOService {
         let allDevices = await (try? omemoStore.loadAllTrustedDevices(for: jid.description, accountJID: accountJID)) ?? []
         let tofu = OMEMOPreferences.shared.trustOnFirstUse
         return allDevices.filter { $0.trustLevel.isTrustedForEncryption(trustOnFirstUse: tofu) }.map(\.deviceID)
+    }
+
+    private func trustedOwnDeviceIDs(accountID: UUID) async -> [UInt32] {
+        guard let ownJID = accountService?.accounts.first(where: { $0.id == accountID })?.jid else { return [] }
+        guard let accountJID = accountJIDString(for: accountID) else { return [] }
+        // Own devices always use TOFU semantics — refusing to encrypt to your
+        // own undecided devices breaks multi-device message sync.
+        let allDevices = await (try? omemoStore.loadAllTrustedDevices(for: ownJID.description, accountJID: accountJID)) ?? []
+        return allDevices.filter { $0.trustLevel.isTrustedForEncryption(trustOnFirstUse: true) }.map(\.deviceID)
     }
 
     // MARK: - Trust Management
@@ -191,7 +214,7 @@ public final class OMEMOService {
     public func ownDeviceInfo(accountID: UUID) async -> OMEMODeviceInfo? {
         guard let accountJID = accountJIDString(for: accountID) else { return nil }
         guard let identity = try? await omemoStore.loadIdentity(for: accountJID) else { return nil }
-        let fingerprint = identity.identityKeyData.map { String(format: "%02x", $0) }.joined()
+        let fingerprint = omemoFingerprint(from: Array(identity.identityKeyData))
         return OMEMODeviceInfo(
             peerJID: accountJID, deviceID: identity.deviceID,
             fingerprint: fingerprint, trustLevel: .verified
@@ -219,7 +242,10 @@ public final class OMEMOService {
             throw OMEMOServiceError.noTrustedRecipients
         }
 
-        let elements = try await omemoModule.encryptGroupMessage(plaintext: body, recipients: recipients)
+        let ownDeviceIDs = await trustedOwnDeviceIDs(accountID: accountID)
+        let elements = try await omemoModule.encryptGroupMessage(
+            plaintext: body, recipients: recipients, ownDeviceIDs: ownDeviceIDs
+        )
         await saveModuleSessions(module: omemoModule, accountID: accountID)
         return elements
     }
@@ -321,7 +347,10 @@ public final class OMEMOService {
         }
     }
 
-    private func handleSessionEstablished(jid: BareJID, deviceID: UInt32, accountID: UUID) async {
+    private func handleSessionEstablished(
+        jid: BareJID, deviceID: UInt32,
+        identityKey: [UInt8], accountID: UUID
+    ) async {
         guard let client = accountService?.client(for: accountID),
               let omemoModule = await client.module(ofType: OMEMOModule.self)
         else { return }
@@ -336,6 +365,31 @@ public final class OMEMOService {
             associatedData: Data(entry.associatedData)
         )
         try? await omemoStore.saveSession(session)
+
+        // Store fingerprint from identity key
+        let fingerprint = omemoFingerprint(from: identityKey)
+        let existing = try? await omemoStore.loadTrust(
+            accountJID: accountJID, peerJID: jid.description, deviceID: deviceID
+        )
+        if let existing, existing.fingerprint.isEmpty {
+            // Fill placeholder fingerprint
+            let updated = OMEMOTrust(
+                accountJID: accountJID, peerJID: jid.description,
+                deviceID: deviceID, fingerprint: fingerprint,
+                trustLevel: existing.trustLevel
+            )
+            try? await omemoStore.saveTrust(updated)
+        } else if let existing, !existing.fingerprint.isEmpty, existing.fingerprint != fingerprint {
+            log.warning("Identity key changed for \(jid) device \(deviceID)")
+        } else if existing == nil {
+            // New device — create undecided trust record with fingerprint
+            let trust = OMEMOTrust(
+                accountJID: accountJID, peerJID: jid.description,
+                deviceID: deviceID, fingerprint: fingerprint,
+                trustLevel: .undecided
+            )
+            try? await omemoStore.saveTrust(trust)
+        }
     }
 
     private func handleConnected(accountID: UUID) async {
@@ -401,6 +455,29 @@ public final class OMEMOService {
         }
     }
 
+    private func wireIdentityKeyValidator(on module: OMEMOModule, accountJID: String) {
+        let store = omemoStore
+        module.setIdentityKeyValidator { peerJID, deviceID, identityKey in
+            let existing = try await store.loadTrust(
+                accountJID: accountJID, peerJID: peerJID.description,
+                deviceID: deviceID
+            )
+            if let existing {
+                if existing.trustLevel == .untrusted {
+                    throw OMEMOServiceError.identityKeyUntrusted
+                }
+                if !existing.fingerprint.isEmpty {
+                    let fingerprint = omemoFingerprint(from: identityKey)
+                    if existing.fingerprint != fingerprint {
+                        throw OMEMOServiceError.identityKeyMismatch
+                    }
+                }
+            }
+            // No trust record or empty fingerprint — allow (TOFU);
+            // fingerprint stored on session-established event
+        }
+    }
+
     private func replenishPreKeysIfNeeded(accountJID: String, module: OMEMOModule) async {
         let preKeys = await (try? omemoStore.loadPreKeys(for: accountJID)) ?? []
         let available = preKeys.filter { !$0.isUsed }
@@ -459,6 +536,8 @@ enum OMEMOServiceError: Error {
     case notConnected
     case omemoNotAvailable
     case noTrustedRecipients
+    case identityKeyMismatch
+    case identityKeyUntrusted
 }
 
 // periphery:ignore - specced feature, used by validateRoomForOMEMO

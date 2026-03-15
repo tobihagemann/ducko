@@ -100,7 +100,7 @@ struct PlainFormatter: CLIFormatter {
         switch event {
         case let .omemoDeviceListReceived(jid, devices):
             return "OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))"
-        case let .omemoSessionEstablished(jid, deviceID):
+        case let .omemoSessionEstablished(jid, deviceID, _):
             return "OMEMO session established with \(jid) device \(deviceID)"
         case .omemoEncryptedMessageReceived:
             return nil

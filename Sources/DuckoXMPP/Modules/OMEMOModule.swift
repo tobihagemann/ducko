@@ -18,6 +18,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         var sessions: [SessionKey: OMEMODoubleRatchetSession] = [:]
         var sessionAD: [SessionKey: [UInt8]] = [:]
         var usedPreKeyIDs: Set<UInt32> = []
+        var identityKeyValidator: (@Sendable (BareJID, UInt32, [UInt8]) async throws -> Void)?
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -63,6 +64,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
             $0.sessions.removeAll()
             $0.sessionAD.removeAll()
             $0.usedPreKeyIDs.removeAll()
+            $0.identityKeyValidator = nil
         }
     }
 
@@ -99,6 +101,16 @@ public final class OMEMOModule: XMPPModule, Sendable {
     /// Pre-configures identity data to be used on next `handleConnect()` instead of generating fresh.
     public func configureIdentity(_ data: OMEMOIdentityData) {
         state.withLock { $0.pendingIdentity = data }
+    }
+
+    /// Sets a callback invoked during session establishment to verify the peer's identity key.
+    ///
+    /// The validator receives `(peerJID, deviceID, identityKey)` and should throw
+    /// if the key is untrusted or mismatched. Called before X3DH key agreement.
+    public func setIdentityKeyValidator(
+        _ validator: (@Sendable (BareJID, UInt32, [UInt8]) async throws -> Void)?
+    ) {
+        state.withLock { $0.identityKeyValidator = validator }
     }
 
     /// Returns the set of pre-key IDs consumed during this session.
@@ -164,10 +176,12 @@ public final class OMEMOModule: XMPPModule, Sendable {
     ///   - plaintext: Message body to encrypt.
     ///   - recipientJID: The recipient's bare JID.
     ///   - recipientDeviceIDs: Specific device IDs to encrypt for, or `nil` to encrypt for all known devices.
+    ///   - ownDeviceIDs: Specific own device IDs to encrypt for, or `nil` to encrypt for all own devices.
     public func encryptMessage(
         plaintext: String,
         to recipientJID: BareJID,
-        recipientDeviceIDs: [UInt32]? = nil
+        recipientDeviceIDs: [UInt32]? = nil,
+        ownDeviceIDs: [UInt32]? = nil
     ) async throws -> EncryptedMessageElements {
         let identity = try requireOwnIdentity()
         let contentKey = randomBytes(32)
@@ -186,24 +200,25 @@ public final class OMEMOModule: XMPPModule, Sendable {
             )
             keys.append(key)
         }
-        let ownJID = identity.connectedJID.bareJID
-        let ownDevices = try await fetchDeviceList(for: ownJID)
-        for deviceID in ownDevices where deviceID != identity.deviceID.value {
-            let key = try await encryptKeyForDevice(
-                contentKey: contentKey, jid: ownJID,
-                deviceID: deviceID, identity: identity
-            )
-            keys.append(key)
-        }
+        keys += try await encryptKeyForOwnDevices(
+            contentKey: contentKey, identity: identity,
+            ownDeviceIDs: ownDeviceIDs
+        )
         return buildEncryptedElements(
             keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
         )
     }
 
     /// Encrypts a message for multiple recipients (group chat OMEMO).
+    ///
+    /// - Parameters:
+    ///   - plaintext: Message body to encrypt.
+    ///   - recipients: Per-recipient JID and device IDs.
+    ///   - ownDeviceIDs: Specific own device IDs to encrypt for, or `nil` to encrypt for all own devices.
     public func encryptGroupMessage(
         plaintext: String,
-        recipients: [(jid: BareJID, deviceIDs: [UInt32])]
+        recipients: [(jid: BareJID, deviceIDs: [UInt32])],
+        ownDeviceIDs: [UInt32]? = nil
     ) async throws -> EncryptedMessageElements {
         let identity = try requireOwnIdentity()
         let contentKey = randomBytes(32)
@@ -219,8 +234,26 @@ public final class OMEMOModule: XMPPModule, Sendable {
                 keys.append(key)
             }
         }
+        keys += try await encryptKeyForOwnDevices(
+            contentKey: contentKey, identity: identity,
+            ownDeviceIDs: ownDeviceIDs
+        )
+        return buildEncryptedElements(
+            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
+        )
+    }
+
+    private func encryptKeyForOwnDevices(
+        contentKey: [UInt8], identity: OwnIdentity,
+        ownDeviceIDs: [UInt32]?
+    ) async throws -> [XMLElement] {
         let ownJID = identity.connectedJID.bareJID
-        let ownDevices = try await fetchDeviceList(for: ownJID)
+        let ownDevices: [UInt32] = if let ownDeviceIDs {
+            ownDeviceIDs
+        } else {
+            try await fetchDeviceList(for: ownJID)
+        }
+        var keys: [XMLElement] = []
         for deviceID in ownDevices where deviceID != identity.deviceID.value {
             let key = try await encryptKeyForDevice(
                 contentKey: contentKey, jid: ownJID,
@@ -228,9 +261,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
             )
             keys.append(key)
         }
-        return buildEncryptedElements(
-            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
-        )
+        return keys
     }
 
     private func buildEncryptedElements(
@@ -523,7 +554,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
             return $0.context
         }
         context?.emitEvent(.omemoSessionEstablished(
-            jid: sessionKey.jid, deviceID: sessionKey.deviceID
+            jid: sessionKey.jid, deviceID: sessionKey.deviceID,
+            identityKey: kex.identityKey
         ))
         return plaintext
     }
@@ -640,6 +672,12 @@ public final class OMEMOModule: XMPPModule, Sendable {
         let bundle = try await fetchBundle(
             from: sessionKey.jid, deviceID: sessionKey.deviceID
         )
+        let validator = state.withLock { $0.identityKeyValidator }
+        if let validator {
+            try await validator(
+                sessionKey.jid, sessionKey.deviceID, bundle.identityKey
+            )
+        }
         let selectedPreKey = bundle.preKeys.randomElement()
         let peerBundle = OMEMOX3DHPeerBundle(
             identityKey: bundle.identityKey,
@@ -661,7 +699,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
             return $0.context
         }
         context?.emitEvent(.omemoSessionEstablished(
-            jid: sessionKey.jid, deviceID: sessionKey.deviceID
+            jid: sessionKey.jid, deviceID: sessionKey.deviceID,
+            identityKey: bundle.identityKey
         ))
         return SessionResult(
             session: session,

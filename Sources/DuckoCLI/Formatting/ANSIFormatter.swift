@@ -125,7 +125,7 @@ struct ANSIFormatter: CLIFormatter {
         switch event {
         case let .omemoDeviceListReceived(jid, devices):
             return "\(Color.dim)OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))\(Color.reset)"
-        case let .omemoSessionEstablished(jid, deviceID):
+        case let .omemoSessionEstablished(jid, deviceID, _):
             return "\(Color.green)OMEMO session established with \(jid) device \(deviceID)\(Color.reset)"
         case .omemoEncryptedMessageReceived:
             return nil

@@ -137,11 +137,13 @@ struct JSONFormatter: CLIFormatter {
                 "devices": devices.map(String.init).joined(separator: ","),
                 "account": account
             ])
-        case let .omemoSessionEstablished(jid, deviceID):
+        case let .omemoSessionEstablished(jid, deviceID, identityKey):
+            let fingerprint = identityKey.map { String(format: "%02x", $0) }.joined()
             return encode([
                 "type": "omemo_session_established",
                 "jid": jid.description,
                 "deviceID": "\(deviceID)",
+                "fingerprint": fingerprint,
                 "account": account
             ])
         case .omemoEncryptedMessageReceived:
