@@ -189,6 +189,19 @@ Right-click a participant in the chat window sidebar:
 | `ducko-avatar-remove.sh` | Remove current avatar via profile sheet | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
 | `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Appearance\|Notifications\|Advanced>` |
+| `ducko-status.sh` | Set presence status and optional status message | `STATUS [MESSAGE]` (`STATUS`: available\|away\|xa\|dnd\|offline) |
+| `ducko-bookmarks.sh` | Open the Bookmarks sheet from contact list toolbar | none |
+| `ducko-add-bookmark.sh` | Add a bookmark via the Bookmarks sheet | `ROOM_JID [NICKNAME]` |
+| `ducko-remove-bookmark.sh` | Remove a bookmark from the Bookmarks sheet | `ROOM_JID` |
+| `ducko-leave-room.sh` | Leave a room via context menu | `ROOM_JID` |
+| `ducko-retract.sh` | Retract a message via context menu | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
+| `ducko-encrypt.sh` | Open encryption menu, optionally toggle or open fingerprints | `[on\|off\|fingerprints]` (optional) |
+| `ducko-device-trust.sh` | Trust/untrust/verify an OMEMO device | `DEVICE_ID ACTION` (`ACTION`: trust\|untrust\|verify) |
+| `ducko-attach.sh` | Attach a file via the attachment button in chat | `FILE_PATH` |
+| `ducko-change-nickname.sh` | Change MUC nickname via participant sidebar context menu | `NICKNAME` |
+| `ducko-room-topic.sh` | View or set the room topic | `[TEXT]` (optional; no args prints current topic) |
+| `ducko-channel-search.sh` | Search for channels in the Join Room dialog | `QUERY` |
+| `ducko-connection-info.sh` | Open Connection Info sheet from Preferences > Accounts | none |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
 
@@ -503,6 +516,182 @@ $SCRIPTS/ducko-preferences-tab.sh Chat
 $SCRIPTS/ducko-screenshot.sh "encryption-preferences.png"
 
 # 6. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Presence/status test
+
+Tests setting presence status and status message:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch
+$SCRIPTS/ducko-launch.sh
+
+# 2. Set status to Away
+$SCRIPTS/ducko-status.sh away
+$SCRIPTS/ducko-screenshot.sh "status-away.png"
+
+# 3. Set status with a message
+$SCRIPTS/ducko-status.sh dnd "In a meeting"
+$SCRIPTS/ducko-screenshot.sh "status-dnd-message.png"
+
+# 4. Back to Available
+$SCRIPTS/ducko-status.sh available
+$SCRIPTS/ducko-screenshot.sh "status-available.png"
+
+# 5. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Bookmarks management test
+
+Tests bookmark lifecycle — open bookmarks, add, verify, remove:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch
+$SCRIPTS/ducko-launch.sh
+
+# 2. Open bookmarks
+$SCRIPTS/ducko-bookmarks.sh
+$SCRIPTS/ducko-screenshot.sh "bookmarks-list.png"
+
+# 3. Add a bookmark
+$SCRIPTS/ducko-add-bookmark.sh "room@conference.example.com" "mynick"
+$SCRIPTS/ducko-screenshot.sh "bookmark-added.png"
+
+# 4. Remove the bookmark
+$SCRIPTS/ducko-remove-bookmark.sh "room@conference.example.com"
+$SCRIPTS/ducko-screenshot.sh "bookmark-removed.png"
+
+# 5. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Message retraction test
+
+Tests sending and retracting a message:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and open a chat
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
+
+# 2. Send a message
+$SCRIPTS/ducko-send.sh "This message will be retracted"
+$SCRIPTS/ducko-screenshot.sh "before-retract.png"
+
+# 3. Retract the message
+$SCRIPTS/ducko-retract.sh "This message will be retracted"
+$SCRIPTS/ducko-screenshot.sh "after-retract.png"
+
+# 4. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### OMEMO encryption test
+
+Tests encryption toggle, device fingerprints sheet, and device trust:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and open a chat
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
+
+# 2. Enable encryption
+$SCRIPTS/ducko-encrypt.sh on
+$SCRIPTS/ducko-screenshot.sh "encryption-enabled.png"
+
+# 3. Open device fingerprints sheet
+$SCRIPTS/ducko-encrypt.sh fingerprints
+$SCRIPTS/ducko-screenshot.sh "device-fingerprints.png"
+
+# 4. Trust a device (replace DEVICE_ID with actual ID from screenshot)
+# $SCRIPTS/ducko-device-trust.sh 12345 trust
+# $SCRIPTS/ducko-screenshot.sh "device-trusted.png"
+
+# 5. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Room management test
+
+Tests full room lifecycle — join, topic, nickname, file attachment, leave:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and join a room
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-join-room.sh "room@conference.example.com" "mynick"
+
+# 2. View current topic
+$SCRIPTS/ducko-room-topic.sh
+$SCRIPTS/ducko-screenshot.sh "room-topic-view.png"
+
+# 3. Set a new topic
+$SCRIPTS/ducko-room-topic.sh "Welcome to the test room!"
+$SCRIPTS/ducko-screenshot.sh "room-topic-set.png"
+
+# 4. Toggle sidebar and change nickname
+$SCRIPTS/ducko-toggle-sidebar.sh
+$SCRIPTS/ducko-change-nickname.sh "newnick"
+$SCRIPTS/ducko-screenshot.sh "nickname-changed.png"
+
+# 5. Leave the room
+$SCRIPTS/ducko-focus-contacts.sh
+$SCRIPTS/ducko-leave-room.sh "room@conference.example.com"
+$SCRIPTS/ducko-screenshot.sh "room-left.png"
+
+# 6. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### File attachment test (full)
+
+Tests attaching and sending a file:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch and open a chat
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
+
+# 2. Attach a file
+$SCRIPTS/ducko-attach.sh "/path/to/test-file.png"
+$SCRIPTS/ducko-screenshot.sh "file-attached.png"
+
+# 3. Send (the attached file appears in pending-attachments bar, send delivers it)
+$SCRIPTS/ducko-send.sh "Here's a file"
+$SCRIPTS/ducko-screenshot.sh "file-sent.png"
+
+# 4. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+### Connection info test
+
+Tests viewing TLS connection details:
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 1. Launch (must be connected)
+$SCRIPTS/ducko-launch.sh
+
+# 2. Open connection info
+$SCRIPTS/ducko-connection-info.sh
+$SCRIPTS/ducko-screenshot.sh "connection-info.png"
+
+# 3. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 
