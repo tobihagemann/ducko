@@ -61,6 +61,49 @@ enum CapsModuleTests {
         }
     }
 
+    struct VerificationStringWithForms {
+        @Test
+        func `Forms produce different verification string than no forms`() {
+            let identities = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Test")
+            ]
+            let features: Set = ["urn:xmpp:ping"]
+            let forms: [[DataFormField]] = [[
+                DataFormField(variable: "FORM_TYPE", values: ["urn:xmpp:dataforms:softwareinfo"]),
+                DataFormField(variable: "software", values: ["Ducko"])
+            ]]
+            let ver1 = CapsModule.generateVerificationString(identities: identities, features: features)
+            let ver2 = CapsModule.generateVerificationString(identities: identities, features: features, forms: forms)
+            #expect(ver1 != ver2)
+        }
+
+        @Test
+        func `Empty forms produce same verification string`() {
+            let identities = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Test")
+            ]
+            let features: Set = ["urn:xmpp:ping"]
+            let ver1 = CapsModule.generateVerificationString(identities: identities, features: features)
+            let ver2 = CapsModule.generateVerificationString(identities: identities, features: features, forms: [])
+            #expect(ver1 == ver2)
+        }
+
+        @Test
+        func `Form order does not affect verification string`() {
+            let formA: [DataFormField] = [
+                DataFormField(variable: "FORM_TYPE", values: ["urn:a"]),
+                DataFormField(variable: "field1", values: ["val1"])
+            ]
+            let formB: [DataFormField] = [
+                DataFormField(variable: "FORM_TYPE", values: ["urn:b"]),
+                DataFormField(variable: "field2", values: ["val2"])
+            ]
+            let ver1 = CapsModule.generateVerificationString(identities: [], features: [], forms: [formA, formB])
+            let ver2 = CapsModule.generateVerificationString(identities: [], features: [], forms: [formB, formA])
+            #expect(ver1 == ver2)
+        }
+    }
+
     struct PresenceHandling {
         @Test
         func `handleConnect sends presence with caps element`() async throws {
@@ -214,6 +257,66 @@ enum CapsModuleTests {
 
             let evilJID = try #require(BareJID.parse("evil@example.com"))
             #expect(!capsModule.isFeatureSupported("urn:xmpp:poisoned", by: evilJID))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Valid hash with data forms caches features`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            let capsModule = CapsModule()
+            await client.register(capsModule)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            // Compute a known ver hash that includes data forms
+            let testIdentities = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "FormClient")
+            ]
+            let testFeatures: Set = ["urn:xmpp:ping"]
+            let testForms: [[DataFormField]] = [[
+                DataFormField(variable: "FORM_TYPE", values: ["urn:xmpp:dataforms:softwareinfo"]),
+                DataFormField(variable: "software", values: ["TestApp"])
+            ]]
+            let expectedVer = CapsModule.generateVerificationString(
+                identities: testIdentities, features: testFeatures, forms: testForms
+            )
+
+            // Simulate presence with this ver
+            await mock.simulateReceive(
+                "<presence from='form@example.com/res'><c xmlns='http://jabber.org/protocol/caps' hash='sha-1' node='http://form.example' ver='\(expectedVer)'/></presence>"
+            )
+
+            // Wait for disco#info IQ
+            await mock.waitForSent(count: 6)
+            let sentData = await mock.sentBytes
+            let lastSent = try String(decoding: #require(sentData.last), as: UTF8.self)
+            let iqID = try #require(extractIQID(from: lastSent))
+
+            // Respond with matching identities, features, and data forms
+            await mock.simulateReceive("""
+            <iq type='result' id='\(iqID)' from='form@example.com/res'>\
+            <query xmlns='http://jabber.org/protocol/disco#info' node='http://form.example#\(expectedVer)'>\
+            <identity category='client' type='pc' name='FormClient'/>\
+            <feature var='urn:xmpp:ping'/>\
+            <x xmlns='jabber:x:data' type='result'>\
+            <field var='FORM_TYPE' type='hidden'><value>urn:xmpp:dataforms:softwareinfo</value></field>\
+            <field var='software'><value>TestApp</value></field>\
+            </x>\
+            </query>\
+            </iq>
+            """)
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let peerJID = try #require(BareJID.parse("form@example.com"))
+            #expect(capsModule.isFeatureSupported("urn:xmpp:ping", by: peerJID))
 
             await client.disconnect()
         }

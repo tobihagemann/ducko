@@ -102,6 +102,107 @@ enum Caps2HashTests {
         }
     }
 
+    struct DataFormEncoding {
+        @Test
+        func `Forms without FORM_TYPE are excluded`() {
+            let forms: [[DataFormField]] = [[
+                DataFormField(variable: "some-field", values: ["value"])
+            ]]
+            let withForms = Caps2Hash.generateHashInput(identities: [], features: [], forms: forms)
+            let withoutForms = Caps2Hash.generateHashInput(identities: [], features: [])
+            #expect(withForms == withoutForms)
+        }
+
+        @Test
+        func `Forms with FORM_TYPE are encoded in extensions section`() {
+            let forms: [[DataFormField]] = [[
+                DataFormField(variable: "FORM_TYPE", values: ["urn:xmpp:dataforms:softwareinfo"])
+            ]]
+            let withForms = Caps2Hash.generateHashInput(identities: [], features: [], forms: forms)
+            let withoutForms = Caps2Hash.generateHashInput(identities: [], features: [])
+            #expect(withForms != withoutForms)
+        }
+
+        @Test
+        func `Form order does not affect hash input`() {
+            let formA: [DataFormField] = [
+                DataFormField(variable: "FORM_TYPE", values: ["urn:a"]),
+                DataFormField(variable: "field1", values: ["val1"])
+            ]
+            let formB: [DataFormField] = [
+                DataFormField(variable: "FORM_TYPE", values: ["urn:b"]),
+                DataFormField(variable: "field2", values: ["val2"])
+            ]
+            let ab = Caps2Hash.generateHashInput(identities: [], features: [], forms: [formA, formB])
+            let ba = Caps2Hash.generateHashInput(identities: [], features: [], forms: [formB, formA])
+            #expect(ab == ba)
+        }
+
+        @Test
+        func `Fields within a form are sorted by byte representation`() {
+            let form: [DataFormField] = [
+                DataFormField(variable: "FORM_TYPE", values: ["urn:test"]),
+                DataFormField(variable: "z-field", values: ["z"]),
+                DataFormField(variable: "a-field", values: ["a"])
+            ]
+            let input = Caps2Hash.generateHashInput(identities: [], features: [], forms: [form])
+
+            // XEP-0390 §4.1: FORM_TYPE is a regular field, all fields sorted by bytes
+            var expected: [UInt8] = []
+            expected.append(0x1C) // features end
+            expected.append(0x1C) // identities end
+            // FORM_TYPE field (uppercase 'F' sorts before lowercase 'a')
+            expected.append(contentsOf: Array("FORM_TYPE".utf8))
+            expected.append(0x1F)
+            expected.append(contentsOf: Array("urn:test".utf8))
+            expected.append(0x1F)
+            expected.append(0x1E)
+            // a-field
+            expected.append(contentsOf: Array("a-field".utf8))
+            expected.append(0x1F)
+            expected.append(contentsOf: Array("a".utf8))
+            expected.append(0x1F)
+            expected.append(0x1E)
+            // z-field
+            expected.append(contentsOf: Array("z-field".utf8))
+            expected.append(0x1F)
+            expected.append(contentsOf: Array("z".utf8))
+            expected.append(0x1F)
+            expected.append(0x1E)
+            expected.append(0x1D) // end form
+            expected.append(0x1C) // extensions end
+
+            #expect(input == expected)
+        }
+
+        @Test
+        func `Values within a field are sorted`() throws {
+            let form: [DataFormField] = [
+                DataFormField(variable: "FORM_TYPE", values: ["urn:test"]),
+                DataFormField(variable: "multi", values: ["z-val", "a-val"])
+            ]
+            let input = Caps2Hash.generateHashInput(identities: [], features: [], forms: [form])
+            let inputStr = String(decoding: input.filter { $0 >= 0x20 }, as: UTF8.self)
+            let zIndex = inputStr.range(of: "z-val")
+            let aIndex = inputStr.range(of: "a-val")
+            #expect(aIndex != nil)
+            #expect(zIndex != nil)
+            // a-val should appear before z-val
+            #expect(try #require(aIndex?.lowerBound) < #require(zIndex?.lowerBound))
+        }
+
+        @Test
+        func `Backward compatibility: empty forms produce same hash as no forms parameter`() {
+            let identities = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Test")
+            ]
+            let features: Set = ["urn:xmpp:ping"]
+            let withEmptyForms = Caps2Hash.generateHashInput(identities: identities, features: features, forms: [])
+            let withoutForms = Caps2Hash.generateHashInput(identities: identities, features: features)
+            #expect(withEmptyForms == withoutForms)
+        }
+    }
+
     struct HashAlgorithm {
         @Test
         func `SHA-256 produces 32-byte digest`() {

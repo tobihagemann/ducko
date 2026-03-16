@@ -115,23 +115,13 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
         guard let itemsResult = try await context.sendIQ(itemsIQ) else { return nil }
         let items = itemsResult.children(named: "item").compactMap { $0.attribute("jid") }
 
-        // Check each item for the channel search feature
-        for item in items {
-            guard let itemJID = JID.parse(item) else { continue }
-            var infoIQ = XMPPIQ(type: .get, to: itemJID, id: context.generateID())
-            let infoQuery = XMLElement(name: "query", namespace: XMPPNamespaces.discoInfo)
-            infoIQ.element.addChild(infoQuery)
-
-            guard let infoResult = try? await context.sendIQ(infoIQ) else { continue }
-            let featureVars = Set(infoResult.children(named: "feature").compactMap { $0.attribute("var") })
-            if featureVars.contains(XMPPNamespaces.channelSearch) {
-                state.withLock { $0.cachedSearchService = item }
-                log.info("Discovered channel search service: \(item)")
-                return item
-            }
+        // Check items for the channel search feature in parallel
+        let match = await findSearchService(items: items, context: context)
+        if let match {
+            state.withLock { $0.cachedSearchService = match }
+            log.info("Discovered channel search service: \(match)")
         }
-
-        return nil
+        return match
     }
 
     /// Searches for channels matching the given query.
@@ -193,6 +183,30 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
     }
 
     // MARK: - Private
+
+    private func findSearchService(items: [String], context: ModuleContext) async -> String? {
+        await withTaskGroup(of: String?.self) { group in
+            for item in items {
+                group.addTask {
+                    guard let itemJID = JID.parse(item) else { return nil }
+                    var infoIQ = XMPPIQ(type: .get, to: itemJID, id: context.generateID())
+                    let infoQuery = XMLElement(name: "query", namespace: XMPPNamespaces.discoInfo)
+                    infoIQ.element.addChild(infoQuery)
+
+                    guard let infoResult = try? await context.sendIQ(infoIQ) else { return nil }
+                    let featureVars = Set(infoResult.children(named: "feature").compactMap({ $0.attribute("var") }))
+                    return featureVars.contains(XMPPNamespaces.channelSearch) ? item : nil
+                }
+            }
+            for await result in group {
+                if let service = result {
+                    group.cancelAll()
+                    return service
+                }
+            }
+            return nil
+        }
+    }
 
     private func parseSearchResult(_ element: XMLElement) -> SearchResult {
         let items = element.children(named: "item").compactMap { item -> ChannelInfo? in

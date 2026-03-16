@@ -3,7 +3,11 @@ import Foundation
 
 @MainActor @Observable
 public final class RosterService {
-    public private(set) var groups: [ContactGroup] = []
+    private var groupsByAccount: [UUID: [ContactGroup]] = [:]
+
+    public var groups: [ContactGroup] {
+        groupsByAccount.values.flatMap(\.self)
+    }
 
     private let store: any PersistenceStore
     private weak var accountService: AccountService?
@@ -31,7 +35,7 @@ public final class RosterService {
 
     public func loadContacts(for accountID: UUID) async throws {
         let contacts = try await store.fetchContacts(for: accountID)
-        groups = buildGroups(from: contacts)
+        groupsByAccount[accountID] = buildGroups(from: contacts)
     }
 
     public func addContact(jid: BareJID, name: String?, groups: [String], accountID: UUID) async throws {
@@ -64,7 +68,7 @@ public final class RosterService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.approveSubscription(from: jid)
-        presenceService?.removeSubscriptionRequest(jid)
+        presenceService?.removeSubscriptionRequest(jid, accountID: accountID)
     }
 
     public func denySubscription(jidString: String, accountID: UUID) async throws {
@@ -72,7 +76,7 @@ public final class RosterService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.denySubscription(from: jid)
-        presenceService?.removeSubscriptionRequest(jid)
+        presenceService?.removeSubscriptionRequest(jid, accountID: accountID)
     }
 
     public func renameContact(_ contact: Contact, newAlias: String, accountID: UUID) async throws {
@@ -127,7 +131,9 @@ public final class RosterService {
             if presence.presenceType == .unavailable {
                 await updateLastSeen(jid: from.bareJID, date: Date(), accountID: accountID)
             }
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+        case .disconnected:
+            groupsByAccount.removeValue(forKey: accountID)
+        case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .presenceSubscriptionRequest,
              .messageCarbonReceived, .messageCarbonSent,
@@ -155,7 +161,7 @@ public final class RosterService {
         // Empty roster response with a cached version means "up-to-date" — use cached contacts
         if items.isEmpty {
             if !existingContacts.isEmpty {
-                groups = buildGroups(from: existingContacts)
+                groupsByAccount[accountID] = buildGroups(from: existingContacts)
                 return
             }
         }
@@ -176,7 +182,7 @@ public final class RosterService {
             updatedContacts.append(contact)
         }
 
-        groups = buildGroups(from: updatedContacts)
+        groupsByAccount[accountID] = buildGroups(from: updatedContacts)
     }
 
     private func handleRosterVersionChanged(_ version: String, accountID: UUID) async {
@@ -199,7 +205,7 @@ public final class RosterService {
         }
 
         let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
-        groups = buildGroups(from: contacts)
+        groupsByAccount[accountID] = buildGroups(from: contacts)
     }
 
     private func mapRosterItem(_ item: RosterItem, accountID: UUID, existingContacts: [Contact]) -> Contact {

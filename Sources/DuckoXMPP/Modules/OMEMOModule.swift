@@ -193,14 +193,17 @@ public final class OMEMOModule: XMPPModule, Sendable {
         } else {
             try await fetchDeviceList(for: recipientJID)
         }
-        var keys = try await encryptKeysInParallel(
+        var results = try await encryptKeysInParallel(
             contentKey: contentKey, identity: identity,
             devices: recipientDevices.map { (jid: recipientJID, deviceID: $0) }
         )
-        keys += try await encryptKeyForOwnDevices(
+        results += try await encryptKeyForOwnDevices(
             contentKey: contentKey, identity: identity,
             ownDeviceIDs: ownDeviceIDs
         )
+        // All encryptions succeeded — commit session updates atomically
+        applySessionUpdates(results)
+        let keys = results.map(\.keyElement)
         return buildEncryptedElements(
             keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
         )
@@ -222,27 +225,36 @@ public final class OMEMOModule: XMPPModule, Sendable {
         let sceBytes = buildSCEEnvelope(body: plaintext)
         let payload = try encryptPayload(sceBytes, contentKey: contentKey)
         let devices = recipients.flatMap { r in r.deviceIDs.map { (jid: r.jid, deviceID: $0) } }
-        var keys = try await encryptKeysInParallel(
+        var results = try await encryptKeysInParallel(
             contentKey: contentKey, identity: identity, devices: devices
         )
-        keys += try await encryptKeyForOwnDevices(
+        results += try await encryptKeyForOwnDevices(
             contentKey: contentKey, identity: identity,
             ownDeviceIDs: ownDeviceIDs
         )
+        // All encryptions succeeded — commit session updates atomically
+        applySessionUpdates(results)
+        let keys = results.map(\.keyElement)
         return buildEncryptedElements(
             keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
         )
     }
 
+    private struct EncryptionResult {
+        let keyElement: XMLElement
+        let sessionKey: SessionKey
+        let updatedEntry: SessionEntry
+    }
+
     private func encryptKeysInParallel(
         contentKey: [UInt8], identity: OwnIdentity,
         devices: [(jid: BareJID, deviceID: UInt32)]
-    ) async throws -> [XMLElement] {
+    ) async throws -> [EncryptionResult] {
         assert(
             Set(devices.map { SessionKey(jid: $0.jid, deviceID: $0.deviceID) }).count == devices.count,
             "Duplicate devices would corrupt Double Ratchet sessions"
         )
-        return try await withThrowingTaskGroup(of: XMLElement.self) { group in
+        return try await withThrowingTaskGroup(of: EncryptionResult.self) { group in
             for device in devices {
                 group.addTask {
                     try await self.encryptKeyForDevice(
@@ -251,18 +263,18 @@ public final class OMEMOModule: XMPPModule, Sendable {
                     )
                 }
             }
-            var keys: [XMLElement] = []
-            for try await key in group {
-                keys.append(key)
+            var results: [EncryptionResult] = []
+            for try await result in group {
+                results.append(result)
             }
-            return keys
+            return results
         }
     }
 
     private func encryptKeyForOwnDevices(
         contentKey: [UInt8], identity: OwnIdentity,
         ownDeviceIDs: [UInt32]?
-    ) async throws -> [XMLElement] {
+    ) async throws -> [EncryptionResult] {
         let ownJID = identity.connectedJID.bareJID
         let ownDevices: [UInt32] = if let ownDeviceIDs {
             ownDeviceIDs
@@ -274,6 +286,15 @@ public final class OMEMOModule: XMPPModule, Sendable {
             contentKey: contentKey, identity: identity,
             devices: filtered.map { (jid: ownJID, deviceID: $0) }
         )
+    }
+
+    private func applySessionUpdates(_ results: [EncryptionResult]) {
+        let updates = results.map { ($0.sessionKey, $0.updatedEntry) }
+        state.withLock { state in
+            for (key, entry) in updates {
+                state.sessions[key] = entry
+            }
+        }
     }
 
     private func buildEncryptedElements(
@@ -636,7 +657,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
     private func encryptKeyForDevice(
         contentKey: [UInt8], jid: BareJID,
         deviceID: UInt32, identity: OwnIdentity
-    ) async throws -> XMLElement {
+    ) async throws -> EncryptionResult {
         let sessionKey = SessionKey(jid: jid, deviceID: deviceID)
         let result = try await getOrEstablishSession(
             sessionKey: sessionKey, identity: identity
@@ -645,12 +666,9 @@ public final class OMEMOModule: XMPPModule, Sendable {
         let ratchetMessage = try mutableSession.encrypt(
             plaintext: contentKey, associatedData: result.ad
         )
-        let updatedSession = mutableSession
-        state.withLock {
-            $0.sessions[sessionKey] = SessionEntry(
-                session: updatedSession, associatedData: result.ad
-            )
-        }
+        let updatedEntry = SessionEntry(
+            session: mutableSession, associatedData: result.ad
+        )
         let serialized: [UInt8]
         let isKex: Bool
         if let kexInfo = result.kexInfo {
@@ -663,8 +681,12 @@ public final class OMEMOModule: XMPPModule, Sendable {
             serialized = serializeRatchetMessage(ratchetMessage)
             isKex = false
         }
-        return buildKeyElement(
+        let keyElement = buildKeyElement(
             deviceID: deviceID, data: serialized, isKex: isKex
+        )
+        return EncryptionResult(
+            keyElement: keyElement, sessionKey: sessionKey,
+            updatedEntry: updatedEntry
         )
     }
 

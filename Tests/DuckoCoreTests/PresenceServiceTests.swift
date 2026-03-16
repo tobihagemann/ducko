@@ -113,7 +113,7 @@ enum PresenceServiceTests {
             service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
             #expect(service.pendingSubscriptionRequests.count == 1)
 
-            service.removeSubscriptionRequest(contactJID)
+            service.removeSubscriptionRequest(contactJID, accountID: testAccountID)
             #expect(service.pendingSubscriptionRequests.isEmpty)
         }
 
@@ -126,7 +126,7 @@ enum PresenceServiceTests {
             service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
             #expect(service.pendingSubscriptionRequests.count == 1)
 
-            service.removeSubscriptionRequest(otherJID)
+            service.removeSubscriptionRequest(otherJID, accountID: testAccountID)
             #expect(service.pendingSubscriptionRequests.count == 1)
         }
     }
@@ -149,6 +149,56 @@ enum PresenceServiceTests {
             service.handleEvent(.disconnected(.requested), accountID: testAccountID)
             #expect(service.contactPresences.isEmpty)
             #expect(service.pendingSubscriptionRequests.isEmpty)
+        }
+    }
+
+    struct MultiAccountIsolation {
+        @Test
+        @MainActor
+        func `Disconnect clears only the disconnected account`() throws {
+            let service = makePresenceService()
+            let account1 = UUID()
+            let account2 = UUID()
+
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+            let otherJID = try #require(BareJID(localPart: "other", domainPart: "example.com"))
+            let otherFrom = try JID.full(#require(FullJID(bareJID: otherJID, resourcePart: "res")))
+
+            // Account 1 gets presence + subscription
+            service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
+            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: account1)
+
+            // Account 2 gets presence + subscription
+            service.handleEvent(.presenceUpdated(from: otherFrom, presence: makePresence(show: .dnd)), accountID: account2)
+            service.handleEvent(.presenceSubscriptionRequest(from: otherJID), accountID: account2)
+
+            #expect(service.contactPresences.count == 2)
+            #expect(service.pendingSubscriptionRequests.count == 2)
+
+            // Disconnect account 1 — account 2's state remains
+            service.handleEvent(.disconnected(.requested), accountID: account1)
+            #expect(service.contactPresences.count == 1)
+            #expect(service.contactPresences[otherJID] == .dnd)
+            #expect(service.pendingSubscriptionRequests.count == 1)
+            #expect(service.pendingSubscriptionRequests[0] == otherJID)
+        }
+
+        @Test
+        @MainActor
+        func `Aggregate contactPresences merges all accounts`() throws {
+            let service = makePresenceService()
+            let account1 = UUID()
+            let account2 = UUID()
+
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+            let otherJID = try #require(BareJID(localPart: "other", domainPart: "example.com"))
+            let otherFrom = try JID.full(#require(FullJID(bareJID: otherJID, resourcePart: "res")))
+
+            service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
+            service.handleEvent(.presenceUpdated(from: otherFrom, presence: makePresence(show: .xa)), accountID: account2)
+
+            #expect(service.contactPresences[contactJID] == .away)
+            #expect(service.contactPresences[otherJID] == .xa)
         }
     }
 

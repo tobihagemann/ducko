@@ -18,7 +18,12 @@ enum BookmarksError: Error, LocalizedError {
 
 @MainActor @Observable
 public final class BookmarksService {
-    public private(set) var bookmarks: [RoomBookmark] = []
+    private var bookmarksByAccount: [UUID: [RoomBookmark]] = [:]
+
+    public var bookmarks: [RoomBookmark] {
+        bookmarksByAccount.values.flatMap(\.self)
+    }
+
     public var autoJoinEnabled: Bool = false
 
     private weak var accountService: AccountService?
@@ -46,7 +51,7 @@ public final class BookmarksService {
         do {
             let items = try await pepModule.retrieveItems(node: XMPPNamespaces.bookmarks2)
             let parsed = items.compactMap { Bookmark.parse(itemID: $0.id, payload: $0.payload) }
-            bookmarks = parsed.map { mapToRoomBookmark($0) }
+            bookmarksByAccount[accountID] = parsed.map { mapToRoomBookmark($0) }
             await autojoinRooms(from: parsed, accountID: accountID)
         } catch {
             log.warning("Failed to load bookmarks: \(error.localizedDescription)")
@@ -79,7 +84,7 @@ public final class BookmarksService {
         )
 
         // Merge into local state
-        upsertBookmark(bookmark)
+        upsertBookmark(bookmark, accountID: accountID)
     }
 
     public func removeBookmark(jidString: String, accountID: UUID) async throws {
@@ -87,7 +92,7 @@ public final class BookmarksService {
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
 
         try await pepModule.retractItem(node: XMPPNamespaces.bookmarks2, itemID: jidString)
-        bookmarks.removeAll { $0.jidString == jidString }
+        bookmarksByAccount[accountID]?.removeAll { $0.jidString == jidString }
     }
 
     // MARK: - Event Handling
@@ -103,7 +108,7 @@ public final class BookmarksService {
             where node == XMPPNamespaces.bookmarks2:
             await handleBookmarksRetracted(from: from, itemIDs: itemIDs, accountID: accountID)
         case .disconnected:
-            bookmarks.removeAll()
+            bookmarksByAccount.removeValue(forKey: accountID)
         case .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -138,7 +143,7 @@ public final class BookmarksService {
         var newBookmarks: [Bookmark] = []
         for bookmark in parsed {
             let roomBookmark = mapToRoomBookmark(bookmark)
-            let isNew = upsertBookmark(roomBookmark)
+            let isNew = upsertBookmark(roomBookmark, accountID: accountID)
             if isNew {
                 newBookmarks.append(bookmark)
             }
@@ -152,7 +157,7 @@ public final class BookmarksService {
               from == account.jid else { return }
 
         for itemID in itemIDs {
-            bookmarks.removeAll { $0.jidString == itemID }
+            bookmarksByAccount[accountID]?.removeAll { $0.jidString == itemID }
             try? await chatService?.leaveRoom(jidString: itemID, accountID: accountID)
         }
     }
@@ -175,12 +180,12 @@ public final class BookmarksService {
     }
 
     @discardableResult
-    private func upsertBookmark(_ bookmark: RoomBookmark) -> Bool {
-        if let index = bookmarks.firstIndex(where: { $0.jidString == bookmark.jidString }) {
-            bookmarks[index] = bookmark
+    private func upsertBookmark(_ bookmark: RoomBookmark, accountID: UUID) -> Bool {
+        if let index = bookmarksByAccount[accountID]?.firstIndex(where: { $0.jidString == bookmark.jidString }) {
+            bookmarksByAccount[accountID]?[index] = bookmark
             return false
         } else {
-            bookmarks.append(bookmark)
+            bookmarksByAccount[accountID, default: []].append(bookmark)
             return true
         }
     }

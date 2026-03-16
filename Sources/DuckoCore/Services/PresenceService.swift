@@ -6,8 +6,18 @@ import Foundation
 public final class PresenceService {
     public var myPresence: PresenceStatus = .available
     public var myStatusMessage: String?
-    public private(set) var contactPresences: [BareJID: PresenceStatus] = [:]
-    public private(set) var pendingSubscriptionRequests: [BareJID] = []
+    private var contactPresencesByAccount: [UUID: [BareJID: PresenceStatus]] = [:]
+    private var pendingRequestsByAccount: [UUID: [BareJID]] = [:]
+
+    public var contactPresences: [BareJID: PresenceStatus] {
+        contactPresencesByAccount.values.reduce(into: [:]) { result, dict in
+            result.merge(dict) { _, new in new }
+        }
+    }
+
+    public var pendingSubscriptionRequests: [BareJID] {
+        pendingRequestsByAccount.values.flatMap(\.self)
+    }
 
     public enum PresenceStatus: String, Sendable {
         case available, away, xa, dnd, offline
@@ -66,8 +76,8 @@ public final class PresenceService {
         }
     }
 
-    public func removeSubscriptionRequest(_ jid: BareJID) {
-        pendingSubscriptionRequests.removeAll { $0 == jid }
+    public func removeSubscriptionRequest(_ jid: BareJID, accountID: UUID) {
+        pendingRequestsByAccount[accountID]?.removeAll { $0 == jid }
     }
 
     public func goOffline(accountID _: UUID) {
@@ -79,15 +89,15 @@ public final class PresenceService {
 
     // MARK: - Event Handling
 
-    func handleEvent(_ event: XMPPEvent, accountID _: UUID) {
+    func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
         case let .presenceUpdated(from, presence):
-            handlePresenceUpdated(from: from, presence: presence)
+            handlePresenceUpdated(from: from, presence: presence, accountID: accountID)
         case let .presenceSubscriptionRequest(from):
-            handleSubscriptionRequest(from: from)
+            handleSubscriptionRequest(from: from, accountID: accountID)
         case .disconnected:
-            contactPresences.removeAll()
-            pendingSubscriptionRequests.removeAll()
+            contactPresencesByAccount.removeValue(forKey: accountID)
+            pendingRequestsByAccount.removeValue(forKey: accountID)
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -144,19 +154,20 @@ public final class PresenceService {
 
     // MARK: - Private
 
-    private func handlePresenceUpdated(from: JID, presence: XMPPPresence) {
+    private func handlePresenceUpdated(from: JID, presence: XMPPPresence, accountID: UUID) {
         let bareJID = from.bareJID
         let status = mapPresence(presence)
         if status == .offline {
-            contactPresences.removeValue(forKey: bareJID)
+            contactPresencesByAccount[accountID, default: [:]].removeValue(forKey: bareJID)
         } else {
-            contactPresences[bareJID] = status
+            contactPresencesByAccount[accountID, default: [:]][bareJID] = status
         }
     }
 
-    private func handleSubscriptionRequest(from: BareJID) {
-        if !pendingSubscriptionRequests.contains(from) {
-            pendingSubscriptionRequests.append(from)
+    private func handleSubscriptionRequest(from: BareJID, accountID: UUID) {
+        let requests = pendingRequestsByAccount[accountID] ?? []
+        if !requests.contains(from) {
+            pendingRequestsByAccount[accountID, default: []].append(from)
         }
     }
 

@@ -18,12 +18,14 @@ enum Caps2HashAlgorithm: String, CaseIterable {
 /// Uses ASCII control characters as delimiters per XEP-0390 §5.2:
 /// - `0x1f` (Unit Separator): terminates individual attribute values
 /// - `0x1e` (Record Separator): terminates complete identities
+/// - `0x1d` (Group Separator): terminates form sections within extensions
 /// - `0x1c` (File Separator): terminates each major section
 enum Caps2Hash {
     /// Generates the XEP-0390 capability hash input bytes.
     static func generateHashInput(
         identities: [ServiceDiscoveryModule.Identity],
-        features: Set<String>
+        features: Set<String>,
+        forms: [[DataFormField]] = []
     ) -> [UInt8] {
         var result: [UInt8] = []
 
@@ -55,9 +57,54 @@ enum Caps2Hash {
         }
         result.append(0x1C)
 
-        // Extensions section: empty for now (Ducko doesn't include data forms in disco#info)
+        // Extensions section: encode data forms per XEP-0390 §5.2
+        encodeFormsSection(forms, into: &result)
         result.append(0x1C)
 
         return result
+    }
+
+    /// Encodes data forms into the extensions section per XEP-0390 §4.1.
+    ///
+    /// FORM_TYPE is treated as a regular field (encoded with var + values + 0x1e).
+    /// Fields within each form are sorted by byte representation.
+    /// Forms are sorted by byte representation (FORM_TYPE sorts early as uppercase).
+    private static func encodeFormsSection(_ forms: [[DataFormField]], into result: inout [UInt8]) {
+        // Only include forms that have a FORM_TYPE field
+        let validForms = forms.filter { fields in
+            fields.contains { $0.variable == "FORM_TYPE" }
+        }
+
+        // Encode each form: all fields as var 0x1f values 0x1f 0x1e, sorted, then 0x1d
+        var encodedForms: [[UInt8]] = validForms.map { fields in
+            encodeForm(fields)
+        }
+        encodedForms.sort { $0.lexicographicallyPrecedes($1) }
+
+        for formBytes in encodedForms {
+            result.append(contentsOf: formBytes)
+        }
+    }
+
+    private static func encodeForm(_ fields: [DataFormField]) -> [UInt8] {
+        var encodedFields: [[UInt8]] = fields.map { field in
+            var bytes: [UInt8] = []
+            bytes.append(contentsOf: Array(field.variable.utf8))
+            bytes.append(0x1F)
+            for value in field.values.sorted() {
+                bytes.append(contentsOf: Array(value.utf8))
+                bytes.append(0x1F)
+            }
+            bytes.append(0x1E)
+            return bytes
+        }
+        encodedFields.sort { $0.lexicographicallyPrecedes($1) }
+
+        var formBytes: [UInt8] = []
+        for fieldBytes in encodedFields {
+            formBytes.append(contentsOf: fieldBytes)
+        }
+        formBytes.append(0x1D)
+        return formBytes
     }
 }

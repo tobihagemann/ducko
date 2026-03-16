@@ -144,8 +144,11 @@ public final class CapsModule: XMPPModule, Sendable {
                 let features: Set<String> = Set(
                     result.children(named: "feature").compactMap({ $0.attribute("var") })
                 )
+                let forms = result.children(named: "x")
+                    .filter { $0.namespace == XMPPNamespaces.dataForms }
+                    .map { parseDataForm($0) }
 
-                guard verifyCapsHash(ver: ver, identities: identities, features: features) else {
+                guard verifyCapsHash(ver: ver, identities: identities, features: features, forms: forms) else {
                     log.warning("Caps hash mismatch for ver=\(ver)")
                     state.withLock { _ = $0.capsCache.removeValue(forKey: ver) }
                     return
@@ -168,17 +171,18 @@ public final class CapsModule: XMPPModule, Sendable {
     private func verifyCapsHash(
         ver: String,
         identities: [ServiceDiscoveryModule.Identity],
-        features: Set<String>
+        features: Set<String>,
+        forms: [[DataFormField]] = []
     ) -> Bool {
         // XEP-0390 format: "algo.base64hash"
         if let dotIndex = ver.firstIndex(of: ".") {
             let algoStr = String(ver[ver.startIndex ..< dotIndex])
             let hashStr = String(ver[ver.index(after: dotIndex)...])
-            return verifyCaps2Hash(algo: algoStr, hash: hashStr, identities: identities, features: features)
+            return verifyCaps2Hash(algo: algoStr, hash: hashStr, identities: identities, features: features, forms: forms)
         }
 
         // XEP-0115 format: bare base64 hash
-        let computed = Self.generateVerificationString(identities: identities, features: features)
+        let computed = Self.generateVerificationString(identities: identities, features: features, forms: forms)
         return computed == ver
     }
 
@@ -186,14 +190,15 @@ public final class CapsModule: XMPPModule, Sendable {
         algo: String,
         hash expectedHash: String,
         identities: [ServiceDiscoveryModule.Identity],
-        features: Set<String>
+        features: Set<String>,
+        forms: [[DataFormField]] = []
     ) -> Bool {
         guard let algorithm = Caps2HashAlgorithm(rawValue: algo) else {
             log.warning("Unknown caps2 hash algorithm: \(algo)")
             return false
         }
 
-        let input = Caps2Hash.generateHashInput(identities: identities, features: features)
+        let input = Caps2Hash.generateHashInput(identities: identities, features: features, forms: forms)
         let digest = algorithm.hash(input)
         let computed = Base64.encode(digest)
         return computed == expectedHash
@@ -228,10 +233,12 @@ public final class CapsModule: XMPPModule, Sendable {
     /// Generates the XEP-0115 §5.1 verification string.
     ///
     /// Sorts identities by `category/type`, sorts features alphabetically,
-    /// concatenates with `<` separators, SHA-1 hashes, and base64 encodes.
+    /// encodes data forms per §5.4, concatenates with `<` separators,
+    /// SHA-1 hashes, and base64 encodes.
     public static func generateVerificationString(
         identities: [ServiceDiscoveryModule.Identity],
-        features: Set<String>
+        features: Set<String>,
+        forms: [[DataFormField]] = []
     ) -> String {
         var parts: [String] = []
 
@@ -251,9 +258,38 @@ public final class CapsModule: XMPPModule, Sendable {
             parts.append("\(feature)<")
         }
 
+        // Data forms per XEP-0115 §5.4
+        encodeFormsForVerification(forms, into: &parts)
+
         let input = parts.joined()
         let hash = Insecure.SHA1.hash(data: Array(input.utf8))
         return Base64.encode(Array(hash))
+    }
+
+    /// Encodes data forms into the verification string per XEP-0115 §5.4.
+    private static func encodeFormsForVerification(_ forms: [[DataFormField]], into parts: inout [String]) {
+        let formsWithType = forms.compactMap { fields -> (formType: String, fields: [DataFormField])? in
+            guard let formTypeField = fields.first(where: { $0.variable == "FORM_TYPE" }),
+                  let formTypeValue = formTypeField.values.first else { return nil }
+            return (formType: formTypeValue, fields: fields)
+        }
+
+        let sorted = formsWithType.sorted { $0.formType < $1.formType }
+
+        for form in sorted {
+            parts.append("\(form.formType)<")
+
+            let fields = form.fields
+                .filter { $0.variable != "FORM_TYPE" }
+                .sorted { $0.variable < $1.variable }
+
+            for field in fields {
+                parts.append("\(field.variable)<")
+                for value in field.values.sorted() {
+                    parts.append("\(value)<")
+                }
+            }
+        }
     }
 
     // MARK: - XEP-0390 Caps 2.0
