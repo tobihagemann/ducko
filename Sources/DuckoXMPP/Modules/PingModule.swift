@@ -57,6 +57,10 @@ public final class PingModule: XMPPModule, Sendable {
         state.withLock { $0.keepAliveTask = task }
     }
 
+    public func handleResume() async throws {
+        try await handleConnect()
+    }
+
     public func handleDisconnect() async {
         let task = state.withLock { state -> Task<Void, Never>? in
             let task = state.keepAliveTask

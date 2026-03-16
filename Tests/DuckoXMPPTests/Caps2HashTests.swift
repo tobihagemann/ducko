@@ -68,6 +68,30 @@ enum Caps2HashTests {
         }
 
         @Test
+        func `Identity lang is included in hash input`() {
+            let identities = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", lang: "en", name: "TestApp")
+            ]
+            let input = Caps2Hash.generateHashInput(identities: identities, features: [])
+
+            var expected: [UInt8] = []
+            expected.append(0x1C) // features section end (empty)
+            expected.append(contentsOf: Array("client".utf8))
+            expected.append(0x1F)
+            expected.append(contentsOf: Array("pc".utf8))
+            expected.append(0x1F)
+            expected.append(contentsOf: Array("en".utf8))
+            expected.append(0x1F)
+            expected.append(contentsOf: Array("TestApp".utf8))
+            expected.append(0x1F)
+            expected.append(0x1E) // identity end
+            expected.append(0x1C) // identities section end
+            expected.append(0x1C) // extensions section end
+
+            #expect(input == expected)
+        }
+
+        @Test
         func `Different features produce different inputs`() {
             let identities = [
                 ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Test")

@@ -9,6 +9,8 @@ public protocol XMPPModule: AnyObject, Sendable {
     func setUp(_ context: ModuleContext)
     /// Called after the XMPP session is fully established.
     func handleConnect() async throws
+    /// Called after a successful Stream Management session resume.
+    func handleResume() async throws
     /// Called when the XMPP session is torn down (before state is cleared).
     func handleDisconnect() async
     /// Called for each incoming `<message>` stanza.
@@ -26,6 +28,7 @@ public extension XMPPModule {
     }
 
     func handleConnect() async throws {}
+    func handleResume() async throws {}
     func handleDisconnect() async {}
     func handleMessage(_ message: XMPPMessage) throws {}
     func handlePresence(_ presence: XMPPPresence) throws {}

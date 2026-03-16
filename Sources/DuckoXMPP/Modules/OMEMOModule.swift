@@ -451,6 +451,12 @@ public final class OMEMOModule: XMPPModule, Sendable {
             named: "encrypted", namespace: XMPPNamespaces.omemo
         ) else { return }
         guard let from = message.from else { return }
+
+        // Extract XEP-0359 stanza-id for dedup and marker correlation
+        let stanzaID = message.element
+            .child(named: "stanza-id", namespace: XMPPNamespaces.stanzaID)?
+            .attribute("id")
+
         do {
             let result = try decryptIncomingMessage(
                 encrypted, from: from
@@ -459,7 +465,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
             context?.emitEvent(.omemoEncryptedMessageReceived(
                 from: from,
                 decryptedBody: result.body,
-                senderDeviceID: result.senderDeviceID
+                senderDeviceID: result.senderDeviceID,
+                stanzaID: stanzaID
             ))
         } catch OMEMOModuleError.notForThisDevice {
             // Not addressed to us — ignore silently
@@ -467,7 +474,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
             log.warning("OMEMO decryption failed: \(error)")
             let context = state.withLock { $0.context }
             context?.emitEvent(.omemoEncryptedMessageReceived(
-                from: from, decryptedBody: nil, senderDeviceID: 0
+                from: from, decryptedBody: nil, senderDeviceID: 0,
+                stanzaID: stanzaID
             ))
         }
     }

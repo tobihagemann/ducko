@@ -29,6 +29,9 @@ public final class VCardModule: XMPPModule, Sendable {
         public var photoType: String?
         public var photoHash: String?
 
+        /// The original raw XML element from the server, used for lossless round-tripping.
+        public var rawElement: XMLElement?
+
         public struct Name: Sendable {
             public var familyName: String?
             public var givenName: String?
@@ -231,7 +234,7 @@ public final class VCardModule: XMPPModule, Sendable {
             }
         }
 
-        return VCard(
+        var vcard = VCard(
             fullName: fullName,
             nickname: nickname,
             name: name,
@@ -248,6 +251,8 @@ public final class VCardModule: XMPPModule, Sendable {
             photoType: photoType,
             photoHash: photoHash
         )
+        vcard.rawElement = element
+        return vcard
     }
 
     private func parseName(_ element: XMLElement) -> VCard.Name? {
@@ -308,7 +313,14 @@ public final class VCardModule: XMPPModule, Sendable {
     // MARK: - Serialization
 
     private func serializeVCard(_ vcard: VCard) -> XMLElement {
-        var element = XMLElement(name: "vCard", namespace: XMPPNamespaces.vcard)
+        var element: XMLElement
+        if let raw = vcard.rawElement {
+            // Merge into original to preserve unsupported fields
+            element = raw
+            removeKnownStructuredChildren(&element)
+        } else {
+            element = XMLElement(name: "vCard", namespace: XMPPNamespaces.vcard)
+        }
         serializeScalars(&element, vcard)
         serializeName(&element, vcard.name)
         serializeEmails(&element, vcard.emails)
@@ -317,6 +329,17 @@ public final class VCardModule: XMPPModule, Sendable {
         serializeOrganization(&element, vcard.organization)
         serializePhoto(&element, vcard)
         return element
+    }
+
+    /// Removes structured children that will be re-serialized.
+    /// Scalar fields (FN, NICKNAME, etc.) are handled by `setChildText` which removes-then-adds.
+    /// Keep in sync with the `serialize*` methods below.
+    private func removeKnownStructuredChildren(_ element: inout XMLElement) {
+        let structuredNames: Set = ["N", "EMAIL", "TEL", "ADR", "ORG", "PHOTO"]
+        element.children.removeAll { node in
+            guard case let .element(child) = node else { return false }
+            return structuredNames.contains(child.name)
+        }
     }
 
     private func serializeScalars(_ element: inout XMLElement, _ vcard: VCard) {

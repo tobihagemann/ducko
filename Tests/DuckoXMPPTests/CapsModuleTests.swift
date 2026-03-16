@@ -36,6 +36,21 @@ enum CapsModuleTests {
         }
 
         @Test
+        func `Identity lang is included in verification string`() {
+            let identities = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Test")
+            ]
+            let identitiesWithLang = [
+                ServiceDiscoveryModule.Identity(category: "client", type: "pc", lang: "en", name: "Test")
+            ]
+            let features: Set = ["urn:xmpp:ping"]
+
+            let ver1 = CapsModule.generateVerificationString(identities: identities, features: features)
+            let ver2 = CapsModule.generateVerificationString(identities: identitiesWithLang, features: features)
+            #expect(ver1 != ver2)
+        }
+
+        @Test
         func `Different features produce different hashes`() {
             let identities = [
                 ServiceDiscoveryModule.Identity(category: "client", type: "pc", name: "Test")

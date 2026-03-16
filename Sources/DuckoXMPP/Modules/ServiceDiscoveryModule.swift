@@ -11,11 +11,13 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
     public struct Identity: Hashable, Sendable {
         public let category: String
         public let type: String
+        public let lang: String
         public let name: String?
 
-        public init(category: String, type: String, name: String? = nil) {
+        public init(category: String, type: String, lang: String = "", name: String? = nil) {
             self.category = category
             self.type = type
+            self.lang = lang
             self.name = name
         }
     }
@@ -87,6 +89,9 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
             var identityElement = XMLElement(name: "identity")
             identityElement.setAttribute("category", value: identity.category)
             identityElement.setAttribute("type", value: identity.type)
+            if !identity.lang.isEmpty {
+                identityElement.setAttribute("xml:lang", value: identity.lang)
+            }
             if let name = identity.name {
                 identityElement.setAttribute("name", value: name)
             }
@@ -147,6 +152,7 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
             Identity(
                 category: element.attribute("category") ?? "",
                 type: element.attribute("type") ?? "",
+                lang: element.attribute("xml:lang") ?? "",
                 name: element.attribute("name")
             )
         }

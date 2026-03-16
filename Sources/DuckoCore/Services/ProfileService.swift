@@ -20,6 +20,7 @@ public final class ProfileService {
     public private(set) var ownProfile: ProfileInfo?
 
     private weak var accountService: AccountService?
+    private var lastFetchedVCard: VCardModule.VCard?
 
     public init() {}
 
@@ -38,6 +39,7 @@ public final class ProfileService {
         do {
             let vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true)
             if let vcard {
+                lastFetchedVCard = vcard
                 ownProfile = mapVCardToProfileInfo(vcard)
             }
         } catch {
@@ -53,8 +55,10 @@ public final class ProfileService {
             throw ProfileServiceError.notConnected
         }
 
-        let vcard = mapProfileInfoToVCard(profile)
+        var vcard = mapProfileInfoToVCard(profile)
+        vcard.rawElement = lastFetchedVCard?.rawElement
         try await vcardModule.publishVCard(vcard)
+        lastFetchedVCard = nil
         ownProfile = profile
     }
 

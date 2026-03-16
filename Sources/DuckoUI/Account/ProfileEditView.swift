@@ -12,6 +12,7 @@ struct ProfileEditView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var isSelectingPhoto = false
+    @State private var profileLoaded = false
     @State private var isPublishingAvatar = false
     @State private var avatarErrorMessage: String?
     @State private var avatarImage: NSImage?
@@ -259,7 +260,7 @@ struct ProfileEditView: View {
             }
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
-            .disabled(isSaving)
+            .disabled(isSaving || !profileLoaded)
             .accessibilityIdentifier("profile-save-button")
         }
         .padding()
@@ -277,6 +278,9 @@ struct ProfileEditView: View {
             profile = fetched
             avatarImage = fetched.photoData.flatMap(NSImage.init(data:))
         }
+        // Set profileLoaded even when ownProfile is nil (no vCard on server) to
+        // allow first-time profile creation. Only stays false if we have no account.
+        profileLoaded = true
         isLoading = false
     }
 

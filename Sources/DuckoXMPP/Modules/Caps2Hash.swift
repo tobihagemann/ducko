@@ -43,7 +43,7 @@ enum Caps2Hash {
             bytes.append(0x1F)
             bytes.append(contentsOf: Array(identity.type.utf8))
             bytes.append(0x1F)
-            // xml:lang — empty string for now (Ducko doesn't advertise a language)
+            bytes.append(contentsOf: Array(identity.lang.utf8))
             bytes.append(0x1F)
             bytes.append(contentsOf: Array((identity.name ?? "").utf8))
             bytes.append(0x1F)

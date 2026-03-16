@@ -152,7 +152,11 @@ public actor XMPPClient {
         do {
             let resumed = try await performHandshake(reader: reader)
             startReader(reader: reader)
-            if !resumed {
+            if resumed {
+                for module in modules.values {
+                    try await module.handleResume()
+                }
+            } else {
                 for module in modules.values {
                     try await module.handleConnect()
                 }

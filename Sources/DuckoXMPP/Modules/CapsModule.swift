@@ -137,6 +137,7 @@ public final class CapsModule: XMPPModule, Sendable {
                     ServiceDiscoveryModule.Identity(
                         category: identity.attribute("category") ?? "",
                         type: identity.attribute("type") ?? "",
+                        lang: identity.attribute("xml:lang") ?? "",
                         name: identity.attribute("name")
                     )
                 }
@@ -234,13 +235,15 @@ public final class CapsModule: XMPPModule, Sendable {
     ) -> String {
         var parts: [String] = []
 
-        // Sort identities by category then type
+        // Sort identities by category/type/lang/name per XEP-0115 §5.4
         let sortedIdentities = identities.sorted { lhs, rhs in
             if lhs.category != rhs.category { return lhs.category < rhs.category }
-            return lhs.type < rhs.type
+            if lhs.type != rhs.type { return lhs.type < rhs.type }
+            if lhs.lang != rhs.lang { return lhs.lang < rhs.lang }
+            return (lhs.name ?? "") < (rhs.name ?? "")
         }
         for identity in sortedIdentities {
-            parts.append("\(identity.category)/\(identity.type)//\(identity.name ?? "")<")
+            parts.append("\(identity.category)/\(identity.type)/\(identity.lang)/\(identity.name ?? "")<")
         }
 
         // Sort features

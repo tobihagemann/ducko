@@ -831,6 +831,23 @@ public final class ChatService {
         await reloadActiveMessages()
     }
 
+    /// Returns `true` if the element contained a receipt or chat marker that was handled.
+    private func handleCarbonReceiptOrMarker(_ element: DuckoXMPP.XMLElement) async -> Bool {
+        if let received = element.child(named: "received", namespace: XMPPNamespaces.receipts),
+           let messageID = received.attribute("id") {
+            await handleDeliveryReceipt(messageID: messageID)
+            return true
+        }
+        for markerType in ChatMarkerType.allCases {
+            if let marker = element.child(named: markerType.rawValue, namespace: XMPPNamespaces.chatMarkers),
+               let messageID = marker.attribute("id") {
+                await handleChatMarker(messageID: messageID, type: markerType)
+                return true
+            }
+        }
+        return false
+    }
+
     private func handleChatStateChanged(from: BareJID, state: ChatState) {
         typingStates[from] = state
     }
@@ -1140,6 +1157,12 @@ public final class ChatService {
 
         guard forwarded.message.messageType != .groupchat,
               let jid else { return }
+
+        // Handle receipt/marker carbons (bodyless) before the body guard.
+        // Carbon-forwarded stanzas bypass ReceiptsModule dispatch, so parse XML directly.
+        if await handleCarbonReceiptOrMarker(forwarded.message.element) {
+            return
+        }
 
         // Accept messages with body or OOB attachments
         let body = forwarded.message.body ?? oobAttachments.first?.url

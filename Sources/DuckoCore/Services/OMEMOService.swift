@@ -84,8 +84,8 @@ public final class OMEMOService {
         switch event {
         case let .omemoDeviceListReceived(jid, devices):
             await handleDeviceListReceived(jid: jid, devices: devices, accountID: accountID)
-        case let .omemoEncryptedMessageReceived(from, decryptedBody, _):
-            await handleEncryptedMessageReceived(from: from, decryptedBody: decryptedBody, accountID: accountID)
+        case let .omemoEncryptedMessageReceived(from, decryptedBody, _, stanzaID):
+            await handleEncryptedMessageReceived(from: from, decryptedBody: decryptedBody, stanzaID: stanzaID, accountID: accountID)
         case let .omemoSessionEstablished(jid, deviceID, identityKey):
             await handleSessionEstablished(
                 jid: jid, deviceID: deviceID,
@@ -310,7 +310,7 @@ public final class OMEMOService {
         }
     }
 
-    private func handleEncryptedMessageReceived(from: JID, decryptedBody: String?, accountID: UUID) async {
+    private func handleEncryptedMessageReceived(from: JID, decryptedBody: String?, stanzaID: String?, accountID: UUID) async {
         let senderJID = from.bareJID
         guard let chatService else { return }
 
@@ -331,6 +331,7 @@ public final class OMEMOService {
         let message = ChatMessage(
             id: UUID(),
             conversationID: conversation.id,
+            serverID: stanzaID,
             fromJID: peerJID.description,
             body: body,
             timestamp: Date(),
