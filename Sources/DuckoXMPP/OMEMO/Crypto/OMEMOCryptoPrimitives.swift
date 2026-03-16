@@ -37,6 +37,16 @@ enum OMEMOCrypto {
         return Array(mac)
     }
 
+    /// Incremental HMAC-SHA256 over multiple data segments, avoiding concatenation.
+    static func hmacSHA256(key: [UInt8], dataSegments: [[UInt8]]) -> [UInt8] {
+        let symmetricKey = SymmetricKey(data: key)
+        var hmac = HMAC<SHA256>(key: symmetricKey)
+        for segment in dataSegments {
+            hmac.update(data: segment)
+        }
+        return Array(hmac.finalize())
+    }
+
     /// HKDF-SHA256 key derivation producing raw bytes.
     static func hkdfSHA256(
         inputKeyMaterial: [UInt8],

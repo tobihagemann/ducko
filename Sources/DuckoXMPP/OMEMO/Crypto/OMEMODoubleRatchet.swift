@@ -7,6 +7,8 @@ import CryptoKit
 struct OMEMODoubleRatchetSession {
     /// Our current DH ratchet key pair (sending).
     var dhSendKeyPair: Curve25519.KeyAgreement.PrivateKey
+    /// Cached public key bytes from `dhSendKeyPair`, recomputed only on ratchet step.
+    var dhSendPublicKeyBytes: [UInt8]
     /// Peer's current DH ratchet public key (receiving), `nil` for responder before first message.
     var dhRecvPublicKey: [UInt8]?
     /// Root key (32 bytes).
@@ -41,6 +43,7 @@ struct OMEMODoubleRatchetSession {
         peerSignedPreKey: [UInt8]
     ) throws {
         self.dhSendKeyPair = Curve25519.KeyAgreement.PrivateKey()
+        self.dhSendPublicKeyBytes = Array(dhSendKeyPair.publicKey.rawRepresentation)
         self.dhRecvPublicKey = peerSignedPreKey
         self.rootKey = sharedSecret
 
@@ -62,6 +65,7 @@ struct OMEMODoubleRatchetSession {
         ourSignedPreKeyPair: Curve25519.KeyAgreement.PrivateKey
     ) {
         self.dhSendKeyPair = ourSignedPreKeyPair
+        self.dhSendPublicKeyBytes = Array(ourSignedPreKeyPair.publicKey.rawRepresentation)
         self.dhRecvPublicKey = nil
         self.rootKey = sharedSecret
         self.sendChainKey = nil
@@ -88,7 +92,7 @@ struct OMEMODoubleRatchetSession {
         sendChainKey = ckResult.chainKey
 
         let header = OMEMORatchetHeader(
-            dhPublicKey: Array(dhSendKeyPair.publicKey.rawRepresentation),
+            dhPublicKey: dhSendPublicKeyBytes,
             previousChainCount: previousSendCount,
             messageNumber: sendMessageNumber
         )
@@ -240,6 +244,7 @@ struct OMEMODoubleRatchetSession {
 
         // Generate new sending key pair and derive sending chain key
         dhSendKeyPair = Curve25519.KeyAgreement.PrivateKey()
+        dhSendPublicKeyBytes = Array(dhSendKeyPair.publicKey.rawRepresentation)
         let dhSend = try OMEMOCrypto.dh(privateKey: dhSendKeyPair, publicKey: peerKey)
         let rkSend = OMEMOCrypto.kdfRK(rootKey: rootKey, dhOutput: dhSend)
         rootKey = rkSend.rootKey
@@ -309,6 +314,7 @@ struct OMEMODoubleRatchetSession {
         // DH send key pair
         let sendKeyRaw = try readBytes(32)
         self.dhSendKeyPair = try Curve25519.KeyAgreement.PrivateKey(rawRepresentation: sendKeyRaw)
+        self.dhSendPublicKeyBytes = Array(dhSendKeyPair.publicKey.rawRepresentation)
 
         // DH recv public key
         let recvKeyLen = try readLE()

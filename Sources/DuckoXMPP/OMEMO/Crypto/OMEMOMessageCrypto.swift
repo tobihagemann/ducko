@@ -73,7 +73,7 @@ enum OMEMOMessageCrypto {
         associatedData: [UInt8],
         ciphertext: [UInt8]
     ) -> [UInt8] {
-        let fullHMAC = OMEMOCrypto.hmacSHA256(key: hmacKey, data: associatedData + ciphertext)
+        let fullHMAC = OMEMOCrypto.hmacSHA256(key: hmacKey, dataSegments: [associatedData, ciphertext])
         return Array(fullHMAC.prefix(16))
     }
 

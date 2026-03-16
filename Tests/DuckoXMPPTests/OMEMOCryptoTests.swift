@@ -202,6 +202,17 @@ enum OMEMOCryptoTests {
             #expect(mac1 == mac2)
         }
 
+        @Test func `hmac sha256 multi segment matches single buffer`() {
+            let key = Array("hmac-key".utf8)
+            let part1 = Array("hello ".utf8)
+            let part2 = Array("world".utf8)
+
+            let singleBuffer = OMEMOCrypto.hmacSHA256(key: key, data: part1 + part2)
+            let multiSegment = OMEMOCrypto.hmacSHA256(key: key, dataSegments: [part1, part2])
+
+            #expect(singleBuffer == multiSegment)
+        }
+
         @Test func `hkdf sha256 produces requested length`() {
             let ikm = Array("input key material".utf8)
             let salt = Array("salt".utf8)

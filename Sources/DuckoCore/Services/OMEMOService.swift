@@ -118,21 +118,23 @@ public final class OMEMOService {
 
     // MARK: - Encryption
 
-    /// Returns `true` if encryption is enabled for the conversation and the peer has trusted devices.
-    func shouldEncrypt(jid: BareJID, accountID: UUID, conversationEncryptionEnabled: Bool) async -> Bool {
-        guard conversationEncryptionEnabled else { return false }
-        guard let accountJID = accountJIDString(for: accountID) else { return false }
-        let devices = await (try? omemoStore.loadAllTrustedDevices(for: jid.description, accountJID: accountJID)) ?? []
-        let tofu = OMEMOPreferences.shared.trustOnFirstUse
-        return devices.contains { $0.trustLevel.isTrustedForEncryption(trustOnFirstUse: tofu) }
+    /// Returns trusted device IDs if encryption should proceed, or `nil` if not.
+    func shouldEncrypt(jid: BareJID, accountID: UUID, conversationEncryptionEnabled: Bool) async -> [UInt32]? {
+        guard conversationEncryptionEnabled else { return nil }
+        let deviceIDs = await trustedDeviceIDs(for: jid, accountID: accountID)
+        return deviceIDs.isEmpty ? nil : deviceIDs
     }
 
     /// Encrypts a message body and returns the OMEMO stanza elements.
     func encryptMessage(
         body: String,
         to jid: BareJID,
+        trustedDeviceIDs: [UInt32],
         accountID: UUID
     ) async throws -> OMEMOModule.EncryptedMessageElements {
+        guard !trustedDeviceIDs.isEmpty else {
+            throw OMEMOServiceError.noTrustedRecipients
+        }
         guard let client = accountService?.client(for: accountID) else {
             throw OMEMOServiceError.notConnected
         }
@@ -140,15 +142,10 @@ public final class OMEMOService {
             throw OMEMOServiceError.omemoNotAvailable
         }
 
-        // Filter recipient and own devices by trust
-        let deviceIDs = await trustedDeviceIDs(for: jid, accountID: accountID)
-        guard !deviceIDs.isEmpty else {
-            throw OMEMOServiceError.noTrustedRecipients
-        }
         let ownDeviceIDs = await trustedOwnDeviceIDs(accountID: accountID)
         let elements = try await omemoModule.encryptMessage(
             plaintext: body, to: jid,
-            recipientDeviceIDs: deviceIDs, ownDeviceIDs: ownDeviceIDs
+            recipientDeviceIDs: trustedDeviceIDs, ownDeviceIDs: ownDeviceIDs
         )
 
         // Persist updated sessions
@@ -285,14 +282,20 @@ public final class OMEMOService {
     ) async -> [(jid: BareJID, deviceIDs: [UInt32])] {
         // Exclude own JID — encryptGroupMessage encrypts for own devices separately
         let ownJID = accountService?.accounts.first(where: { $0.id == accountID })?.jid
-        var recipients: [(jid: BareJID, deviceIDs: [UInt32])] = []
-        for jid in memberJIDs where jid != ownJID {
-            let deviceIDs = await trustedDeviceIDs(for: jid, accountID: accountID)
-            if !deviceIDs.isEmpty {
+        let filtered = memberJIDs.filter { $0 != ownJID }
+        return await withTaskGroup(of: (BareJID, [UInt32]).self) { group in
+            for jid in filtered {
+                group.addTask {
+                    let deviceIDs = await self.trustedDeviceIDs(for: jid, accountID: accountID)
+                    return (jid, deviceIDs)
+                }
+            }
+            var recipients: [(jid: BareJID, deviceIDs: [UInt32])] = []
+            for await (jid, deviceIDs) in group where !deviceIDs.isEmpty {
                 recipients.append((jid: jid, deviceIDs: deviceIDs))
             }
+            return recipients
         }
-        return recipients
     }
 
     // MARK: - Private Event Handlers

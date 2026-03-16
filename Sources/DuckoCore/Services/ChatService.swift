@@ -58,8 +58,8 @@ public final class ChatService {
         // Encrypt if conversation has encryption enabled and peer has trusted devices
         let encryptionEnabled = conversation.encryptionEnabled
         var isEncrypted = false
-        if let omemoService, await omemoService.shouldEncrypt(jid: jid, accountID: accountID, conversationEncryptionEnabled: encryptionEnabled) {
-            let elements = try await omemoService.encryptMessage(body: filtered.body, to: jid, accountID: accountID)
+        if let omemoService, let trustedDeviceIDs = await omemoService.shouldEncrypt(jid: jid, accountID: accountID, conversationEncryptionEnabled: encryptionEnabled) {
+            let elements = try await omemoService.encryptMessage(body: filtered.body, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
             let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
             try await chatModule.sendMessage(
                 to: recipient, body: elements.fallbackBody, id: stanzaID,
@@ -412,15 +412,21 @@ public final class ChatService {
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return [] }
         guard let roomJID = BareJID.parse(roomJIDString) else { return [] }
 
-        var jids = Set<BareJID>()
-        for affiliation: RoomAffiliation in [.owner, .admin, .member] {
-            let xmppAffiliation = MUCAffiliation(rawValue: affiliation.rawValue) ?? .none
-            let items = await (try? mucModule.getAffiliationList(xmppAffiliation, in: roomJID)) ?? []
-            for item in items {
-                jids.insert(item.jid)
+        let affiliations: [RoomAffiliation] = [.owner, .admin, .member]
+        return await withTaskGroup(of: [BareJID].self) { group in
+            for affiliation in affiliations {
+                let xmppAffiliation = MUCAffiliation(rawValue: affiliation.rawValue) ?? .none
+                group.addTask {
+                    let items = await (try? mucModule.getAffiliationList(xmppAffiliation, in: roomJID)) ?? []
+                    return items.map(\.jid)
+                }
             }
+            var result = Set<BareJID>()
+            for await jids in group {
+                result.formUnion(jids)
+            }
+            return Array(result)
         }
-        return Array(jids)
     }
 
     // MARK: - MUC Bridge

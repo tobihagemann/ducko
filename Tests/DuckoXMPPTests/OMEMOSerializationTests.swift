@@ -20,6 +20,7 @@ enum OMEMOSerializationTests {
             let restored = try OMEMODoubleRatchetSession(serialized: serialized)
 
             #expect(Array(restored.dhSendKeyPair.rawRepresentation) == Array(session.dhSendKeyPair.rawRepresentation))
+            #expect(restored.dhSendPublicKeyBytes == session.dhSendPublicKeyBytes)
             #expect(restored.dhRecvPublicKey == session.dhRecvPublicKey)
             #expect(restored.rootKey == session.rootKey)
             #expect(restored.sendChainKey == session.sendChainKey)
@@ -27,6 +28,19 @@ enum OMEMOSerializationTests {
             #expect(restored.sendMessageNumber == session.sendMessageNumber)
             #expect(restored.recvMessageNumber == session.recvMessageNumber)
             #expect(restored.previousSendCount == session.previousSendCount)
+        }
+
+        @Test func `dh send public key cache matches derived key`() throws {
+            let sharedSecret = (0 ..< 32).map { _ in UInt8.random(in: 0 ... 255) }
+            let peerKey = Curve25519.KeyAgreement.PrivateKey()
+
+            let session = try OMEMODoubleRatchetSession(
+                asInitiatorWithSharedSecret: sharedSecret,
+                peerSignedPreKey: Array(peerKey.publicKey.rawRepresentation)
+            )
+
+            let derived = Array(session.dhSendKeyPair.publicKey.rawRepresentation)
+            #expect(session.dhSendPublicKeyBytes == derived)
         }
 
         @Test func `responder session round trip`() throws {
@@ -42,6 +56,7 @@ enum OMEMOSerializationTests {
             let restored = try OMEMODoubleRatchetSession(serialized: serialized)
 
             #expect(Array(restored.dhSendKeyPair.rawRepresentation) == Array(session.dhSendKeyPair.rawRepresentation))
+            #expect(restored.dhSendPublicKeyBytes == session.dhSendPublicKeyBytes)
             #expect(restored.dhRecvPublicKey == nil)
             #expect(restored.rootKey == session.rootKey)
             #expect(restored.sendChainKey == nil)
