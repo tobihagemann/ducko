@@ -11,12 +11,7 @@ public final class ThemeEngine {
     private static let defaultThemeID = "default"
 
     @ObservationIgnored
-    private static let defaults: UserDefaults = {
-        if let suite = BuildEnvironment.userDefaultsSuiteName {
-            return UserDefaults(suiteName: suite) ?? .standard
-        }
-        return .standard
-    }()
+    private static let defaults = PreferencesDefaults.store
 
     @ObservationIgnored
     private var builtInThemes: [DuckoTheme] = []

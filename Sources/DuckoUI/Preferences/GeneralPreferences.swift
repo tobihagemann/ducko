@@ -1,3 +1,4 @@
+import DuckoCore
 import Foundation
 import ServiceManagement
 import SwiftUI

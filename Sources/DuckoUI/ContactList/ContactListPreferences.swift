@@ -10,12 +10,7 @@ final class ContactListPreferences {
         static let collapsedGroups = "contactListCollapsedGroups"
     }
 
-    private static let defaults: UserDefaults = {
-        if let suite = BuildEnvironment.userDefaultsSuiteName {
-            return UserDefaults(suiteName: suite) ?? .standard
-        }
-        return .standard
-    }()
+    private static let defaults = PreferencesDefaults.store
 
     var sortMode: ContactListSortMode {
         didSet { sortModeStorage = sortMode.rawValue }

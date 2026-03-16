@@ -1,4 +1,3 @@
-import CryptoKit
 import os
 
 /// Implements XEP-0054 vCard-temp — fetches, caches, and publishes vCards.
@@ -229,8 +228,7 @@ public final class VCardModule: XMPPModule, Sendable {
             if let binval = photo.childText(named: "BINVAL"),
                let decoded = Base64.decode(binval) {
                 photoData = decoded
-                let hash = Insecure.SHA1.hash(data: decoded)
-                photoHash = hash.map { String($0, radix: 16, uppercase: false).leftPadding(toLength: 2, withPad: "0") }.joined()
+                photoHash = sha1Hex(decoded)
             }
         }
 
@@ -415,15 +413,5 @@ public final class VCardModule: XMPPModule, Sendable {
         for type in types {
             element.addChild(XMLElement(name: type.rawValue))
         }
-    }
-}
-
-// MARK: - String Helpers
-
-private extension String {
-    func leftPadding(toLength length: Int, withPad pad: String) -> String {
-        let deficit = length - count
-        guard deficit > 0 else { return self }
-        return String(repeating: pad, count: deficit) + self
     }
 }

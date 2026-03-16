@@ -38,7 +38,7 @@ public enum XMPPRegistrationClient {
             iq.element.addChild(query)
             try await connection.send(XMPPStreamWriter.stanza(iq.element))
 
-            let response = try await reader.awaitStanza()
+            let response = try await awaitStanza(reader)
             guard response.name == "iq",
                   response.attribute("type") == "result",
                   let queryResult = response.child(named: "query", namespace: XMPPNamespaces.register)
@@ -81,7 +81,7 @@ public enum XMPPRegistrationClient {
             iq.element.addChild(query)
             try await connection.send(XMPPStreamWriter.stanza(iq.element))
 
-            let response = try await reader.awaitStanza()
+            let response = try await awaitStanza(reader)
             guard response.name == "iq" else {
                 throw RegistrationClientError.unexpectedResponse
             }
@@ -118,14 +118,14 @@ public enum XMPPRegistrationClient {
     ) async throws {
         // Open stream
         try await connection.send(XMPPStreamWriter.streamOpening(to: domain))
-        let features = try await reader.awaitFeatures()
+        let features = try await awaitFeatures(reader)
 
         // STARTTLS if available
         if features.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {
             let starttls = XMLElement(name: "starttls", namespace: XMPPNamespaces.tls)
             try await connection.send(XMPPStreamWriter.stanza(starttls))
 
-            let response = try await reader.awaitStanza()
+            let response = try await awaitStanza(reader)
             guard response.name == "proceed" else {
                 throw RegistrationClientError.tlsNegotiationFailed
             }
@@ -135,43 +135,27 @@ public enum XMPPRegistrationClient {
 
             // Reopen stream after TLS
             try await connection.send(XMPPStreamWriter.streamOpening(to: domain))
-            _ = try await reader.awaitFeatures()
+            _ = try await awaitFeatures(reader)
         } else {
             throw RegistrationClientError.tlsNegotiationFailed
         }
     }
-}
 
-/// Reads events from an XMPPConnection's event stream sequentially.
-private final class EventReader: @unchecked Sendable {
-    private var iterator: AsyncStream<XMLStreamEvent>.Iterator
-
-    init(_ stream: AsyncStream<XMLStreamEvent>) {
-        self.iterator = stream.makeAsyncIterator()
+    /// Wraps `EventReader.awaitFeatures()` to map errors to `RegistrationClientError`.
+    private static func awaitFeatures(_ reader: EventReader) async throws -> XMLElement {
+        do {
+            return try await reader.awaitFeatures()
+        } catch is XMPPClientError {
+            throw RegistrationClientError.unexpectedResponse
+        }
     }
 
-    func awaitFeatures() async throws -> XMLElement {
-        // Wait for stream opened
-        guard let openEvent = await iterator.next(),
-              case .streamOpened = openEvent else {
-            throw XMPPRegistrationClient.RegistrationClientError.unexpectedResponse
+    /// Wraps `EventReader.awaitStanza()` to map errors to `RegistrationClientError`.
+    private static func awaitStanza(_ reader: EventReader) async throws -> XMLElement {
+        do {
+            return try await reader.awaitStanza()
+        } catch is XMPPClientError {
+            throw RegistrationClientError.unexpectedResponse
         }
-
-        // Wait for features
-        guard let featuresEvent = await iterator.next(),
-              case let .stanzaReceived(features) = featuresEvent,
-              features.name == "features" else {
-            throw XMPPRegistrationClient.RegistrationClientError.unexpectedResponse
-        }
-
-        return features
-    }
-
-    func awaitStanza() async throws -> XMLElement {
-        guard let event = await iterator.next(),
-              case let .stanzaReceived(element) = event else {
-            throw XMPPRegistrationClient.RegistrationClientError.unexpectedResponse
-        }
-        return element
     }
 }

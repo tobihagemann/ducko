@@ -1,4 +1,3 @@
-import CryptoKit
 import DuckoXMPP
 import Foundation
 import os
@@ -101,14 +100,7 @@ public final class ProfileService {
         }
 
         let photoBytes = profile.photoData.map { Array($0) }
-        let photoHash: String? = photoBytes.map { bytes in
-            Insecure.SHA1.hash(data: bytes)
-                .map { byte in
-                    let hex = String(byte, radix: 16, uppercase: false)
-                    return hex.count < 2 ? "0" + hex : hex
-                }
-                .joined()
-        }
+        let photoHash: String? = photoBytes.map { sha1Hex($0) }
 
         return VCardModule.VCard(
             fullName: profile.fullName,

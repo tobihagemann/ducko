@@ -1,4 +1,3 @@
-import CryptoKit
 import DuckoXMPP
 import Foundation
 import os
@@ -86,7 +85,7 @@ public final class AvatarService {
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
-        let hash = sha1Hex(imageData)
+        let hash = sha1Hex(Array(imageData))
         let base64String = imageData.base64EncodedString()
 
         // Publish avatar data
@@ -269,7 +268,7 @@ public final class AvatarService {
 
             var updated = contact
             updated.avatarData = data
-            updated.avatarHash = hash ?? sha1Hex(data)
+            updated.avatarHash = hash ?? sha1Hex(Array(data))
             try? await store.upsertContact(updated)
             try? await rosterService?.loadContacts(for: accountID)
         } catch {
@@ -384,16 +383,5 @@ public final class AvatarService {
     private func findContact(jid: BareJID, accountID: UUID) async -> Contact? {
         let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
         return contacts.first(where: { $0.jid == jid })
-    }
-
-    // MARK: - Private: SHA-1
-
-    private nonisolated func sha1Hex(_ data: some DataProtocol) -> String {
-        Insecure.SHA1.hash(data: data)
-            .map { byte in
-                let hex = String(byte, radix: 16, uppercase: false)
-                return hex.count < 2 ? "0" + hex : hex
-            }
-            .joined()
     }
 }

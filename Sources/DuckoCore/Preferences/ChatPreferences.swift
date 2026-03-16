@@ -7,12 +7,7 @@ public final class ChatPreferences {
         static let enableDisplayedMarkers = "chatEnableDisplayedMarkers"
     }
 
-    private nonisolated(unsafe) static let defaults: UserDefaults = {
-        if let suite = BuildEnvironment.userDefaultsSuiteName {
-            return UserDefaults(suiteName: suite) ?? .standard
-        }
-        return .standard
-    }()
+    private static let defaults = PreferencesDefaults.store
 
     public static let shared = ChatPreferences()
 

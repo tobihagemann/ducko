@@ -31,12 +31,18 @@ public final class AccountService {
 
     public enum AccountServiceError: Error, LocalizedError {
         case invalidJID(String)
+        case accountNotFound(String)
         case noStoredPassword(String)
+        case notConnected(String)
+        case moduleNotAvailable(String)
 
         public var errorDescription: String? {
             switch self {
             case let .invalidJID(string): "Invalid JID: \(string)"
+            case let .accountNotFound(id): "Account not found: \(id)"
             case let .noStoredPassword(jid): "No stored password for \(jid)"
+            case let .notConnected(id): "Not connected: \(id)"
+            case let .moduleNotAvailable(id): "Module not available: \(id)"
             }
         }
     }
@@ -63,7 +69,7 @@ public final class AccountService {
 
     public func connect(accountID: UUID) async throws {
         guard let account = accounts.first(where: { $0.id == accountID }) else {
-            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+            throw AccountServiceError.accountNotFound(accountID.uuidString)
         }
         let jid = account.jid.description
         guard let password = credentialStore.loadPassword(for: jid) else {
@@ -164,7 +170,7 @@ public final class AccountService {
     /// Fetches XEP-0157 server contact addresses via disco#info.
     public func fetchServerInfo(accountID: UUID) async throws -> ServerInfo {
         guard let client = clients[accountID] else {
-            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+            throw AccountServiceError.notConnected(accountID.uuidString)
         }
         guard let disco = await client.module(ofType: ServiceDiscoveryModule.self) else {
             return ServerInfo(contactAddresses: [])
@@ -221,10 +227,10 @@ public final class AccountService {
     /// Changes the password for a connected account via XEP-0077.
     public func changePassword(accountID: UUID, newPassword: String) async throws {
         guard let client = clients[accountID] else {
-            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+            throw AccountServiceError.notConnected(accountID.uuidString)
         }
         guard let regModule = await client.module(ofType: RegistrationModule.self) else {
-            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+            throw AccountServiceError.moduleNotAvailable(accountID.uuidString)
         }
         try await regModule.changePassword(newPassword: newPassword)
         passwords[accountID] = newPassword
@@ -235,10 +241,10 @@ public final class AccountService {
     /// Cancels (unregisters) a connected account via XEP-0077.
     public func cancelAccount(accountID: UUID) async throws {
         guard let client = clients[accountID] else {
-            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+            throw AccountServiceError.notConnected(accountID.uuidString)
         }
         guard let regModule = await client.module(ofType: RegistrationModule.self) else {
-            throw AccountServiceError.noStoredPassword(accountID.uuidString)
+            throw AccountServiceError.moduleNotAvailable(accountID.uuidString)
         }
         try await regModule.cancelRegistration()
         try await deleteAccount(accountID)

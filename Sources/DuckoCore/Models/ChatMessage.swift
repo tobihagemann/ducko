@@ -65,4 +65,26 @@ public struct ChatMessage: Sendable, Identifiable {
         self.isEncrypted = isEncrypted
         self.attachments = attachments
     }
+
+    /// Creates a display-only message for CLI output formatting.
+    public static func displayPlaceholder(
+        fromJID: String,
+        body: String,
+        type: String = "chat",
+        replyToID: String? = nil
+    ) -> ChatMessage {
+        ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: fromJID,
+            body: body,
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: type,
+            replyToID: replyToID
+        )
+    }
 }

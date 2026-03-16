@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import os
 
@@ -35,10 +34,7 @@ actor SOCKS5Connection {
         targetJID: String
     ) -> String {
         let input = sid + initiatorJID + targetJID
-        let digest = Insecure.SHA1.hash(data: Array(input.utf8))
-        return digest.map { byte in
-            byte < 16 ? "0" + String(byte, radix: 16) : String(byte, radix: 16)
-        }.joined()
+        return sha1Hex(Array(input.utf8))
     }
 
     /// SOCKS5 greeting: version 5, 1 method, NO AUTH (0x00).

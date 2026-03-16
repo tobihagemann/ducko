@@ -1,8 +1,7 @@
-import DuckoCore
 import Foundation
 
-enum PreferencesDefaults {
-    nonisolated(unsafe) static let store: UserDefaults = {
+public enum PreferencesDefaults {
+    public nonisolated(unsafe) static let store: UserDefaults = {
         if let suite = BuildEnvironment.userDefaultsSuiteName {
             return UserDefaults(suiteName: suite) ?? .standard
         }

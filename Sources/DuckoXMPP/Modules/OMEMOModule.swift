@@ -10,13 +10,17 @@ private let log = Logger(subsystem: "de.tobiha.ducko.xmpp", category: "omemo")
 public final class OMEMOModule: XMPPModule, Sendable {
     // MARK: - State
 
+    private struct SessionEntry {
+        var session: OMEMODoubleRatchetSession
+        var associatedData: [UInt8]
+    }
+
     private struct State {
         var context: ModuleContext?
         var deviceLists: [BareJID: [UInt32]] = [:]
         var ownIdentity: OwnIdentity?
         var pendingIdentity: OMEMOIdentityData?
-        var sessions: [SessionKey: OMEMODoubleRatchetSession] = [:]
-        var sessionAD: [SessionKey: [UInt8]] = [:]
+        var sessions: [SessionKey: SessionEntry] = [:]
         var usedPreKeyIDs: Set<UInt32> = []
         var identityKeyValidator: (@Sendable (BareJID, UInt32, [UInt8]) async throws -> Void)?
     }
@@ -62,7 +66,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
             $0.ownIdentity = nil
             $0.deviceLists.removeAll()
             $0.sessions.removeAll()
-            $0.sessionAD.removeAll()
             $0.usedPreKeyIDs.removeAll()
             $0.identityKeyValidator = nil
         }
@@ -124,8 +127,9 @@ public final class OMEMOModule: XMPPModule, Sendable {
             for entry in entries {
                 let key = SessionKey(jid: entry.jid, deviceID: entry.deviceID)
                 if let session = try? OMEMODoubleRatchetSession(serialized: entry.sessionData) {
-                    state.sessions[key] = session
-                    state.sessionAD[key] = entry.associatedData
+                    state.sessions[key] = SessionEntry(
+                        session: session, associatedData: entry.associatedData
+                    )
                 }
             }
         }
@@ -135,12 +139,10 @@ public final class OMEMOModule: XMPPModule, Sendable {
     public func exportSession(jid: BareJID, deviceID: UInt32) -> StoredSessionEntry? {
         state.withLock { state in
             let key = SessionKey(jid: jid, deviceID: deviceID)
-            guard let session = state.sessions[key],
-                  let ad = state.sessionAD[key]
-            else { return nil }
+            guard let entry = state.sessions[key] else { return nil }
             return StoredSessionEntry(
                 jid: jid, deviceID: deviceID,
-                sessionData: session.serialize(), associatedData: ad
+                sessionData: entry.session.serialize(), associatedData: entry.associatedData
             )
         }
     }
@@ -148,11 +150,10 @@ public final class OMEMOModule: XMPPModule, Sendable {
     /// Exports all sessions for persistent storage (e.g., on disconnect).
     public func allSessionEntries() -> [StoredSessionEntry] {
         state.withLock { state in
-            state.sessions.compactMap { key, session in
-                guard let ad = state.sessionAD[key] else { return nil }
-                return StoredSessionEntry(
+            state.sessions.map { key, entry in
+                StoredSessionEntry(
                     jid: key.jid, deviceID: key.deviceID,
-                    sessionData: session.serialize(), associatedData: ad
+                    sessionData: entry.session.serialize(), associatedData: entry.associatedData
                 )
             }
         }
@@ -554,8 +555,9 @@ public final class OMEMOModule: XMPPModule, Sendable {
         let ad = x3dhResult.associatedData
         let consumedPreKeyID = preKey?.keyID
         let context = state.withLock {
-            $0.sessions[sessionKey] = updatedSession
-            $0.sessionAD[sessionKey] = ad
+            $0.sessions[sessionKey] = SessionEntry(
+                session: updatedSession, associatedData: ad
+            )
             if let consumedPreKeyID {
                 $0.usedPreKeyIDs.insert(consumedPreKeyID)
             }
@@ -572,17 +574,14 @@ public final class OMEMOModule: XMPPModule, Sendable {
         _ data: [UInt8], sessionKey: SessionKey
     ) throws -> [UInt8] {
         let ratchetMessage = try deserializeRatchetMessage(data)
-        let (session, ad) = state.withLock {
-            ($0.sessions[sessionKey], $0.sessionAD[sessionKey])
-        }
-        guard var session, let ad else {
+        guard var entry = state.withLock({ $0.sessions[sessionKey] }) else {
             throw OMEMOModuleError.noSession
         }
-        let plaintext = try session.decrypt(
-            message: ratchetMessage, associatedData: ad
+        let plaintext = try entry.session.decrypt(
+            message: ratchetMessage, associatedData: entry.associatedData
         )
-        let updatedSession = session
-        state.withLock { $0.sessions[sessionKey] = updatedSession }
+        let updatedEntry = entry
+        state.withLock { $0.sessions[sessionKey] = updatedEntry }
         return plaintext
     }
 
@@ -637,7 +636,9 @@ public final class OMEMOModule: XMPPModule, Sendable {
         )
         let updatedSession = mutableSession
         state.withLock {
-            $0.sessions[sessionKey] = updatedSession
+            $0.sessions[sessionKey] = SessionEntry(
+                session: updatedSession, associatedData: result.ad
+            )
         }
         let serialized: [UInt8]
         let isKex: Bool
@@ -661,12 +662,9 @@ public final class OMEMOModule: XMPPModule, Sendable {
     private func getOrEstablishSession(
         sessionKey: SessionKey, identity: OwnIdentity
     ) async throws -> SessionResult {
-        let existing = state.withLock {
-            ($0.sessions[sessionKey], $0.sessionAD[sessionKey])
-        }
-        if let session = existing.0, let ad = existing.1 {
+        if let existing = state.withLock({ $0.sessions[sessionKey] }) {
             return SessionResult(
-                session: session, ad: ad, kexInfo: nil
+                session: existing.session, ad: existing.associatedData, kexInfo: nil
             )
         }
         return try await establishSession(
@@ -702,8 +700,9 @@ public final class OMEMOModule: XMPPModule, Sendable {
             peerSignedPreKey: bundle.signedPreKey
         )
         let context = state.withLock {
-            $0.sessions[sessionKey] = session
-            $0.sessionAD[sessionKey] = x3dhResult.associatedData
+            $0.sessions[sessionKey] = SessionEntry(
+                session: session, associatedData: x3dhResult.associatedData
+            )
             return $0.context
         }
         context?.emitEvent(.omemoSessionEstablished(

@@ -106,17 +106,8 @@ extension DuckoCLI {
             } else if let body {
                 try await env.chatService.sendMessage(to: recipientJID, body: body, accountID: selectedAccount.id)
 
-                print(formatter.formatMessage(ChatMessage(
-                    id: UUID(),
-                    conversationID: UUID(),
-                    fromJID: recipientJID.description,
-                    body: body,
-                    timestamp: Date(),
-                    isOutgoing: true,
-                    isRead: true,
-                    isDelivered: false,
-                    isEdited: false,
-                    type: "chat"
+                print(formatter.formatMessage(ChatMessage.displayPlaceholder(
+                    fromJID: recipientJID.description, body: body
                 )))
             }
 
@@ -2212,18 +2203,8 @@ private func handleReplyREPLCommand(_ input: String, context: REPLContext) async
             replyToStanzaID: replyStanzaID,
             accountID: context.accountID
         )
-        print(context.formatter.formatMessage(ChatMessage(
-            id: UUID(),
-            conversationID: UUID(),
-            fromJID: jidString,
-            body: body,
-            timestamp: Date(),
-            isOutgoing: true,
-            isRead: true,
-            isDelivered: false,
-            isEdited: false,
-            type: "chat",
-            replyToID: replyStanzaID
+        print(context.formatter.formatMessage(ChatMessage.displayPlaceholder(
+            fromJID: jidString, body: body, replyToID: replyStanzaID
         )))
     } catch {
         print(context.formatter.formatError(error))
