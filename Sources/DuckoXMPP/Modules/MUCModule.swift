@@ -342,7 +342,9 @@ public final class MUCModule: XMPPModule, Sendable {
 
         let reason = conference.attribute("reason")
         let password = conference.attribute("password")
-        let roomInvite = RoomInvite(room: roomJID, from: from, reason: reason, password: password)
+        let isContinuation = conference.attribute("continue") == "true"
+        let thread = conference.attribute("thread")
+        let roomInvite = RoomInvite(room: roomJID, from: from, reason: reason, password: password, isContinuation: isContinuation, thread: thread)
 
         let context = state.withLock { $0.context }
         log.info("Received direct invite to \(roomJID) from \(from)")
@@ -478,12 +480,21 @@ public final class MUCModule: XMPPModule, Sendable {
     }
 
     /// Sends a direct invitation (XEP-0249) to a user.
-    public func inviteUser(_ jid: BareJID, to room: BareJID, reason: String? = nil, password: String? = nil) async throws {
+    public func inviteUser(
+        _ jid: BareJID,
+        to room: BareJID,
+        reason: String? = nil,
+        password: String? = nil,
+        isContinuation: Bool = false,
+        thread: String? = nil
+    ) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
         var message = XMPPMessage(type: .normal, to: .bare(jid))
         var conference = XMLElement(name: "x", namespace: XMPPNamespaces.mucDirectInvite, attributes: ["jid": room.description])
         if let reason { conference.setAttribute("reason", value: reason) }
         if let password { conference.setAttribute("password", value: password) }
+        if isContinuation { conference.setAttribute("continue", value: "true") }
+        if let thread { conference.setAttribute("thread", value: thread) }
         message.element.addChild(conference)
         try await context.sendStanza(message)
     }

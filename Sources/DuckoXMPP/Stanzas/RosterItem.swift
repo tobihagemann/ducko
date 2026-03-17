@@ -4,6 +4,7 @@ public struct RosterItem: Hashable, Sendable {
     public var name: String?
     public var subscription: Subscription
     public var ask: Bool
+    public var approved: Bool
     public var groups: [String]
 
     public enum Subscription: String, Hashable, Sendable {
@@ -14,11 +15,12 @@ public struct RosterItem: Hashable, Sendable {
         case remove
     }
 
-    public init(jid: BareJID, name: String? = nil, subscription: Subscription = .none, ask: Bool = false, groups: [String] = []) {
+    public init(jid: BareJID, name: String? = nil, subscription: Subscription = .none, ask: Bool = false, approved: Bool = false, groups: [String] = []) {
         self.jid = jid
         self.name = name
         self.subscription = subscription
         self.ask = ask
+        self.approved = approved
         self.groups = groups
     }
 
@@ -35,8 +37,9 @@ public struct RosterItem: Hashable, Sendable {
         let name = element.attribute("name")
         let subscription = element.attribute("subscription").flatMap(Subscription.init(rawValue:)) ?? .none
         let ask = element.attribute("ask") == "subscribe"
+        let approved = element.attribute("approved") == "true"
         let groups = element.children(named: "group").compactMap(\.textContent)
 
-        return RosterItem(jid: jid, name: name, subscription: subscription, ask: ask, groups: groups)
+        return RosterItem(jid: jid, name: name, subscription: subscription, ask: ask, approved: approved, groups: groups)
     }
 }

@@ -249,7 +249,31 @@ enum RosterModuleTests {
             sentString = String(decoding: sentData.last ?? [], as: UTF8.self)
             #expect(sentString.contains("type=\"unsubscribe\""))
 
+            await mock.clearSentBytes()
+            try await module.preApprove(jid: jid)
+            sentData = await mock.sentBytes
+            sentString = String(decoding: sentData.last ?? [], as: UTF8.self)
+            #expect(sentString.contains("type=\"subscribed\""))
+            #expect(sentString.contains("to=\"contact@example.com\""))
+
             await client.disconnect()
+        }
+    }
+
+    struct PreApproval {
+        @Test
+        func `Roster item with approved=true parses correctly`() throws {
+            let element = XMLElement(name: "item", attributes: ["jid": "alice@example.com", "subscription": "from", "approved": "true"])
+            let item = try #require(RosterItem.parse(element))
+            #expect(item.approved == true)
+            #expect(item.subscription == .from)
+        }
+
+        @Test
+        func `Roster item without approved defaults to false`() throws {
+            let element = XMLElement(name: "item", attributes: ["jid": "alice@example.com", "subscription": "both"])
+            let item = try #require(RosterItem.parse(element))
+            #expect(item.approved == false)
         }
     }
 

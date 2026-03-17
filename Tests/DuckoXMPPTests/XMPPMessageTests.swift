@@ -47,4 +47,37 @@ enum XMPPMessageTests {
             #expect(message.messageType == .normal)
         }
     }
+
+    struct Thread {
+        @Test
+        func `Thread getter returns child text`() {
+            var element = XMLElement(name: "message", attributes: ["type": "chat"])
+            var threadChild = XMLElement(name: "thread")
+            threadChild.addText("abc-123")
+            element.addChild(threadChild)
+            let message = XMPPMessage(element: element)
+            #expect(message.thread == "abc-123")
+        }
+
+        @Test
+        func `Thread setter creates child element`() {
+            var message = XMPPMessage(type: .chat)
+            message.thread = "xyz-456"
+            #expect(message.thread == "xyz-456")
+        }
+
+        @Test
+        func `Thread is nil when not present`() {
+            let message = XMPPMessage(type: .chat)
+            #expect(message.thread == nil)
+        }
+
+        @Test
+        func `Thread setter clears child element`() {
+            var message = XMPPMessage(type: .chat)
+            message.thread = "to-be-removed"
+            message.thread = nil
+            #expect(message.thread == nil)
+        }
+    }
 }

@@ -209,4 +209,11 @@ public final class RosterModule: XMPPModule, Sendable {
         let presence = XMPPPresence(type: .unsubscribe, to: .bare(jid))
         try await context.sendStanza(presence)
     }
+
+    /// Pre-approves a future subscription request (RFC 6121 §3.4).
+    public func preApprove(jid: BareJID) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        let presence = XMPPPresence(type: .subscribed, to: .bare(jid))
+        try await context.sendStanza(presence)
+    }
 }

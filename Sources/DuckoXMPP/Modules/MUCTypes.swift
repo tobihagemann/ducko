@@ -110,11 +110,22 @@ public struct RoomInvite: Sendable {
     public let from: JID
     public let reason: String?
     public let password: String?
+    public let isContinuation: Bool
+    public let thread: String?
 
-    public init(room: BareJID, from: JID, reason: String? = nil, password: String? = nil) {
+    public init(
+        room: BareJID,
+        from: JID,
+        reason: String? = nil,
+        password: String? = nil,
+        isContinuation: Bool = false,
+        thread: String? = nil
+    ) {
         self.room = room
         self.from = from
         self.reason = reason
         self.password = password
+        self.isContinuation = isContinuation
+        self.thread = thread
     }
 }

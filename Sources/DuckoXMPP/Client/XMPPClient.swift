@@ -157,8 +157,18 @@ public actor XMPPClient {
                     try await module.handleResume()
                 }
             } else {
-                for module in modules.values {
+                // RFC 6121: Roster must be fetched before initial presence is sent.
+                let rosterKey = ObjectIdentifier(RosterModule.self)
+                let presenceKey = ObjectIdentifier(PresenceModule.self)
+
+                if let rosterModule = modules[rosterKey] {
+                    try await rosterModule.handleConnect()
+                }
+                for (key, module) in modules where key != rosterKey && key != presenceKey {
                     try await module.handleConnect()
+                }
+                if let presenceModule = modules[presenceKey] {
+                    try await presenceModule.handleConnect()
                 }
             }
         } catch {

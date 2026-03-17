@@ -353,6 +353,56 @@ enum MUCModuleTests {
 
             await client.disconnect()
         }
+
+        @Test
+        func `Direct invite with continue and thread attributes`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomInviteReceived = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive("""
+            <message from='admin@example.com'>\
+            <x xmlns='jabber:x:conference' jid='room@conference.example.com' continue='true' thread='t1'/>\
+            </message>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomInviteReceived(invite) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomInviteReceived event")
+            }
+            #expect(invite.room == testRoomJID)
+            #expect(invite.isContinuation == true)
+            #expect(invite.thread == "t1")
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `inviteUser with continue and thread sends correct attributes`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            await mock.clearSentBytes()
+            let invitee = try #require(BareJID.parse("bob@example.com"))
+            try await module.inviteUser(invitee, to: testRoomJID, isContinuation: true, thread: "t1")
+
+            await mock.waitForSent(count: 1)
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("continue=\"true\""))
+            #expect(sent.contains("thread=\"t1\""))
+            #expect(sent.contains(XMPPNamespaces.mucDirectInvite))
+
+            await client.disconnect()
+        }
     }
 
     struct DeclineInvite {
