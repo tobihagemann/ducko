@@ -16,6 +16,7 @@ public enum XMPPNamespaces {
     public static let carbons = "urn:xmpp:carbons:2"
     public static let forward = "urn:xmpp:forward:0"
     public static let mam = "urn:xmpp:mam:2"
+    public static let mamExtended = "urn:xmpp:mam:2#extended"
     public static let sm = "urn:xmpp:sm:3"
     public static let ping = "urn:xmpp:ping"
     public static let delay = "urn:xmpp:delay"
