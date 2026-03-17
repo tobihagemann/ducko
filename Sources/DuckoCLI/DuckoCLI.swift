@@ -1647,6 +1647,8 @@ private func dispatchRoomREPLCommand(
     } else if input == "/rooms" || input.hasPrefix("/rooms ") {
         await handleRoomsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID)
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    } else if input.hasPrefix("/pm ") {
+        return await handlePMREPLCommand(input, context: context, currentRoom: currentRoom)
     } else {
         return REPLDispatchResult(handled: false, updatedCurrentRoom: nil)
     }
@@ -1922,6 +1924,32 @@ private func handleRoomsREPLCommand(
     } catch {
         print(formatter.formatError(error))
     }
+}
+
+private func handlePMREPLCommand(
+    _ input: String, context: REPLContext, currentRoom: String?
+) async -> REPLDispatchResult {
+    let args = input.dropFirst("/pm ".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2 else {
+        print("Usage: /pm <nickname> <message> (must be in a room)")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    guard let currentRoom else {
+        print(context.formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    let nickname = String(parts[0])
+    let body = String(parts[1])
+    do {
+        try await context.environment.chatService.sendMUCPrivateMessage(
+            roomJIDString: currentRoom, nickname: nickname, body: body, accountID: context.accountID
+        )
+        print("PM to \(nickname) sent.")
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
 }
 
 private func leaveCurrentRoom(_ currentRoom: String?, environment: AppEnvironment, accountID: UUID) async {

@@ -427,6 +427,47 @@ public final class ChatService {
         try await sendGroupMessage(to: jid, body: body, accountID: accountID)
     }
 
+    public func sendMUCPrivateMessage(roomJIDString: String, nickname: String, body: String, accountID: UUID) async throws {
+        guard let roomJID = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+
+        let content = MessageContent(body: body)
+        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
+        let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
+
+        let conversation = try await findOrCreateMUCPMConversation(for: roomJID, nickname: nickname, accountID: accountID)
+        let stanzaID = client.generateID()
+        try await mucModule.sendPrivateMessage(to: roomJID, nickname: nickname, body: filtered.body, id: stanzaID)
+
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: conversation.id,
+            stanzaID: stanzaID,
+            fromJID: nickname,
+            body: filtered.body,
+            htmlBody: filtered.htmlBody,
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        try await persistMessage(message, in: conversation, accountID: accountID)
+    }
+
+    public func openMUCPMConversation(roomJIDString: String, nickname: String, accountID: UUID) async throws -> Conversation {
+        guard let roomJID = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        let conversation = try await findOrCreateMUCPMConversation(for: roomJID, nickname: nickname, accountID: accountID)
+        openConversations = try await store.fetchConversations(for: accountID)
+        return conversation
+    }
+
     private func roomMemberJIDs(roomJIDString: String, accountID: UUID) async throws -> [BareJID] {
         guard let client = accountService?.client(for: accountID) else { return [] }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return [] }
@@ -724,7 +765,7 @@ public final class ChatService {
             }
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
              .mucSelfPingFailed, .disconnected:
             await handleMUCEvent(event, accountID: accountID)
         case .connected, .streamResumed, .authenticationFailed,
@@ -750,6 +791,8 @@ public final class ChatService {
             handleMUCOccupantEvent(event, accountID: accountID)
         case let .roomMessageReceived(xmppMessage):
             await handleRoomMessageReceived(xmppMessage, accountID: accountID)
+        case let .mucPrivateMessageReceived(xmppMessage):
+            await handleMUCPrivateMessageReceived(xmppMessage, accountID: accountID)
         case let .roomSubjectChanged(room, subject, _):
             await handleRoomSubjectChanged(room: room, subject: subject, accountID: accountID)
         case let .roomInviteReceived(invite):
@@ -798,7 +841,7 @@ public final class ChatService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .roomJoined, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived,
+             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -841,7 +884,7 @@ public final class ChatService {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -940,7 +983,7 @@ public final class ChatService {
              .messageCorrected,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -1070,6 +1113,71 @@ public final class ChatService {
         await persistAndNotify(message, in: conversation, accountID: accountID)
     }
 
+    private func handleMUCPrivateMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
+        guard let from = xmppMessage.from,
+              case let .full(fullJID) = from,
+              let body = xmppMessage.body else { return }
+        let roomJID = fullJID.bareJID
+        let nickname = fullJID.resourcePart
+
+        if await isDuplicate(stanzaID: xmppMessage.id, from: roomJID, accountID: accountID) {
+            return
+        }
+
+        let conversation: Conversation
+        do {
+            conversation = try await findOrCreateMUCPMConversation(for: roomJID, nickname: nickname, accountID: accountID)
+        } catch {
+            log.warning("Failed to create MUC PM conversation for \(roomJID)/\(nickname): \(error)")
+            return
+        }
+
+        let content = MessageContent(body: body, isUnstyled: xmppMessage.isUnstyled)
+        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
+        let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
+
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: conversation.id,
+            stanzaID: xmppMessage.id,
+            fromJID: nickname,
+            body: filtered.body,
+            htmlBody: filtered.htmlBody,
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        await persistAndNotify(message, in: conversation, accountID: accountID)
+    }
+
+    private func findOrCreateMUCPMConversation(
+        for roomJID: BareJID, nickname: String, accountID: UUID
+    ) async throws -> Conversation {
+        let conversations = try await store.fetchConversations(for: accountID)
+        if let existing = conversations.first(where: {
+            $0.jid == roomJID && $0.type == .chat && $0.occupantNickname == nickname
+        }) {
+            return existing
+        }
+        let conversation = Conversation(
+            id: UUID(),
+            accountID: accountID,
+            jid: roomJID,
+            type: .chat,
+            displayName: nickname,
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            occupantNickname: nickname,
+            createdAt: Date()
+        )
+        try await store.upsertConversation(conversation)
+        return conversation
+    }
+
     private func persistAndNotify(_ message: ChatMessage, in conversation: Conversation, accountID: UUID) async {
         let isActiveConversation = conversation.id == activeConversationID
         try? await persistMessage(message, in: conversation, incrementUnread: !isActiveConversation, accountID: accountID)
@@ -1158,20 +1266,7 @@ public final class ChatService {
     }
 
     private func handleMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
-        // Skip retractions — handled by .messageRetracted event
-        if xmppMessage.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil {
-            return
-        }
-
-        // Skip corrections — handled by .messageCorrected event
-        if xmppMessage.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil {
-            return
-        }
-
-        // Skip encrypted messages — handled by .omemoEncryptedMessageReceived event
-        if xmppMessage.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil {
-            return
-        }
+        if shouldSkipRawMessage(xmppMessage) { return }
 
         // Parse OOB attachments before body check — OOB-only messages have no body
         let oobAttachments = parseOOBAttachments(from: xmppMessage.element)
@@ -1297,6 +1392,23 @@ public final class ChatService {
     }
 
     /// Parses XEP-0066 `<x xmlns='jabber:x:oob'>` elements into attachments.
+    /// Returns `true` if the raw `.messageReceived` stanza should be skipped because a classified event handles it.
+    private func shouldSkipRawMessage(_ message: XMPPMessage) -> Bool {
+        // Retractions, corrections, encrypted — handled by classified events
+        if message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil { return true }
+        if message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil { return true }
+        if message.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil { return true }
+        // MUC private messages — handled by .mucPrivateMessageReceived
+        if message.messageType == .chat, let from = message.from, case .full = from {
+            let roomJID = from.bareJID
+            if openConversations.contains(where: { $0.jid == roomJID && $0.type == .groupchat })
+                || message.element.child(named: "x", namespace: XMPPNamespaces.mucUser) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
     private func parseOOBAttachments(from element: DuckoXMPP.XMLElement) -> [Attachment] {
         element.children(named: "x")
             .filter { $0.namespace == XMPPNamespaces.oob }
@@ -1529,7 +1641,7 @@ public final class ChatService {
 
     private func findOrCreateConversation(for jid: BareJID, accountID: UUID) async throws -> Conversation {
         let conversations = try await store.fetchConversations(for: accountID)
-        if let existing = conversations.first(where: { $0.jid == jid }) {
+        if let existing = conversations.first(where: { $0.jid == jid && $0.occupantNickname == nil }) {
             return existing
         }
 

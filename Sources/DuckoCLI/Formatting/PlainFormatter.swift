@@ -77,7 +77,7 @@ struct PlainFormatter: CLIFormatter {
             return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
              .mucSelfPingFailed:
             return formatMUCEvent(event)
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
@@ -117,7 +117,7 @@ struct PlainFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -147,7 +147,7 @@ struct PlainFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -197,8 +197,8 @@ struct PlainFormatter: CLIFormatter {
             return "\(room): topic changed by \(who): \(topic)"
         case let .roomInviteReceived(invite):
             return formatRoomInviteMUC(invite)
-        case let .roomMessageReceived(message):
-            return formatIncomingRoomMessage(message)
+        case let .roomMessageReceived(message), let .mucPrivateMessageReceived(message):
+            return formatMUCMessage(event, message: message)
         case let .roomDestroyed(room, reason, alternate):
             return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
         case .mucSelfPingFailed:
@@ -260,6 +260,13 @@ struct PlainFormatter: CLIFormatter {
         return line
     }
 
+    private func formatMUCMessage(_ event: XMPPEvent, message: XMPPMessage) -> String? {
+        if case .mucPrivateMessageReceived = event {
+            return formatIncomingPrivateMessage(message)
+        }
+        return formatIncomingRoomMessage(message)
+    }
+
     private func formatIncomingRoomMessage(_ message: XMPPMessage) -> String? {
         guard let from = message.from, let body = message.body else { return nil }
         let nickname = nicknameFromJID(from)
@@ -268,6 +275,18 @@ struct PlainFormatter: CLIFormatter {
             "* \(nickname) \(body.dropFirst(4))"
         } else {
             "\(from.bareJID)/\(nickname): \(body)"
+        }
+        return "[\(timestamp)] <- \(formatted)"
+    }
+
+    private func formatIncomingPrivateMessage(_ message: XMPPMessage) -> String? {
+        guard let from = message.from, let body = message.body else { return nil }
+        let nickname = nicknameFromJID(from)
+        let timestamp = iso8601(Date())
+        let formatted = if body.hasPrefix("/me ") {
+            "[PM] * \(nickname) \(body.dropFirst(4))"
+        } else {
+            "[PM] \(from.bareJID)/\(nickname): \(body)"
         }
         return "[\(timestamp)] <- \(formatted)"
     }
@@ -300,7 +319,7 @@ struct PlainFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
@@ -334,7 +353,7 @@ struct PlainFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,

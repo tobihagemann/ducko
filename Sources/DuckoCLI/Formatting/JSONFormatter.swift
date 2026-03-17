@@ -111,7 +111,7 @@ struct JSONFormatter: CLIFormatter {
             return formatMiscEvent(event, account: account)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .roomDestroyed,
+             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
              .mucSelfPingFailed:
             return formatMUCEvent(event, account: account)
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
@@ -163,7 +163,7 @@ struct JSONFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -193,7 +193,7 @@ struct JSONFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -253,7 +253,7 @@ struct JSONFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
@@ -329,7 +329,7 @@ struct JSONFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived,
+             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
@@ -482,8 +482,8 @@ struct JSONFormatter: CLIFormatter {
             ]
             if let reason = invite.reason { dict["reason"] = reason }
             return encode(dict)
-        case let .roomMessageReceived(message):
-            return formatIncomingRoomMessage(message, account: account)
+        case let .roomMessageReceived(message), let .mucPrivateMessageReceived(message):
+            return formatMUCMessage(event, message: message, account: account)
         case let .roomDestroyed(room, reason, alternate):
             return formatRoomDestroyedEvent(room: room, reason: reason, alternate: alternate, account: account)
         case .mucSelfPingFailed,
@@ -574,11 +574,33 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    private func formatMUCMessage(_ event: XMPPEvent, message: XMPPMessage, account: String) -> String? {
+        if case .mucPrivateMessageReceived = event {
+            return formatIncomingPrivateMessage(message, account: account)
+        }
+        return formatIncomingRoomMessage(message, account: account)
+    }
+
     private func formatIncomingRoomMessage(_ message: XMPPMessage, account: String) -> String? {
         guard let from = message.from, let body = message.body else { return nil }
         let nickname = nicknameFromJID(from)
         var dict: [String: String] = [
             "type": "room_message", "direction": "incoming",
+            "room": from.bareJID.description, "nickname": nickname,
+            "body": body, "account": account,
+            "timestamp": formatTimestamp(Date())
+        ]
+        if body.hasPrefix("/me ") {
+            dict["action"] = "true"
+        }
+        return encode(dict)
+    }
+
+    private func formatIncomingPrivateMessage(_ message: XMPPMessage, account: String) -> String? {
+        guard let from = message.from, let body = message.body else { return nil }
+        let nickname = nicknameFromJID(from)
+        var dict: [String: String] = [
+            "type": "muc_private_message", "direction": "incoming",
             "room": from.bareJID.description, "nickname": nickname,
             "body": body, "account": account,
             "timestamp": formatTimestamp(Date())

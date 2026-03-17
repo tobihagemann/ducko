@@ -18,6 +18,7 @@ final class ConversationRecord {
     var roomSubject: String?
     var roomNickname: String?
     var encryptionEnabled: Bool = false
+    var occupantNickname: String?
     var createdAt: Date
 
     init(
@@ -35,6 +36,7 @@ final class ConversationRecord {
         roomSubject: String? = nil,
         roomNickname: String? = nil,
         encryptionEnabled: Bool = false,
+        occupantNickname: String? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -51,6 +53,7 @@ final class ConversationRecord {
         self.roomSubject = roomSubject
         self.roomNickname = roomNickname
         self.encryptionEnabled = encryptionEnabled
+        self.occupantNickname = occupantNickname
         self.createdAt = createdAt
     }
 }

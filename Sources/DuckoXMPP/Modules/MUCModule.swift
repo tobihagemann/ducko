@@ -277,6 +277,9 @@ public final class MUCModule: XMPPModule, Sendable {
             return
         }
 
+        // MUC Private Message (XEP-0045 §7.5): type="chat" from a tracked room occupant
+        if handlePrivateMessage(message) { return }
+
         // Only handle groupchat messages for tracked rooms
         guard message.messageType == .groupchat,
               let from = message.from else { return }
@@ -351,6 +354,21 @@ public final class MUCModule: XMPPModule, Sendable {
         context?.emitEvent(.roomInviteReceived(roomInvite))
     }
 
+    /// Returns `true` if the message was a MUC PM from a tracked room and was emitted.
+    private func handlePrivateMessage(_ message: XMPPMessage) -> Bool {
+        guard message.messageType == .chat,
+              let from = message.from,
+              case let .full(fullJID) = from else { return false }
+        let roomJID = fullJID.bareJID
+        let context: ModuleContext? = state.withLock { state in
+            guard state.rooms[roomJID] != nil else { return nil }
+            return state.context
+        }
+        guard let context else { return false }
+        context.emitEvent(.mucPrivateMessageReceived(message))
+        return true
+    }
+
     private func handleRetraction(retract: XMLElement, from: JID, roomJID: BareJID) {
         let context = state.withLock { $0.context }
         if let moderated = retract.child(named: "moderated", namespace: XMPPNamespaces.messageModerate),
@@ -423,6 +441,20 @@ public final class MUCModule: XMPPModule, Sendable {
         for element in additionalElements {
             message.element.addChild(element)
         }
+        try await context.sendStanza(message)
+    }
+
+    /// Sends a private message to a room occupant (XEP-0045 §7.5).
+    public func sendPrivateMessage(
+        to room: BareJID, nickname: String, body: String, id: String? = nil
+    ) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        guard let fullJID = FullJID(bareJID: room, resourcePart: nickname) else { return }
+        let stanzaID = id ?? context.generateID()
+        var message = XMPPMessage(type: .chat, to: .full(fullJID), id: stanzaID)
+        message.body = body
+        let mucUser = XMLElement(name: "x", namespace: XMPPNamespaces.mucUser)
+        message.element.addChild(mucUser)
         try await context.sendStanza(message)
     }
 

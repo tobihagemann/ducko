@@ -16,7 +16,7 @@ actor CLIEventHandler {
             if shouldSkipRawMessage(message) { return }
             ringBell()
         case .messageCarbonReceived, .messageCarbonSent,
-             .roomMessageReceived, .roomInviteReceived,
+             .roomMessageReceived, .mucPrivateMessageReceived, .roomInviteReceived,
              .jingleFileTransferReceived:
             ringBell()
         case let .chatStateChanged(from, state):

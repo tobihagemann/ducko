@@ -58,9 +58,20 @@ final class ChatWindowState {
         defer { isLoading = false }
 
         do {
-            let conv = try await environment.chatService.openConversation(jidString: jidString, accountID: accountID)
+            let conv: Conversation
+            if let slashIndex = jidString.firstIndex(of: "/"),
+               jidString[..<slashIndex].contains("@") {
+                // MUC PM: "room@conference/nick"
+                let roomJIDString = String(jidString[..<slashIndex])
+                let nickname = String(jidString[jidString.index(after: slashIndex)...])
+                conv = try await environment.chatService.openMUCPMConversation(
+                    roomJIDString: roomJIDString, nickname: nickname, accountID: accountID
+                )
+            } else {
+                conv = try await environment.chatService.openConversation(jidString: jidString, accountID: accountID)
+                contact = environment.rosterService.contact(jidString: jidString)
+            }
             conversation = conv
-            contact = environment.rosterService.contact(jidString: jidString)
             messages = await environment.chatService.loadMessages(for: conv.id)
             prefetchLinkPreviews()
             await environment.chatService.selectConversation(conv.id, accountID: accountID)
@@ -88,6 +99,11 @@ final class ChatWindowState {
                 )
             } else if isGroupchat {
                 try await environment.chatService.sendGroupMessage(toJIDString: jidString, body: body, accountID: accountID)
+            } else if let conv = conversation, let nick = conv.occupantNickname {
+                try await environment.chatService.sendMUCPrivateMessage(
+                    roomJIDString: conv.jid.description,
+                    nickname: nick, body: body, accountID: accountID
+                )
             } else if let editing = editingMessage, let stanzaID = editing.stanzaID {
                 try await environment.chatService.sendCorrection(
                     toJIDString: jidString,

@@ -1274,4 +1274,161 @@ enum MUCModuleTests {
             await client.disconnect()
         }
     }
+
+    struct PrivateMessages {
+        @Test
+        func `Type chat from tracked room emits mucPrivateMessageReceived`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            // Self-presence to complete join
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .mucPrivateMessageReceived = event { return true }
+                    return false
+                }
+            }
+
+            // Simulate incoming PM from another occupant
+            await mock.simulateReceive("""
+            <message type='chat' from='room@conference.example.com/alice' id='pm1'>\
+            <body>Hello privately</body>\
+            </message>
+            """)
+
+            let events = try await eventsTask.value
+            let pmEvent = events.last
+            guard case let .mucPrivateMessageReceived(message) = pmEvent else {
+                throw XMPPClientError.unexpectedStreamState("Expected mucPrivateMessageReceived")
+            }
+            #expect(message.body == "Hello privately")
+            #expect(message.id == "pm1")
+            guard case let .full(fullJID) = message.from else {
+                throw XMPPClientError.unexpectedStreamState("Expected full JID")
+            }
+            #expect(fullJID.resourcePart == "alice")
+            #expect(fullJID.bareJID == testRoomJID)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Type chat from untracked room is not emitted`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // Don't join any room — room is not tracked
+
+            let eventsTask = Task {
+                try await collectEvents(from: client, timeout: .seconds(2)) { event in
+                    if case .mucPrivateMessageReceived = event { return true }
+                    return false
+                }
+            }
+
+            // Simulate incoming message from an untracked room
+            await mock.simulateReceive("""
+            <message type='chat' from='other@conference.example.com/bob' id='pm2'>\
+            <body>Untracked room PM</body>\
+            </message>
+            """)
+
+            do {
+                _ = try await eventsTask.value
+                // Should timeout, not receive the event
+                throw XMPPClientError.unexpectedStreamState("Should not have received event")
+            } catch is XMPPClientError {
+                // Expected: timeout because no mucPrivateMessageReceived was emitted
+            }
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `sendPrivateMessage builds correct stanza`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            // Self-presence to complete join
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+
+            await mock.clearSentBytes()
+            try await module.sendPrivateMessage(to: testRoomJID, nickname: "alice", body: "Secret message", id: "test-pm-id")
+            await mock.waitForSent(count: 1)
+
+            let sentData = await mock.sentBytes
+            let sent = String(decoding: sentData.last ?? [], as: UTF8.self)
+            #expect(sent.contains("type='chat'") || sent.contains("type=\"chat\""))
+            #expect(sent.contains("room@conference.example.com/alice"))
+            #expect(sent.contains("Secret message"))
+            #expect(sent.contains("http://jabber.org/protocol/muc#user"))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Invite messages still handled before PM detection`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            // Self-presence
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomInviteReceived = event { return true }
+                    return false
+                }
+            }
+
+            // Mediated invite from a tracked room — should be roomInviteReceived, not mucPrivateMessageReceived
+            await mock.simulateReceive("""
+            <message from='room@conference.example.com'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <invite from='admin@example.com'><reason>Join us</reason></invite>\
+            </x>\
+            </message>
+            """)
+
+            let events = try await eventsTask.value
+            let lastEvent = events.last
+            guard case .roomInviteReceived = lastEvent else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomInviteReceived, not mucPrivateMessageReceived")
+            }
+
+            await client.disconnect()
+        }
+    }
 }

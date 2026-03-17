@@ -31,6 +31,7 @@ public enum XMPPEvent: Sendable {
     case roomSubjectChanged(room: BareJID, subject: String?, setter: JID?)
     case roomInviteReceived(RoomInvite)
     case roomMessageReceived(XMPPMessage)
+    case mucPrivateMessageReceived(XMPPMessage)
     case roomDestroyed(room: BareJID, reason: String?, alternateVenue: BareJID?)
     case mucSelfPingFailed(room: BareJID, reason: MUCSelfPingFailure)
 
