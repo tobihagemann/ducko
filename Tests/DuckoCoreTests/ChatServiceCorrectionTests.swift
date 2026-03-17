@@ -52,4 +52,37 @@ enum ChatServiceCorrectionTests {
             #expect(messages[0].editedAt != nil)
         }
     }
+
+    struct SenderVerification {
+        @Test
+        @MainActor
+        func `Correction rejected when sender does not match`() async throws {
+            let store = makeStore()
+            let service = makeChatService(store: store)
+
+            let conversationID = UUID()
+            await store.addConversation(Conversation(
+                id: conversationID, accountID: testAccountID, jid: contactJID,
+                type: .chat, isPinned: false, isMuted: false, unreadCount: 0, createdAt: Date()
+            ))
+            let message = ChatMessage(
+                id: UUID(), conversationID: conversationID, stanzaID: "msg-original",
+                fromJID: contactJID.description, body: "Original text",
+                timestamp: Date(), isOutgoing: false, isRead: false,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+            await store.addMessage(message)
+
+            let attacker = try #require(JID.parse("attacker@evil.com/res"))
+            await service.handleEvent(
+                .messageCorrected(originalID: "msg-original", newBody: "Hacked text", from: attacker),
+                accountID: testAccountID
+            )
+
+            let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+            #expect(messages[0].body == "Original text")
+            #expect(messages[0].isEdited == false)
+            #expect(messages[0].editedAt == nil)
+        }
+    }
 }

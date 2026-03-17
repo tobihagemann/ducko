@@ -52,7 +52,9 @@ public final class MAMModule: XMPPModule, Sendable {
     // MARK: - Public API
 
     /// Queries the message archive with optional filters and pagination.
+    /// For MUC room archives, set `to` to the room's bare JID.
     public func queryMessages(
+        to: BareJID? = nil,
         with jid: BareJID? = nil,
         start: String? = nil,
         end: String? = nil,
@@ -72,6 +74,7 @@ public final class MAMModule: XMPPModule, Sendable {
 
         // Build IQ
         var iq = XMPPIQ(type: .set, id: context.generateID())
+        if let to { iq.to = .bare(to) }
         var query = XMLElement(name: "query", namespace: XMPPNamespaces.mam, attributes: ["queryid": queryID])
 
         if let form = Self.buildFilterForm(jid: jid, start: start, end: end) {

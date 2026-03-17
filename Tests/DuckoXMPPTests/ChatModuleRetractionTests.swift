@@ -201,6 +201,59 @@ enum ChatModuleRetractionTests {
         }
     }
 
+    struct ModerationBareJIDValidation {
+        @Test
+        func `rejects moderation from full JID with resource part`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClientWithMUC(mock: mock)
+            let mucModule = try #require(await client.module(ofType: MUCModule.self))
+
+            // Join room first
+            await mock.clearSentBytes()
+            try await mucModule.joinRoom(
+                #require(BareJID.parse("room@conference.example.com")),
+                nickname: "user"
+            )
+            await mock.waitForSent(count: 1)
+
+            // Simulate self-presence (join confirmation)
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/user' to='user@example.com/ducko'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client, timeout: .seconds(1)) { event in
+                    if case .messageModerated = event { return true }
+                    return false
+                }
+            }
+
+            // Moderation from a full JID (occupant) — should be rejected
+            await mock.simulateReceive("""
+            <message from='room@conference.example.com/attacker' to='user@example.com/ducko' type='groupchat' id='mod-bad'>\
+            <retract xmlns='urn:xmpp:message-retract:1' id='stanza-id-2'>\
+            <moderated xmlns='urn:xmpp:message-moderate:1' by='attacker'/>\
+            <reason>Spoofed</reason>\
+            </retract>\
+            </message>
+            """)
+
+            let events = await (try? eventsTask.value) ?? []
+            let hasModeration = events.contains {
+                if case .messageModerated = $0 { return true }
+                return false
+            }
+            #expect(!hasModeration)
+
+            await client.disconnect()
+        }
+    }
+
     struct RetractionFeature {
         @Test
         func `chat module declares retraction feature`() {

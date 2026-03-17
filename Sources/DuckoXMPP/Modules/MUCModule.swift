@@ -275,6 +275,11 @@ public final class MUCModule: XMPPModule, Sendable {
             let context = state.withLock { $0.context }
             if let moderated = retract.child(named: "moderated", namespace: XMPPNamespaces.messageModerate),
                let originalID = retract.attribute("id") {
+                // XEP-0425: moderation messages come from bare room JID only
+                guard case .bare = from else {
+                    log.warning("Rejected moderation from non-bare JID: \(from)")
+                    return
+                }
                 let moderator = moderated.attribute("by") ?? from.description
                 let reason = retract.child(named: "reason")?.textContent
                 context?.emitEvent(.messageModerated(originalID: originalID, moderator: moderator, room: roomJID, reason: reason))

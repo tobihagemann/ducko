@@ -688,8 +688,8 @@ public final class ChatService {
             await handleChatMarker(messageID: messageID, type: markerType)
         case let .chatStateChanged(from, chatState):
             handleChatStateChanged(from: from, state: chatState)
-        case let .messageCorrected(originalID, newBody, _):
-            await handleMessageCorrected(originalID: originalID, newBody: newBody)
+        case let .messageCorrected(originalID, newBody, from):
+            await handleMessageCorrected(originalID: originalID, newBody: newBody, from: from)
         case .messageRetracted, .messageModerated, .messageError:
             await handleMessageUpdateEvent(event)
         case .rosterLoaded:
@@ -858,7 +858,16 @@ public final class ChatService {
         typingStates[from] = state
     }
 
-    private func handleMessageCorrected(originalID: String, newBody: String) async {
+    private func handleMessageCorrected(originalID: String, newBody: String, from: JID) async {
+        // XEP-0308: verify the correcting sender matches the original message's sender.
+        // This works for 1:1 chat where fromJID stores the contact's bare JID.
+        // MUC corrections need different validation (nickname comparison) — see Prompt 3.
+        guard let original = try? await store.fetchMessageByStanzaID(originalID) else { return }
+        let senderJID = from.bareJID.description
+        guard senderJID == original.fromJID else {
+            log.warning("Rejected correction: sender \(senderJID) doesn't match original \(original.fromJID)")
+            return
+        }
         try? await store.updateMessageBody(stanzaID: originalID, newBody: newBody, isEdited: true, editedAt: Date())
         await reloadActiveMessages()
     }
@@ -1318,7 +1327,9 @@ public final class ChatService {
         let accountJID = accountJID(for: accountID, fallback: jid)
         let endISO = before.map { $0.formatted(.iso8601) }
 
-        let (archived, fin) = try await mamModule.queryMessages(with: jid, end: endISO, max: limit)
+        let to: BareJID? = conversation.type == .groupchat ? conversation.jid : nil
+        let with: BareJID? = conversation.type == .groupchat ? nil : jid
+        let (archived, fin) = try await mamModule.queryMessages(to: to, with: with, end: endISO, max: limit)
         let newMessages = try await convertAndDedup(
             archived: archived, conversation: conversation, accountJID: accountJID
         )
@@ -1349,8 +1360,10 @@ public final class ChatService {
                 let lastMessages = try await store.fetchMessages(for: conversation.id, before: nil, limit: 1)
                 let startISO = lastMessages.first.map { $0.timestamp.formatted(.iso8601) }
 
+                let to: BareJID? = conversation.type == .groupchat ? conversation.jid : nil
+                let with: BareJID? = conversation.type == .groupchat ? nil : conversation.jid
                 let (archived, _) = try await mamModule.queryMessages(
-                    with: conversation.jid, start: startISO, max: 50
+                    to: to, with: with, start: startISO, max: 50
                 )
                 let newMessages = try await convertAndDedup(
                     archived: archived, conversation: conversation, accountJID: accountJID

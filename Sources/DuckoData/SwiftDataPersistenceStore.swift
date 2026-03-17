@@ -237,6 +237,14 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         try modelContext.save()
     }
 
+    public func fetchMessageByStanzaID(_ stanzaID: String) throws -> ChatMessage? {
+        var descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.stanzaID == stanzaID }
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first?.toDomain()
+    }
+
     public func messageExistsByServerID(_ serverID: String, conversationID: UUID) throws -> Bool {
         var descriptor = FetchDescriptor<MessageRecord>(
             predicate: #Predicate {

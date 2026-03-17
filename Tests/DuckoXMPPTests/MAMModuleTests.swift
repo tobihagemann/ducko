@@ -89,6 +89,37 @@ enum MAMModuleTests {
         }
     }
 
+    struct MUCQuery {
+        @Test
+        func `queryMessages sets to attribute for MUC room archive`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MAMModule.self))
+
+            await mock.clearSentBytes()
+
+            let roomJID = try #require(BareJID.parse("room@conference.example.com"))
+            let queryTask = Task {
+                try await module.queryMessages(to: roomJID, max: 20)
+            }
+
+            await mock.waitForSent(count: 1)
+
+            let mam = try #require(await findMAMIQ(mock: mock))
+            #expect(mam.iq.contains("to=\"room@conference.example.com\""))
+            #expect(mam.iq.contains("<max>20</max>"))
+
+            // Response must include from='room JID' to match sendIQ's expectedFrom
+            await mock.simulateReceive(
+                "<iq type='result' id='\(mam.iqID)' from='room@conference.example.com'><fin xmlns='urn:xmpp:mam:2' complete='true'><set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set></fin></iq>"
+            )
+            let result = try await queryTask.value
+            #expect(result.fin.complete)
+
+            await client.disconnect()
+        }
+    }
+
     struct ResultParsing {
         @Test
         func `Parses result messages with timestamp and stanza-id`() async throws {
