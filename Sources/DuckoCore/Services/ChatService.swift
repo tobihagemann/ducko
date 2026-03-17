@@ -197,6 +197,24 @@ public final class ChatService {
         try await sendCorrection(to: jid, originalStanzaID: originalStanzaID, newBody: newBody, accountID: accountID)
     }
 
+    // MARK: - Group Corrections
+
+    public func sendGroupCorrection(originalStanzaID: String, newBody: String, in room: BareJID, accountID: UUID) async throws {
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+
+        try await mucModule.sendCorrection(to: room, body: newBody, replacingID: originalStanzaID)
+        try await store.updateMessageBody(stanzaID: originalStanzaID, newBody: newBody, isEdited: true, editedAt: Date())
+        await reloadActiveMessages()
+    }
+
+    public func sendGroupCorrection(originalStanzaID: String, newBody: String, inRoomJIDString roomJIDString: String, accountID: UUID) async throws {
+        guard let room = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        try await sendGroupCorrection(originalStanzaID: originalStanzaID, newBody: newBody, in: room, accountID: accountID)
+    }
+
     // MARK: - Retractions
 
     public func retractMessage(stanzaID: String, to jid: BareJID, accountID: UUID) async throws {
@@ -689,7 +707,7 @@ public final class ChatService {
         case let .chatStateChanged(from, chatState):
             handleChatStateChanged(from: from, state: chatState)
         case let .messageCorrected(originalID, newBody, from):
-            await handleMessageCorrected(originalID: originalID, newBody: newBody, from: from)
+            await handleMessageCorrected(originalID: originalID, newBody: newBody, from: from, accountID: accountID)
         case .messageRetracted, .messageModerated, .messageError:
             await handleMessageUpdateEvent(event)
         case .rosterLoaded:
@@ -858,16 +876,38 @@ public final class ChatService {
         typingStates[from] = state
     }
 
-    private func handleMessageCorrected(originalID: String, newBody: String, from: JID) async {
-        // XEP-0308: verify the correcting sender matches the original message's sender.
-        // This works for 1:1 chat where fromJID stores the contact's bare JID.
-        // MUC corrections need different validation (nickname comparison) — see Prompt 3.
+    private func handleMessageCorrected(originalID: String, newBody: String, from: JID, accountID: UUID) async {
         guard let original = try? await store.fetchMessageByStanzaID(originalID) else { return }
-        let senderJID = from.bareJID.description
-        guard senderJID == original.fromJID else {
-            log.warning("Rejected correction: sender \(senderJID) doesn't match original \(original.fromJID)")
-            return
+
+        if original.type == "groupchat" {
+            // MUC: verify sender nickname matches
+            guard case let .full(fullJID) = from else {
+                log.warning("Rejected MUC correction without full JID: \(from)")
+                return
+            }
+            let senderNickname = fullJID.resourcePart
+            if original.isOutgoing {
+                // Echo of our own correction — verify it's from our nickname
+                guard await isOwnRoomMessage(nickname: senderNickname, room: from.bareJID, accountID: accountID) else {
+                    log.warning("Rejected MUC correction for own message from wrong sender: \(senderNickname)")
+                    return
+                }
+            } else {
+                // Incoming correction — sender nickname must match original
+                guard senderNickname == original.fromJID else {
+                    log.warning("Rejected MUC correction: nickname \(senderNickname) != original \(original.fromJID)")
+                    return
+                }
+            }
+        } else {
+            // 1:1 chat: bare JID comparison
+            let senderJID = from.bareJID.description
+            guard senderJID == original.fromJID else {
+                log.warning("Rejected correction: sender \(senderJID) doesn't match original \(original.fromJID)")
+                return
+            }
         }
+
         try? await store.updateMessageBody(stanzaID: originalID, newBody: newBody, isEdited: true, editedAt: Date())
         await reloadActiveMessages()
     }

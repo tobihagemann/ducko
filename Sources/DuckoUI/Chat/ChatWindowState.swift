@@ -79,7 +79,14 @@ final class ChatWindowState {
         guard let accountID = environment.accountService.accounts.first?.id else { return }
 
         do {
-            if isGroupchat {
+            if isGroupchat, let editing = editingMessage, let stanzaID = editing.stanzaID {
+                try await environment.chatService.sendGroupCorrection(
+                    originalStanzaID: stanzaID,
+                    newBody: body,
+                    inRoomJIDString: jidString,
+                    accountID: accountID
+                )
+            } else if isGroupchat {
                 try await environment.chatService.sendGroupMessage(toJIDString: jidString, body: body, accountID: accountID)
             } else if let editing = editingMessage, let stanzaID = editing.stanzaID {
                 try await environment.chatService.sendCorrection(

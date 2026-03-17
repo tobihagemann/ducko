@@ -31,7 +31,7 @@ public final class MUCModule: XMPPModule, Sendable {
     private let state: OSAllocatedUnfairLock<State>
 
     public var features: [String] {
-        [XMPPNamespaces.muc, XMPPNamespaces.mucDirectInvite]
+        [XMPPNamespaces.muc, XMPPNamespaces.mucDirectInvite, XMPPNamespaces.messageCorrect]
     }
 
     public init() {
@@ -272,20 +272,19 @@ public final class MUCModule: XMPPModule, Sendable {
 
         // XEP-0424/0425: Message retraction or moderation
         if let retract = message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) {
-            let context = state.withLock { $0.context }
-            if let moderated = retract.child(named: "moderated", namespace: XMPPNamespaces.messageModerate),
-               let originalID = retract.attribute("id") {
-                // XEP-0425: moderation messages come from bare room JID only
-                guard case .bare = from else {
-                    log.warning("Rejected moderation from non-bare JID: \(from)")
-                    return
-                }
-                let moderator = moderated.attribute("by") ?? from.description
-                let reason = retract.child(named: "reason")?.textContent
-                context?.emitEvent(.messageModerated(originalID: originalID, moderator: moderator, room: roomJID, reason: reason))
-            } else if let originalID = retract.attribute("id") {
-                context?.emitEvent(.messageRetracted(originalID: originalID, from: from))
+            handleRetraction(retract: retract, from: from, roomJID: roomJID)
+            return
+        }
+
+        // XEP-0308: Message correction in groupchat
+        if let replace = message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect),
+           let originalID = replace.attribute("id"),
+           let newBody = message.body {
+            let context = state.withLock { state -> ModuleContext? in
+                state.rooms[roomJID]?.lastActivity = .now
+                return state.context
             }
+            context?.emitEvent(.messageCorrected(originalID: originalID, newBody: newBody, from: from))
             return
         }
 
@@ -325,6 +324,23 @@ public final class MUCModule: XMPPModule, Sendable {
         let context = state.withLock { $0.context }
         log.info("Received direct invite to \(roomJID) from \(from)")
         context?.emitEvent(.roomInviteReceived(roomInvite))
+    }
+
+    private func handleRetraction(retract: XMLElement, from: JID, roomJID: BareJID) {
+        let context = state.withLock { $0.context }
+        if let moderated = retract.child(named: "moderated", namespace: XMPPNamespaces.messageModerate),
+           let originalID = retract.attribute("id") {
+            // XEP-0425: moderation messages come from bare room JID only
+            guard case .bare = from else {
+                log.warning("Rejected moderation from non-bare JID: \(from)")
+                return
+            }
+            let moderator = moderated.attribute("by") ?? from.description
+            let reason = retract.child(named: "reason")?.textContent
+            context?.emitEvent(.messageModerated(originalID: originalID, moderator: moderator, room: roomJID, reason: reason))
+        } else if let originalID = retract.attribute("id") {
+            context?.emitEvent(.messageRetracted(originalID: originalID, from: from))
+        }
     }
 
     // MARK: - Public API
@@ -383,6 +399,12 @@ public final class MUCModule: XMPPModule, Sendable {
             message.element.addChild(element)
         }
         try await context.sendStanza(message)
+    }
+
+    /// Sends a message correction (XEP-0308) for a previously sent groupchat message.
+    public func sendCorrection(to room: BareJID, body: String, replacingID: String) async throws {
+        let replace = XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": replacingID])
+        try await sendMessage(to: room, body: body, additionalElements: [replace])
     }
 
     /// Sends a message retraction (XEP-0424) for a previously sent groupchat message.

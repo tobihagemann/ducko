@@ -1390,6 +1390,7 @@ private func printREPLHelp() {
     print("  /profile                 View own vCard profile")
     print("  /reply <jid> <message>   Reply to last incoming message")
     print("  /retract <jid>           Retract last sent message")
+    print("  /edit <jid> <new-body>   Edit last sent message")
     print("  /search <jid> <query>    Search message history")
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
@@ -1465,6 +1466,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input == "/avatar" || input.hasPrefix("/avatar ")
         || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
         || input.hasPrefix("/retract ")
+        || input.hasPrefix("/edit ")
         || input.hasPrefix("/encrypt ")
         || input.hasPrefix("/pref ")
 }
@@ -1521,6 +1523,8 @@ private func dispatchInfoREPLCommand(
         await handleAvatarREPLCommand(input, context: context)
     } else if input.hasPrefix("/retract ") {
         await handleRetractREPLCommand(input, context: context)
+    } else if input.hasPrefix("/edit ") {
+        await handleEditREPLCommand(input, context: context)
     } else if input.hasPrefix("/encrypt ") {
         await handleEncryptREPLCommand(input, context: context)
     } else if input.hasPrefix("/pref ") {
@@ -2170,6 +2174,48 @@ private func handleRetractREPLCommand(_ input: String, context: REPLContext) asy
             )
         }
         print("Retracted message: \(stanzaID)")
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+}
+
+private func handleEditREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/edit ".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2 else {
+        print("Usage: /edit <jid> <new-body>")
+        return
+    }
+    let jidString = String(parts[0])
+    let newBody = String(parts[1])
+    guard let bareJID = BareJID.parse(jidString) else {
+        print(context.formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+    do {
+        let messages = try await fetchHistory(
+            jid: bareJID, before: nil, limit: 10,
+            environment: context.environment, accountID: context.accountID
+        )
+        guard let lastOutgoing = messages.last(where: { $0.isOutgoing && $0.stanzaID != nil && !$0.isRetracted }),
+              let stanzaID = lastOutgoing.stanzaID
+        else {
+            print("No recent outgoing message to edit.")
+            return
+        }
+        let isGroupchat = lastOutgoing.type == "groupchat"
+        if isGroupchat {
+            try await context.environment.chatService.sendGroupCorrection(
+                originalStanzaID: stanzaID, newBody: newBody,
+                inRoomJIDString: jidString, accountID: context.accountID
+            )
+        } else {
+            try await context.environment.chatService.sendCorrection(
+                toJIDString: jidString, originalStanzaID: stanzaID,
+                newBody: newBody, accountID: context.accountID
+            )
+        }
+        print("Edited message: \(stanzaID)")
     } catch {
         print(context.formatter.formatError(error))
     }
