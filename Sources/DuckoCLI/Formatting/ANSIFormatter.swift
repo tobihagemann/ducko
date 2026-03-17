@@ -17,12 +17,13 @@ struct ANSIFormatter: CLIFormatter {
 
     // MARK: - CLIFormatter
 
-    func formatMessage(_ message: ChatMessage) -> String {
+    func formatMessage(_ message: ChatMessage, accountJID: BareJID? = nil) -> String {
         let timestamp = iso8601(message.timestamp)
         let direction = message.isOutgoing ? "->" : "<-"
         let color = message.isOutgoing ? Color.cyan : Color.green
+        let displayJID = message.isOutgoing ? (accountJID?.description ?? message.fromJID) : message.fromJID
         let body = if message.body.hasPrefix("/me ") {
-            "* \(message.fromJID) \(message.body.dropFirst(4))"
+            "* \(displayJID) \(message.body.dropFirst(4))"
         } else {
             "\(message.fromJID): \(styledBody(message.body))"
         }

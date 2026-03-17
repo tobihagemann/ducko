@@ -16,6 +16,7 @@ public protocol PersistenceStore: Sendable {
     // MARK: - Conversations
 
     func fetchConversations(for accountID: UUID) async throws -> [Conversation]
+    func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID) async throws -> Conversation?
     func upsertConversation(_ conversation: Conversation) async throws
 
     // MARK: - Messages

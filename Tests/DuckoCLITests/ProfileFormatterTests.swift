@@ -85,7 +85,7 @@ struct ProfileFormatterTests {
         #expect(output.contains("\"type\":\"profile\""))
         #expect(output.contains("\"fullName\":\"Carol\""))
         #expect(output.contains("\"nickname\":\"carol\""))
-        #expect(output.contains("\"emails\":\"carol@example.com\""))
+        #expect(output.contains("\"emails\":[\"carol@example.com\"]"))
         #expect(output.contains("\"organization\":\"ACME\""))
     }
 

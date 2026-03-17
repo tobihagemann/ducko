@@ -46,12 +46,12 @@ private func resolveConversation(
     return conversations.first(where: { $0.jid == jid })
 }
 
-func printHistory(_ messages: [ChatMessage], formatter: any CLIFormatter) {
+func printHistory(_ messages: [ChatMessage], formatter: any CLIFormatter, accountJID: BareJID? = nil) {
     guard !messages.isEmpty else {
         print("No messages found.")
         return
     }
     for message in messages {
-        print(formatter.formatMessage(message))
+        print(formatter.formatMessage(message, accountJID: accountJID))
     }
 }

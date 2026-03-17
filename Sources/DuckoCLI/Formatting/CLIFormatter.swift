@@ -3,7 +3,7 @@ import DuckoXMPP
 import Foundation
 
 protocol CLIFormatter: Sendable {
-    func formatMessage(_ message: ChatMessage) -> String
+    func formatMessage(_ message: ChatMessage, accountJID: BareJID?) -> String
     func formatAccount(_ account: Account) -> String
     func formatPresence(jid: BareJID, status: String, message: String?) -> String
     func formatContactWithPresence(_ contact: Contact, presence: PresenceService.PresenceStatus?) -> String

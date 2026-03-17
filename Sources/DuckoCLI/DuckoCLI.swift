@@ -108,7 +108,7 @@ extension DuckoCLI {
 
                 print(formatter.formatMessage(ChatMessage.displayPlaceholder(
                     fromJID: recipientJID.description, body: body
-                )))
+                ), accountJID: selectedAccount.jid))
             }
 
             await env.accountService.disconnect(accountID: selectedAccount.id)
@@ -450,7 +450,7 @@ extension DuckoCLI {
                     jid: bareJID, query: search, limit: limit,
                     environment: env, accountID: selectedAccount.id
                 )
-                printHistory(messages, formatter: formatter)
+                printHistory(messages, formatter: formatter, accountJID: selectedAccount.jid)
                 return
             }
 
@@ -477,7 +477,7 @@ extension DuckoCLI {
                 await env.accountService.disconnect(accountID: selectedAccount.id)
             }
 
-            printHistory(messages, formatter: formatter)
+            printHistory(messages, formatter: formatter, accountJID: selectedAccount.jid)
         }
     }
 }
@@ -1475,6 +1475,7 @@ private func dispatchMiscREPLCommand(
     let formatter = context.formatter
     let environment = context.environment
     let accountID = context.accountID
+    let accountJID = context.accountJID
     if input.hasPrefix("/add ") {
         await handleAddCommand(input, formatter: formatter, environment: environment, accountID: accountID)
     } else if input.hasPrefix("/remove ") {
@@ -1499,7 +1500,7 @@ private func dispatchMiscREPLCommand(
             try await environment.rosterService.denySubscription(jidString: jid, accountID: accountID)
         }
     } else if input == "/history" || input.hasPrefix("/history ") {
-        await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+        await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
     } else {
         await dispatchInfoREPLCommand(input, context: context)
     }
@@ -2042,7 +2043,7 @@ private func handleAddCommand(
 }
 
 private func handleHistoryCommand(
-    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID, accountJID: BareJID
 ) async {
     let args = input.dropFirst("/history".count).trimmingCharacters(in: .whitespaces)
     let parts = args.split(separator: " ", maxSplits: 1)
@@ -2072,7 +2073,7 @@ private func handleHistoryCommand(
             jid: bareJID, before: nil, limit: limit,
             environment: environment, accountID: accountID
         )
-        printHistory(messages, formatter: formatter)
+        printHistory(messages, formatter: formatter, accountJID: accountJID)
     } catch {
         print(formatter.formatError(error))
     }
@@ -2205,7 +2206,7 @@ private func handleReplyREPLCommand(_ input: String, context: REPLContext) async
         )
         print(context.formatter.formatMessage(ChatMessage.displayPlaceholder(
             fromJID: jidString, body: body, replyToID: replyStanzaID
-        )))
+        ), accountJID: context.accountJID))
     } catch {
         print(context.formatter.formatError(error))
     }
@@ -2229,7 +2230,7 @@ private func handleSearchREPLCommand(_ input: String, context: REPLContext) asyn
             jid: bareJID, query: query, limit: 20,
             environment: context.environment, accountID: context.accountID
         )
-        printHistory(messages, formatter: context.formatter)
+        printHistory(messages, formatter: context.formatter, accountJID: context.accountJID)
     } catch {
         print(context.formatter.formatError(error))
     }

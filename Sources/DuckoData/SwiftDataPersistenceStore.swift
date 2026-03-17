@@ -130,6 +130,16 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         return records.compactMap { $0.toDomain() }
     }
 
+    public func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID) throws -> Conversation? {
+        let jidString = jid
+        let typeString = type.rawValue
+        var descriptor = FetchDescriptor<ConversationRecord>(
+            predicate: #Predicate { $0.jid == jidString && $0.type == typeString && $0.account?.id == accountID }
+        )
+        descriptor.fetchLimit = 1
+        return try modelContext.fetch(descriptor).first?.toDomain()
+    }
+
     public func upsertConversation(_ conversation: Conversation) throws {
         let conversationID = conversation.id
         var descriptor = FetchDescriptor<ConversationRecord>(

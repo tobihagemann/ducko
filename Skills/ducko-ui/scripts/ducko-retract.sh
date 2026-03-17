@@ -6,29 +6,17 @@
 set -euo pipefail
 
 TEXT="${1:-}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 
-RESULT=$(osascript - "$TEXT" << 'APPLESCRIPT'
+RESULT=$(osascript - "$TEXT" << APPLESCRIPT
 on run argv
     set searchText to item 1 of argv
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.5
         tell process "DuckoApp"
-            -- Find the chat window (window containing message-field)
-            set chatWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "message-field" then
-                            set chatWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if chatWin is not missing value then exit repeat
-            end repeat
-            if chatWin is missing value then return "ERROR: no chat window found"
+            $(ducko_as_find_window_by_id "message-field" "no chat window found" "chatWin")
 
             -- Collect message text elements
             set allElems to entire contents of chatWin
@@ -38,7 +26,6 @@ on run argv
                     if role of elem is "AXStaticText" then
                         set elemVal to value of elem
                         if searchText is "" then
-                            -- Track last text element as candidate
                             set targetElem to elem
                         else if elemVal contains searchText then
                             set targetElem to elem
@@ -49,30 +36,11 @@ on run argv
             end repeat
             if targetElem is missing value then return "ERROR: no matching message found"
 
-            -- Right-click to open context menu
-            perform action "AXShowMenu" of targetElem
-            delay 0.5
-
-            -- Click Retract
-            set allElems to entire contents of chatWin
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXMenuItem" and name of elem is "Retract" then
-                        click elem
-                        return "ok"
-                    end if
-                end try
-            end repeat
-            return "ERROR: Retract menu item not found (not an outgoing message?)"
+            $(ducko_as_click_context_menu_item "Retract" 'targetElem' 'chatWin' "Retract menu item not found (not an outgoing message?)")
         end tell
     end tell
 end run
 APPLESCRIPT
 )
 
-if [[ "$RESULT" == ok ]]; then
-    echo "Message retracted"
-else
-    echo "$RESULT" >&2
-    exit 1
-fi
+ducko_check_result "$RESULT" "Message retracted"

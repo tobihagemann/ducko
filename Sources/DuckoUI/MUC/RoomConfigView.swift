@@ -73,6 +73,16 @@ struct RoomConfigView: View {
                 TextEditor(text: multiLineBinding(for: field.variable))
                     .frame(height: 60)
             }
+        case "list-multi":
+            VStack(alignment: .leading) {
+                Text(label)
+                ForEach(field.options, id: \.value) { option in
+                    Toggle(
+                        option.label ?? option.value,
+                        isOn: multiSelectBinding(for: field.variable, value: option.value)
+                    )
+                }
+            }
         default:
             TextField(label, text: singleValueBinding(for: field.variable))
         }
@@ -94,6 +104,20 @@ struct RoomConfigView: View {
         Binding(
             get: { fieldValue(for: variable) },
             set: { newValue in setFieldValue(for: variable, value: newValue) }
+        )
+    }
+
+    private func multiSelectBinding(for variable: String, value: String) -> Binding<Bool> {
+        Binding(
+            get: { fields.first(where: { $0.variable == variable })?.values.contains(value) ?? false },
+            set: { isSelected in
+                guard let index = fields.firstIndex(where: { $0.variable == variable }) else { return }
+                if isSelected {
+                    if !fields[index].values.contains(value) { fields[index].values.append(value) }
+                } else {
+                    fields[index].values.removeAll { $0 == value }
+                }
+            }
         )
     }
 

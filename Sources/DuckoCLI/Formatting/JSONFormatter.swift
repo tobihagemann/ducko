@@ -11,7 +11,7 @@ struct JSONFormatter: CLIFormatter {
 
     // MARK: - CLIFormatter
 
-    func formatMessage(_ message: ChatMessage) -> String {
+    func formatMessage(_ message: ChatMessage, accountJID: BareJID? = nil) -> String {
         var dict: [String: String] = [
             "type": "message",
             "direction": message.isOutgoing ? "outgoing" : "incoming",
@@ -21,6 +21,9 @@ struct JSONFormatter: CLIFormatter {
         ]
         if message.body.hasPrefix("/me ") {
             dict["action"] = "true"
+            if message.isOutgoing, let accountJID {
+                dict["actor"] = accountJID.description
+            }
         }
         if message.isDelivered {
             dict["delivered"] = "true"
@@ -594,36 +597,66 @@ struct JSONFormatter: CLIFormatter {
     }
 
     func formatProfile(_ profile: ProfileInfo) -> String {
-        var dict = ["type": "profile"]
-        addProfileNameFields(profile, to: &dict)
-        addProfileDetailFields(profile, to: &dict)
-        return encode(dict)
-    }
-
-    private func addProfileNameFields(_ profile: ProfileInfo, to dict: inout [String: String]) {
-        if let fullName = profile.fullName { dict["fullName"] = fullName }
-        if let nickname = profile.nickname { dict["nickname"] = nickname }
-        if let givenName = profile.givenName { dict["givenName"] = givenName }
-        if let familyName = profile.familyName { dict["familyName"] = familyName }
-        if let organization = profile.organization { dict["organization"] = organization }
-        if let title = profile.title { dict["title"] = title }
-        if let role = profile.role { dict["role"] = role }
-    }
-
-    private func addProfileDetailFields(_ profile: ProfileInfo, to dict: inout [String: String]) {
+        var json = ProfileJSON()
+        json.fullName = profile.fullName
+        json.nickname = profile.nickname
+        json.givenName = profile.givenName
+        json.familyName = profile.familyName
+        json.organization = profile.organization
+        json.title = profile.title
+        json.role = profile.role
         let emailAddresses = profile.emails.map(\.address).filter { !$0.isEmpty }
-        if !emailAddresses.isEmpty { dict["emails"] = emailAddresses.joined(separator: ",") }
+        if !emailAddresses.isEmpty { json.emails = emailAddresses }
         let phoneNumbers = profile.telephones.map(\.number).filter { !$0.isEmpty }
-        if !phoneNumbers.isEmpty { dict["phones"] = phoneNumbers.joined(separator: ",") }
-        if let url = profile.url { dict["url"] = url }
-        if let birthday = profile.birthday { dict["birthday"] = birthday }
-        if let note = profile.note { dict["note"] = note }
+        if !phoneNumbers.isEmpty { json.phones = phoneNumbers }
+        json.url = profile.url
+        json.birthday = profile.birthday
+        json.note = profile.note
+        return encode(json)
+    }
+
+    private struct ProfileJSON: Encodable {
+        var type = "profile"
+        var fullName: String?
+        var nickname: String?
+        var givenName: String?
+        var familyName: String?
+        var organization: String?
+        var title: String?
+        var role: String?
+        var emails: [String]?
+        var phones: [String]?
+        var url: String?
+        var birthday: String?
+        var note: String?
+
+        func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(type, forKey: .type)
+            try container.encodeIfPresent(fullName, forKey: .fullName)
+            try container.encodeIfPresent(nickname, forKey: .nickname)
+            try container.encodeIfPresent(givenName, forKey: .givenName)
+            try container.encodeIfPresent(familyName, forKey: .familyName)
+            try container.encodeIfPresent(organization, forKey: .organization)
+            try container.encodeIfPresent(title, forKey: .title)
+            try container.encodeIfPresent(role, forKey: .role)
+            try container.encodeIfPresent(emails, forKey: .emails)
+            try container.encodeIfPresent(phones, forKey: .phones)
+            try container.encodeIfPresent(url, forKey: .url)
+            try container.encodeIfPresent(birthday, forKey: .birthday)
+            try container.encodeIfPresent(note, forKey: .note)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case type, fullName, nickname, givenName, familyName
+            case organization, title, role, emails, phones, url, birthday, note
+        }
     }
 
     // MARK: - Private
 
-    private func encode(_ dict: [String: String]) -> String {
-        guard let data = try? encoder.encode(dict),
+    private func encode(_ value: some Encodable) -> String {
+        guard let data = try? encoder.encode(value),
               let string = String(data: data, encoding: .utf8)
         else {
             return "{}"

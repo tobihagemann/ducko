@@ -261,6 +261,63 @@ struct PlainFormatterTests {
         #expect(output.contains("not allowed"))
     }
 
+    // MARK: - formatMessage /me
+
+    @Test func `format me action outgoing uses account JID`() throws {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "recipient@example.com",
+            body: "/me waves",
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        let accountJID = try #require(BareJID.parse("me@example.com"))
+        let output = formatter.formatMessage(message, accountJID: accountJID)
+        #expect(output.contains("* me@example.com waves"))
+        #expect(!output.contains("recipient@example.com"))
+    }
+
+    @Test func `format me action outgoing falls back to fromJID without accountJID`() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "recipient@example.com",
+            body: "/me waves",
+            timestamp: Date(),
+            isOutgoing: true,
+            isRead: true,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("* recipient@example.com waves"))
+    }
+
+    @Test func `format me action incoming uses fromJID`() throws {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "/me waves",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        let accountJID = try #require(BareJID.parse("me@example.com"))
+        let output = formatter.formatMessage(message, accountJID: accountJID)
+        #expect(output.contains("* alice@example.com waves"))
+        #expect(!output.contains("me@example.com"))
+    }
+
     // MARK: - formatMessage Markers
 
     @Test func `format message delivered`() {

@@ -278,6 +278,34 @@ struct SwiftDataPersistenceStoreTests {
             let fetched = try await store.fetchConversations(for: account.id)
             #expect(fetched.first?.lastMessagePreview == "Hello!")
         }
+
+        @Test
+        func `Fetch single conversation by JID and type`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let chat = outer.makeConversation(accountID: account.id, jid: "alice@example.com", type: .chat)
+            let room = outer.makeConversation(accountID: account.id, jid: "room@conference.example.com", type: .groupchat)
+            try await store.upsertConversation(chat)
+            try await store.upsertConversation(room)
+
+            let fetchedRoom = try await store.fetchConversation(jid: "room@conference.example.com", type: .groupchat, accountID: account.id)
+            #expect(fetchedRoom?.id == room.id)
+
+            let fetchedChat = try await store.fetchConversation(jid: "alice@example.com", type: .chat, accountID: account.id)
+            #expect(fetchedChat?.id == chat.id)
+        }
+
+        @Test
+        func `Fetch conversation returns nil when not found`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let result = try await store.fetchConversation(jid: "nobody@example.com", type: .chat, accountID: account.id)
+            #expect(result == nil)
+        }
     }
 
     // MARK: - Messages
