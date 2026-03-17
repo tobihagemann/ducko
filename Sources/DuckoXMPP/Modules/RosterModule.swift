@@ -7,7 +7,6 @@ public final class RosterModule: XMPPModule, Sendable {
     private struct State {
         var context: ModuleContext?
         var roster: [BareJID: RosterItem] = [:]
-        var version: String?
         var rosterVersionProvider: (@Sendable () -> String?)?
     }
 
@@ -15,12 +14,6 @@ public final class RosterModule: XMPPModule, Sendable {
 
     public var features: [String] {
         [XMPPNamespaces.roster]
-    }
-
-    // periphery:ignore - specced feature, not yet wired
-    /// The current roster version string, if available.
-    public var currentVersion: String? {
-        state.withLock { $0.version }
     }
 
     /// Sets a closure the service layer provides to return the persisted roster version on connect.
@@ -74,7 +67,6 @@ public final class RosterModule: XMPPModule, Sendable {
 
         // Track version from roster result
         if let ver = result.attribute("ver") {
-            state.withLock { $0.version = ver }
             context.emitEvent(.rosterVersionChanged(ver))
         }
 
@@ -116,7 +108,6 @@ public final class RosterModule: XMPPModule, Sendable {
 
         // Track version from roster push
         if let ver = query.attribute("ver") {
-            state.withLock { $0.version = ver }
             context.emitEvent(.rosterVersionChanged(ver))
         }
 

@@ -122,8 +122,6 @@ public protocol OMEMOStore: Sendable {
 
     func loadSessions(for accountJID: String) async throws -> [OMEMOStoredSession]
     func saveSession(_ session: OMEMOStoredSession) async throws
-    // periphery:ignore - needed for session replacement on broken sessions
-    func deleteSession(accountJID: String, peerJID: String, deviceID: UInt32) async throws
 
     // MARK: - Trust
 

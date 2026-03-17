@@ -186,12 +186,6 @@ public final class OMEMOService {
         try await setTrustLevel(.verified, accountID: accountID, peerJID: peerJID, deviceID: deviceID, fingerprint: fingerprint)
     }
 
-    // periphery:ignore - public API for trust inspection (used by CLI trust subcommands)
-    public func trustedDevices(for peerJID: String, accountID: UUID) async throws -> [OMEMOTrust] {
-        guard let accountJID = accountJIDString(for: accountID) else { return [] }
-        return try await omemoStore.loadAllTrustedDevices(for: peerJID, accountJID: accountJID)
-    }
-
     public func ownFingerprint(accountID: UUID) async -> String? {
         await ownDeviceInfo(accountID: accountID)?.fingerprint
     }
@@ -249,31 +243,6 @@ public final class OMEMOService {
         )
         await saveModuleSessions(module: omemoModule, accountID: accountID)
         return elements
-    }
-
-    // periphery:ignore - specced feature, wired by UI when enabling group encryption
-    /// Validates whether a room is suitable for OMEMO group encryption.
-    public func validateRoomForOMEMO(
-        memberJIDs: [BareJID],
-        accountID: UUID
-    ) async -> RoomOMEMOValidation {
-        var membersWithoutOMEMO: [String] = []
-        var encryptableMembers = 0
-
-        for jid in memberJIDs {
-            let deviceIDs = await trustedDeviceIDs(for: jid, accountID: accountID)
-            if deviceIDs.isEmpty {
-                membersWithoutOMEMO.append(jid.description)
-            } else {
-                encryptableMembers += 1
-            }
-        }
-
-        return RoomOMEMOValidation(
-            membersWithoutOMEMO: membersWithoutOMEMO,
-            totalMembers: memberJIDs.count,
-            encryptableMembers: encryptableMembers
-        )
     }
 
     private func buildGroupRecipients(
@@ -546,11 +515,4 @@ enum OMEMOServiceError: Error {
     case noTrustedRecipients
     case identityKeyMismatch
     case identityKeyUntrusted
-}
-
-// periphery:ignore - specced feature, used by validateRoomForOMEMO
-public struct RoomOMEMOValidation: Sendable {
-    public let membersWithoutOMEMO: [String]
-    public let totalMembers: Int
-    public let encryptableMembers: Int
 }

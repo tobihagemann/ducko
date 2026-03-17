@@ -175,20 +175,6 @@ public actor SwiftDataOMEMOStore: OMEMOStore {
         try modelContext.save()
     }
 
-    // periphery:ignore - protocol requirement
-    public func deleteSession(accountJID: String, peerJID: String, deviceID: UInt32) throws {
-        let peerDeviceID = Int64(deviceID)
-        let descriptor = FetchDescriptor<OMEMOSessionRecord>(
-            predicate: #Predicate {
-                $0.accountJID == accountJID && $0.peerJID == peerJID && $0.peerDeviceID == peerDeviceID
-            }
-        )
-        for record in try modelContext.fetch(descriptor) {
-            modelContext.delete(record)
-        }
-        try modelContext.save()
-    }
-
     // MARK: - Trust
 
     public func saveTrust(_ trust: OMEMOTrust) throws {

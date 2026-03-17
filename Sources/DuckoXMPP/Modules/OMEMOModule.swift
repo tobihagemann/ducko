@@ -78,12 +78,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    // periphery:ignore - specced feature, wired by DuckoCore in Prompt 20
-    /// The current device ID, or `nil` if not yet set up.
-    public var ownDeviceID: UInt32? {
-        state.withLock { $0.ownIdentity?.deviceID.value }
-    }
-
     /// Exports the current identity as serializable data for persistence.
     public var ownIdentityData: OMEMOIdentityData? {
         state.withLock { state in

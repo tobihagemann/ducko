@@ -23,8 +23,6 @@ struct NoOpOMEMOStore: OMEMOStore {
     }
 
     func saveSession(_: OMEMOStoredSession) async throws {}
-    // periphery:ignore - protocol requirement
-    func deleteSession(accountJID _: String, peerJID _: String, deviceID _: UInt32) async throws {}
     func saveTrust(_: OMEMOTrust) async throws {}
     func loadTrust(accountJID _: String, peerJID _: String, deviceID _: UInt32) async throws -> OMEMOTrust? {
         nil
