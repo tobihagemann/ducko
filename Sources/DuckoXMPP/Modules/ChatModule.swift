@@ -9,7 +9,7 @@ public final class ChatModule: XMPPModule, Sendable {
     private let state: OSAllocatedUnfairLock<ModuleContext?>
 
     public var features: [String] {
-        [XMPPNamespaces.messageRetract]
+        [XMPPNamespaces.messageRetract, XMPPNamespaces.messageCorrect]
     }
 
     public init() {

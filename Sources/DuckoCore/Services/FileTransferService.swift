@@ -400,12 +400,17 @@ public final class FileTransferService {
         guard let chatService else {
             throw FileTransferError.uploadFailed("Chat service not available")
         }
+        // XEP-0066: Attach OOB element so other clients render file attachments
+        var oobX = DuckoXMPP.XMLElement(name: "x", namespace: XMPPNamespaces.oob)
+        var urlElement = DuckoXMPP.XMLElement(name: "url")
+        urlElement.addText(downloadURL)
+        oobX.addChild(urlElement)
         let jid = conversation.jid
         switch conversation.type {
         case .chat:
-            try await chatService.sendMessage(to: jid, body: downloadURL, accountID: accountID)
+            try await chatService.sendMessage(to: jid, body: downloadURL, accountID: accountID, additionalElements: [oobX])
         case .groupchat:
-            try await chatService.sendGroupMessage(to: jid, body: downloadURL, accountID: accountID)
+            try await chatService.sendGroupMessage(to: jid, body: downloadURL, accountID: accountID, additionalElements: [oobX])
         }
     }
 

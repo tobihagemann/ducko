@@ -31,7 +31,7 @@ public final class MUCModule: XMPPModule, Sendable {
     private let state: OSAllocatedUnfairLock<State>
 
     public var features: [String] {
-        [XMPPNamespaces.muc]
+        [XMPPNamespaces.muc, XMPPNamespaces.mucDirectInvite]
     }
 
     public init() {
@@ -428,11 +428,12 @@ public final class MUCModule: XMPPModule, Sendable {
     }
 
     /// Sends a direct invitation (XEP-0249) to a user.
-    public func inviteUser(_ jid: BareJID, to room: BareJID, reason: String? = nil) async throws {
+    public func inviteUser(_ jid: BareJID, to room: BareJID, reason: String? = nil, password: String? = nil) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
         var message = XMPPMessage(type: .normal, to: .bare(jid))
         var conference = XMLElement(name: "x", namespace: XMPPNamespaces.mucDirectInvite, attributes: ["jid": room.description])
         if let reason { conference.setAttribute("reason", value: reason) }
+        if let password { conference.setAttribute("password", value: password) }
         message.element.addChild(conference)
         try await context.sendStanza(message)
     }

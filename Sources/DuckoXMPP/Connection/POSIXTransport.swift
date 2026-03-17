@@ -176,6 +176,9 @@ actor POSIXTransport: XMPPTransport {
             throw XMPPConnectionError.tlsUpgradeFailed("SSLSetPeerDomainName failed: \(status)")
         }
 
+        // RFC 7590: Enforce minimum TLS 1.2 (defense-in-depth)
+        _ = SSLSetProtocolVersionMin(ctx, .tlsProtocol12)
+
         // ALPN is a SHOULD per XEP-0368 — non-fatal if unsupported
         if let alpnProtocols {
             _ = SSLSetALPNProtocols(ctx, alpnProtocols as CFArray)

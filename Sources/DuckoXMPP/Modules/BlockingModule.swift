@@ -62,28 +62,29 @@ public final class BlockingModule: XMPPModule, Sendable {
 
     // MARK: - IQ Handling
 
-    public func handleIQ(_ iq: XMPPIQ) throws {
-        guard iq.isSet else { return }
-        guard let child = iq.childElement else { return }
+    public func handleIQ(_ iq: XMPPIQ) throws -> Bool {
+        guard iq.isSet else { return false }
+        guard let child = iq.childElement else { return false }
 
         let isBlock = child.name == "block" && child.namespace == XMPPNamespaces.blocking
         let isUnblock = child.name == "unblock" && child.namespace == XMPPNamespaces.blocking
-        guard isBlock || isUnblock else { return }
+        guard isBlock || isUnblock else { return false }
 
         let context = state.withLock { $0.context }
-        guard let context else { return }
+        guard let context else { return true }
 
         // XEP-0191 §3.4/3.6: Push must come from own bare JID or have no 'from'.
         if let from = iq.from {
             guard let connectedJID = context.connectedJID(),
                   from.bareJID == connectedJID.bareJID else {
                 log.warning("Rejected blocking push from foreign JID: \(from)")
-                return
+                return true
             }
         }
 
         processBlockingPush(child: child, isBlock: isBlock, context: context)
         acknowledgePush(iq: iq, context: context)
+        return true
     }
 
     private func processBlockingPush(child: XMLElement, isBlock: Bool, context: ModuleContext) {

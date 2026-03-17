@@ -351,7 +351,8 @@ public actor XMPPClient {
     // MARK: - Private: Stream Negotiation
 
     private func openStream() async throws {
-        try await connection.send(XMPPStreamWriter.streamOpening(to: domain))
+        let bareJID = "\(credentials.username)@\(domain)"
+        try await connection.send(XMPPStreamWriter.streamOpening(to: domain, from: bareJID))
     }
 
     private func negotiateTLS(reader: EventReader) async throws {
@@ -629,8 +630,25 @@ public actor XMPPClient {
             return
         }
         eventContinuation.yield(.iqReceived(iq))
-        for module in modules.values {
-            try? module.handleIQ(iq)
+        let handled = modules.values.contains { (try? $0.handleIQ(iq)) == true }
+        // RFC 6120 §8.2.3: Reply service-unavailable for unhandled get/set IQs
+        if !handled, iq.isGet || iq.isSet {
+            replyServiceUnavailable(for: iq)
+        }
+    }
+
+    private func replyServiceUnavailable(for iq: XMPPIQ) {
+        guard let stanzaID = iq.id else { return }
+        Task {
+            var errorIQ = XMPPIQ(type: .error, id: stanzaID)
+            if let from = iq.from { errorIQ.to = from }
+            // RFC 6120 §8.3.1: Echo the original payload
+            if let originalChild = iq.childElement { errorIQ.element.addChild(originalChild) }
+            var error = XMLElement(name: "error", attributes: ["type": "cancel"])
+            let condition = XMLElement(name: "service-unavailable", namespace: XMPPNamespaces.stanzas)
+            error.addChild(condition)
+            errorIQ.element.addChild(error)
+            try? await self.send(errorIQ)
         }
     }
 

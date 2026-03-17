@@ -65,14 +65,17 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
 
     // MARK: - IQ Handling
 
-    public func handleIQ(_ iq: XMPPIQ) throws {
-        guard iq.isGet, let query = iq.childElement else { return }
+    public func handleIQ(_ iq: XMPPIQ) throws -> Bool {
+        guard iq.isGet, let query = iq.childElement else { return false }
 
         if query.namespace == XMPPNamespaces.discoInfo {
             handleDiscoInfoGet(iq)
+            return true
         } else if query.namespace == XMPPNamespaces.discoItems {
             handleDiscoItemsGet(iq)
+            return true
         }
+        return false
     }
 
     private func handleDiscoInfoGet(_ iq: XMPPIQ) {

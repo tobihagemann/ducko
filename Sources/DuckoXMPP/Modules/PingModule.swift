@@ -72,15 +72,15 @@ public final class PingModule: XMPPModule, Sendable {
 
     // MARK: - IQ Handling
 
-    public func handleIQ(_ iq: XMPPIQ) throws {
+    public func handleIQ(_ iq: XMPPIQ) throws -> Bool {
         guard iq.isGet,
               iq.childElement?.name == "ping",
               iq.childElement?.namespace == XMPPNamespaces.ping else {
-            return
+            return false
         }
 
         let context = state.withLock { $0.context }
-        guard let context else { return }
+        guard let context else { return true }
 
         if let stanzaID = iq.id {
             Task {
@@ -95,5 +95,6 @@ public final class PingModule: XMPPModule, Sendable {
                 }
             }
         }
+        return true
     }
 }

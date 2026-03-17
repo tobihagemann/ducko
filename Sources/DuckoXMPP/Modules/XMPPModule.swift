@@ -18,7 +18,8 @@ public protocol XMPPModule: AnyObject, Sendable {
     /// Called for each incoming `<presence>` stanza.
     func handlePresence(_ presence: XMPPPresence) throws
     /// Called for each incoming `<iq>` stanza (after IQ tracking).
-    func handleIQ(_ iq: XMPPIQ) throws
+    /// Returns `true` if the module handled the IQ (preventing a `service-unavailable` fallback reply).
+    func handleIQ(_ iq: XMPPIQ) throws -> Bool
 }
 
 /// Default no-op implementations.
@@ -32,5 +33,7 @@ public extension XMPPModule {
     func handleDisconnect() async {}
     func handleMessage(_ message: XMPPMessage) throws {}
     func handlePresence(_ presence: XMPPPresence) throws {}
-    func handleIQ(_ iq: XMPPIQ) throws {}
+    func handleIQ(_ iq: XMPPIQ) throws -> Bool {
+        false
+    }
 }

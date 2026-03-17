@@ -87,22 +87,22 @@ public final class RosterModule: XMPPModule, Sendable {
 
     // MARK: - IQ Handling
 
-    public func handleIQ(_ iq: XMPPIQ) throws {
+    public func handleIQ(_ iq: XMPPIQ) throws -> Bool {
         guard iq.isSet,
               let query = iq.childElement,
               query.namespace == XMPPNamespaces.roster else {
-            return
+            return false
         }
 
         let context = state.withLock { $0.context }
-        guard let context else { return }
+        guard let context else { return true }
 
         // RFC 6121 §2.1.6: Roster push must come from own bare JID or have no 'from'.
         if let from = iq.from {
             guard let connectedJID = context.connectedJID(),
                   from.bareJID == connectedJID.bareJID else {
                 log.warning("Rejected roster push from foreign JID: \(from)")
-                return
+                return true
             }
         }
 
@@ -128,6 +128,7 @@ public final class RosterModule: XMPPModule, Sendable {
         }
 
         acknowledgeRosterPush(iq: iq, context: context)
+        return true
     }
 
     private func acknowledgeRosterPush(iq: XMPPIQ, context: ModuleContext) {

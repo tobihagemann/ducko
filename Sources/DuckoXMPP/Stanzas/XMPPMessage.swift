@@ -24,7 +24,11 @@ public struct XMPPMessage: XMPPStanza {
     }
 
     public var messageType: MessageType? {
-        get { type.flatMap(MessageType.init(rawValue:)) }
+        get {
+            // RFC 6121 §5.2.2: Treat missing or unrecognized type as "normal".
+            guard let type else { return .normal }
+            return MessageType(rawValue: type) ?? .normal
+        }
         set { type = newValue?.rawValue }
     }
 

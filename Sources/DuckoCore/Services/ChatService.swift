@@ -42,7 +42,7 @@ public final class ChatService {
         openConversations = try await store.fetchConversations(for: accountID)
     }
 
-    public func sendMessage(to jid: BareJID, body: String, accountID: UUID) async throws {
+    public func sendMessage(to jid: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
@@ -68,7 +68,7 @@ public final class ChatService {
             )
             isEncrypted = true
         } else {
-            try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled)
+            try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled, additionalElements: additionalElements)
         }
 
         // Persist with the original body (not the OMEMO fallback)
@@ -358,7 +358,7 @@ public final class ChatService {
         try await mucModule.leaveRoom(jid)
     }
 
-    public func sendGroupMessage(to room: BareJID, body: String, accountID: UUID) async throws {
+    public func sendGroupMessage(to room: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
@@ -366,7 +366,8 @@ public final class ChatService {
         let stanzaID = client.generateID()
         let isEncrypted = try await encryptAndSendGroupMessage(
             room: room, body: body, stanzaID: stanzaID,
-            conversation: conversation, mucModule: mucModule
+            conversation: conversation, mucModule: mucModule,
+            additionalElements: additionalElements
         )
 
         let message = ChatMessage(
@@ -504,7 +505,7 @@ public final class ChatService {
         try await mucModule.setSubject(in: jid, subject: subject)
     }
 
-    public func inviteUser(jidString: String, toRoomJIDString roomJIDString: String, reason: String?, accountID: UUID) async throws {
+    public func inviteUser(jidString: String, toRoomJIDString roomJIDString: String, reason: String?, password: String? = nil, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
@@ -513,7 +514,7 @@ public final class ChatService {
         }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
-        try await mucModule.inviteUser(jid, to: roomJID, reason: reason)
+        try await mucModule.inviteUser(jid, to: roomJID, reason: reason, password: password)
     }
 
     public func kickOccupant(nickname: String, fromRoomJIDString roomJIDString: String, reason: String?, accountID: UUID) async throws {
@@ -1057,10 +1058,11 @@ public final class ChatService {
     /// Attempts OMEMO encryption for a group message. Returns `true` if encrypted.
     private func encryptAndSendGroupMessage(
         room: BareJID, body: String, stanzaID: String,
-        conversation: Conversation, mucModule: MUCModule
+        conversation: Conversation, mucModule: MUCModule,
+        additionalElements: [DuckoXMPP.XMLElement] = []
     ) async throws -> Bool {
         guard conversation.encryptionEnabled, let omemoService else {
-            try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true)
+            try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true, additionalElements: additionalElements)
             return false
         }
 

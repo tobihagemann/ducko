@@ -120,14 +120,17 @@ public final class JingleModule: XMPPModule, Sendable {
 
     // MARK: - IQ Handling
 
-    public func handleIQ(_ iq: XMPPIQ) throws {
-        guard iq.isSet, let child = iq.childElement else { return }
+    public func handleIQ(_ iq: XMPPIQ) throws -> Bool {
+        guard iq.isSet, let child = iq.childElement else { return false }
 
         if child.name == "jingle", child.namespace == XMPPNamespaces.jingle {
             handleJingleIQ(iq, jingle: child)
+            return true
         } else if child.namespace == XMPPNamespaces.ibb {
             handleIBBIQ(iq, child: child)
+            return true
         }
+        return false
     }
 
     private func handleJingleIQ(_ iq: XMPPIQ, jingle: XMLElement) {
