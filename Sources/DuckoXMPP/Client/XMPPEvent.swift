@@ -26,7 +26,7 @@ public enum XMPPEvent: Sendable {
     // MUC (XEP-0045)
     case roomJoined(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool)
     case roomOccupantJoined(room: BareJID, occupant: RoomOccupant)
-    case roomOccupantLeft(room: BareJID, occupant: RoomOccupant)
+    case roomOccupantLeft(room: BareJID, occupant: RoomOccupant, reason: OccupantLeaveReason?)
     case roomOccupantNickChanged(room: BareJID, oldNickname: String, occupant: RoomOccupant)
     case roomSubjectChanged(room: BareJID, subject: String?, setter: JID?)
     case roomInviteReceived(RoomInvite)

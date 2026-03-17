@@ -187,8 +187,8 @@ struct PlainFormatter: CLIFormatter {
             return formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
         case let .roomOccupantJoined(room, occupant):
             return "\(room): \(occupant.nickname) joined"
-        case let .roomOccupantLeft(room, occupant):
-            return "\(room): \(occupant.nickname) left"
+        case let .roomOccupantLeft(room, occupant, reason):
+            return formatOccupantLeftMUC(room: room, occupant: occupant, reason: reason)
         case let .roomOccupantNickChanged(room, oldNickname, occupant):
             return "\(room): \(oldNickname) is now known as \(occupant.nickname)"
         case let .roomSubjectChanged(room, subject, setter):
@@ -225,10 +225,20 @@ struct PlainFormatter: CLIFormatter {
         if isNewlyCreated {
             line += " [new room]"
         }
+        if occupancy.flags.contains(.nonAnonymous) {
+            line += " [non-anonymous]"
+        }
+        if occupancy.flags.contains(.logged) {
+            line += " [logged]"
+        }
         if let subject = occupancy.subject, !subject.isEmpty {
             line += " — topic: \(subject)"
         }
         return line
+    }
+
+    private func formatOccupantLeftMUC(room: BareJID, occupant: RoomOccupant, reason: OccupantLeaveReason?) -> String {
+        "\(room): \(occupant.nickname) \(occupantLeaveText(reason))"
     }
 
     private func formatRoomInviteMUC(_ invite: RoomInvite) -> String {

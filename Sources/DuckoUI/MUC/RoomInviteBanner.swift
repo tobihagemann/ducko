@@ -79,7 +79,7 @@ private struct RoomInviteRow: View {
                 .disabled(nickname.isEmpty)
 
                 Button("Decline") {
-                    environment.chatService.declineInvite(invite)
+                    decline()
                 }
                 .tint(.red)
             }
@@ -100,6 +100,18 @@ private struct RoomInviteRow: View {
             do {
                 try await environment.chatService.acceptInvite(invite, nickname: nick, accountID: accountID)
                 openWindow(id: "chat", value: invite.roomJIDString)
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func decline() {
+        guard let accountID = account?.id else { return }
+        Task {
+            do {
+                try await environment.chatService.declineInvite(invite, accountID: accountID)
                 errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription

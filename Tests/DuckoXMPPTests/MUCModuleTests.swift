@@ -70,6 +70,78 @@ enum MUCModuleTests {
         }
     }
 
+    struct RoomFlags {
+        @Test
+        func `Non-anonymous room flag from status code 100`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomJoined = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            <status code='100'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomJoined(_, occupancy, _) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomJoined event")
+            }
+            #expect(occupancy.flags.contains(.nonAnonymous))
+            #expect(!occupancy.flags.contains(.logged))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Logged room flag from status code 170`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomJoined = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            <status code='170'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomJoined(_, occupancy, _) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomJoined event")
+            }
+            #expect(!occupancy.flags.contains(.nonAnonymous))
+            #expect(occupancy.flags.contains(.logged))
+
+            await client.disconnect()
+        }
+    }
+
     struct OccupantJoin {
         @Test
         func `Available presence emits roomOccupantJoined`() async throws {
@@ -142,11 +214,12 @@ enum MUCModuleTests {
             """)
 
             let events = try await eventsTask.value
-            guard case let .roomOccupantLeft(room, occupant) = events.last else {
+            guard case let .roomOccupantLeft(room, occupant, reason) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected roomOccupantLeft event")
             }
             #expect(room == testRoomJID)
             #expect(occupant.nickname == "leaver")
+            #expect(reason == nil)
 
             await client.disconnect()
         }
@@ -282,6 +355,30 @@ enum MUCModuleTests {
         }
     }
 
+    struct DeclineInvite {
+        @Test
+        func `declineInvite sends correct stanza`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            await mock.clearSentBytes()
+            let inviterJID = try #require(JID.parse("admin@example.com"))
+            try await module.declineInvite(room: testRoomJID, inviter: inviterJID, reason: "Not interested")
+
+            await mock.waitForSent(count: 1)
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+
+            #expect(sent.contains("decline"))
+            #expect(sent.contains("to=\"admin@example.com\""))
+            #expect(sent.contains("Not interested"))
+            #expect(sent.contains(XMPPNamespaces.mucUser))
+
+            await client.disconnect()
+        }
+    }
+
     struct KickBan {
         @Test
         func `Kick status code 307 emits occupant left`() async throws {
@@ -319,11 +416,142 @@ enum MUCModuleTests {
             """)
 
             let events = try await eventsTask.value
-            guard case let .roomOccupantLeft(room, occupant) = events.last else {
+            guard case let .roomOccupantLeft(room, occupant, reason) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected roomOccupantLeft event")
             }
             #expect(room == testRoomJID)
             #expect(occupant.nickname == "troublemaker")
+            #expect(reason == OccupantLeaveReason.kicked(reason: nil))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Ban status code 301 with reason`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/spammer'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='none' role='participant'/>\
+            </x>\
+            </presence>
+            """)
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomOccupantLeft = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive("""
+            <presence type='unavailable' from='room@conference.example.com/spammer'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='outcast' role='none'>\
+            <reason>spam</reason>\
+            </item>\
+            <status code='301'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomOccupantLeft(room, occupant, reason) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomOccupantLeft event")
+            }
+            #expect(room == testRoomJID)
+            #expect(occupant.nickname == "spammer")
+            #expect(reason == .banned(reason: "spam"))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Affiliation change status code 321`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/other'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            </x>\
+            </presence>
+            """)
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomOccupantLeft = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive("""
+            <presence type='unavailable' from='room@conference.example.com/other'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='none' role='none'/>\
+            <status code='321'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomOccupantLeft(_, _, reason) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomOccupantLeft event")
+            }
+            #expect(reason == .affiliationChanged(reason: nil))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Service shutdown status code 332`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/other'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            </x>\
+            </presence>
+            """)
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomOccupantLeft = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive("""
+            <presence type='unavailable' from='room@conference.example.com/other'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='none'/>\
+            <status code='332'/>\
+            </x>\
+            </presence>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .roomOccupantLeft(_, _, reason) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected roomOccupantLeft event")
+            }
+            #expect(reason == .serviceShutdown)
 
             await client.disconnect()
         }

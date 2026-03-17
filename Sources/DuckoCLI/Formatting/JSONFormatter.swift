@@ -467,8 +467,8 @@ struct JSONFormatter: CLIFormatter {
             return formatRoomJoinedEvent(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated, account: account)
         case let .roomOccupantJoined(room, occupant):
             return encode(["type": "room_occupant_joined", "room": room.description, "nickname": occupant.nickname, "account": account])
-        case let .roomOccupantLeft(room, occupant):
-            return encode(["type": "room_occupant_left", "room": room.description, "nickname": occupant.nickname, "account": account])
+        case let .roomOccupantLeft(room, occupant, reason):
+            return formatOccupantLeftEvent(room: room, occupant: occupant, reason: reason, account: account)
         case let .roomOccupantNickChanged(room, oldNickname, occupant):
             return encode(["type": "room_nick_changed", "room": room.description, "old_nickname": oldNickname, "new_nickname": occupant.nickname, "account": account])
         case let .roomSubjectChanged(room, subject, setter):
@@ -515,8 +515,39 @@ struct JSONFormatter: CLIFormatter {
         if isNewlyCreated {
             dict["newly_created"] = "true"
         }
+        if occupancy.flags.contains(.nonAnonymous) {
+            dict["non_anonymous"] = "true"
+        }
+        if occupancy.flags.contains(.logged) {
+            dict["logged"] = "true"
+        }
         if let subject = occupancy.subject {
             dict["subject"] = subject
+        }
+        return encode(dict)
+    }
+
+    private func formatOccupantLeftEvent(room: BareJID, occupant: RoomOccupant, reason: OccupantLeaveReason?, account: String) -> String {
+        var dict: [String: String] = [
+            "type": "room_occupant_left",
+            "room": room.description,
+            "nickname": occupant.nickname,
+            "account": account
+        ]
+        switch reason {
+        case let .kicked(r):
+            dict["leave_reason"] = "kicked"
+            if let r { dict["reason_text"] = r }
+        case let .banned(r):
+            dict["leave_reason"] = "banned"
+            if let r { dict["reason_text"] = r }
+        case let .affiliationChanged(r):
+            dict["leave_reason"] = "affiliation_changed"
+            if let r { dict["reason_text"] = r }
+        case .serviceShutdown:
+            dict["leave_reason"] = "service_shutdown"
+        case nil:
+            break
         }
         return encode(dict)
     }

@@ -150,7 +150,21 @@ public final class MUCModule: XMPPModule, Sendable {
             return
         }
 
-        handleOccupantLeft(roomJID: info.roomJID, nickname: info.nickname, occupant: info.occupant, context: context)
+        // Parse leave reason from MUC status codes
+        let itemReason = info.item?.child(named: "reason")?.textContent
+        let leaveReason: OccupantLeaveReason? = if info.statusCodes.contains(301) {
+            .banned(reason: itemReason)
+        } else if info.statusCodes.contains(307) {
+            .kicked(reason: itemReason)
+        } else if info.statusCodes.contains(321) {
+            .affiliationChanged(reason: itemReason)
+        } else if info.statusCodes.contains(332) {
+            .serviceShutdown
+        } else {
+            nil
+        }
+
+        handleOccupantLeft(roomJID: info.roomJID, nickname: info.nickname, occupant: info.occupant, leaveReason: leaveReason, context: context)
     }
 
     private func handleAvailablePresence(_ info: PresenceInfo, context: ModuleContext?) {
@@ -184,16 +198,24 @@ public final class MUCModule: XMPPModule, Sendable {
         statusCodes: Set<Int>,
         context: ModuleContext?
     ) {
+        let flags: Set<RoomFlag> = {
+            var result = Set<RoomFlag>()
+            if statusCodes.contains(100) { result.insert(.nonAnonymous) }
+            if statusCodes.contains(170) { result.insert(.logged) }
+            return result
+        }()
+
         let occupancy = state.withLock { state -> RoomOccupancy in
             state.rooms[roomJID]?.occupants[nickname] = occupant
             state.rooms[roomJID]?.lastActivity = .now
             guard let room = state.rooms[roomJID] else {
-                return RoomOccupancy(nickname: nickname, occupants: [occupant], subject: nil)
+                return RoomOccupancy(nickname: nickname, occupants: [occupant], subject: nil, flags: flags)
             }
             return RoomOccupancy(
                 nickname: nickname,
                 occupants: Array(room.occupants.values),
-                subject: room.subject
+                subject: room.subject,
+                flags: flags
             )
         }
         let isNewlyCreated = statusCodes.contains(201)
@@ -215,6 +237,7 @@ public final class MUCModule: XMPPModule, Sendable {
         roomJID: BareJID,
         nickname: String,
         occupant: RoomOccupant,
+        leaveReason: OccupantLeaveReason? = nil,
         context: ModuleContext?
     ) {
         let (isSelf, pingTask) = state.withLock { state -> (Bool, Task<Void, Never>?) in
@@ -235,7 +258,7 @@ public final class MUCModule: XMPPModule, Sendable {
             log.info("Occupant \(nickname) left \(roomJID)")
         }
 
-        context?.emitEvent(.roomOccupantLeft(room: roomJID, occupant: occupant))
+        context?.emitEvent(.roomOccupantLeft(room: roomJID, occupant: occupant, reason: leaveReason))
     }
 
     // MARK: - Message Handling
@@ -462,6 +485,18 @@ public final class MUCModule: XMPPModule, Sendable {
         if let reason { conference.setAttribute("reason", value: reason) }
         if let password { conference.setAttribute("password", value: password) }
         message.element.addChild(conference)
+        try await context.sendStanza(message)
+    }
+
+    /// Declines a MUC room invitation (XEP-0045 §7.8).
+    public func declineInvite(room: BareJID, inviter: JID, reason: String? = nil) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+        var decline = XMLElement(name: "decline", attributes: ["to": inviter.description])
+        appendReason(reason, to: &decline)
+        var mucUser = XMLElement(name: "x", namespace: XMPPNamespaces.mucUser)
+        mucUser.addChild(decline)
+        var message = XMPPMessage(type: .normal, to: .bare(room))
+        message.element.addChild(mucUser)
         try await context.sendStanza(message)
     }
 

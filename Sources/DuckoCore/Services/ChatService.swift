@@ -13,6 +13,7 @@ public final class ChatService {
     public private(set) var roomParticipants: [String: [RoomParticipant]] = [:]
     public private(set) var pendingInvites: [PendingRoomInvite] = []
     public private(set) var newlyCreatedRoomJIDs: Set<String> = []
+    public private(set) var roomFlags: [String: Set<RoomFlag>] = [:]
     public var onIncomingMessage: ((ChatMessage, Conversation) -> Void)?
 
     private let store: any PersistenceStore
@@ -651,7 +652,14 @@ public final class ChatService {
         pendingInvites.removeAll { $0.id == invite.id }
     }
 
-    public func declineInvite(_ invite: PendingRoomInvite) {
+    public func declineInvite(_ invite: PendingRoomInvite, reason: String? = nil, accountID: UUID) async throws {
+        if let roomJID = BareJID.parse(invite.roomJIDString),
+           let fromString = invite.fromJIDString,
+           let inviterJID = JID.parse(fromString),
+           let client = accountService?.client(for: accountID),
+           let mucModule = await client.module(ofType: MUCModule.self) {
+            try await mucModule.declineInvite(room: roomJID, inviter: inviterJID, reason: reason)
+        }
         pendingInvites.removeAll { $0.id == invite.id }
     }
 
@@ -752,6 +760,7 @@ public final class ChatService {
             await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
         case .disconnected:
             newlyCreatedRoomJIDs.removeAll()
+            roomFlags.removeAll()
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -774,7 +783,7 @@ public final class ChatService {
         switch event {
         case let .roomOccupantJoined(room, occupant):
             handleRoomOccupantJoined(room: room, occupant: occupant)
-        case let .roomOccupantLeft(room, occupant):
+        case let .roomOccupantLeft(room, occupant, _):
             handleRoomOccupantLeft(room: room, occupant: occupant)
         case let .roomOccupantNickChanged(room, oldNickname, occupant):
             handleRoomOccupantNickChanged(room: room, oldNickname: oldNickname, occupant: occupant, accountID: accountID)
@@ -956,6 +965,11 @@ public final class ChatService {
         roomParticipants[key] = occupancy.occupants.map { mapOccupant($0) }
         if isNewlyCreated {
             newlyCreatedRoomJIDs.insert(key)
+        }
+        if occupancy.flags.isEmpty {
+            roomFlags.removeValue(forKey: key)
+        } else {
+            roomFlags[key] = occupancy.flags
         }
     }
 

@@ -1,3 +1,8 @@
+import DuckoXMPP
+
+/// Re-export for DuckoUI which cannot import DuckoXMPP.
+public typealias RoomFlag = DuckoXMPP.RoomFlag
+
 // MARK: - Room Role
 
 public enum RoomRole: String, Sendable, Hashable {

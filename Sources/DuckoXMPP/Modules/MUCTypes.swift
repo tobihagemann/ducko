@@ -46,6 +46,22 @@ public enum MUCRole: String, Sendable, Hashable {
     case moderator, participant, visitor, none
 }
 
+/// Reason an occupant was removed from a MUC room per XEP-0045 status codes.
+public enum OccupantLeaveReason: Sendable, Hashable {
+    case kicked(reason: String?) // status 307
+    case banned(reason: String?) // status 301
+    case affiliationChanged(reason: String?) // status 321
+    case serviceShutdown // status 332
+}
+
+/// Room status flags surfaced on join per XEP-0045 status codes.
+public enum RoomFlag: Sendable, Hashable {
+    /// Status 100: room is non-anonymous — occupants' real JIDs are visible to all.
+    case nonAnonymous
+    /// Status 170: room conversation is being logged.
+    case logged
+}
+
 /// An occupant in a MUC room.
 public struct RoomOccupant: Sendable, Hashable {
     public let nickname: String
@@ -78,11 +94,13 @@ public struct RoomOccupancy: Sendable {
     public let nickname: String
     public let occupants: [RoomOccupant]
     public let subject: String?
+    public let flags: Set<RoomFlag>
 
-    public init(nickname: String, occupants: [RoomOccupant], subject: String?) {
+    public init(nickname: String, occupants: [RoomOccupant], subject: String?, flags: Set<RoomFlag> = []) {
         self.nickname = nickname
         self.occupants = occupants
         self.subject = subject
+        self.flags = flags
     }
 }
 

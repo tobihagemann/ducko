@@ -19,6 +19,10 @@ struct ChatHeaderView: View {
         environment.chatService.participantCount(forRoomJIDString: conversation.jid.description)
     }
 
+    private var roomFlags: Set<RoomFlag> {
+        environment.chatService.roomFlags[conversation.jid.description] ?? []
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
@@ -26,9 +30,19 @@ struct ChatHeaderView: View {
                     .font(.headline)
 
                 if isGroupchat, participantCount > 0 {
-                    Text("\(participantCount) participants")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text("\(participantCount) participants")
+                        if roomFlags.contains(.nonAnonymous) {
+                            Text("·")
+                            Text("non-anonymous")
+                        }
+                        if roomFlags.contains(.logged) {
+                            Text("·")
+                            Text("logged")
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 } else {
                     HStack(spacing: 4) {
                         Circle()

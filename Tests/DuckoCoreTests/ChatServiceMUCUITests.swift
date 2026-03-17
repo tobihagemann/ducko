@@ -95,7 +95,7 @@ enum ChatServiceMUCUITests {
 
             // Other leaves
             let leftOccupant = RoomOccupant(nickname: "other", affiliation: .member, role: .participant)
-            await service.handleEvent(.roomOccupantLeft(room: testRoomJID, occupant: leftOccupant), accountID: testAccountID)
+            await service.handleEvent(.roomOccupantLeft(room: testRoomJID, occupant: leftOccupant, reason: nil), accountID: testAccountID)
 
             let participants = service.roomParticipants[testRoomJID.description]
             #expect(participants?.count == 1)
@@ -168,7 +168,7 @@ enum ChatServiceMUCUITests {
     struct DeclineInvite {
         @Test
         @MainActor
-        func `declineInvite removes from pendingInvites`() async {
+        func `declineInvite removes from pendingInvites`() async throws {
             let store = makeStore()
             let service = makeChatService(store: store)
 
@@ -176,7 +176,7 @@ enum ChatServiceMUCUITests {
             await service.handleEvent(.roomInviteReceived(invite), accountID: testAccountID)
             #expect(service.pendingInvites.count == 1)
 
-            service.declineInvite(service.pendingInvites[0])
+            try await service.declineInvite(service.pendingInvites[0], accountID: testAccountID)
             #expect(service.pendingInvites.isEmpty)
         }
     }

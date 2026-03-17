@@ -257,8 +257,8 @@ struct ANSIFormatter: CLIFormatter {
             return formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
         case let .roomOccupantJoined(room, occupant):
             return "\(Color.yellow)\(room): \(occupant.nickname) joined\(Color.reset)"
-        case let .roomOccupantLeft(room, occupant):
-            return "\(Color.yellow)\(room): \(occupant.nickname) left\(Color.reset)"
+        case let .roomOccupantLeft(room, occupant, reason):
+            return formatOccupantLeftMUC(room: room, occupant: occupant, reason: reason)
         case let .roomOccupantNickChanged(room, oldNickname, occupant):
             return "\(Color.yellow)\(room): \(oldNickname) is now known as \(occupant.nickname)\(Color.reset)"
         case let .roomSubjectChanged(room, subject, setter):
@@ -296,10 +296,20 @@ struct ANSIFormatter: CLIFormatter {
         if isNewlyCreated {
             line += " \(Color.yellow)[new room]\(Color.reset)"
         }
+        if occupancy.flags.contains(.nonAnonymous) {
+            line += " \(Color.yellow)[non-anonymous]\(Color.reset)"
+        }
+        if occupancy.flags.contains(.logged) {
+            line += " \(Color.yellow)[logged]\(Color.reset)"
+        }
         if let subject = occupancy.subject, !subject.isEmpty {
             line += " \(Color.dim)— topic: \(subject)\(Color.reset)"
         }
         return line
+    }
+
+    private func formatOccupantLeftMUC(room: BareJID, occupant: RoomOccupant, reason: OccupantLeaveReason?) -> String {
+        "\(Color.yellow)\(room): \(occupant.nickname) \(occupantLeaveText(reason))\(Color.reset)"
     }
 
     private func formatRoomInviteMUC(_ invite: RoomInvite) -> String {

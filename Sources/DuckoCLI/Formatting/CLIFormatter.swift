@@ -43,3 +43,18 @@ func iso8601(_ date: Date) -> String {
         Date.ISO8601FormatStyle(includingFractionalSeconds: true)
     )
 }
+
+func occupantLeaveText(_ reason: OccupantLeaveReason?) -> String {
+    switch reason {
+    case let .kicked(r):
+        "was kicked" + (r.map { ": \($0)" } ?? "")
+    case let .banned(r):
+        "was banned" + (r.map { ": \($0)" } ?? "")
+    case let .affiliationChanged(r):
+        "was removed (affiliation change)" + (r.map { ": \($0)" } ?? "")
+    case .serviceShutdown:
+        "was removed (service shutdown)"
+    case nil:
+        "left"
+    }
+}
