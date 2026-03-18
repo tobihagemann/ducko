@@ -1,6 +1,9 @@
 /// SASL namespace per RFC 6120 §6.
 let saslNamespace = "urn:ietf:params:xml:ns:xmpp-sasl"
 
+/// Channel binding type for `tls-server-end-point` (RFC 5929 §4.1).
+let tlsServerEndPointCBType = "tls-server-end-point"
+
 /// Result of a SASL exchange step.
 enum SASLAuthResponse {
     case continueWith(XMLElement)
@@ -18,4 +21,21 @@ enum SASLAuthError: Error {
     case serverFailure(condition: String, text: String?)
     case invalidState(String)
     case iterationCountTooLow(Int)
+}
+
+/// Builds SASL mechanism preference order based on available capabilities.
+///
+/// Shared between ``SASLAuthenticator`` (SASL1) and ``SASL2Authenticator`` (SASL2).
+func buildSASLPreferenceOrder(
+    channelBindingData: [UInt8]?,
+    hasClientCertificate: Bool
+) -> [String] {
+    var order: [String] = []
+    if hasClientCertificate { order.append(SASLExternal.mechanismName) }
+    if channelBindingData != nil { order.append(SCRAMSHA256PLUS.mechanismName) }
+    order.append(SCRAMSHA256.mechanismName)
+    if channelBindingData != nil { order.append(SCRAMSHA1PLUS.mechanismName) }
+    order.append(SCRAMSHA1.mechanismName)
+    order.append(SASLPlain.mechanismName)
+    return order
 }

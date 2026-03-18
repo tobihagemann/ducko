@@ -6,6 +6,9 @@ struct SASL2Features {
     let supportsBind2: Bool
     let supportsSM: Bool
     let supportsISR: Bool
+    /// XEP-0440 server-advertised channel binding types.
+    /// When non-empty, PLUS mechanisms are only offered if the server supports `tls-server-end-point`.
+    let channelBindingTypes: Set<String>
 }
 
 /// Negotiation coordinator for SASL2 authentication (XEP-0388).
@@ -29,13 +32,6 @@ struct SASL2Authenticator {
 
     private var activeMechanism: ActiveMechanism?
 
-    /// Mechanisms in preference order (strongest first).
-    private static let preferenceOrder: [String] = [
-        SCRAMSHA256.mechanismName,
-        SCRAMSHA1.mechanismName,
-        SASLPlain.mechanismName
-    ]
-
     // MARK: - Feature Parsing
 
     /// Parses `<authentication xmlns='urn:xmpp:sasl:2'>` from stream features.
@@ -54,11 +50,19 @@ struct SASL2Authenticator {
         let supportsSM = inline?.child(named: "sm", namespace: XMPPNamespaces.sm) != nil
         let supportsISR = inline?.child(named: "isr", namespace: XMPPNamespaces.isr) != nil
 
+        // XEP-0440: SASL Channel-Binding Type Capability
+        let cbTypes = Set(
+            auth.child(named: "sasl-channel-binding", namespace: XMPPNamespaces.saslChannelBinding)?
+                .children(named: "channel-binding")
+                .compactMap { $0.attribute("type") } ?? []
+        )
+
         return SASL2Features(
             mechanisms: mechanisms,
             supportsBind2: supportsBind2,
             supportsSM: supportsSM,
-            supportsISR: supportsISR
+            supportsISR: supportsISR,
+            channelBindingTypes: cbTypes
         )
     }
 
@@ -70,17 +74,36 @@ struct SASL2Authenticator {
         features: XMLElement,
         authcid: String,
         password: String,
-        inlinePayloads: [XMLElement]
+        inlinePayloads: [XMLElement],
+        channelBindingData: [UInt8]? = nil,
+        hasClientCertificate: Bool = false
     ) throws -> XMLElement {
         guard let sasl2Features = Self.parseFeatures(features) else {
             throw SASLAuthError.noSupportedMechanism
         }
 
-        guard let selected = Self.preferenceOrder.first(where: { sasl2Features.mechanisms.contains($0) }) else {
+        // XEP-0440: Only use CB data if the server supports tls-server-end-point
+        // (or doesn't advertise any types, meaning no filtering)
+        let effectiveCBData: [UInt8]? = if let channelBindingData,
+                                           sasl2Features.channelBindingTypes.isEmpty
+                                           || sasl2Features.channelBindingTypes.contains(tlsServerEndPointCBType) {
+            channelBindingData
+        } else {
+            nil
+        }
+
+        let preferenceOrder = buildSASLPreferenceOrder(
+            channelBindingData: effectiveCBData,
+            hasClientCertificate: hasClientCertificate
+        )
+
+        guard let selected = preferenceOrder.first(where: { sasl2Features.mechanisms.contains($0) }) else {
             throw SASLAuthError.noSupportedMechanism
         }
 
-        let (mechanism, initialPayload) = startMechanism(selected, authcid: authcid, password: password)
+        let (mechanism, initialPayload) = startMechanism(
+            selected, authcid: authcid, password: password, channelBindingData: effectiveCBData
+        )
         activeMechanism = mechanism
 
         var authenticate = XMLElement(
@@ -90,7 +113,8 @@ struct SASL2Authenticator {
         )
 
         var initialResponse = XMLElement(name: "initial-response")
-        initialResponse.addText(Base64.encode(initialPayload))
+        // EXTERNAL sends "=" for empty initial response per RFC 6120 §6.4.2
+        initialResponse.addText(initialPayload.isEmpty ? "=" : Base64.encode(initialPayload))
         authenticate.addChild(initialResponse)
 
         for payload in inlinePayloads {
@@ -126,17 +150,34 @@ struct SASL2Authenticator {
     private func startMechanism(
         _ name: String,
         authcid: String,
-        password: String
+        password: String,
+        channelBindingData: [UInt8]?
     ) -> (ActiveMechanism, String) {
         switch name {
+        case SCRAMSHA256PLUS.mechanismName:
+            var scram = SCRAMState<SHA256>(
+                channelBindingMode: .bound(type: tlsServerEndPointCBType, data: channelBindingData!)
+            )
+            let payload = scram.clientFirstMessage(authcid: authcid, password: password)
+            return (.scramSHA256Plus(scram), payload)
         case SCRAMSHA256.mechanismName:
-            var scram = SCRAMState<SHA256>()
+            let cbMode: ChannelBindingMode = channelBindingData != nil ? .clientSupportsButNotUsed : .none
+            var scram = SCRAMState<SHA256>(channelBindingMode: cbMode)
             let payload = scram.clientFirstMessage(authcid: authcid, password: password)
             return (.scramSHA256(scram), payload)
+        case SCRAMSHA1PLUS.mechanismName:
+            var scram = SCRAMState<Insecure.SHA1>(
+                channelBindingMode: .bound(type: tlsServerEndPointCBType, data: channelBindingData!)
+            )
+            let payload = scram.clientFirstMessage(authcid: authcid, password: password)
+            return (.scramSHA1Plus(scram), payload)
         case SCRAMSHA1.mechanismName:
-            var scram = SCRAMState<Insecure.SHA1>()
+            let cbMode: ChannelBindingMode = channelBindingData != nil ? .clientSupportsButNotUsed : .none
+            var scram = SCRAMState<Insecure.SHA1>(channelBindingMode: cbMode)
             let payload = scram.clientFirstMessage(authcid: authcid, password: password)
             return (.scramSHA1(scram), payload)
+        case SASLExternal.mechanismName:
+            return (.external, "")
         case SASLPlain.mechanismName:
             let payload = "\0\(authcid)\0\(password)"
             return (.plain, payload)
@@ -152,28 +193,24 @@ struct SASL2Authenticator {
         }
 
         switch mechanism {
+        case var .scramSHA256Plus(scram):
+            let response = scramChallengeResponse(decoded, scram: &scram)
+            mechanism = .scramSHA256Plus(scram)
+            return response
         case var .scramSHA256(scram):
-            let result = scram.clientFinalMessage(serverFirstMessage: decoded)
+            let response = scramChallengeResponse(decoded, scram: &scram)
             mechanism = .scramSHA256(scram)
-            switch result {
-            case let .success(response):
-                var element = XMLElement(name: "response", namespace: XMPPNamespaces.sasl2)
-                element.addText(Base64.encode(response))
-                return .continueWith(element)
-            case let .failure(error):
-                return .failure(error)
-            }
+            return response
+        case var .scramSHA1Plus(scram):
+            let response = scramChallengeResponse(decoded, scram: &scram)
+            mechanism = .scramSHA1Plus(scram)
+            return response
         case var .scramSHA1(scram):
-            let result = scram.clientFinalMessage(serverFirstMessage: decoded)
+            let response = scramChallengeResponse(decoded, scram: &scram)
             mechanism = .scramSHA1(scram)
-            switch result {
-            case let .success(response):
-                var element = XMLElement(name: "response", namespace: XMPPNamespaces.sasl2)
-                element.addText(Base64.encode(response))
-                return .continueWith(element)
-            case let .failure(error):
-                return .failure(error)
-            }
+            return response
+        case .external:
+            return .failure(.invalidState("EXTERNAL does not expect challenges"))
         case .plain:
             return .failure(.invalidState("PLAIN does not expect challenges"))
         }
@@ -182,34 +219,65 @@ struct SASL2Authenticator {
     private func handleSuccess(_ stanza: XMLElement, mechanism: inout ActiveMechanism) -> Response {
         // Verify SCRAM server signature from <additional-data> (required for SCRAM mechanisms)
         switch mechanism {
+        case var .scramSHA256Plus(scram):
+            if let error = verifyScramSignature(stanza, scram: &scram) { return error }
+            mechanism = .scramSHA256Plus(scram)
         case var .scramSHA256(scram):
-            guard let additionalData = stanza.childText(named: "additional-data"),
-                  let decoded = Base64.decodeString(additionalData) else {
-                return .failure(.invalidState("Missing additional-data for SCRAM server verification"))
-            }
-            let result = scram.verifyServerFinal(serverFinalMessage: decoded)
+            if let error = verifyScramSignature(stanza, scram: &scram) { return error }
             mechanism = .scramSHA256(scram)
-            if case let .failure(error) = result { return .failure(error) }
+        case var .scramSHA1Plus(scram):
+            if let error = verifyScramSignature(stanza, scram: &scram) { return error }
+            mechanism = .scramSHA1Plus(scram)
         case var .scramSHA1(scram):
-            guard let additionalData = stanza.childText(named: "additional-data"),
-                  let decoded = Base64.decodeString(additionalData) else {
-                return .failure(.invalidState("Missing additional-data for SCRAM server verification"))
-            }
-            let result = scram.verifyServerFinal(serverFinalMessage: decoded)
+            if let error = verifyScramSignature(stanza, scram: &scram) { return error }
             mechanism = .scramSHA1(scram)
-            if case let .failure(error) = result { return .failure(error) }
-        case .plain:
+        case .external, .plain:
             break
         }
 
-        // Parse authorization-identifier (bound JID)
+        return parseSuccessJID(stanza)
+    }
+
+    // MARK: - Private: SCRAM Helpers
+
+    /// Processes a SCRAM challenge and produces the response element.
+    private func scramChallengeResponse<H: HashFunction>(
+        _ decoded: String,
+        scram: inout SCRAMState<H>
+    ) -> Response where H.Digest: Sendable {
+        switch scram.clientFinalMessage(serverFirstMessage: decoded) {
+        case let .success(response):
+            var element = XMLElement(name: "response", namespace: XMPPNamespaces.sasl2)
+            element.addText(Base64.encode(response))
+            return .continueWith(element)
+        case let .failure(error):
+            return .failure(error)
+        }
+    }
+
+    /// Verifies the SCRAM server signature from `<additional-data>`.
+    /// Returns an error response if verification fails, `nil` on success.
+    private func verifyScramSignature<H: HashFunction>(
+        _ stanza: XMLElement,
+        scram: inout SCRAMState<H>
+    ) -> Response? where H.Digest: Sendable {
+        guard let additionalData = stanza.childText(named: "additional-data"),
+              let decoded = Base64.decodeString(additionalData) else {
+            return .failure(.invalidState("Missing additional-data for SCRAM server verification"))
+        }
+        let result = scram.verifyServerFinal(serverFinalMessage: decoded)
+        if case let .failure(error) = result { return .failure(error) }
+        return nil
+    }
+
+    /// Parses the authorization-identifier and bound element from a SASL2 success.
+    private func parseSuccessJID(_ stanza: XMLElement) -> Response {
         guard let jidStr = stanza.childText(named: "authorization-identifier"),
               let fullJID = FullJID.parse(jidStr) else {
             return .failure(.invalidState("No JID in SASL2 success"))
         }
 
         let bound = stanza.child(named: "bound", namespace: XMPPNamespaces.bind2)
-
         return .success(AuthResult(fullJID: fullJID, bound: bound))
     }
 
@@ -230,8 +298,11 @@ struct SASL2Authenticator {
     // MARK: - Active Mechanism
 
     private enum ActiveMechanism {
+        case scramSHA256Plus(SCRAMState<SHA256>)
         case scramSHA256(SCRAMState<SHA256>)
+        case scramSHA1Plus(SCRAMState<Insecure.SHA1>)
         case scramSHA1(SCRAMState<Insecure.SHA1>)
+        case external
         case plain
     }
 }

@@ -493,11 +493,13 @@ public actor XMPPClient {
     // MARK: - Private: Authentication
 
     private func authenticate(features: XMLElement, reader: EventReader) async throws {
+        let cbData = await connection.channelBindingData
         var authenticator = SASLAuthenticator()
         let authElement: XMLElement
         do {
             authElement = try authenticator.begin(
-                features: features, authcid: credentials.username, password: credentials.password
+                features: features, authcid: credentials.username, password: credentials.password,
+                channelBindingData: cbData
             )
         } catch {
             let message = String(describing: error)
@@ -547,13 +549,15 @@ public actor XMPPClient {
             ))
         }
 
+        let cbData = await connection.channelBindingData
         let authElement: XMLElement
         do {
             authElement = try authenticator.begin(
                 features: features,
                 authcid: credentials.username,
                 password: credentials.password,
-                inlinePayloads: inlinePayloads
+                inlinePayloads: inlinePayloads,
+                channelBindingData: cbData
             )
         } catch {
             let message = String(describing: error)

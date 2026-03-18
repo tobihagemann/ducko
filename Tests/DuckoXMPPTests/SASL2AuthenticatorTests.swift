@@ -100,6 +100,45 @@ enum SASL2AuthenticatorTests {
             let parsed = SASL2Authenticator.parseFeatures(features)
             #expect(parsed == nil)
         }
+
+        @Test
+        func `Parses channel binding types from XEP-0440`() {
+            var auth = XMLElement(name: "authentication", namespace: XMPPNamespaces.sasl2)
+            var mech = XMLElement(name: "mechanism")
+            mech.addText("SCRAM-SHA-256")
+            auth.addChild(mech)
+
+            var cbElement = XMLElement(
+                name: "sasl-channel-binding",
+                namespace: XMPPNamespaces.saslChannelBinding
+            )
+            cbElement.addChild(XMLElement(
+                name: "channel-binding",
+                attributes: ["type": "tls-server-end-point"]
+            ))
+            cbElement.addChild(XMLElement(
+                name: "channel-binding",
+                attributes: ["type": "tls-exporter"]
+            ))
+            auth.addChild(cbElement)
+
+            var features = XMLElement(name: "stream:features")
+            features.addChild(auth)
+
+            let parsed = SASL2Authenticator.parseFeatures(features)
+            #expect(parsed?.channelBindingTypes.contains("tls-server-end-point") == true)
+            #expect(parsed?.channelBindingTypes.contains("tls-exporter") == true)
+            let cbCount = parsed?.channelBindingTypes.count ?? 0
+            #expect(cbCount == 2)
+        }
+
+        @Test
+        func `Channel binding types empty when element absent`() {
+            let features = sasl2Features(mechanisms: ["SCRAM-SHA-256"])
+            let parsed = SASL2Authenticator.parseFeatures(features)
+            let isEmpty = parsed?.channelBindingTypes.isEmpty ?? true
+            #expect(isEmpty)
+        }
     }
 
     struct MechanismSelection {
@@ -138,6 +177,106 @@ enum SASL2AuthenticatorTests {
                     inlinePayloads: []
                 )
             }
+        }
+    }
+
+    struct PLUSMechanismSelection {
+        private static let mockCBData: [UInt8] = Array(repeating: 0xAB, count: 32)
+
+        @Test
+        func `Selects SCRAM-SHA-256-PLUS when CB data available`() throws {
+            var auth = SASL2Authenticator()
+            let element = try auth.begin(
+                features: sasl2Features(mechanisms: ["SCRAM-SHA-256-PLUS", "SCRAM-SHA-256", "PLAIN"]),
+                authcid: "user",
+                password: "pencil",
+                inlinePayloads: [],
+                channelBindingData: Self.mockCBData
+            )
+            #expect(element.attribute("mechanism") == "SCRAM-SHA-256-PLUS")
+        }
+
+        @Test
+        func `Falls back to SCRAM-SHA-256 when no PLUS offered`() throws {
+            var auth = SASL2Authenticator()
+            let element = try auth.begin(
+                features: sasl2Features(mechanisms: ["SCRAM-SHA-256", "PLAIN"]),
+                authcid: "user",
+                password: "pencil",
+                inlinePayloads: [],
+                channelBindingData: Self.mockCBData
+            )
+            #expect(element.attribute("mechanism") == "SCRAM-SHA-256")
+        }
+
+        @Test
+        func `Does not offer PLUS when no CB data`() throws {
+            var auth = SASL2Authenticator()
+            let element = try auth.begin(
+                features: sasl2Features(mechanisms: ["SCRAM-SHA-256-PLUS", "PLAIN"]),
+                authcid: "user",
+                password: "pencil",
+                inlinePayloads: []
+            )
+            #expect(element.attribute("mechanism") == "PLAIN")
+        }
+
+        @Test
+        func `Selects EXTERNAL when client certificate available`() throws {
+            var auth = SASL2Authenticator()
+            let element = try auth.begin(
+                features: sasl2Features(mechanisms: ["EXTERNAL", "SCRAM-SHA-256"]),
+                authcid: "user",
+                password: "pencil",
+                inlinePayloads: [],
+                hasClientCertificate: true
+            )
+            #expect(element.attribute("mechanism") == "EXTERNAL")
+        }
+
+        @Test
+        func `Skips EXTERNAL when no client certificate`() throws {
+            var auth = SASL2Authenticator()
+            let element = try auth.begin(
+                features: sasl2Features(mechanisms: ["EXTERNAL", "SCRAM-SHA-256"]),
+                authcid: "user",
+                password: "pencil",
+                inlinePayloads: []
+            )
+            #expect(element.attribute("mechanism") == "SCRAM-SHA-256")
+        }
+
+        @Test
+        func `Falls back to non-PLUS when server CB types exclude tls-server-end-point`() throws {
+            // Build features with SCRAM-SHA-256-PLUS offered but server only supports tls-exporter
+            var authElement = XMLElement(name: "authentication", namespace: XMPPNamespaces.sasl2)
+            for name in ["SCRAM-SHA-256-PLUS", "SCRAM-SHA-256"] {
+                var mech = XMLElement(name: "mechanism")
+                mech.addText(name)
+                authElement.addChild(mech)
+            }
+            var cbElement = XMLElement(
+                name: "sasl-channel-binding",
+                namespace: XMPPNamespaces.saslChannelBinding
+            )
+            cbElement.addChild(XMLElement(
+                name: "channel-binding",
+                attributes: ["type": "tls-exporter"]
+            ))
+            authElement.addChild(cbElement)
+            var features = XMLElement(name: "stream:features")
+            features.addChild(authElement)
+
+            var auth = SASL2Authenticator()
+            let element = try auth.begin(
+                features: features,
+                authcid: "user",
+                password: "pencil",
+                inlinePayloads: [],
+                channelBindingData: Self.mockCBData
+            )
+            // Should fall back to non-PLUS since server doesn't support tls-server-end-point
+            #expect(element.attribute("mechanism") == "SCRAM-SHA-256")
         }
     }
 

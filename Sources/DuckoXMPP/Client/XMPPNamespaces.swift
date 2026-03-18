@@ -62,6 +62,7 @@ public enum XMPPNamespaces {
     public static let caps2 = "urn:xmpp:caps"
     public static let hashes2 = "urn:xmpp:hashes:2"
     public static let sasl2 = "urn:xmpp:sasl:2"
+    public static let saslChannelBinding = "urn:xmpp:sasl-cb:0"
     public static let bind2 = "urn:xmpp:bind:0"
     public static let isr = "https://xmpp.org/extensions/isr/0"
     public static let isrMechanism = "HT-SHA-256-ENDP"

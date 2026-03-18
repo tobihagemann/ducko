@@ -6,8 +6,11 @@ struct SCRAMSHA1 {
 
     private var state: SCRAMState<Insecure.SHA1>
 
-    init(nonceGenerator: @Sendable @escaping () -> String = SCRAMState<Insecure.SHA1>.randomNonce) {
-        self.state = SCRAMState(nonceGenerator: nonceGenerator)
+    init(
+        channelBindingMode: ChannelBindingMode = .none,
+        nonceGenerator: @Sendable @escaping () -> String = SCRAMState<Insecure.SHA1>.randomNonce
+    ) {
+        self.state = SCRAMState(channelBindingMode: channelBindingMode, nonceGenerator: nonceGenerator)
     }
 
     mutating func start(authcid: String, password: String) -> XMLElement {

@@ -78,6 +78,13 @@ actor XMPPConnection {
         }
     }
 
+    /// Returns channel binding data from the transport, if available.
+    var channelBindingData: [UInt8]? {
+        get async {
+            await transport.channelBindingData()
+        }
+    }
+
     // MARK: - Stream Reset
 
     /// Resets the parser for a new XMPP stream (e.g. after SASL authentication).

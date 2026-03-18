@@ -131,6 +131,19 @@ actor POSIXTransport: XMPPTransport {
         receivedContinuation.finish()
     }
 
+    /// Returns `tls-server-end-point` channel binding data (RFC 5929 §4.1).
+    ///
+    /// Computes SHA-256 hash of the server's DER-encoded leaf certificate.
+    func channelBindingData() -> [UInt8]? {
+        guard let ctx = sslContext else { return nil }
+        var trust: SecTrust?
+        SSLCopyPeerTrust(ctx, &trust)
+        guard let trust, SecTrustGetCertificateCount(trust) > 0,
+              let cert = SecTrustGetCertificateAtIndex(trust, 0) else { return nil }
+        let derData = SecCertificateCopyData(cert) as Data
+        return Array(SHA256.hash(data: derData))
+    }
+
     // MARK: - Private
 
     private func tearDownSSL() {

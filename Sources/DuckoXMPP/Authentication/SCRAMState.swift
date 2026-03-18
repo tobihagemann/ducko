@@ -1,5 +1,15 @@
 import CryptoKit
 
+/// Channel binding configuration for SCRAM mechanisms (RFC 5802 §6).
+enum ChannelBindingMode {
+    /// No channel binding support (GS2 header `n,,`).
+    case none
+    /// Client supports CB but server didn't offer -PLUS (GS2 header `y,,`).
+    case clientSupportsButNotUsed
+    /// Active channel binding (GS2 header `p=<type>,,` with binding data).
+    case bound(type: String, data: [UInt8])
+}
+
 /// Generic SCRAM state machine per RFC 5802.
 ///
 /// Parameterized over a hash function (`SHA256`, `Insecure.SHA1`) so that
@@ -12,13 +22,18 @@ struct SCRAMState<H: HashFunction> where H.Digest: Sendable {
     private var clientFirstMessageBare = ""
     private var serverSignature: [UInt8] = []
     private let nonceGenerator: @Sendable () -> String
+    private let channelBindingMode: ChannelBindingMode
 
     /// Minimum PBKDF2 iteration count per RFC 5802 §5.1.
     static var minimumIterationCount: Int {
         4096
     }
 
-    init(nonceGenerator: @Sendable @escaping () -> String = randomNonce) {
+    init(
+        channelBindingMode: ChannelBindingMode = .none,
+        nonceGenerator: @Sendable @escaping () -> String = randomNonce
+    ) {
+        self.channelBindingMode = channelBindingMode
         self.nonceGenerator = nonceGenerator
     }
 
@@ -34,8 +49,13 @@ struct SCRAMState<H: HashFunction> where H.Digest: Sendable {
         clientFirstMessageBare = "n=\(escapedUser),r=\(clientNonce)"
         phase = .waitingForServerFirst
 
-        // gs2-header = "n,," (no channel binding, no authzid)
-        return "n,,\(clientFirstMessageBare)"
+        // gs2-header per RFC 5802 §7
+        let gs2Header = switch channelBindingMode {
+        case .none: "n,,"
+        case .clientSupportsButNotUsed: "y,,"
+        case let .bound(type, _): "p=\(type),,"
+        }
+        return "\(gs2Header)\(clientFirstMessageBare)"
     }
 
     /// Processes `server-first-message` and produces `client-final-message`.
@@ -73,8 +93,17 @@ struct SCRAMState<H: HashFunction> where H.Digest: Sendable {
         let storedKey = Array(H.hash(data: clientKey))
         let serverKey = hmac(key: saltedPassword, data: Array("Server Key".utf8))
 
-        // Build auth message
-        let channelBinding = Base64.encode(Array("n,,".utf8))
+        // Build auth message with channel binding per RFC 5802 §7
+        let gs2HeaderBytes: [UInt8] = switch channelBindingMode {
+        case .none: Array("n,,".utf8)
+        case .clientSupportsButNotUsed: Array("y,,".utf8)
+        case let .bound(type, _): Array("p=\(type),,".utf8)
+        }
+        let cbPayload: [UInt8] = switch channelBindingMode {
+        case .none, .clientSupportsButNotUsed: gs2HeaderBytes
+        case let .bound(_, data): gs2HeaderBytes + data
+        }
+        let channelBinding = Base64.encode(cbPayload)
         let clientFinalWithoutProof = "c=\(channelBinding),r=\(combinedNonce)"
         let authMessage = "\(clientFirstMessageBare),\(serverFirstMessage),\(clientFinalWithoutProof)"
 

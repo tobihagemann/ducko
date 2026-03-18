@@ -17,10 +17,18 @@ public protocol XMPPTransport: Sendable {
     func send(_ bytes: [UInt8]) async throws
     var receivedData: AsyncStream<[UInt8]> { get }
     func disconnect() async
+
+    /// Returns `tls-server-end-point` channel binding data (RFC 5929).
+    /// Returns `nil` if TLS is not active or channel binding is not supported.
+    func channelBindingData() async -> [UInt8]?
 }
 
 public extension XMPPTransport {
     func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
         throw XMPPConnectionError.tlsUpgradeFailed("Direct TLS not supported")
+    }
+
+    func channelBindingData() async -> [UInt8]? {
+        nil
     }
 }

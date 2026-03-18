@@ -1,16 +1,19 @@
 import CryptoKit
 
-/// SCRAM-SHA-256 mechanism (RFC 7677).
-struct SCRAMSHA256 {
-    static let mechanismName = "SCRAM-SHA-256"
+/// SCRAM-SHA-256-PLUS mechanism (RFC 7677 + RFC 5802 channel binding).
+struct SCRAMSHA256PLUS {
+    static let mechanismName = "SCRAM-SHA-256-PLUS"
 
     private var state: SCRAMState<SHA256>
 
     init(
-        channelBindingMode: ChannelBindingMode = .none,
+        channelBindingData: [UInt8],
         nonceGenerator: @Sendable @escaping () -> String = SCRAMState<SHA256>.randomNonce
     ) {
-        self.state = SCRAMState(channelBindingMode: channelBindingMode, nonceGenerator: nonceGenerator)
+        self.state = SCRAMState(
+            channelBindingMode: .bound(type: tlsServerEndPointCBType, data: channelBindingData),
+            nonceGenerator: nonceGenerator
+        )
     }
 
     mutating func start(authcid: String, password: String) -> XMLElement {
