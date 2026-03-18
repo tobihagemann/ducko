@@ -126,7 +126,7 @@ public final class BookmarksService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
         }
     }

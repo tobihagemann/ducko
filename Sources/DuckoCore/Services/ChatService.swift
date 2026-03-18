@@ -4,6 +4,9 @@ import os
 
 private let log = Logger(subsystem: "com.ducko.core", category: "chat")
 
+/// XEP-0424 fallback body for clients that don't support message retraction.
+private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
+
 @MainActor @Observable
 public final class ChatService {
     public private(set) var openConversations: [Conversation] = []
@@ -184,9 +187,23 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
-        // TODO: Route through OMEMO once OMEMOModule handles <replace> on decrypted messages
+        let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
-        try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
+
+        if let omemoService, let trustedDeviceIDs = await omemoService.shouldEncrypt(
+            jid: jid, accountID: accountID, conversationEncryptionEnabled: conversation.encryptionEnabled
+        ) {
+            let elements = try await omemoService.encryptMessage(body: newBody, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
+            let replaceElement = DuckoXMPP.XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": originalStanzaID])
+            let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+            try await chatModule.sendMessage(
+                to: .bare(jid), body: elements.fallbackBody, id: client.generateID(),
+                includeChatState: chatStatesEnabled,
+                additionalElements: [elements.encrypted, elements.encryption, storeHint, replaceElement]
+            )
+        } else {
+            try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
+        }
         try await store.updateMessageBody(stanzaID: originalStanzaID, newBody: newBody, isEdited: true, editedAt: Date())
         await reloadActiveMessages()
     }
@@ -213,8 +230,13 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
-        // TODO: Route through OMEMO once OMEMOModule handles <replace> on decrypted messages
-        try await mucModule.sendCorrection(to: room, body: newBody, replacingID: originalStanzaID)
+        let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
+        let replaceElement = DuckoXMPP.XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": originalStanzaID])
+        _ = try await encryptAndSendGroupMessage(
+            room: room, body: newBody, stanzaID: client.generateID(),
+            conversation: conversation, mucModule: mucModule,
+            additionalElements: [replaceElement]
+        )
         try await store.updateMessageBody(stanzaID: originalStanzaID, newBody: newBody, isEdited: true, editedAt: Date())
         await reloadActiveMessages()
     }
@@ -236,7 +258,23 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
-        try await chatModule.sendRetraction(to: .bare(jid), originalID: stanzaID)
+        let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
+
+        if let omemoService, let trustedDeviceIDs = await omemoService.shouldEncrypt(
+            jid: jid, accountID: accountID, conversationEncryptionEnabled: conversation.encryptionEnabled
+        ) {
+            let elements = try await omemoService.encryptMessage(body: retractionFallbackBody, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
+            let retractElement = DuckoXMPP.XMLElement(name: "retract", namespace: XMPPNamespaces.messageRetract, attributes: ["id": stanzaID])
+            let fallbackElement = DuckoXMPP.XMLElement(name: "fallback", namespace: XMPPNamespaces.fallbackIndication, attributes: ["for": XMPPNamespaces.messageRetract])
+            let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+            try await chatModule.sendMessage(
+                to: .bare(jid), body: elements.fallbackBody, id: client.generateID(),
+                includeChatState: false,
+                additionalElements: [elements.encrypted, elements.encryption, storeHint, retractElement, fallbackElement]
+            )
+        } else {
+            try await chatModule.sendRetraction(to: .bare(jid), originalID: stanzaID)
+        }
         try await store.markMessageRetracted(stanzaID: stanzaID, retractedAt: Date())
         await reloadActiveMessages()
     }
@@ -263,7 +301,14 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
-        try await mucModule.sendRetraction(to: room, originalID: stanzaID)
+        let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
+        let retractElement = DuckoXMPP.XMLElement(name: "retract", namespace: XMPPNamespaces.messageRetract, attributes: ["id": stanzaID])
+        let fallbackElement = DuckoXMPP.XMLElement(name: "fallback", namespace: XMPPNamespaces.fallbackIndication, attributes: ["for": XMPPNamespaces.messageRetract])
+        _ = try await encryptAndSendGroupMessage(
+            room: room, body: retractionFallbackBody, stanzaID: client.generateID(),
+            conversation: conversation, mucModule: mucModule,
+            additionalElements: [retractElement, fallbackElement]
+        )
         try await store.markMessageRetracted(stanzaID: stanzaID, retractedAt: Date())
         await reloadActiveMessages()
     }
@@ -806,7 +851,7 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
         }
     }
@@ -845,7 +890,7 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
         }
     }
@@ -874,7 +919,7 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
         }
     }
@@ -917,7 +962,7 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
         }
     }
@@ -1037,7 +1082,7 @@ public final class ChatService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return
         }
         await reloadActiveMessages()

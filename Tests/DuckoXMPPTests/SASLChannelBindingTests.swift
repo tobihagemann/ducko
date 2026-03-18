@@ -228,3 +228,138 @@ struct SASLExternalTests {
         }
     }
 }
+
+// MARK: - Certificate Signature Hash Algorithm Tests (RFC 5929 §4.1)
+
+enum CertSignatureHashTests {
+    /// Builds a minimal DER certificate with the given signature algorithm OID.
+    ///
+    /// Layout: SEQUENCE { SEQUENCE(tbs), SEQUENCE { OID(sigAlg) }, BIT STRING(sig) }
+    private static func buildMinimalDER(signatureOID oid: [UInt8]) -> [UInt8] {
+        // TBS: a minimal SEQUENCE with one byte of content
+        let tbsBody: [UInt8] = [0x01] // placeholder
+        let tbs = [0x30, UInt8(tbsBody.count)] + tbsBody
+
+        // signatureAlgorithm: SEQUENCE { OID }
+        let oidElement = [0x06, UInt8(oid.count)] + oid
+        let sigAlg = [0x30, UInt8(oidElement.count)] + oidElement
+
+        // signatureValue: BIT STRING with one zero byte
+        let sigVal: [UInt8] = [0x03, 0x02, 0x00, 0xFF]
+
+        // Outer SEQUENCE
+        let body = tbs + sigAlg + sigVal
+        return [0x30, UInt8(body.count)] + body
+    }
+
+    struct RSAAlgorithms {
+        @Test
+        func `sha256WithRSAEncryption returns sha256`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0B]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha256)
+        }
+
+        @Test
+        func `sha384WithRSAEncryption returns sha384`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha384)
+        }
+
+        @Test
+        func `sha512WithRSAEncryption returns sha512`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0D]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha512)
+        }
+
+        @Test
+        func `sha1WithRSAEncryption falls back to sha256`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x05]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha256)
+        }
+
+        @Test
+        func `md5WithRSAEncryption falls back to sha256`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x04]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha256)
+        }
+    }
+
+    struct ECDSAAlgorithms {
+        @Test
+        func `ecdsa-with-SHA256 returns sha256`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x02]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha256)
+        }
+
+        @Test
+        func `ecdsa-with-SHA384 returns sha384`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x03]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha384)
+        }
+
+        @Test
+        func `ecdsa-with-SHA512 returns sha512`() {
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x04, 0x03, 0x04]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha512)
+        }
+    }
+
+    struct EdDSAAlgorithms {
+        @Test
+        func `Ed25519 falls back to sha256`() {
+            let oid: [UInt8] = [0x2B, 0x65, 0x70]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha256)
+        }
+
+        @Test
+        func `Ed448 falls back to sha256`() {
+            let oid: [UInt8] = [0x2B, 0x65, 0x71]
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha256)
+        }
+    }
+
+    struct EdgeCases {
+        @Test
+        func `Empty DER falls back to sha256`() {
+            #expect(signatureHashAlgorithm(fromDER: []) == .sha256)
+        }
+
+        @Test
+        func `Truncated DER falls back to sha256`() {
+            #expect(signatureHashAlgorithm(fromDER: [0x30, 0x03, 0x30, 0x01]) == .sha256)
+        }
+
+        @Test
+        func `Unknown OID falls back to sha256`() {
+            let oid: [UInt8] = [0x2B, 0x06, 0x01, 0x04] // arbitrary unknown OID
+            let der = CertSignatureHashTests.buildMinimalDER(signatureOID: oid)
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha256)
+        }
+
+        @Test
+        func `Long TBS body with multi-byte DER length`() {
+            // TBS SEQUENCE with 128-byte body (requires long-form length encoding: 0x81, 0x80)
+            var tbs: [UInt8] = [0x30, 0x81, 0x80]
+            tbs += Array(repeating: 0x00, count: 128)
+            let oid: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01, 0x0C]
+            let oidElement = [0x06, UInt8(oid.count)] + oid
+            let sigAlg = [0x30, UInt8(oidElement.count)] + oidElement
+            let sigVal: [UInt8] = [0x03, 0x02, 0x00, 0xFF]
+            let body = tbs + sigAlg + sigVal
+            // Outer SEQUENCE also needs long-form length
+            let outerLength = body.count
+            let der: [UInt8] = [0x30, 0x81, UInt8(outerLength)] + body
+            #expect(signatureHashAlgorithm(fromDER: der) == .sha384)
+        }
+    }
+}

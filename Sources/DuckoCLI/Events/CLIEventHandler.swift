@@ -23,7 +23,7 @@ actor CLIEventHandler {
             handleChatState(from: from, state: state)
             return
         case .jingleFileTransferProgress,
-             .omemoDeviceListReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             guard isInteractive else { break }
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .presenceReceived, .iqReceived,

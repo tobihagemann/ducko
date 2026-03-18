@@ -34,6 +34,11 @@ public final class ChatModule: XMPPModule, Sendable {
             return
         }
 
+        // Encrypted corrections/retractions are classified by OMEMOModule after decryption
+        if message.element.child(named: "encrypted", namespace: XMPPNamespaces.omemo) != nil {
+            return
+        }
+
         // XEP-0424: Message retraction
         if let retract = message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract),
            let originalID = retract.attribute("id") {

@@ -2,6 +2,7 @@ import os
 
 private let log = Logger(subsystem: "com.ducko.xmpp", category: "muc")
 
+// periphery:ignore - used by sendRetraction (XEP-0424 module API)
 /// XEP-0424 fallback body for clients that don't support message retraction.
 private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
 
@@ -296,6 +297,11 @@ public final class MUCModule: XMPPModule, Sendable {
             return
         }
 
+        // Encrypted corrections/retractions are classified by OMEMOModule after decryption
+        if message.element.child(named: "encrypted", namespace: XMPPNamespaces.omemo) != nil {
+            return
+        }
+
         // XEP-0424/0425: Message retraction or moderation
         if let retract = message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) {
             handleRetraction(retract: retract, from: from, roomJID: roomJID)
@@ -464,6 +470,7 @@ public final class MUCModule: XMPPModule, Sendable {
         try await sendMessage(to: room, body: body, additionalElements: [replace])
     }
 
+    // periphery:ignore - XEP-0424 module API, currently routed through encryptAndSendGroupMessage
     /// Sends a message retraction (XEP-0424) for a previously sent groupchat message.
     public func sendRetraction(to room: BareJID, originalID: String) async throws {
         guard let context = state.withLock({ $0.context }) else { return }

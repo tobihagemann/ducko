@@ -277,9 +277,24 @@ public final class AccountService {
         clients[accountID]?.tlsInfo
     }
 
-    /// Dismisses a certificate-change warning for the given account.
-    public func dismissCertificateWarning(for accountID: UUID) {
+    /// Persists the new certificate fingerprint and clears the warning.
+    public func trustNewCertificate(for accountID: UUID) {
+        guard let warning = certificateWarnings[accountID],
+              var account = accounts.first(where: { $0.id == accountID }) else { return }
+        account.certificateFingerprint = warning.newFingerprint
         certificateWarnings[accountID] = nil
+        Task {
+            try? await store.saveAccount(account)
+            try? await loadAccounts()
+        }
+    }
+
+    /// Rejects the new certificate, clears the warning, and disconnects.
+    public func rejectNewCertificate(for accountID: UUID) async {
+        certificateWarnings[accountID] = nil
+        cancelReconnect(for: accountID, resetAttempts: true)
+        await clients[accountID]?.disconnect()
+        connectionStates[accountID] = .disconnected
     }
 
     // MARK: - Private: Connection
@@ -327,14 +342,15 @@ public final class AccountService {
     }
 
     private func buildClient(
-        account: Account, previousSMState: SMResumeState?
+        account: Account, previousSMState: SMResumeState?,
+        requireTLSOverride: Bool? = nil
     ) async -> (XMPPClient, StreamManagementModule) {
         var builder = XMPPClientBuilder(
             domain: account.jid.domainPart,
             username: account.jid.localPart ?? "",
             password: passwords[account.id] ?? ""
         )
-        builder.withRequireTLS(account.requireTLS)
+        builder.withRequireTLS(requireTLSOverride ?? account.requireTLS)
         builder.withPreferredResource(account.resource)
         let rosterModule = RosterModule()
         let rosterVersion = account.rosterVersion
@@ -414,7 +430,7 @@ public final class AccountService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
         }
 
@@ -459,23 +475,24 @@ public final class AccountService {
     private func checkCertificateFingerprint(accountID: UUID) {
         guard let client = clients[accountID],
               let currentFingerprint = client.tlsInfo?.certificateSHA256,
-              var account = accounts.first(where: { $0.id == accountID })
+              let account = accounts.first(where: { $0.id == accountID })
         else { return }
 
         let previousFingerprint = account.certificateFingerprint
 
         if let previous = previousFingerprint, previous != currentFingerprint {
+            // Changed fingerprint — defer persistence until user explicitly trusts
             certificateWarnings[accountID] = CertificateWarning(
                 accountJID: account.jid.description,
                 previousFingerprint: previous,
                 newFingerprint: currentFingerprint
             )
-        }
-
-        if previousFingerprint != currentFingerprint {
-            account.certificateFingerprint = currentFingerprint
+        } else if previousFingerprint == nil {
+            // First connection (TOFU) — persist silently
+            var updated = account
+            updated.certificateFingerprint = currentFingerprint
             Task {
-                try? await store.saveAccount(account)
+                try? await store.saveAccount(updated)
                 try? await loadAccounts()
             }
         }
@@ -502,7 +519,8 @@ public final class AccountService {
         reconnectTasks[accountID] = Task { [weak self] in
             guard !Task.isCancelled, let self else { return }
             guard let account = accounts.first(where: { $0.id == accountID }) else { return }
-            let (client, sm) = await buildClient(account: account, previousSMState: nil)
+            // Force TLS for redirects to prevent plaintext credential exposure via see-other-host injection
+            let (client, sm) = await buildClient(account: account, previousSMState: nil, requireTLSOverride: true)
             clients[accountID] = client
             smModules[accountID] = sm
             startEventConsumption(for: accountID, client: client)

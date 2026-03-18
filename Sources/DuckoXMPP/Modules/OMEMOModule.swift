@@ -489,6 +489,25 @@ public final class OMEMOModule: XMPPModule, Sendable {
                 encrypted, from: from
             )
             let context = state.withLock { $0.context }
+
+            // XEP-0308: Encrypted correction
+            if let replace = message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect),
+               let originalID = replace.attribute("id"),
+               let body = result.body {
+                context?.emitEvent(.messageCorrected(originalID: originalID, newBody: body, from: from))
+                context?.emitEvent(.omemoSessionAdvanced(jid: from.bareJID, deviceID: result.senderDeviceID))
+                return
+            }
+
+            // XEP-0424: Encrypted retraction
+            if let retract = message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract),
+               let originalID = retract.attribute("id") {
+                context?.emitEvent(.messageRetracted(originalID: originalID, from: from))
+                context?.emitEvent(.omemoSessionAdvanced(jid: from.bareJID, deviceID: result.senderDeviceID))
+                return
+            }
+
+            // Regular encrypted message
             context?.emitEvent(.omemoEncryptedMessageReceived(
                 from: from,
                 decryptedBody: result.body,

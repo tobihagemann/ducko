@@ -91,6 +91,11 @@ public final class OMEMOService {
                 jid: jid, deviceID: deviceID,
                 identityKey: identityKey, accountID: accountID
             )
+        case .omemoSessionAdvanced:
+            if let client = accountService?.client(for: accountID),
+               let omemoModule = await client.module(ofType: OMEMOModule.self) {
+                await saveModuleSessions(module: omemoModule, accountID: accountID)
+            }
         case .connected:
             await handleConnected(accountID: accountID)
         case .disconnected:

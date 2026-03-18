@@ -134,12 +134,21 @@ struct ContactListWindow: View {
                 get: { !environment.accountService.certificateWarnings.isEmpty },
                 set: { newValue in
                     if !newValue, let id = environment.accountService.certificateWarnings.keys.first {
-                        environment.accountService.dismissCertificateWarning(for: id)
+                        Task { await environment.accountService.rejectNewCertificate(for: id) }
                     }
                 }
             )
         ) {
-            Button("Dismiss", role: .cancel) {}
+            Button("Trust New Certificate") {
+                if let id = environment.accountService.certificateWarnings.keys.first {
+                    environment.accountService.trustNewCertificate(for: id)
+                }
+            }
+            Button("Disconnect", role: .destructive) {
+                if let id = environment.accountService.certificateWarnings.keys.first {
+                    Task { await environment.accountService.rejectNewCertificate(for: id) }
+                }
+            }
         } message: {
             if let warning = environment.accountService.certificateWarnings.values.first {
                 Text("The TLS certificate for \(warning.accountJID) has changed.\n\nPrevious: \(warning.previousFingerprint)\nNew: \(warning.newFingerprint)")

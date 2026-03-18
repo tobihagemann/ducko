@@ -108,7 +108,7 @@ struct ANSIFormatter: CLIFormatter {
         case .jingleFileTransferReceived, .jingleFileTransferProgress,
              .jingleFileTransferCompleted, .jingleFileTransferFailed:
             return formatJingleEvent(event)
-        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return formatOMEMOEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -128,7 +128,7 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.dim)OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))\(Color.reset)"
         case let .omemoSessionEstablished(jid, deviceID, _):
             return "\(Color.green)OMEMO session established with \(jid) device \(deviceID)\(Color.reset)"
-        case .omemoEncryptedMessageReceived:
+        case .omemoEncryptedMessageReceived, .omemoSessionAdvanced:
             return nil
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
@@ -177,7 +177,7 @@ struct ANSIFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
         }
     }
@@ -286,7 +286,7 @@ struct ANSIFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
         }
     }
@@ -393,7 +393,7 @@ struct ANSIFormatter: CLIFormatter {
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
         }
     }
@@ -429,7 +429,7 @@ struct ANSIFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
         }
     }
