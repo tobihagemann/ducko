@@ -177,9 +177,14 @@ public final class ChatService {
         newBody: String,
         accountID: UUID
     ) async throws {
+        guard let original = try? await store.fetchMessageByStanzaID(originalStanzaID),
+              original.isOutgoing else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
+        // TODO: Route through OMEMO once OMEMOModule handles <replace> on decrypted messages
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
         try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
         try await store.updateMessageBody(stanzaID: originalStanzaID, newBody: newBody, isEdited: true, editedAt: Date())
@@ -201,9 +206,14 @@ public final class ChatService {
     // MARK: - Group Corrections
 
     public func sendGroupCorrection(originalStanzaID: String, newBody: String, in room: BareJID, accountID: UUID) async throws {
+        guard let original = try? await store.fetchMessageByStanzaID(originalStanzaID),
+              original.isOutgoing else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
+        // TODO: Route through OMEMO once OMEMOModule handles <replace> on decrypted messages
         try await mucModule.sendCorrection(to: room, body: newBody, replacingID: originalStanzaID)
         try await store.updateMessageBody(stanzaID: originalStanzaID, newBody: newBody, isEdited: true, editedAt: Date())
         await reloadActiveMessages()
@@ -219,6 +229,10 @@ public final class ChatService {
     // MARK: - Retractions
 
     public func retractMessage(stanzaID: String, to jid: BareJID, accountID: UUID) async throws {
+        guard let original = try? await store.fetchMessageByStanzaID(stanzaID),
+              original.isOutgoing else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
@@ -242,6 +256,10 @@ public final class ChatService {
     }
 
     public func retractGroupMessage(stanzaID: String, in room: BareJID, accountID: UUID) async throws {
+        guard let original = try? await store.fetchMessageByStanzaID(stanzaID),
+              original.isOutgoing else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
@@ -700,7 +718,9 @@ public final class ChatService {
     }
 
     public func declineInvite(_ invite: PendingRoomInvite, reason: String? = nil, accountID: UUID) async throws {
-        if let roomJID = BareJID.parse(invite.roomJIDString),
+        // XEP-0249 direct invites have no decline mechanism — only send decline for mediated invites
+        if !invite.isDirect,
+           let roomJID = BareJID.parse(invite.roomJIDString),
            let fromString = invite.fromJIDString,
            let inviterJID = JID.parse(fromString),
            let client = accountService?.client(for: accountID),
@@ -738,11 +758,13 @@ public final class ChatService {
     public enum ChatServiceError: Error, LocalizedError {
         case invalidJID(String)
         case encryptionFailed(String)
+        case notOutgoingMessage
 
         public var errorDescription: String? {
             switch self {
             case let .invalidJID(string): "Invalid JID: \(string)"
             case let .encryptionFailed(reason): "Encryption failed: \(reason)"
+            case .notOutgoingMessage: "Cannot correct a message that was not sent by you"
             }
         }
     }
@@ -761,10 +783,10 @@ public final class ChatService {
             await handleChatMarker(messageID: messageID, type: markerType)
         case let .chatStateChanged(from, chatState):
             handleChatStateChanged(from: from, state: chatState)
-        case let .messageCorrected(originalID, newBody, from):
-            await handleMessageCorrected(originalID: originalID, newBody: newBody, from: from, accountID: accountID)
-        case .messageRetracted, .messageModerated, .messageError:
-            await handleMessageUpdateEvent(event)
+        case .messageCorrected, .messageRetracted:
+            await handleMessageUpdateEvent(event, accountID: accountID)
+        case .messageModerated, .messageError:
+            await handleMessageUpdateEvent(event, accountID: accountID)
         case .rosterLoaded:
             Task { [weak self] in
                 await self?.syncRecentHistory(accountID: accountID)
@@ -936,44 +958,64 @@ public final class ChatService {
 
     private func handleMessageCorrected(originalID: String, newBody: String, from: JID, accountID: UUID) async {
         guard let original = try? await store.fetchMessageByStanzaID(originalID) else { return }
-
-        if original.type == "groupchat" {
-            // MUC: verify sender nickname matches
-            guard case let .full(fullJID) = from else {
-                log.warning("Rejected MUC correction without full JID: \(from)")
-                return
-            }
-            let senderNickname = fullJID.resourcePart
-            if original.isOutgoing {
-                // Echo of our own correction — verify it's from our nickname
-                guard await isOwnRoomMessage(nickname: senderNickname, room: from.bareJID, accountID: accountID) else {
-                    log.warning("Rejected MUC correction for own message from wrong sender: \(senderNickname)")
-                    return
-                }
-            } else {
-                // Incoming correction — sender nickname must match original
-                guard senderNickname == original.fromJID else {
-                    log.warning("Rejected MUC correction: nickname \(senderNickname) != original \(original.fromJID)")
-                    return
-                }
-            }
-        } else {
-            // 1:1 chat: bare JID comparison
-            let senderJID = from.bareJID.description
-            guard senderJID == original.fromJID else {
-                log.warning("Rejected correction: sender \(senderJID) doesn't match original \(original.fromJID)")
-                return
-            }
-        }
+        guard await verifySender(from: from, original: original, action: "correction", accountID: accountID) else { return }
 
         try? await store.updateMessageBody(stanzaID: originalID, newBody: newBody, isEdited: true, editedAt: Date())
         await reloadActiveMessages()
     }
 
-    private func handleMessageUpdateEvent(_ event: XMPPEvent) async {
+    private func handleMessageRetracted(originalID: String, from: JID, accountID: UUID) async {
+        guard let original = try? await store.fetchMessageByStanzaID(originalID) else { return }
+        guard await verifySender(from: from, original: original, action: "retraction", accountID: accountID) else { return }
+
+        try? await store.markMessageRetracted(stanzaID: originalID, retractedAt: Date())
+        await reloadActiveMessages()
+    }
+
+    private func verifySender(from: JID, original: ChatMessage, action: String, accountID: UUID) async -> Bool {
+        if original.type == "groupchat" {
+            // MUC: verify sender nickname matches
+            guard case let .full(fullJID) = from else {
+                log.warning("Rejected MUC \(action) without full JID: \(from)")
+                return false
+            }
+            let senderNickname = fullJID.resourcePart
+            if original.isOutgoing {
+                // Echo of our own message — verify it's from our nickname
+                guard await isOwnRoomMessage(nickname: senderNickname, room: from.bareJID, accountID: accountID) else {
+                    log.warning("Rejected MUC \(action) for own message from wrong sender: \(senderNickname)")
+                    return false
+                }
+            } else {
+                // Incoming — sender nickname must match original
+                guard senderNickname == original.fromJID else {
+                    log.warning("Rejected MUC \(action): nickname \(senderNickname) != original \(original.fromJID)")
+                    return false
+                }
+            }
+        } else {
+            // 1:1 chat: only the original sender can correct/retract their own message.
+            // Outgoing messages store the recipient as fromJID — reject any remote
+            // correction/retraction targeting our own outgoing messages.
+            if original.isOutgoing {
+                log.warning("Rejected \(action) targeting outgoing 1:1 message")
+                return false
+            }
+            let senderJID = from.bareJID.description
+            guard senderJID == original.fromJID else {
+                log.warning("Rejected \(action): sender \(senderJID) doesn't match original \(original.fromJID)")
+                return false
+            }
+        }
+        return true
+    }
+
+    private func handleMessageUpdateEvent(_ event: XMPPEvent, accountID: UUID) async {
         switch event {
-        case let .messageRetracted(originalID, _):
-            try? await store.markMessageRetracted(stanzaID: originalID, retractedAt: Date())
+        case let .messageCorrected(originalID, newBody, from):
+            await handleMessageCorrected(originalID: originalID, newBody: newBody, from: from, accountID: accountID)
+        case let .messageRetracted(originalID, from):
+            await handleMessageRetracted(originalID: originalID, from: from, accountID: accountID)
         case let .messageModerated(originalID, _, _, _):
             try? await store.markMessageRetractedByServerID(originalID, retractedAt: Date())
         case let .messageError(messageID, _, error):
@@ -986,7 +1028,6 @@ public final class ChatService {
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
-             .messageCorrected,
              .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
              .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
@@ -1041,7 +1082,8 @@ public final class ChatService {
             roomJIDString: invite.room.description,
             fromJIDString: invite.from.description,
             reason: invite.reason,
-            password: invite.password
+            password: invite.password,
+            isDirect: invite.isDirect
         )
         // Deduplicate by room+from
         guard !pendingInvites.contains(where: { $0.roomJIDString == pending.roomJIDString && $0.fromJIDString == pending.fromJIDString }) else {
@@ -1126,7 +1168,7 @@ public final class ChatService {
         let roomJID = fullJID.bareJID
         let nickname = fullJID.resourcePart
 
-        if await isDuplicate(stanzaID: xmppMessage.id, from: roomJID, accountID: accountID) {
+        if await isDuplicate(stanzaID: xmppMessage.id, from: roomJID, occupantNickname: nickname, accountID: accountID) {
             return
         }
 
@@ -1254,7 +1296,7 @@ public final class ChatService {
         let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
         try await mucModule.sendMessage(
             to: room, body: elements.fallbackBody, id: stanzaID, markable: true,
-            additionalElements: [elements.encrypted, elements.encryption, storeHint]
+            additionalElements: [elements.encrypted, elements.encryption, storeHint] + additionalElements
         )
         return true
     }
@@ -1448,9 +1490,12 @@ public final class ChatService {
         }
     }
 
-    private func isDuplicate(stanzaID: String?, from jid: BareJID, accountID: UUID) async -> Bool {
+    private func isDuplicate(stanzaID: String?, from jid: BareJID, occupantNickname: String? = nil, accountID: UUID) async -> Bool {
         guard let stanzaID else { return false }
-        guard let conversation = openConversations.first(where: { $0.jid == jid && $0.accountID == accountID }) else {
+        guard let conversation = openConversations.first(where: {
+            $0.jid == jid && $0.accountID == accountID &&
+                (occupantNickname == nil || $0.occupantNickname == occupantNickname)
+        }) else {
             return false
         }
         let existing = try? await store.fetchMessages(for: conversation.id, before: nil, limit: 50)

@@ -149,6 +149,24 @@ enum ChatServiceMUCUITests {
             #expect(service.pendingInvites.count == 1)
             #expect(service.pendingInvites[0].roomJIDString == testRoomJID.description)
             #expect(service.pendingInvites[0].reason == "Join us!")
+            #expect(service.pendingInvites[0].isDirect == false)
+        }
+
+        @Test
+        @MainActor
+        func `Direct invite sets isDirect on pendingInvite`() async {
+            let store = makeStore()
+            let service = makeChatService(store: store)
+
+            let invite = RoomInvite(
+                room: testRoomJID,
+                from: .bare(testAccountJID),
+                isDirect: true
+            )
+            await service.handleEvent(.roomInviteReceived(invite), accountID: testAccountID)
+
+            #expect(service.pendingInvites.count == 1)
+            #expect(service.pendingInvites[0].isDirect == true)
         }
 
         @Test

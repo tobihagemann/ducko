@@ -320,6 +320,7 @@ enum MUCModuleTests {
             }
             #expect(invite.room == testRoomJID)
             #expect(invite.reason == "Join us!")
+            #expect(invite.isDirect == false)
 
             await client.disconnect()
         }
@@ -350,6 +351,7 @@ enum MUCModuleTests {
             }
             #expect(invite.room == testRoomJID)
             #expect(invite.reason == "Come join")
+            #expect(invite.isDirect == true)
 
             await client.disconnect()
         }

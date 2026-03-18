@@ -185,11 +185,13 @@ public struct PendingRoomInvite: Sendable, Identifiable {
     public let fromJIDString: String?
     public let reason: String?
     public let password: String?
+    public let isDirect: Bool
 
-    public init(roomJIDString: String, fromJIDString: String?, reason: String?, password: String?) {
+    public init(roomJIDString: String, fromJIDString: String?, reason: String?, password: String?, isDirect: Bool = false) {
         self.roomJIDString = roomJIDString
         self.fromJIDString = fromJIDString
         self.reason = reason
         self.password = password
+        self.isDirect = isDirect
     }
 }

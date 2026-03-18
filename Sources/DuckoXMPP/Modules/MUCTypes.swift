@@ -110,6 +110,7 @@ public struct RoomInvite: Sendable {
     public let from: JID
     public let reason: String?
     public let password: String?
+    public let isDirect: Bool
     public let isContinuation: Bool
     public let thread: String?
 
@@ -118,6 +119,7 @@ public struct RoomInvite: Sendable {
         from: JID,
         reason: String? = nil,
         password: String? = nil,
+        isDirect: Bool = false,
         isContinuation: Bool = false,
         thread: String? = nil
     ) {
@@ -125,6 +127,7 @@ public struct RoomInvite: Sendable {
         self.from = from
         self.reason = reason
         self.password = password
+        self.isDirect = isDirect
         self.isContinuation = isContinuation
         self.thread = thread
     }

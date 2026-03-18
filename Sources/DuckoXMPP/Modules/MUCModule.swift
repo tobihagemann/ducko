@@ -347,7 +347,7 @@ public final class MUCModule: XMPPModule, Sendable {
         let password = conference.attribute("password")
         let isContinuation = conference.attribute("continue") == "true"
         let thread = conference.attribute("thread")
-        let roomInvite = RoomInvite(room: roomJID, from: from, reason: reason, password: password, isContinuation: isContinuation, thread: thread)
+        let roomInvite = RoomInvite(room: roomJID, from: from, reason: reason, password: password, isDirect: true, isContinuation: isContinuation, thread: thread)
 
         let context = state.withLock { $0.context }
         log.info("Received direct invite to \(roomJID) from \(from)")
