@@ -1403,6 +1403,7 @@ private func printREPLHelp() {
     print("  /voice grant|revoke <n>  Grant/revoke voice")
     print("  /affiliations [type]     List affiliations")
     print("  /config                  Show room config")
+    print("  /moderate [reason]       Moderate last message in room")
     print("  /sendfile [jid] <path>   Send a file")
     print("  /accept [sid]            Accept incoming file transfer")
     print("  /decline [sid]           Decline incoming file transfer")
@@ -1642,7 +1643,8 @@ private func dispatchRoomREPLCommand(
         || input == "/destroy" || input.hasPrefix("/destroy ")
         || input == "/voice" || input.hasPrefix("/voice ")
         || input == "/affiliations" || input.hasPrefix("/affiliations ")
-        || input == "/config" {
+        || input == "/config"
+        || input == "/moderate" || input.hasPrefix("/moderate ") {
         return await dispatchRoomAdminREPLCommand(input, context: context, currentRoom: currentRoom)
     } else if input == "/rooms" || input.hasPrefix("/rooms ") {
         await handleRoomsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID)
@@ -1758,6 +1760,8 @@ private func dispatchRoomAdminREPLCommand(
         return await handleAffiliationsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     } else if input == "/config" {
         return await handleConfigREPLCommand(formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/moderate" || input.hasPrefix("/moderate ") {
+        return await handleModerateREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     }
     return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
 }
@@ -1896,6 +1900,41 @@ private func handleConfigREPLCommand(
                 print("  \(label): \(value)")
             }
         }
+    } catch {
+        print(formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func handleModerateREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    guard let roomJID = currentRoom else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    let reason = input.dropFirst("/moderate".count).trimmingCharacters(in: .whitespaces)
+    guard let bareJID = BareJID.parse(roomJID) else {
+        print(formatter.formatError(CLIError.invalidJID(roomJID)))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    do {
+        let messages = try await fetchHistory(
+            jid: bareJID, before: nil, limit: 20,
+            environment: environment, accountID: accountID
+        )
+        guard let target = messages.last(where: { !$0.isRetracted && !$0.isOutgoing && $0.serverID != nil }),
+              let serverID = target.serverID
+        else {
+            print("No moderatable message found.")
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        }
+        try await environment.chatService.moderateMessage(
+            serverID: serverID, in: bareJID,
+            reason: reason.isEmpty ? nil : reason, accountID: accountID
+        )
+        print("Moderated message (server-id: \(serverID)).")
     } catch {
         print(formatter.formatError(error))
     }

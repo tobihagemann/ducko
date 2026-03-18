@@ -482,7 +482,6 @@ public final class MUCModule: XMPPModule, Sendable {
         try await context.sendStanza(message)
     }
 
-    // periphery:ignore - specced feature (XEP-0425), not yet wired to UI
     /// Sends a moderation request (XEP-0425) to retract a message by stanza-id.
     public func moderateMessage(room: BareJID, stanzaID: String, reason: String? = nil) async throws {
         guard let context = state.withLock({ $0.context }) else { return }

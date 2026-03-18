@@ -30,5 +30,15 @@ struct MessageContextMenu: View {
             }
             .accessibilityIdentifier("retract-button")
         }
+
+        if !message.isOutgoing, !message.isRetracted, message.serverID != nil,
+           windowState.isGroupchat, windowState.myRoomRole == .moderator {
+            Button("Remove Message") {
+                Task {
+                    await windowState.moderateMessage(message, reason: nil)
+                }
+            }
+            .accessibilityIdentifier("moderate-button")
+        }
     }
 }

@@ -250,7 +250,13 @@ public final class ChatService {
         await reloadActiveMessages()
     }
 
-    // periphery:ignore - specced feature (XEP-0425), not yet wired to UI
+    public func moderateMessage(serverID: String, inRoomJIDString roomJIDString: String, reason: String?, accountID: UUID) async throws {
+        guard let room = BareJID.parse(roomJIDString) else {
+            throw ChatServiceError.invalidJID(roomJIDString)
+        }
+        try await moderateMessage(serverID: serverID, in: room, reason: reason, accountID: accountID)
+    }
+
     public func moderateMessage(serverID: String, in room: BareJID, reason: String?, accountID: UUID) async throws {
         guard let client = accountService?.client(for: accountID) else { return }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }

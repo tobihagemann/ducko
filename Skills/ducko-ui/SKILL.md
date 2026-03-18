@@ -111,6 +111,7 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `certExpiry` | Certificate Expiry label | Connection Info |
 | `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
 | `retract-button` | Retract context menu button (own msgs) | Chat |
+| `moderate-button` | Moderate context menu button (other users' msgs) | Chat |
 | `retracted-message` | Retracted message tombstone | Chat |
 | `setup-mode-picker` | Login/Register segmented control | Account Setup |
 | `register-server-field` | Server domain field (Register mode) | Account Setup |
@@ -195,6 +196,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-remove-bookmark.sh` | Remove a bookmark from the Bookmarks sheet | `ROOM_JID` |
 | `ducko-leave-room.sh` | Leave a room via context menu | `ROOM_JID` |
 | `ducko-retract.sh` | Retract a message via context menu | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
+| `ducko-moderate.sh` | Moderate (remove) a message via context menu | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
 | `ducko-encrypt.sh` | Open encryption menu, optionally toggle or open fingerprints | `[on\|off\|fingerprints]` (optional) |
 | `ducko-device-trust.sh` | Trust/untrust/verify an OMEMO device | `DEVICE_ID ACTION` (`ACTION`: trust\|untrust\|verify) |
 | `ducko-attach.sh` | Attach a file via the attachment button in chat | `FILE_PATH` |

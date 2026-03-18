@@ -29,6 +29,13 @@ final class ChatWindowState {
         conversation?.type == .groupchat
     }
 
+    var myRoomRole: RoomRole? {
+        guard isGroupchat,
+              let nickname = conversation?.roomNickname else { return nil }
+        let participants = environment.chatService.roomParticipants[jidString] ?? []
+        return participants.first { $0.nickname == nickname }?.role
+    }
+
     // MARK: - Infinite Scroll
 
     var isLoadingOlder = false
@@ -175,6 +182,22 @@ final class ChatWindowState {
             await refreshMessages()
         } catch {
             log.warning("Failed to retract message: \(error)")
+        }
+    }
+
+    // MARK: - Moderation
+
+    func moderateMessage(_ message: ChatMessage, reason: String?) async {
+        guard let accountID = environment.accountService.accounts.first?.id,
+              let serverID = message.serverID else { return }
+
+        do {
+            try await environment.chatService.moderateMessage(
+                serverID: serverID, inRoomJIDString: jidString, reason: reason, accountID: accountID
+            )
+            await refreshMessages()
+        } catch {
+            log.warning("Failed to moderate message: \(error)")
         }
     }
 
