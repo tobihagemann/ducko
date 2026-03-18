@@ -106,6 +106,7 @@ public final class AccountService {
         passwords[accountID] = nil
         smResumeStates[accountID] = nil
         redirectCounts[accountID] = nil
+        certificateWarnings[accountID] = nil
         smModules[accountID] = nil
         eventTasks[accountID]?.cancel()
         eventTasks[accountID] = nil

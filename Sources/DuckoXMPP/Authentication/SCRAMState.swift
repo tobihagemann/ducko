@@ -12,8 +12,8 @@ enum ChannelBindingMode {
 
 /// Generic SCRAM state machine per RFC 5802.
 ///
-/// Parameterized over a hash function (`SHA256`, `Insecure.SHA1`) so that
-/// `SCRAMSHA256` and `SCRAMSHA1` are thin wrappers.
+/// Parameterized over a hash function (`SHA256`, `Insecure.SHA1`).
+/// Used by ``SCRAM`` (SASL1 wrapper) and directly by ``SASL2Authenticator``.
 struct SCRAMState<H: HashFunction> where H.Digest: Sendable {
     private var phase: Phase = .initial
     private var authcid = ""

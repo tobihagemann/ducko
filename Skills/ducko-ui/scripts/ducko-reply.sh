@@ -18,23 +18,7 @@ on run argv
         tell process "DuckoApp"
             $(ducko_as_find_window_by_id "message-field" "no chat window found" "chatWin")
 
-            -- Collect message text elements
-            set allElems to entire contents of chatWin
-            set targetElem to missing value
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXStaticText" then
-                        set elemVal to value of elem
-                        if searchText is "" then
-                            set targetElem to elem
-                        else if elemVal contains searchText then
-                            set targetElem to elem
-                            exit repeat
-                        end if
-                    end if
-                end try
-            end repeat
-            if targetElem is missing value then return "ERROR: no matching message found"
+            $(ducko_as_find_message_by_text "searchText" "chatWin")
 
             $(ducko_as_click_context_menu_item "Reply" 'targetElem' 'chatWin')
         end tell

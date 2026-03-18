@@ -154,28 +154,28 @@ struct SASL2Authenticator {
         channelBindingData: [UInt8]?
     ) -> (ActiveMechanism, String) {
         switch name {
-        case SCRAMSHA256PLUS.mechanismName:
+        case SCRAMMechanismName.sha256Plus:
             var scram = SCRAMState<SHA256>(
                 channelBindingMode: .bound(type: tlsServerEndPointCBType, data: channelBindingData!)
             )
             let payload = scram.clientFirstMessage(authcid: authcid, password: password)
-            return (.scramSHA256Plus(scram), payload)
-        case SCRAMSHA256.mechanismName:
+            return (.scram256(scram), payload)
+        case SCRAMMechanismName.sha256:
             let cbMode: ChannelBindingMode = channelBindingData != nil ? .clientSupportsButNotUsed : .none
             var scram = SCRAMState<SHA256>(channelBindingMode: cbMode)
             let payload = scram.clientFirstMessage(authcid: authcid, password: password)
-            return (.scramSHA256(scram), payload)
-        case SCRAMSHA1PLUS.mechanismName:
+            return (.scram256(scram), payload)
+        case SCRAMMechanismName.sha1Plus:
             var scram = SCRAMState<Insecure.SHA1>(
                 channelBindingMode: .bound(type: tlsServerEndPointCBType, data: channelBindingData!)
             )
             let payload = scram.clientFirstMessage(authcid: authcid, password: password)
-            return (.scramSHA1Plus(scram), payload)
-        case SCRAMSHA1.mechanismName:
+            return (.scram1(scram), payload)
+        case SCRAMMechanismName.sha1:
             let cbMode: ChannelBindingMode = channelBindingData != nil ? .clientSupportsButNotUsed : .none
             var scram = SCRAMState<Insecure.SHA1>(channelBindingMode: cbMode)
             let payload = scram.clientFirstMessage(authcid: authcid, password: password)
-            return (.scramSHA1(scram), payload)
+            return (.scram1(scram), payload)
         case SASLExternal.mechanismName:
             return (.external, "")
         case SASLPlain.mechanismName:
@@ -193,21 +193,13 @@ struct SASL2Authenticator {
         }
 
         switch mechanism {
-        case var .scramSHA256Plus(scram):
+        case var .scram256(scram):
             let response = scramChallengeResponse(decoded, scram: &scram)
-            mechanism = .scramSHA256Plus(scram)
+            mechanism = .scram256(scram)
             return response
-        case var .scramSHA256(scram):
+        case var .scram1(scram):
             let response = scramChallengeResponse(decoded, scram: &scram)
-            mechanism = .scramSHA256(scram)
-            return response
-        case var .scramSHA1Plus(scram):
-            let response = scramChallengeResponse(decoded, scram: &scram)
-            mechanism = .scramSHA1Plus(scram)
-            return response
-        case var .scramSHA1(scram):
-            let response = scramChallengeResponse(decoded, scram: &scram)
-            mechanism = .scramSHA1(scram)
+            mechanism = .scram1(scram)
             return response
         case .external:
             return .failure(.invalidState("EXTERNAL does not expect challenges"))
@@ -219,18 +211,12 @@ struct SASL2Authenticator {
     private func handleSuccess(_ stanza: XMLElement, mechanism: inout ActiveMechanism) -> Response {
         // Verify SCRAM server signature from <additional-data> (required for SCRAM mechanisms)
         switch mechanism {
-        case var .scramSHA256Plus(scram):
+        case var .scram256(scram):
             if let error = verifyScramSignature(stanza, scram: &scram) { return error }
-            mechanism = .scramSHA256Plus(scram)
-        case var .scramSHA256(scram):
+            mechanism = .scram256(scram)
+        case var .scram1(scram):
             if let error = verifyScramSignature(stanza, scram: &scram) { return error }
-            mechanism = .scramSHA256(scram)
-        case var .scramSHA1Plus(scram):
-            if let error = verifyScramSignature(stanza, scram: &scram) { return error }
-            mechanism = .scramSHA1Plus(scram)
-        case var .scramSHA1(scram):
-            if let error = verifyScramSignature(stanza, scram: &scram) { return error }
-            mechanism = .scramSHA1(scram)
+            mechanism = .scram1(scram)
         case .external, .plain:
             break
         }
@@ -298,10 +284,8 @@ struct SASL2Authenticator {
     // MARK: - Active Mechanism
 
     private enum ActiveMechanism {
-        case scramSHA256Plus(SCRAMState<SHA256>)
-        case scramSHA256(SCRAMState<SHA256>)
-        case scramSHA1Plus(SCRAMState<Insecure.SHA1>)
-        case scramSHA1(SCRAMState<Insecure.SHA1>)
+        case scram256(SCRAMState<SHA256>)
+        case scram1(SCRAMState<Insecure.SHA1>)
         case external
         case plain
     }

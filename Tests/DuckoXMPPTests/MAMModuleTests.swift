@@ -72,7 +72,7 @@ enum MAMModuleTests {
                 )
             }
 
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 1)
 
             let mam = try #require(await findMAMIQ(mock: mock))
             #expect(mam.iq.contains("contact@example.com"))
@@ -129,7 +129,7 @@ enum MAMModuleTests {
 
             await mock.clearSentBytes()
             let queryTask = Task { try await module.queryMessages() }
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 1)
 
             let mam = try #require(await findMAMIQ(mock: mock))
             await simulateMAMResults(mock: mock, queryID: mam.queryID)
@@ -154,7 +154,7 @@ enum MAMModuleTests {
 
             await mock.clearSentBytes()
             let queryTask = Task { try await module.queryMessages() }
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 1)
 
             let mam = try #require(await findMAMIQ(mock: mock))
             await sendEmptyFin(mock: mock, iqID: mam.iqID)
@@ -185,7 +185,7 @@ enum MAMModuleTests {
 
             await mock.clearSentBytes()
             let queryTask = Task { try await module.queryMessages() }
-            try? await Task.sleep(for: .milliseconds(100))
+            await mock.waitForSent(count: 1)
 
             let mam = try #require(await findMAMIQ(mock: mock))
             await sendEmptyFin(mock: mock, iqID: mam.iqID)
@@ -357,8 +357,6 @@ private func simulateMAMResults(mock: MockTransport, queryID: String) async {
     </result>\
     </message>
     """)
-
-    try? await Task.sleep(for: .milliseconds(100))
 }
 
 private func sendFinWithRSM(mock: MockTransport, iqID: String) async {

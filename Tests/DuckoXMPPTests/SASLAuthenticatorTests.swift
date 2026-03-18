@@ -1,3 +1,4 @@
+import CryptoKit
 import Testing
 @testable import DuckoXMPP
 
@@ -287,9 +288,11 @@ enum SASLAuthenticatorTests {
         @Test
         func `Full SCRAM-SHA-256 flow through authenticator`() {
             let clientNonce = "rOprNGfwEbeRWgbNEkqO"
-            var mech = SCRAMSHA256(nonceGenerator: { clientNonce })
+            var mech = SCRAM<SHA256>(
+                mechanismName: SCRAMMechanismName.sha256, nonceGenerator: { clientNonce }
+            )
             let authElement = mech.start(authcid: "user", password: "pencil")
-            var auth = SASLAuthenticator(mechanism: .scramSHA256(mech))
+            var auth = SASLAuthenticator(mechanism: .scram256(mech))
 
             #expect(authElement.name == "auth")
 

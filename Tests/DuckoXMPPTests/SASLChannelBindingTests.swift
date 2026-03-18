@@ -132,7 +132,8 @@ enum SCRAMPLUSTests {
 
         @Test
         func `Start produces correct auth element`() throws {
-            var mechanism = SCRAMSHA256PLUS(
+            var mechanism = SCRAM<SHA256>(
+                mechanismName: SCRAMMechanismName.sha256Plus,
                 channelBindingData: Self.mockCBData,
                 nonceGenerator: { Self.clientNonce }
             )
@@ -155,7 +156,8 @@ enum SCRAMPLUSTests {
 
         @Test
         func `Start produces correct auth element`() throws {
-            var mechanism = SCRAMSHA1PLUS(
+            var mechanism = SCRAM<Insecure.SHA1>(
+                mechanismName: SCRAMMechanismName.sha1Plus,
                 channelBindingData: Self.mockCBData,
                 nonceGenerator: { Self.clientNonce }
             )

@@ -32,10 +32,10 @@ func buildSASLPreferenceOrder(
 ) -> [String] {
     var order: [String] = []
     if hasClientCertificate { order.append(SASLExternal.mechanismName) }
-    if channelBindingData != nil { order.append(SCRAMSHA256PLUS.mechanismName) }
-    order.append(SCRAMSHA256.mechanismName)
-    if channelBindingData != nil { order.append(SCRAMSHA1PLUS.mechanismName) }
-    order.append(SCRAMSHA1.mechanismName)
+    if channelBindingData != nil { order.append(SCRAMMechanismName.sha256Plus) }
+    order.append(SCRAMMechanismName.sha256)
+    if channelBindingData != nil { order.append(SCRAMMechanismName.sha1Plus) }
+    order.append(SCRAMMechanismName.sha1)
     order.append(SASLPlain.mechanismName)
     return order
 }

@@ -68,6 +68,35 @@ ducko_as_click_element_by_id() {
     echo "            click clickTarget"
 }
 
+# Find a message by text content within a window variable.
+# Searches AXStaticText elements. If search_text_var is empty, selects the last match.
+# Sets the AppleScript variable $var_name (default: targetElem).
+# Args: search_text_var [window_var] [error_msg] [var_name]
+ducko_as_find_message_by_text() {
+    local search_text_var="$1"
+    local window_var="${2:-chatWin}"
+    local error_msg="${3:-no matching message found}"
+    local var_name="${4:-targetElem}"
+    cat << EOF
+            set allElems to entire contents of ${window_var}
+            set ${var_name} to missing value
+            repeat with elem in allElems
+                try
+                    if role of elem is "AXStaticText" then
+                        set elemVal to value of elem
+                        if ${search_text_var} is "" then
+                            set ${var_name} to elem
+                        else if elemVal contains ${search_text_var} then
+                            set ${var_name} to elem
+                            exit repeat
+                        end if
+                    end if
+                end try
+            end repeat
+            if ${var_name} is missing value then return "ERROR: ${error_msg}"
+EOF
+}
+
 # Right-click an element and select a named menu item.
 # Args: menu_item_name source_var [window_var] [error_msg]
 ducko_as_click_context_menu_item() {
