@@ -15,6 +15,7 @@ extension AccountRecord {
             resource: resource,
             requireTLS: requireTLS,
             rosterVersion: rosterVersion,
+            certificateFingerprint: certificateFingerprint,
             createdAt: createdAt
         )
     }
@@ -29,5 +30,6 @@ extension AccountRecord {
         resource = account.resource
         requireTLS = account.requireTLS
         rosterVersion = account.rosterVersion
+        certificateFingerprint = account.certificateFingerprint
     }
 }

@@ -64,6 +64,7 @@ public enum DisconnectReason: Sendable {
     case requested
     case streamError(XMPPStreamError?, text: String?)
     case connectionLost(String)
+    case redirect(host: String, port: UInt16?)
 }
 
 /// Reason for MUC self-ping failure per XEP-0410.

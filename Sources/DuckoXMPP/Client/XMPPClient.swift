@@ -58,8 +58,15 @@ public actor XMPPClient {
     // MARK: - Init
 
     private let requireTLS: Bool
+    private let preferredResource: String?
 
-    public init(domain: String, credentials: Credentials, transport: (any XMPPTransport)? = nil, requireTLS: Bool = true) {
+    public init(
+        domain: String,
+        credentials: Credentials,
+        transport: (any XMPPTransport)? = nil,
+        requireTLS: Bool = true,
+        preferredResource: String? = nil
+    ) {
         let (stream, continuation) = AsyncStream.makeStream(of: XMPPEvent.self)
         self.events = stream
         self.eventContinuation = continuation
@@ -67,6 +74,7 @@ public actor XMPPClient {
         self.credentials = credentials
         self.connection = XMPPConnection(transport: transport ?? POSIXTransport())
         self.requireTLS = requireTLS
+        self.preferredResource = preferredResource
     }
 
     // MARK: - Module Registration
@@ -456,6 +464,7 @@ public actor XMPPClient {
             let hasSM = modules[ObjectIdentifier(StreamManagementModule.self)] != nil
             let hasCarbons = modules[ObjectIdentifier(CarbonsModule.self)] != nil
             inlinePayloads.append(buildBind2Request(
+                tag: preferredResource ?? "Ducko",
                 enableSM: hasSM && sasl2Features.supportsSM,
                 enableCarbons: hasCarbons
             ))
@@ -516,7 +525,12 @@ public actor XMPPClient {
 
     private func bindResource(reader: EventReader) async throws -> FullJID {
         var bindIQ = XMPPIQ(type: .set, id: generateID())
-        let bindChild = XMLElement(name: "bind", namespace: XMPPNamespaces.bind)
+        var bindChild = XMLElement(name: "bind", namespace: XMPPNamespaces.bind)
+        if let resource = preferredResource, !resource.isEmpty {
+            var resourceElement = XMLElement(name: "resource")
+            resourceElement.addText(resource)
+            bindChild.addChild(resourceElement)
+        }
         bindIQ.element.addChild(bindChild)
 
         try await connection.send(XMPPStreamWriter.stanza(bindIQ.element))
@@ -583,6 +597,13 @@ public actor XMPPClient {
         // Stream errors arrive at depth 1 as <error> within the stream namespace.
         if element.name == "error" {
             let condition = XMPPStreamError.parse(from: element)
+
+            // Handle see-other-host redirect (RFC 6120 §4.9.3.19)
+            if condition == .seeOtherHost, let (host, port) = parseSeeOtherHost(from: element) {
+                Task { await cleanUp(reason: .redirect(host: host, port: port)) }
+                return
+            }
+
             let text = element.children.compactMap({ node -> String? in
                 guard case let .element(child) = node,
                       child.name == "text",
@@ -606,6 +627,27 @@ public actor XMPPClient {
         default:
             break
         }
+    }
+
+    /// Extracts host and optional port from a `<see-other-host>` stream error element.
+    private func parseSeeOtherHost(from element: XMLElement) -> (String, UInt16?)? {
+        guard let value = element.child(named: "see-other-host", namespace: XMPPNamespaces.streams)?.textContent,
+              !value.isEmpty else { return nil }
+        // IPv6: [host]:port
+        if value.hasPrefix("["), let closeBracket = value.firstIndex(of: "]") {
+            let host = String(value[value.index(after: value.startIndex) ..< closeBracket])
+            let afterBracket = value.index(after: closeBracket)
+            if afterBracket < value.endIndex, value[afterBracket] == ":",
+               let port = UInt16(value[value.index(after: afterBracket)...]) {
+                return (host, port)
+            }
+            return (host, nil)
+        }
+        // host:port or host
+        let parts = value.split(separator: ":", maxSplits: 1)
+        let host = String(parts[0])
+        let port = parts.count > 1 ? UInt16(parts[1]) : nil
+        return (host, port)
     }
 
     private func dispatchMessage(_ element: XMLElement) {

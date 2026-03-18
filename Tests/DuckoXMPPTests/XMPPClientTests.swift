@@ -431,6 +431,122 @@ enum XMPPClientTests {
         }
     }
 
+    struct SeeOtherHost {
+        @Test
+        func `Stream error see-other-host emits redirect with host and port`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .disconnected = event { return true }
+                    return false
+                }
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+            await mock.simulateReceive("""
+            <error>\
+            <see-other-host xmlns='urn:ietf:params:xml:ns:xmpp-streams'>other.example.com:5222</see-other-host>\
+            </error>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .disconnected(reason) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected disconnected event")
+            }
+            guard case let .redirect(host, port) = reason else {
+                throw XMPPClientError.unexpectedStreamState("Expected redirect reason, got \(reason)")
+            }
+            #expect(host == "other.example.com")
+            #expect(port == 5222)
+        }
+
+        @Test
+        func `See-other-host without port`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .disconnected = event { return true }
+                    return false
+                }
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+            await mock.simulateReceive("""
+            <error>\
+            <see-other-host xmlns='urn:ietf:params:xml:ns:xmpp-streams'>other.example.com</see-other-host>\
+            </error>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .disconnected(reason) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected disconnected event")
+            }
+            guard case let .redirect(host, port) = reason else {
+                throw XMPPClientError.unexpectedStreamState("Expected redirect reason, got \(reason)")
+            }
+            #expect(host == "other.example.com")
+            #expect(port == nil)
+        }
+
+        @Test
+        func `IPv6 see-other-host with port`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .disconnected = event { return true }
+                    return false
+                }
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+            await mock.simulateReceive("""
+            <error>\
+            <see-other-host xmlns='urn:ietf:params:xml:ns:xmpp-streams'>[::1]:5222</see-other-host>\
+            </error>
+            """)
+
+            let events = try await eventsTask.value
+            guard case let .disconnected(reason) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected disconnected event")
+            }
+            guard case let .redirect(host, port) = reason else {
+                throw XMPPClientError.unexpectedStreamState("Expected redirect reason, got \(reason)")
+            }
+            #expect(host == "::1")
+            #expect(port == 5222)
+        }
+    }
+
     struct Builder {
         @Test
         func `Builder creates client with modules`() async {
@@ -442,6 +558,51 @@ enum XMPPClientTests {
 
             let chatModule = await client.module(ofType: ChatModule.self)
             #expect(chatModule != nil)
+
+            await client.disconnect()
+        }
+    }
+
+    struct ResourceBinding {
+        @Test
+        func `Bind IQ includes resource when preferredResource is set`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false,
+                preferredResource: "myphone"
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
+            #expect(bindIQ?.contains("<resource>myphone</resource>") == true)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Bind IQ omits resource when preferredResource is nil`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
+            #expect(bindIQ?.contains("<resource>") != true)
 
             await client.disconnect()
         }

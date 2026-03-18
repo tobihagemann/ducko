@@ -448,6 +448,9 @@ struct ANSIFormatter: CLIFormatter {
             return "\(Color.red)disconnected: stream error: \(detail)\(Color.reset)"
         case let .connectionLost(message):
             return "\(Color.red)disconnected: connection lost: \(message)\(Color.reset)"
+        case let .redirect(host, port):
+            let target = port.map { "\(host):\($0)" } ?? host
+            return "\(Color.yellow)redirected to \(target)\(Color.reset)"
         }
     }
 

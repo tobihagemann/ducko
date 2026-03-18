@@ -372,6 +372,9 @@ struct PlainFormatter: CLIFormatter {
             return "disconnected: stream error: \(detail)"
         case let .connectionLost(message):
             return "disconnected: connection lost: \(message)"
+        case let .redirect(host, port):
+            let target = port.map { "\(host):\($0)" } ?? host
+            return "redirected to \(target)"
         }
     }
 

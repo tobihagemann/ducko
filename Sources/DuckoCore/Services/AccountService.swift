@@ -7,6 +7,13 @@ public final class AccountService {
 
     public private(set) var accounts: [Account] = []
     public private(set) var connectionStates: [UUID: ConnectionState] = [:]
+    public private(set) var certificateWarnings: [UUID: CertificateWarning] = [:]
+
+    public struct CertificateWarning: Sendable {
+        public let accountJID: String
+        public let previousFingerprint: String
+        public let newFingerprint: String
+    }
 
     // MARK: - Internal
 
@@ -19,6 +26,7 @@ public final class AccountService {
     private var eventTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectAttempts: [UUID: Int] = [:]
+    private var redirectCounts: [UUID: Int] = [:]
     private weak var omemoService: OMEMOService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
 
@@ -97,6 +105,7 @@ public final class AccountService {
         cancelReconnect(for: accountID, resetAttempts: true)
         passwords[accountID] = nil
         smResumeStates[accountID] = nil
+        redirectCounts[accountID] = nil
         smModules[accountID] = nil
         eventTasks[accountID]?.cancel()
         eventTasks[accountID] = nil
@@ -267,9 +276,16 @@ public final class AccountService {
         clients[accountID]?.tlsInfo
     }
 
+    /// Dismisses a certificate-change warning for the given account.
+    public func dismissCertificateWarning(for accountID: UUID) {
+        certificateWarnings[accountID] = nil
+    }
+
     // MARK: - Private: Connection
 
     private func performConnect(accountID: UUID) async throws {
+        redirectCounts[accountID] = nil
+
         let account: Account
         if let existing = accounts.first(where: { $0.id == accountID }) {
             account = existing
@@ -318,6 +334,7 @@ public final class AccountService {
             password: passwords[account.id] ?? ""
         )
         builder.withRequireTLS(account.requireTLS)
+        builder.withPreferredResource(account.resource)
         let rosterModule = RosterModule()
         let rosterVersion = account.rosterVersion
         rosterModule.setRosterVersionProvider { rosterVersion }
@@ -374,25 +391,10 @@ public final class AccountService {
         case let .connected(jid), let .streamResumed(jid):
             connectionStates[accountID] = .connected(jid)
             reconnectAttempts[accountID] = 0
+            redirectCounts[accountID] = nil
+            checkCertificateFingerprint(accountID: accountID)
         case let .disconnected(reason):
-            switch reason {
-            case .requested:
-                smResumeStates[accountID] = nil
-                connectionStates[accountID] = .disconnected
-            case let .streamError(condition, text):
-                smResumeStates[accountID] = smModules[accountID]?.resumeState
-                let message = text ?? condition?.rawValue ?? "Stream error"
-                connectionStates[accountID] = .error(message)
-                scheduleReconnect(accountID: accountID)
-            case let .connectionLost(message):
-                smResumeStates[accountID] = smModules[accountID]?.resumeState
-                connectionStates[accountID] = .error(message)
-                scheduleReconnect(accountID: accountID)
-            }
-            smModules[accountID] = nil
-            clients[accountID] = nil
-            eventTasks[accountID]?.cancel()
-            eventTasks[accountID] = nil
+            handleDisconnect(reason, accountID: accountID)
         case let .authenticationFailed(message):
             connectionStates[accountID] = .error(message)
         case .messageReceived, .presenceReceived, .iqReceived,
@@ -418,6 +420,66 @@ public final class AccountService {
         onEvent?(event, accountID)
     }
 
+    // MARK: - Private: Disconnect Handling
+
+    private func handleDisconnect(_ reason: DisconnectReason, accountID: UUID) {
+        switch reason {
+        case .requested:
+            smResumeStates[accountID] = nil
+            redirectCounts[accountID] = nil
+            connectionStates[accountID] = .disconnected
+        case let .streamError(condition, text):
+            smResumeStates[accountID] = smModules[accountID]?.resumeState
+            let message = text ?? condition?.rawValue ?? "Stream error"
+            connectionStates[accountID] = .error(message)
+            scheduleReconnect(accountID: accountID)
+        case let .connectionLost(message):
+            smResumeStates[accountID] = smModules[accountID]?.resumeState
+            connectionStates[accountID] = .error(message)
+            scheduleReconnect(accountID: accountID)
+        case let .redirect(host, port):
+            let count = (redirectCounts[accountID] ?? 0) + 1
+            if count > 3 {
+                redirectCounts[accountID] = nil
+                connectionStates[accountID] = .error("Too many redirects")
+            } else {
+                redirectCounts[accountID] = count
+                redirectToHost(host: host, port: port, accountID: accountID)
+            }
+        }
+        smModules[accountID] = nil
+        clients[accountID] = nil
+        eventTasks[accountID]?.cancel()
+        eventTasks[accountID] = nil
+    }
+
+    // MARK: - Private: Certificate Fingerprint
+
+    private func checkCertificateFingerprint(accountID: UUID) {
+        guard let client = clients[accountID],
+              let currentFingerprint = client.tlsInfo?.certificateSHA256,
+              var account = accounts.first(where: { $0.id == accountID })
+        else { return }
+
+        let previousFingerprint = account.certificateFingerprint
+
+        if let previous = previousFingerprint, previous != currentFingerprint {
+            certificateWarnings[accountID] = CertificateWarning(
+                accountJID: account.jid.description,
+                previousFingerprint: previous,
+                newFingerprint: currentFingerprint
+            )
+        }
+
+        if previousFingerprint != currentFingerprint {
+            account.certificateFingerprint = currentFingerprint
+            Task {
+                try? await store.saveAccount(account)
+                try? await loadAccounts()
+            }
+        }
+    }
+
     // MARK: - Private: Reconnection
 
     private func cancelReconnect(for accountID: UUID, resetAttempts: Bool) {
@@ -425,6 +487,29 @@ public final class AccountService {
         reconnectTasks[accountID] = nil
         if resetAttempts {
             reconnectAttempts[accountID] = 0
+        }
+    }
+
+    private func redirectToHost(host: String, port: UInt16?, accountID: UUID) {
+        // Clean up old client before creating replacement
+        smModules[accountID] = nil
+        clients[accountID] = nil
+        eventTasks[accountID]?.cancel()
+        eventTasks[accountID] = nil
+
+        connectionStates[accountID] = .connecting
+        reconnectTasks[accountID] = Task { [weak self] in
+            guard !Task.isCancelled, let self else { return }
+            guard let account = accounts.first(where: { $0.id == accountID }) else { return }
+            let (client, sm) = await buildClient(account: account, previousSMState: nil)
+            clients[accountID] = client
+            smModules[accountID] = sm
+            startEventConsumption(for: accountID, client: client)
+            do {
+                try await client.connect(host: host, port: port ?? 5222)
+            } catch {
+                connectionStates[accountID] = .error(error.localizedDescription)
+            }
         }
     }
 

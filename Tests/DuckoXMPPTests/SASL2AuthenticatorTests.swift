@@ -299,6 +299,12 @@ enum SASL2AuthenticatorTests {
         }
 
         @Test
+        func `Uses custom tag when provided`() {
+            let bind = buildBind2Request(tag: "laptop")
+            #expect(bind.childText(named: "tag") == "laptop")
+        }
+
+        @Test
         func `Omits SM and carbons when not requested`() {
             let bind = buildBind2Request(enableSM: false, enableCarbons: false)
             #expect(bind.child(named: "enable", namespace: XMPPNamespaces.sm) == nil)

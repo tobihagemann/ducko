@@ -275,6 +275,10 @@ struct JSONFormatter: CLIFormatter {
         case let .connectionLost(message):
             dict["reason"] = "connection_lost"
             dict["message"] = message
+        case let .redirect(host, port):
+            dict["reason"] = "redirect"
+            dict["host"] = host
+            if let port { dict["port"] = "\(port)" }
         }
         return encode(dict)
     }

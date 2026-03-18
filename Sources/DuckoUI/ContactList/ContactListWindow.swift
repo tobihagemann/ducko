@@ -128,5 +128,22 @@ struct ContactListWindow: View {
         .sheet(isPresented: $isShowingProfile) {
             ProfileEditView()
         }
+        .alert(
+            "Certificate Changed",
+            isPresented: Binding(
+                get: { !environment.accountService.certificateWarnings.isEmpty },
+                set: { newValue in
+                    if !newValue, let id = environment.accountService.certificateWarnings.keys.first {
+                        environment.accountService.dismissCertificateWarning(for: id)
+                    }
+                }
+            )
+        ) {
+            Button("Dismiss", role: .cancel) {}
+        } message: {
+            if let warning = environment.accountService.certificateWarnings.values.first {
+                Text("The TLS certificate for \(warning.accountJID) has changed.\n\nPrevious: \(warning.previousFingerprint)\nNew: \(warning.newFingerprint)")
+            }
+        }
     }
 }

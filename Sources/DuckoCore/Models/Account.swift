@@ -12,6 +12,7 @@ public struct Account: Sendable, Identifiable {
     public var resource: String?
     public var requireTLS: Bool
     public var rosterVersion: String?
+    public var certificateFingerprint: String?
     public var createdAt: Date
 
     public init(
@@ -25,6 +26,7 @@ public struct Account: Sendable, Identifiable {
         resource: String? = nil,
         requireTLS: Bool = true,
         rosterVersion: String? = nil,
+        certificateFingerprint: String? = nil,
         createdAt: Date
     ) {
         self.id = id
@@ -37,6 +39,7 @@ public struct Account: Sendable, Identifiable {
         self.resource = resource
         self.requireTLS = requireTLS
         self.rosterVersion = rosterVersion
+        self.certificateFingerprint = certificateFingerprint
         self.createdAt = createdAt
     }
 }
