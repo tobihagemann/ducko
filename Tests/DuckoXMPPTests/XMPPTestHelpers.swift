@@ -140,6 +140,88 @@ func simulateSASL2Connect(_ mock: MockTransport) async {
     await mock.simulateReceive(testPostSASL2Features)
 }
 
+// MARK: - ISR Constants
+
+/// SASL2 features with ISR support in inline.
+let testFeaturesSASL2WithISR = """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<authentication xmlns='urn:xmpp:sasl:2'>\
+<mechanism>PLAIN</mechanism>\
+<inline>\
+<bind xmlns='urn:xmpp:bind:0'/>\
+<sm xmlns='urn:xmpp:sm:3'/>\
+<isr xmlns='https://xmpp.org/extensions/isr/0'/>\
+</inline>\
+</authentication>\
+</features>
+"""
+
+/// SASL2 success with Bind 2, inline SM enabled, and ISR token.
+let testSASL2SuccessWithBindAndISR = """
+<success xmlns='urn:xmpp:sasl:2'>\
+<authorization-identifier>user@example.com/ducko</authorization-identifier>\
+<bound xmlns='urn:xmpp:bind:0'>\
+<enabled xmlns='urn:xmpp:sm:3' id='sm-resume-1' max='300'>\
+<isr-enabled xmlns='https://xmpp.org/extensions/isr/0' token='initial-isr-token' mechanism='HT-SHA-256-ENDP'/>\
+</enabled>\
+</bound>\
+</success>
+"""
+
+/// ISR success: contains `<resumed>` instead of `<bound>`, plus refreshed token.
+let testISRSuccess = """
+<success xmlns='urn:xmpp:sasl:2'>\
+<authorization-identifier>user@example.com/ducko</authorization-identifier>\
+<resumed xmlns='urn:xmpp:sm:3' h='0' previd='sm-resume-1'/>\
+<isr-enabled xmlns='https://xmpp.org/extensions/isr/0' token='refreshed-token' mechanism='HT-SHA-256-ENDP'/>\
+</success>
+"""
+
+/// ISR failure (token expired).
+let testISRFailure = """
+<failure xmlns='urn:xmpp:sasl:2'>\
+<credentials-expired/>\
+</failure>
+"""
+
+/// Simulates a SASL2 + Bind 2 connect that acquires an ISR token.
+func simulateSASL2ConnectWithISR(_ mock: MockTransport) async {
+    await mock.waitForSent(count: 1) // stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesSASL2WithISR)
+    await mock.waitForSent(count: 2) // <authenticate> with inline bind2 sent
+    await mock.simulateReceive(testSASL2SuccessWithBindAndISR)
+    await mock.waitForSent(count: 3) // post-auth stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testPostSASL2Features)
+}
+
+/// Simulates an ISR resume connect (server responds with ISR success).
+func simulateISRResumeConnect(_ mock: MockTransport) async {
+    await mock.waitForSent(count: 1) // stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesSASL2WithISR)
+    await mock.waitForSent(count: 2) // ISR <authenticate> sent
+    await mock.simulateReceive(testISRSuccess)
+    await mock.waitForSent(count: 3) // post-auth stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testPostSASL2Features)
+}
+
+/// Simulates ISR failure followed by normal SASL2 fallback.
+func simulateISRFailAndFallback(_ mock: MockTransport) async {
+    await mock.waitForSent(count: 1) // stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testFeaturesSASL2WithISR)
+    await mock.waitForSent(count: 2) // ISR <authenticate> sent
+    await mock.simulateReceive(testISRFailure)
+    await mock.waitForSent(count: 3) // normal SASL2 <authenticate> sent
+    await mock.simulateReceive(testSASL2SuccessWithBind)
+    await mock.waitForSent(count: 4) // post-auth stream opening sent
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(testPostSASL2Features)
+}
+
 // MARK: - IQ ID Extraction
 
 /// Extracts the IQ `id` attribute value from a raw XML string.

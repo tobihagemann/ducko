@@ -242,6 +242,7 @@ struct SASL2Authenticator {
 func buildBind2Request(
     tag: String = "Ducko",
     enableSM: Bool = false,
+    enableISR: Bool = false,
     enableCarbons: Bool = false
 ) -> XMLElement {
     var bind = XMLElement(name: "bind", namespace: XMPPNamespaces.bind2)
@@ -251,11 +252,19 @@ func buildBind2Request(
     bind.addChild(tagElement)
 
     if enableSM {
-        bind.addChild(XMLElement(
+        var smEnable = XMLElement(
             name: "enable",
             namespace: XMPPNamespaces.sm,
             attributes: ["resume": "true"]
-        ))
+        )
+        if enableISR {
+            smEnable.addChild(XMLElement(
+                name: "isr-enable",
+                namespace: XMPPNamespaces.isr,
+                attributes: ["mechanism": XMPPNamespaces.isrMechanism]
+            ))
+        }
+        bind.addChild(smEnable)
     }
 
     if enableCarbons {

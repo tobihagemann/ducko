@@ -239,6 +239,22 @@ public actor XMPPClient {
         reader: EventReader
     ) async throws -> Bool {
         state = .authenticating
+
+        // Attempt ISR if token is available and server supports it
+        if sasl2Features.supportsISR,
+           let sm = modules[ObjectIdentifier(StreamManagementModule.self)] as? StreamManagementModule,
+           sm.hasISRToken {
+            if try await attemptISRResume(sm: sm, reader: reader) {
+                // Post-auth stream reset (required by SASL2 spec after <success>)
+                await connection.resetStream()
+                try await openStream()
+                let postAuthFeatures = try await reader.awaitFeatures()
+                serverFeaturesLock.withLock { $0 = postAuthFeatures }
+                return true
+            }
+            // ISR failed — SASL2 allows re-authentication, fall through to normal auth
+        }
+
         let requestedCarbons = sasl2Features.supportsBind2
             && modules[ObjectIdentifier(CarbonsModule.self)] != nil
         let authResult = try await authenticateSASL2(features: features, sasl2Features: sasl2Features, reader: reader)
@@ -414,6 +430,66 @@ public actor XMPPClient {
         }
     }
 
+    // MARK: - Private: ISR (Instant Stream Resumption)
+
+    /// Attempts ISR (Instant Stream Resumption) via SASL2. Returns `true` if resumed.
+    private func attemptISRResume(sm: StreamManagementModule, reader: EventReader) async throws -> Bool {
+        guard let token = sm.isrToken else { return false }
+
+        let resumeElement = sm.buildResumeElement()
+        let isrAuth = buildISRAuthenticate(token: token, smResumeElement: resumeElement)
+        try await connection.send(XMPPStreamWriter.stanza(isrAuth))
+
+        let response = try await reader.awaitStanza()
+
+        if response.name == "success", response.namespace == XMPPNamespaces.sasl2 {
+            return try await processISRSuccess(response, sm: sm)
+        }
+
+        if response.name == "failure", response.namespace == XMPPNamespaces.sasl2 {
+            log.info("ISR failed, falling back to normal SASL2 auth")
+            sm.resetResumption()
+            return false
+        }
+
+        let name = response.name
+        log.warning("Unexpected ISR response: \(name)")
+        sm.resetResumption()
+        return false
+    }
+
+    /// Processes an ISR `<success>` response containing `<resumed>` and optional refreshed token.
+    private func processISRSuccess(_ success: XMLElement, sm: StreamManagementModule) async throws -> Bool {
+        guard let resumed = success.child(named: "resumed", namespace: XMPPNamespaces.sm) else {
+            log.warning("ISR success without <resumed>")
+            sm.resetResumption()
+            return false
+        }
+
+        let result = sm.processResumeResponse(resumed)
+
+        switch result {
+        case let .resumed(jid, retransmitQueue):
+            // Extract refreshed ISR token if present
+            if let isrEnabled = success.child(named: "isr-enabled", namespace: XMPPNamespaces.isr) {
+                sm.updateISRToken(isrEnabled.attribute("token"))
+            }
+
+            for stanza in retransmitQueue {
+                try await connection.send(XMPPStreamWriter.stanza(stanza))
+            }
+            log.notice("ISR resumed as \(jid)")
+            connectedJIDLock.withLock { $0 = jid }
+            state = .connected(jid)
+            eventContinuation.yield(.streamResumed(jid))
+            return true
+        case .failed:
+            // processResumeResponse already calls resetResumption() on failure
+            log.info("ISR resumed element processing failed")
+            return false
+        }
+    }
+
     // MARK: - Private: Authentication
 
     private func authenticate(features: XMLElement, reader: EventReader) async throws {
@@ -466,6 +542,7 @@ public actor XMPPClient {
             inlinePayloads.append(buildBind2Request(
                 tag: preferredResource ?? "Ducko",
                 enableSM: hasSM && sasl2Features.supportsSM,
+                enableISR: hasSM && sasl2Features.supportsISR,
                 enableCarbons: hasCarbons
             ))
         }
