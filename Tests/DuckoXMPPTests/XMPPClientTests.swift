@@ -26,10 +26,12 @@ private let featuresBindSession = """
 private let sessionResult = "<iq type='result' id='ducko-2'/>"
 
 /// Simulates a full connect handshake with STARTTLS on the mock transport.
-private func simulateTLSConnectFlow(_ mock: MockTransport) async {
+/// The `initialFeatures` parameter controls the first features stanza — use `featuresWithTLS`
+/// for advertised STARTTLS or `testFeaturesNoTLS` for forced STARTTLS (RFC 7590 anti-stripping).
+private func simulateTLSConnectFlow(_ mock: MockTransport, initialFeatures: String = featuresWithTLS) async {
     await mock.waitForSent(count: 1) // stream opening
     await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(featuresWithTLS)
+    await mock.simulateReceive(initialFeatures)
     await mock.waitForSent(count: 2) // starttls element
     await mock.simulateReceive("<proceed xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
     await mock.waitForSent(count: 3) // post-TLS stream opening
@@ -98,6 +100,55 @@ enum XMPPClientTests {
 
             let isTLS = await mock.isTLSUpgraded
             #expect(!isTLS)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Forced STARTTLS succeeds when server accepts despite not advertising`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateTLSConnectFlow(mock, initialFeatures: testFeaturesNoTLS)
+            try await connectTask.value
+
+            let isTLS = await mock.isTLSUpgraded
+            #expect(isTLS)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Forced STARTTLS fails when server genuinely lacks TLS`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+
+            // Server sends features without <starttls/> — client forces STARTTLS, server rejects
+            await mock.waitForSent(count: 1) // stream opening
+            await mock.simulateReceive(testServerStreamOpen)
+            await mock.simulateReceive(testFeaturesNoTLS)
+            await mock.waitForSent(count: 2) // forced starttls element
+            await mock.simulateReceive("<failure xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
+
+            do {
+                try await connectTask.value
+                throw XMPPClientError.unexpectedStreamState("Should have thrown")
+            } catch let error as XMPPClientError {
+                guard case .tlsRequired = error else {
+                    throw XMPPClientError.unexpectedStreamState("Expected tlsRequired, got \(error)")
+                }
+            }
 
             await client.disconnect()
         }

@@ -215,16 +215,32 @@ public actor XMPPClient {
             let info = await connection.tlsInfo
             tlsInfoLock.withLock { $0 = info }
             return features
-        } else if features.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {
+        } else if features.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil || requireTLS {
+            let isForced = features.child(named: "starttls", namespace: XMPPNamespaces.tls) == nil
+            if isForced {
+                // RFC 7590 §3.1: STARTTLS not advertised — a MITM may have stripped it.
+                // Attempt STARTTLS anyway; only fail if server genuinely rejects.
+                log.warning("STARTTLS not advertised — forcing attempt per RFC 7590 §3.1")
+            }
             state = .negotiatingTLS
-            try await negotiateTLS(reader: reader)
-            log.info("TLS established via STARTTLS")
+            do {
+                try await negotiateTLS(reader: reader)
+            } catch {
+                if isForced {
+                    log.error("Forced STARTTLS rejected: \(error)")
+                    throw XMPPClientError.tlsRequired
+                }
+                throw error
+            }
+            if isForced {
+                log.info("TLS established via forced STARTTLS (anti-stripping)")
+            } else {
+                log.info("TLS established via STARTTLS")
+            }
             let info = await connection.tlsInfo
             tlsInfoLock.withLock { $0 = info }
             try await openStream()
             return try await reader.awaitFeatures()
-        } else if requireTLS {
-            throw XMPPClientError.tlsRequired
         } else {
             return features
         }
