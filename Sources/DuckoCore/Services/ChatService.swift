@@ -1214,8 +1214,12 @@ public final class ChatService {
 
     private func handleMUCPrivateMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
         guard let from = xmppMessage.from,
-              case let .full(fullJID) = from,
-              let body = xmppMessage.body else { return }
+              case let .full(fullJID) = from else { return }
+
+        let oobAttachments = parseOOBAttachments(from: xmppMessage.element)
+        let body = xmppMessage.body ?? oobAttachments.first?.url
+        guard let body else { return }
+
         let roomJID = fullJID.bareJID
         let nickname = fullJID.resourcePart
 
@@ -1247,7 +1251,8 @@ public final class ChatService {
             isRead: false,
             isDelivered: false,
             isEdited: false,
-            type: "chat"
+            type: "chat",
+            attachments: oobAttachments
         )
         await persistAndNotify(message, in: conversation, accountID: accountID)
     }
