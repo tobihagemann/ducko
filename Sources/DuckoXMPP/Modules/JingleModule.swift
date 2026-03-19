@@ -19,6 +19,14 @@ public final class JingleModule: XMPPModule, Sendable {
         case transportNegotiationFailed(String)
     }
 
+    /// Result of verifying received file data against a pending checksum.
+    public enum ChecksumResult: Sendable, Equatable {
+        case noPendingChecksum
+        case verified
+        case mismatch(expected: String, computed: String)
+        case unsupportedAlgorithm(String)
+    }
+
     /// Discovered Proxy65 service info.
     private struct ProxyInfo {
         let jid: String
@@ -873,28 +881,27 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     /// Verifies received file data against a pending checksum (if one was received via session-info).
-    /// Returns `true` if no checksum was pending or verification passed, `false` on mismatch.
-    public func verifyChecksum(sid: String, receivedData: [UInt8]) -> Bool {
+    public func verifyChecksum(sid: String, receivedData: [UInt8]) -> ChecksumResult {
         let (checksumInfo, context) = state.withLock {
             ($0.pendingChecksums.removeValue(forKey: sid), $0.context)
         }
-        guard let checksumInfo else { return true }
+        guard let checksumInfo else { return .noPendingChecksum }
 
         guard checksumInfo.algo == "sha-256" else {
             log.warning("Unsupported hash algo for verification: \(checksumInfo.algo)")
-            return true
+            return .unsupportedAlgorithm(checksumInfo.algo)
         }
 
         let computed = Array(SHA256.hash(data: receivedData))
         let computedBase64 = Base64.encode(computed)
 
         if computedBase64 == checksumInfo.hash {
-            return true
+            return .verified
         } else {
             context?.emitEvent(.jingleChecksumMismatch(
                 sid: sid, expected: checksumInfo.hash, computed: computedBase64
             ))
-            return false
+            return .mismatch(expected: checksumInfo.hash, computed: computedBase64)
         }
     }
 

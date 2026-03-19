@@ -26,6 +26,7 @@ public final class AvatarService {
 
     private weak var accountService: AccountService?
     private weak var rosterService: RosterService?
+    private weak var presenceService: PresenceService?
     private let store: any PersistenceStore
 
     public init(store: any PersistenceStore) {
@@ -40,6 +41,10 @@ public final class AvatarService {
 
     func setRosterService(_ service: RosterService) {
         rosterService = service
+    }
+
+    func setPresenceService(_ service: PresenceService) {
+        presenceService = service
     }
 
     // MARK: - Event Handling
@@ -117,7 +122,7 @@ public final class AvatarService {
 
         ownAvatarHash = hash
         presenceModule.setOwnAvatarHash(hash)
-        try? await presenceModule.broadcastPresence()
+        try? await presenceModule.broadcastPresence(show: presenceService?.currentShow, status: presenceService?.myStatusMessage)
         await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
     }
 
@@ -141,7 +146,7 @@ public final class AvatarService {
 
         ownAvatarHash = nil
         presenceModule.setOwnAvatarHash(nil)
-        try? await presenceModule.broadcastPresence()
+        try? await presenceModule.broadcastPresence(show: presenceService?.currentShow, status: presenceService?.myStatusMessage)
         await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
     }
 
@@ -161,8 +166,10 @@ public final class AvatarService {
     /// so room occupants receive the updated vcard-temp:x:update hash.
     private func resendPresenceToMUCRooms(client: XMPPClient, presenceModule: PresenceModule) async {
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        let show = presenceService?.currentShow
+        let status = presenceService?.myStatusMessage
         for roomJID in mucModule.joinedRoomFullJIDs {
-            try? await presenceModule.sendDirectedPresence(to: roomJID)
+            try? await presenceModule.sendDirectedPresence(to: roomJID, show: show, status: status)
         }
     }
 
@@ -201,7 +208,7 @@ public final class AvatarService {
             presenceModule.setOwnAvatarHash(ownAvatarHash)
             // Re-broadcast presence so contacts receive the XEP-0153 hash
             // (initial presence was sent before this fetch completed)
-            try? await presenceModule.broadcastPresence()
+            try? await presenceModule.broadcastPresence(show: presenceService?.currentShow, status: presenceService?.myStatusMessage)
         } catch {
             log.warning("Failed to fetch own vCard for avatar hash: \(error.localizedDescription)")
         }

@@ -448,13 +448,67 @@ enum JingleModuleTests {
 
     struct VerifyChecksumMatch {
         @Test
-        func `verifyChecksum returns true when no checksum pending`() async throws {
+        func `verifyChecksum returns noPendingChecksum when no checksum pending`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: JingleModule.self))
 
             let result = module.verifyChecksum(sid: "nonexistent", receivedData: [1, 2, 3])
-            #expect(result == true)
+            #expect(result == .noPendingChecksum)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `verifyChecksum returns verified when checksum matches`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            // Create a session and inject a checksum
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(sessionInfoChecksumXML(hash: "A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc+4E="))
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let result = module.verifyChecksum(sid: "sid-123", receivedData: [1, 2, 3])
+            #expect(result == .verified)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `verifyChecksum returns mismatch when checksum differs`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            // Create a session and inject a checksum that won't match
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(sessionInfoChecksumXML(hash: "wronghash=="))
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let result = module.verifyChecksum(sid: "sid-123", receivedData: [1, 2, 3])
+            #expect(result == .mismatch(expected: "wronghash==", computed: "A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc+4E="))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `verifyChecksum returns unsupportedAlgorithm for non-sha256`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            // Create a session and inject a checksum with unsupported algorithm
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(sessionInfoChecksumXML(algo: "sha-512", hash: "somehash=="))
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let result = module.verifyChecksum(sid: "sid-123", receivedData: [1, 2, 3])
+            #expect(result == .unsupportedAlgorithm("sha-512"))
 
             await client.disconnect()
         }

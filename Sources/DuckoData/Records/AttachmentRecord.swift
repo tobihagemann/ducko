@@ -16,7 +16,6 @@ final class AttachmentRecord {
     var localPath: String?
     var message: MessageRecord?
 
-    // periphery:ignore
     init(
         id: UUID,
         url: String,

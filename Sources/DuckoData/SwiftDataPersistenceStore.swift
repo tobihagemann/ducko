@@ -229,6 +229,17 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
             editedAt: message.editedAt,
             type: message.type,
             conversation: conversationRecord,
+            attachments: message.attachments.map { attachment in
+                AttachmentRecord(
+                    id: attachment.id,
+                    url: attachment.url,
+                    mimeType: attachment.mimeType,
+                    fileName: attachment.fileName,
+                    fileSize: attachment.fileSize,
+                    thumbnailData: attachment.thumbnailData,
+                    oobDescription: attachment.oobDescription
+                )
+            },
             replyToID: message.replyToID,
             errorText: message.errorText,
             isEncrypted: message.isEncrypted

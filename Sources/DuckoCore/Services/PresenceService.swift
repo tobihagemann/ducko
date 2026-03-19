@@ -201,7 +201,7 @@ public final class PresenceService {
         }
     }
 
-    private var currentShow: XMPPPresence.Show? {
+    public var currentShow: XMPPPresence.Show? {
         switch myPresence {
         case .available, .offline: nil
         case .away: .away

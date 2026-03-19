@@ -77,6 +77,7 @@ public final class AppEnvironment {
         bookmarksService.setChatService(chatService)
         avatarService.setAccountService(accountService)
         avatarService.setRosterService(rosterService)
+        avatarService.setPresenceService(presenceService)
         profileService.setAccountService(accountService)
         fileTransferService.setAccountService(accountService)
         fileTransferService.setChatService(chatService)

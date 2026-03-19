@@ -41,7 +41,7 @@ public final class FileTransferService {
     }
 
     /// View-friendly representation of an incoming Jingle file request.
-    public struct IncomingFileRequest: Sendable, Identifiable { // periphery:ignore
+    public struct IncomingFileRequest: Sendable, Identifiable {
         public var id: String {
             sid
         }
@@ -104,6 +104,8 @@ public final class FileTransferService {
         case noJingleModule
         case uploadFailed(String)
         case jingleFailed(String)
+        case checksumMismatch(sid: String)
+        case checksumUnsupportedAlgorithm(sid: String, algo: String)
 
         public var errorDescription: String? {
             switch self {
@@ -113,6 +115,9 @@ public final class FileTransferService {
             case .noJingleModule: "Jingle module not available"
             case let .uploadFailed(reason): "Upload failed: \(reason)"
             case let .jingleFailed(reason): "Jingle transfer failed: \(reason)"
+            case let .checksumMismatch(sid): "Checksum mismatch for file transfer \(sid) — file data is corrupted"
+            case let .checksumUnsupportedAlgorithm(sid, algo):
+                "Cannot verify file integrity for \(sid): unsupported hash algorithm '\(algo)'"
             }
         }
     }
@@ -140,7 +145,7 @@ public final class FileTransferService {
     }
 
     /// View-friendly projection of `incomingRequests` for modules that cannot import DuckoXMPP.
-    public var viewIncomingRequests: [IncomingFileRequest] { // periphery:ignore
+    public var viewIncomingRequests: [IncomingFileRequest] {
         incomingRequests.map {
             IncomingFileRequest(
                 sid: $0.sid, fileName: $0.fileDescription.name,
@@ -320,11 +325,19 @@ public final class FileTransferService {
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
                 let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: expectedSize)
-                if !jingleModule.verifyChecksum(sid: sid, receivedData: data) {
-                    log.warning("Checksum mismatch for received file, sid: \(sid)")
+                switch jingleModule.verifyChecksum(sid: sid, receivedData: data) {
+                case .noPendingChecksum, .verified:
+                    try? await jingleModule.sendReceivedSessionInfo(sid: sid)
+                    log.info("Received \(data.count) bytes via Jingle for sid: \(sid)")
+                case let .mismatch(expected, computed):
+                    log.error("Checksum mismatch for sid \(sid): expected \(expected), computed \(computed)")
+                    try? await jingleModule.terminateSession(sid: sid, reason: .cancel)
+                    throw FileTransferError.checksumMismatch(sid: sid)
+                case let .unsupportedAlgorithm(algo):
+                    log.error("Unsupported checksum algorithm '\(algo)' for sid \(sid)")
+                    try? await jingleModule.terminateSession(sid: sid, reason: .cancel)
+                    throw FileTransferError.checksumUnsupportedAlgorithm(sid: sid, algo: algo)
                 }
-                try? await jingleModule.sendReceivedSessionInfo(sid: sid)
-                log.info("Received \(data.count) bytes via Jingle for sid: \(sid)")
             } catch {
                 log.warning("Jingle receive failed for sid \(sid): \(error)")
                 updateTransferState(forSID: sid, state: .failed(error.localizedDescription))
@@ -334,6 +347,13 @@ public final class FileTransferService {
 
     /// Fulfills an incoming file request by sending the file at the given URL.
     public func fulfillFileRequest(_ sid: String, fileURL: URL, accountID: UUID) async throws {
+        let fileData = try Array(Data(contentsOf: fileURL))
+        try await fulfillFileRequest(sid, fileData: fileData, accountID: accountID)
+    }
+
+    /// Fulfills an incoming file request with pre-read file data.
+    /// Use this overload when the file data must be read before a security-scoped resource is released.
+    public func fulfillFileRequest(_ sid: String, fileData: [UInt8], accountID: UUID) async throws {
         let jingleModule = try await jingleModule(for: accountID)
 
         try await jingleModule.acceptFileTransfer(sid: sid)
@@ -344,7 +364,6 @@ public final class FileTransferService {
         Task {
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
-                let fileData = try Array(Data(contentsOf: fileURL))
                 updateTransferState(forSID: sid, state: .transferring(progress: 0))
                 try? await jingleModule.sendChecksumSessionInfo(sid: sid, data: fileData)
                 try await jingleModule.sendFileData(sid: sid, data: fileData)
