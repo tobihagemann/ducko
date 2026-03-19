@@ -47,8 +47,13 @@ public struct JingleFileRange: Sendable, Hashable {
     /// Parses from a `<range/>` element.
     public init?(from element: XMLElement) {
         guard element.name == "range" else { return nil }
-        self.offset = element.attribute("offset").flatMap(Int64.init)
-        self.length = element.attribute("length").flatMap(Int64.init)
+        let parsedOffset = element.attribute("offset").flatMap(Int64.init)
+        let parsedLength = element.attribute("length").flatMap(Int64.init)
+        // Reject negative values from untrusted XML
+        if let parsedOffset, parsedOffset < 0 { return nil }
+        if let parsedLength, parsedLength < 0 { return nil }
+        self.offset = parsedOffset
+        self.length = parsedLength
     }
 
     /// Serializes to a `<range/>` element.

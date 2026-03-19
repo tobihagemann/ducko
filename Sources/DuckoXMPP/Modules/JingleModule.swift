@@ -270,6 +270,12 @@ public final class JingleModule: XMPPModule, Sendable {
                 continue
             }
 
+            // Reject content-add that would overwrite the primary content
+            if content.name == session.primaryContentName {
+                log.warning("content-add: rejected attempt to overwrite primary content for sid: \(sid)")
+                continue
+            }
+
             state.withLock { $0.sessions[sid]?.contents[content.name] = content }
 
             let offer = JingleFileOffer(
