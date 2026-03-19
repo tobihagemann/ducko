@@ -108,4 +108,70 @@ enum XMPPMessageTests {
             #expect(message.threadParent == nil)
         }
     }
+
+    struct OOB {
+        @Test
+        func `Returns OOB data with URL and description`() {
+            var element = XMLElement(name: "message", attributes: ["type": "chat"])
+            var oobX = XMLElement(name: "x", namespace: XMPPNamespaces.oob)
+            var urlChild = XMLElement(name: "url")
+            urlChild.addText("https://example.com/photo.jpg")
+            var descChild = XMLElement(name: "desc")
+            descChild.addText("A photo")
+            oobX.addChild(urlChild)
+            oobX.addChild(descChild)
+            element.addChild(oobX)
+            let message = XMPPMessage(element: element)
+            #expect(message.oobData.count == 1)
+            #expect(message.oobData[0].url == "https://example.com/photo.jpg")
+            #expect(message.oobData[0].desc == "A photo")
+        }
+
+        @Test
+        func `Returns empty when no OOB elements`() {
+            let message = XMPPMessage(type: .chat)
+            #expect(message.oobData.isEmpty)
+        }
+
+        @Test
+        func `Returns multiple OOB entries`() {
+            var element = XMLElement(name: "message", attributes: ["type": "chat"])
+            for urlString in ["https://example.com/a.jpg", "https://example.com/b.pdf"] {
+                var oobX = XMLElement(name: "x", namespace: XMPPNamespaces.oob)
+                var urlChild = XMLElement(name: "url")
+                urlChild.addText(urlString)
+                oobX.addChild(urlChild)
+                element.addChild(oobX)
+            }
+            let message = XMPPMessage(element: element)
+            #expect(message.oobData.count == 2)
+            #expect(message.oobData[0].url == "https://example.com/a.jpg")
+            #expect(message.oobData[1].url == "https://example.com/b.pdf")
+        }
+
+        @Test
+        func `Skips OOB with empty URL`() {
+            var element = XMLElement(name: "message", attributes: ["type": "chat"])
+            var oobX = XMLElement(name: "x", namespace: XMPPNamespaces.oob)
+            let urlChild = XMLElement(name: "url")
+            oobX.addChild(urlChild)
+            element.addChild(oobX)
+            let message = XMPPMessage(element: element)
+            #expect(message.oobData.isEmpty)
+        }
+
+        @Test
+        func `Returns OOB data without description`() {
+            var element = XMLElement(name: "message", attributes: ["type": "chat"])
+            var oobX = XMLElement(name: "x", namespace: XMPPNamespaces.oob)
+            var urlChild = XMLElement(name: "url")
+            urlChild.addText("https://example.com/file.zip")
+            oobX.addChild(urlChild)
+            element.addChild(oobX)
+            let message = XMPPMessage(element: element)
+            #expect(message.oobData.count == 1)
+            #expect(message.oobData[0].url == "https://example.com/file.zip")
+            #expect(message.oobData[0].desc == nil)
+        }
+    }
 }

@@ -58,4 +58,21 @@ public struct XMPPMessage: XMPPStanza {
     public var isUnstyled: Bool {
         element.child(named: "unstyled", namespace: XMPPNamespaces.styling) != nil
     }
+
+    // MARK: - XEP-0066 Out-of-Band Data
+
+    public struct OOBData: Sendable {
+        public let url: String
+        public let desc: String?
+    }
+
+    /// XEP-0066 Out-of-Band Data attachments (`<x xmlns='jabber:x:oob'>`).
+    public var oobData: [OOBData] {
+        element.children(named: "x")
+            .filter { $0.namespace == XMPPNamespaces.oob }
+            .compactMap { oob -> OOBData? in
+                guard let url = oob.child(named: "url")?.textContent, !url.isEmpty else { return nil }
+                return OOBData(url: url, desc: oob.child(named: "desc")?.textContent)
+            }
+    }
 }

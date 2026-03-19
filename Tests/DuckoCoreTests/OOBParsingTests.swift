@@ -24,6 +24,12 @@ struct OOBParsingTests {
     }
 
     @Test
+    func `Attachment oobDescription is populated`() {
+        let attachment = DuckoCore.Attachment(id: UUID(), url: "https://example.com/file.jpg", oobDescription: "A vacation photo")
+        #expect(attachment.oobDescription == "A vacation photo")
+    }
+
+    @Test
     func `Attachment isImage checks mimeType`() {
         let image = DuckoCore.Attachment(id: UUID(), url: "https://example.com/a.jpg", mimeType: "image/jpeg")
         let nonImage = DuckoCore.Attachment(id: UUID(), url: "https://example.com/b.pdf", mimeType: "application/pdf")

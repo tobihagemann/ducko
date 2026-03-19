@@ -206,6 +206,45 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}[31m")) // red
     }
 
+    // MARK: - Attachments
+
+    @Test func `message with attachments includes file info`() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "Check this out",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            attachments: [Attachment(id: UUID(), url: "https://example.com/photo.jpg", fileName: "photo.jpg")]
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("https://example.com/photo.jpg"))
+        #expect(output.contains("photo.jpg"))
+    }
+
+    @Test func `message without attachments has no file info`() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "Just text",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        #expect(!output.contains("File:"))
+        #expect(!output.contains("\u{1F4CE}"))
+    }
+
     // MARK: - Typing Indicator
 
     @Test func `typing indicator uses dim`() throws {

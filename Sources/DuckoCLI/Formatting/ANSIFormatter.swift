@@ -40,6 +40,9 @@ struct ANSIFormatter: CLIFormatter {
         if let errorText = message.errorText {
             line += " \(Color.red)[error: \(errorText)]\(Color.reset)"
         }
+        for attachment in message.attachments where attachment.url != message.body {
+            line += "\n" + formatFileMessage(fileName: attachment.displayFileName, url: attachment.url, fileSize: attachment.fileSize)
+        }
         return line
     }
 
@@ -231,7 +234,9 @@ struct ANSIFormatter: CLIFormatter {
 
     private func formatCarbonEvent(_ forwarded: ForwardedMessage, isOutgoing: Bool) -> String? {
         let jid = isOutgoing ? forwarded.message.to?.bareJID : forwarded.message.from?.bareJID
-        guard let jid, let body = forwarded.message.body else { return nil }
+        let oob = forwarded.message.oobData
+        let body = forwarded.message.body ?? oob.first?.url
+        guard let jid, let body else { return nil }
         let timestamp = iso8601(Date())
         let direction = isOutgoing ? "->" : "<-"
         let color = isOutgoing ? Color.cyan : Color.green
@@ -240,18 +245,29 @@ struct ANSIFormatter: CLIFormatter {
         } else {
             "\(jid): \(styledBody(body))"
         }
-        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(formatted) [carbon]\(Color.reset)"
+        var line = "\(Color.dim)[\(timestamp)]\(Color.reset) \(color)\(direction) \(formatted) [carbon]\(Color.reset)"
+        for item in oob where item.url != body {
+            line += "\n" + formatFileMessage(fileName: oobFileName(item.url), url: item.url, fileSize: nil)
+        }
+        return line
     }
 
     private func formatIncomingMessage(_ message: XMPPMessage) -> String? {
-        guard let from = message.from?.bareJID, let body = message.body else { return nil }
+        guard let from = message.from?.bareJID else { return nil }
+        let oob = message.oobData
+        let body = message.body ?? oob.first?.url
+        guard let body else { return nil }
         let timestamp = iso8601(Date())
         let formatted = if body.hasPrefix("/me ") {
             "* \(from) \(body.dropFirst(4))"
         } else {
             "\(from): \(styledBody(body))"
         }
-        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(formatted)\(Color.reset)"
+        var line = "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(formatted)\(Color.reset)"
+        for item in oob where item.url != body {
+            line += "\n" + formatFileMessage(fileName: oobFileName(item.url), url: item.url, fileSize: nil)
+        }
+        return line
     }
 
     private func formatMUCEvent(_ event: XMPPEvent) -> String? {
@@ -343,7 +359,10 @@ struct ANSIFormatter: CLIFormatter {
     }
 
     private func formatIncomingRoomMessage(_ message: XMPPMessage) -> String? {
-        guard let from = message.from, let body = message.body else { return nil }
+        guard let from = message.from else { return nil }
+        let oob = message.oobData
+        let body = message.body ?? oob.first?.url
+        guard let body else { return nil }
         let nickname = nicknameFromJID(from)
         let timestamp = iso8601(Date())
         let formatted = if body.hasPrefix("/me ") {
@@ -351,11 +370,18 @@ struct ANSIFormatter: CLIFormatter {
         } else {
             "\(from.bareJID)/\(nickname): \(styledBody(body))"
         }
-        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(formatted)\(Color.reset)"
+        var line = "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.green)<- \(formatted)\(Color.reset)"
+        for item in oob where item.url != body {
+            line += "\n" + formatFileMessage(fileName: oobFileName(item.url), url: item.url, fileSize: nil)
+        }
+        return line
     }
 
     private func formatIncomingPrivateMessage(_ message: XMPPMessage) -> String? {
-        guard let from = message.from, let body = message.body else { return nil }
+        guard let from = message.from else { return nil }
+        let oob = message.oobData
+        let body = message.body ?? oob.first?.url
+        guard let body else { return nil }
         let nickname = nicknameFromJID(from)
         let timestamp = iso8601(Date())
         let formatted = if body.hasPrefix("/me ") {
@@ -363,7 +389,11 @@ struct ANSIFormatter: CLIFormatter {
         } else {
             "[PM] \(from.bareJID)/\(nickname): \(styledBody(body))"
         }
-        return "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.cyan)<- \(formatted)\(Color.reset)"
+        var line = "\(Color.dim)[\(timestamp)]\(Color.reset) \(Color.cyan)<- \(formatted)\(Color.reset)"
+        for item in oob where item.url != body {
+            line += "\n" + formatFileMessage(fileName: oobFileName(item.url), url: item.url, fileSize: nil)
+        }
+        return line
     }
 
     private func formatJingleEvent(_ event: XMPPEvent) -> String? {

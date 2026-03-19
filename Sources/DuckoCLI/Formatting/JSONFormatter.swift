@@ -37,6 +37,10 @@ struct JSONFormatter: CLIFormatter {
         if let errorText = message.errorText {
             dict["error"] = errorText
         }
+        let extraAttachments = message.attachments.filter { $0.url != message.body }
+        if !extraAttachments.isEmpty {
+            dict["attachments"] = extraAttachments.map(\.url).joined(separator: ",")
+        }
         return encode(dict)
     }
 
@@ -208,7 +212,9 @@ struct JSONFormatter: CLIFormatter {
 
     private func formatCarbonEvent(_ forwarded: ForwardedMessage, isOutgoing: Bool, account: String) -> String? {
         let jid = isOutgoing ? forwarded.message.to?.bareJID : forwarded.message.from?.bareJID
-        guard let jid, let body = forwarded.message.body else { return nil }
+        let oob = forwarded.message.oobData
+        let body = forwarded.message.body ?? oob.first?.url
+        guard let jid, let body else { return nil }
         let jidKey = isOutgoing ? "to" : "from"
         let direction = isOutgoing ? "outgoing" : "incoming"
         var dict: [String: String] = [
@@ -218,6 +224,10 @@ struct JSONFormatter: CLIFormatter {
         ]
         if body.hasPrefix("/me ") {
             dict["action"] = "true"
+        }
+        let extraOOB = oob.filter { $0.url != body }
+        if !extraOOB.isEmpty {
+            dict["attachments"] = extraOOB.map(\.url).joined(separator: ",")
         }
         return encode(dict)
     }
@@ -292,13 +302,20 @@ struct JSONFormatter: CLIFormatter {
     }
 
     private func formatIncomingMessage(_ message: XMPPMessage, account: String) -> String? {
-        guard let from = message.from?.bareJID, let body = message.body else { return nil }
+        guard let from = message.from?.bareJID else { return nil }
+        let oob = message.oobData
+        let body = message.body ?? oob.first?.url
+        guard let body else { return nil }
         var dict: [String: String] = [
             "type": "message", "direction": "incoming", "from": from.description,
             "body": body, "account": account, "timestamp": formatTimestamp(Date())
         ]
         if body.hasPrefix("/me ") {
             dict["action"] = "true"
+        }
+        let extraOOB = oob.filter { $0.url != body }
+        if !extraOOB.isEmpty {
+            dict["attachments"] = extraOOB.map(\.url).joined(separator: ",")
         }
         return encode(dict)
     }
@@ -596,7 +613,10 @@ struct JSONFormatter: CLIFormatter {
     }
 
     private func formatIncomingRoomMessage(_ message: XMPPMessage, account: String) -> String? {
-        guard let from = message.from, let body = message.body else { return nil }
+        guard let from = message.from else { return nil }
+        let oob = message.oobData
+        let body = message.body ?? oob.first?.url
+        guard let body else { return nil }
         let nickname = nicknameFromJID(from)
         var dict: [String: String] = [
             "type": "room_message", "direction": "incoming",
@@ -607,11 +627,18 @@ struct JSONFormatter: CLIFormatter {
         if body.hasPrefix("/me ") {
             dict["action"] = "true"
         }
+        let extraOOB = oob.filter { $0.url != body }
+        if !extraOOB.isEmpty {
+            dict["attachments"] = extraOOB.map(\.url).joined(separator: ",")
+        }
         return encode(dict)
     }
 
     private func formatIncomingPrivateMessage(_ message: XMPPMessage, account: String) -> String? {
-        guard let from = message.from, let body = message.body else { return nil }
+        guard let from = message.from else { return nil }
+        let oob = message.oobData
+        let body = message.body ?? oob.first?.url
+        guard let body else { return nil }
         let nickname = nicknameFromJID(from)
         var dict: [String: String] = [
             "type": "muc_private_message", "direction": "incoming",
@@ -621,6 +648,10 @@ struct JSONFormatter: CLIFormatter {
         ]
         if body.hasPrefix("/me ") {
             dict["action"] = "true"
+        }
+        let extraOOB = oob.filter { $0.url != body }
+        if !extraOOB.isEmpty {
+            dict["attachments"] = extraOOB.map(\.url).joined(separator: ",")
         }
         return encode(dict)
     }

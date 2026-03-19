@@ -44,6 +44,10 @@ func iso8601(_ date: Date) -> String {
     )
 }
 
+func oobFileName(_ url: String) -> String {
+    URL(string: url)?.lastPathComponent ?? url
+}
+
 func occupantLeaveText(_ reason: OccupantLeaveReason?) -> String {
     switch reason {
     case let .kicked(r):

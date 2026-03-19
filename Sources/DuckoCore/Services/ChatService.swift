@@ -1521,14 +1521,10 @@ public final class ChatService {
     }
 
     private func parseOOBAttachments(from element: DuckoXMPP.XMLElement) -> [Attachment] {
-        element.children(named: "x")
-            .filter { $0.namespace == XMPPNamespaces.oob }
-            .compactMap { oob -> Attachment? in
-                guard let urlString = oob.child(named: "url")?.textContent, !urlString.isEmpty else { return nil }
-                let desc = oob.child(named: "desc")?.textContent
-                let fileName = URL(string: urlString)?.lastPathComponent
-                return Attachment(id: UUID(), url: urlString, fileName: fileName, oobDescription: desc)
-            }
+        XMPPMessage(element: element).oobData.map { oob in
+            let fileName = URL(string: oob.url)?.lastPathComponent
+            return Attachment(id: UUID(), url: oob.url, fileName: fileName, oobDescription: oob.desc)
+        }
     }
 
     private func persistMessage(
@@ -1672,7 +1668,9 @@ public final class ChatService {
 
         for entry in archived {
             let forwarded = entry.forwarded
-            guard let body = forwarded.message.body else { continue }
+            let oobAttachments = parseOOBAttachments(from: forwarded.message.element)
+            let body = forwarded.message.body ?? oobAttachments.first?.url
+            guard let body else { continue }
 
             if let serverID = entry.serverID {
                 if try await store.messageExistsByServerID(serverID, conversationID: conversation.id) {
@@ -1700,7 +1698,8 @@ public final class ChatService {
                 isRead: true,
                 isDelivered: false,
                 isEdited: false,
-                type: meta.messageType
+                type: meta.messageType,
+                attachments: oobAttachments
             )
             try await store.insertMessage(message)
             newMessages.append(message)

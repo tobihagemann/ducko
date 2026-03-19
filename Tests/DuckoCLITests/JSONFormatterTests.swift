@@ -214,6 +214,47 @@ struct JSONFormatterTests {
         #expect(json["from"] == "alice@example.com")
     }
 
+    // MARK: - Attachments
+
+    @Test func `message with attachments includes attachment URLs`() throws {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "Check this out",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            attachments: [Attachment(id: UUID(), url: "https://example.com/photo.jpg", fileName: "photo.jpg")]
+        )
+        let output = formatter.formatMessage(message)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["attachments"] == "https://example.com/photo.jpg")
+    }
+
+    @Test func `message without attachments omits attachment key`() throws {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "Just text",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat"
+        )
+        let output = formatter.formatMessage(message)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["attachments"] == nil)
+    }
+
     // MARK: - Typing Indicator
 
     @Test func `typing indicator composing`() throws {

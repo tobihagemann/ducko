@@ -389,6 +389,49 @@ struct PlainFormatterTests {
         #expect(output.contains("[error: service unavailable]"))
     }
 
+    // MARK: - Attachments
+
+    @Test func `message with attachments includes file info`() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "Check this out",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            attachments: [Attachment(id: UUID(), url: "https://example.com/photo.jpg", fileName: "photo.jpg")]
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("https://example.com/photo.jpg"))
+        #expect(output.contains("photo.jpg"))
+    }
+
+    @Test func `message with multiple attachments includes all`() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "Two files",
+            timestamp: Date(),
+            isOutgoing: false,
+            isRead: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            attachments: [
+                Attachment(id: UUID(), url: "https://example.com/a.jpg", fileName: "a.jpg"),
+                Attachment(id: UUID(), url: "https://example.com/b.pdf", fileName: "b.pdf")
+            ]
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.contains("https://example.com/a.jpg"))
+        #expect(output.contains("https://example.com/b.pdf"))
+    }
+
     // MARK: - formatTypingIndicator
 
     @Test func `format typing indicator typing`() throws {
