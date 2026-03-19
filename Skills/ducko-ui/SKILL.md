@@ -132,6 +132,11 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `verify-button-{deviceID}` | Verify device button | Device Fingerprints |
 | `encryptByDefaultToggle` | Encrypt by default preference toggle | Preferences (Chat) |
 | `tofuToggle` | Trust on first use preference toggle | Preferences (Chat) |
+| `file-transfer-banner` | Incoming file transfer/request banner | Chat |
+| `accept-file-transfer-button` | Accept button on incoming file transfer | Chat |
+| `decline-file-transfer-button` | Decline button on incoming file transfer | Chat |
+| `fulfill-file-request-button` | Fulfill button on incoming file request | Chat |
+| `decline-file-request-button` | Decline button on incoming file request | Chat |
 
 ## Context Menu Features
 

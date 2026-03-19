@@ -329,6 +329,7 @@ public final class FileTransferService {
                 case .noPendingChecksum, .verified:
                     try? await jingleModule.sendReceivedSessionInfo(sid: sid)
                     log.info("Received \(data.count) bytes via Jingle for sid: \(sid)")
+                    updateTransferState(forSID: sid, state: .completedTransfer)
                 case let .mismatch(expected, computed):
                     log.error("Checksum mismatch for sid \(sid): expected \(expected), computed \(computed)")
                     try? await jingleModule.terminateSession(sid: sid, reason: .cancel)

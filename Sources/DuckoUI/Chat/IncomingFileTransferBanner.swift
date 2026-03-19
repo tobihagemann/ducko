@@ -62,11 +62,13 @@ private struct IncomingFileTransferRow: View {
                     accept()
                 }
                 .tint(.green)
+                .accessibilityIdentifier("accept-file-transfer-button")
 
                 Button("Decline") {
                     decline()
                 }
                 .tint(.red)
+                .accessibilityIdentifier("decline-file-transfer-button")
             }
         }
         .padding(.horizontal, 12)
