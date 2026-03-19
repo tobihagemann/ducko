@@ -856,7 +856,8 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
     }
@@ -899,7 +900,8 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
     }
@@ -932,7 +934,8 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
     }
@@ -979,7 +982,8 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
     }
@@ -1103,7 +1107,8 @@ public final class ChatService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return
         }
         await reloadActiveMessages()

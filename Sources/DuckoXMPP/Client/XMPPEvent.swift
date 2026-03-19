@@ -67,6 +67,12 @@ public enum XMPPEvent: Sendable {
     case omemoEncryptedMessageReceived(from: JID, decryptedBody: String?, senderDeviceID: UInt32, stanzaID: String?)
     case omemoSessionEstablished(jid: BareJID, deviceID: UInt32, identityKey: [UInt8])
     case omemoSessionAdvanced(jid: BareJID, deviceID: UInt32)
+
+    /// OOB IQ (XEP-0066)
+    case oobIQOfferReceived(OOBIQOffer)
+
+    /// Service Outage (XEP-0455)
+    case serviceOutageReceived(ServiceOutageInfo)
 }
 
 /// Reason the client disconnected.
@@ -97,4 +103,32 @@ public enum ChatMarkerType: String, Sendable, CaseIterable {
     case received
     case displayed
     case acknowledged
+}
+
+/// An incoming OOB IQ file offer per XEP-0066 §3 (IQ-based).
+public struct OOBIQOffer: Sendable {
+    public let id: String
+    public let from: JID
+    public let url: String
+    public let desc: String?
+
+    public init(id: String, from: JID, url: String, desc: String?) {
+        self.id = id
+        self.from = from
+        self.url = url
+        self.desc = desc
+    }
+}
+
+/// Parsed service outage information per XEP-0455.
+public struct ServiceOutageInfo: Sendable {
+    public let description: String?
+    public let expectedEnd: String?
+    public let alternativeDomain: String?
+
+    public init(description: String?, expectedEnd: String?, alternativeDomain: String?) {
+        self.description = description
+        self.expectedEnd = expectedEnd
+        self.alternativeDomain = alternativeDomain
+    }
 }

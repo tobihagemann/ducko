@@ -76,7 +76,8 @@ public final class AvatarService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
     }

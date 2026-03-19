@@ -54,6 +54,7 @@ public enum XMPPNamespaces {
     public static let fallbackIndication = "urn:xmpp:fallback:0"
     public static let processingHints = "urn:xmpp:hints"
     public static let oob = "jabber:x:oob"
+    public static let oobIQ = "jabber:iq:oob"
     public static let serverInfo = "http://jabber.org/network/serverinfo"
     public static let channelSearch = "urn:xmpp:channel-search:0"
     public static let channelSearchQuery = "urn:xmpp:channel-search:0:search"
@@ -77,4 +78,7 @@ public enum XMPPNamespaces {
 
     /// Stanza Content Encryption (XEP-0420)
     public static let sce = "urn:xmpp:sce:1"
+
+    /// Service Outage Status (XEP-0455)
+    public static let serviceOutage = "urn:xmpp:service-outage:0"
 }

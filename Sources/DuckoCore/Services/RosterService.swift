@@ -152,7 +152,8 @@ public final class RosterService {
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
     }

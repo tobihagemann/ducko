@@ -112,10 +112,13 @@ struct ANSIFormatter: CLIFormatter {
         case .jingleFileTransferReceived, .jingleFileRequestReceived,
              .jingleFileTransferProgress, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
+             .oobIQOfferReceived:
             return formatJingleEvent(event)
         case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return formatOMEMOEvent(event)
+        case let .serviceOutageReceived(info):
+            return formatOutageEvent(info)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
@@ -127,6 +130,21 @@ struct ANSIFormatter: CLIFormatter {
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
+    }
+
+    private func formatOutageEvent(_ info: ServiceOutageInfo) -> String {
+        var line = "\(Color.yellow)Service outage"
+        if let desc = info.description {
+            line += ": \(desc)"
+        }
+        if let end = info.expectedEnd {
+            line += " (expected end: \(end))"
+        }
+        if let alt = info.alternativeDomain {
+            line += " [alternative: \(alt)]"
+        }
+        line += "\(Color.reset)"
+        return line
     }
 
     private func formatOMEMOEvent(_ event: XMPPEvent) -> String? {
@@ -156,7 +174,8 @@ struct ANSIFormatter: CLIFormatter {
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }
@@ -190,7 +209,8 @@ struct ANSIFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }
@@ -315,7 +335,8 @@ struct ANSIFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }
@@ -405,6 +426,7 @@ struct ANSIFormatter: CLIFormatter {
         return line
     }
 
+    // swiftlint:disable:next function_body_length
     private func formatJingleEvent(_ event: XMPPEvent) -> String? {
         switch event {
         case let .jingleFileTransferReceived(offer):
@@ -433,6 +455,12 @@ struct ANSIFormatter: CLIFormatter {
                 fileName: offer.fileName, fileSize: offer.fileSize,
                 from: offer.from.bareJID.description, sid: sid
             )
+        case let .oobIQOfferReceived(offer):
+            let fileName = oobFileName(offer.url)
+            return formatFileOffer(
+                fileName: fileName, fileSize: 0,
+                from: offer.from.bareJID.description, sid: offer.id
+            )
         case .jingleChecksumReceived,
              .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
             return nil
@@ -452,7 +480,8 @@ struct ANSIFormatter: CLIFormatter {
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .serviceOutageReceived:
             return nil
         }
     }
@@ -494,7 +523,8 @@ struct ANSIFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }

@@ -17,7 +17,8 @@ actor CLIEventHandler {
             ringBell()
         case .messageCarbonReceived, .messageCarbonSent,
              .roomMessageReceived, .mucPrivateMessageReceived, .roomInviteReceived,
-             .jingleFileTransferReceived, .jingleFileRequestReceived:
+             .jingleFileTransferReceived, .jingleFileRequestReceived,
+             .oobIQOfferReceived:
             ringBell()
         case let .chatStateChanged(from, state):
             handleChatState(from: from, state: state)
@@ -43,7 +44,8 @@ actor CLIEventHandler {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoEncryptedMessageReceived:
+             .omemoEncryptedMessageReceived,
+             .serviceOutageReceived:
             break
         }
         guard let output = formatter.formatEvent(event, accountID: accountID) else { return }

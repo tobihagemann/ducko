@@ -130,6 +130,7 @@ public final class FileTransferService {
     public private(set) var activeTransfers: [ActiveTransfer] = []
     public private(set) var incomingOffers: [JingleFileOffer] = []
     public private(set) var incomingRequests: [JingleFileRequest] = []
+    private var pendingOOBOfferIDs: Set<String> = []
 
     /// View-friendly projection of `incomingOffers` for modules that cannot import DuckoXMPP.
     public var viewIncomingOffers: [IncomingFileOffer] {
@@ -217,6 +218,8 @@ public final class FileTransferService {
             incomingRequests.removeAll { $0.sid == sid }
         case let .jingleContentAddReceived(_, _, offer):
             trackIncomingOffer(offer)
+        case let .oobIQOfferReceived(offer):
+            trackIncomingOOBOffer(offer)
         case .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
             break
@@ -236,9 +239,25 @@ public final class FileTransferService {
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .serviceOutageReceived:
             break
         }
+    }
+
+    private func trackIncomingOOBOffer(_ offer: OOBIQOffer) {
+        pendingOOBOfferIDs.insert(offer.id)
+        let fileName = URL(string: offer.url)?.lastPathComponent ?? offer.url
+        let transfer = ActiveTransfer(
+            id: UUID(),
+            fileName: fileName,
+            fileSize: 0,
+            state: .awaitingAcceptance,
+            method: .httpUpload,
+            direction: .incoming,
+            sid: offer.id
+        )
+        activeTransfers.append(transfer)
     }
 
     private func trackIncomingOffer(_ offer: JingleFileOffer) {
@@ -272,6 +291,15 @@ public final class FileTransferService {
     // MARK: - Incoming Transfer Management
 
     public func acceptIncomingTransfer(_ sid: String, accountID: UUID, range: JingleFileRange? = nil) async throws {
+        // Route OOB IQ offers to OOBModule
+        if pendingOOBOfferIDs.contains(sid) {
+            let oobModule = try await oobModule(for: accountID)
+            try await oobModule.acceptOffer(id: sid)
+            pendingOOBOfferIDs.remove(sid)
+            updateTransferState(forSID: sid, state: .completedTransfer)
+            return
+        }
+
         let jingleModule = try await jingleModule(for: accountID)
 
         try await jingleModule.acceptFileTransfer(sid: sid, range: range)
@@ -336,6 +364,15 @@ public final class FileTransferService {
     }
 
     public func declineIncomingTransfer(_ sid: String, accountID: UUID) async throws {
+        // Route OOB IQ offers to OOBModule
+        if pendingOOBOfferIDs.contains(sid) {
+            let oobModule = try await oobModule(for: accountID)
+            try await oobModule.rejectOffer(id: sid)
+            pendingOOBOfferIDs.remove(sid)
+            updateTransferState(forSID: sid, state: .failed("Declined"))
+            return
+        }
+
         let jingleModule = try await jingleModule(for: accountID)
 
         try await jingleModule.declineFileTransfer(sid: sid)
@@ -525,6 +562,16 @@ public final class FileTransferService {
         }
         guard let module = await client.module(ofType: JingleModule.self) else {
             throw FileTransferError.noJingleModule
+        }
+        return module
+    }
+
+    private func oobModule(for accountID: UUID) async throws -> OOBModule {
+        guard let client = accountService?.client(for: accountID) else {
+            throw FileTransferError.noClient
+        }
+        guard let module = await client.module(ofType: OOBModule.self) else {
+            throw FileTransferError.noClient
         }
         return module
     }

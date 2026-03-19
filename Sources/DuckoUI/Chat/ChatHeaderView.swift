@@ -11,6 +11,10 @@ struct ChatHeaderView: View {
         environment.accountService.connectionStates[conversation.accountID] ?? .disconnected
     }
 
+    private var hasOutage: Bool {
+        environment.accountService.outageInfos[conversation.accountID] != nil
+    }
+
     private var isGroupchat: Bool {
         conversation.type == .groupchat
     }
@@ -40,6 +44,11 @@ struct ChatHeaderView: View {
                             Text("·")
                             Text("logged")
                         }
+                        if hasOutage {
+                            Text("·")
+                            Text("service outage")
+                                .foregroundStyle(.orange)
+                        }
                     }
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -52,6 +61,12 @@ struct ChatHeaderView: View {
                         Text(statusText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        if hasOutage {
+                            Text("·")
+                            Text("service outage")
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
             }

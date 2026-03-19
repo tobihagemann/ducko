@@ -122,8 +122,11 @@ struct JSONFormatter: CLIFormatter {
         case .jingleFileTransferReceived, .jingleFileRequestReceived,
              .jingleFileTransferProgress, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
+             .oobIQOfferReceived:
             return formatJingleEvent(event, account: account)
+        case let .serviceOutageReceived(info):
+            return formatOutageEvent(info, account: account)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
@@ -178,7 +181,8 @@ struct JSONFormatter: CLIFormatter {
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }
@@ -212,7 +216,8 @@ struct JSONFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }
@@ -285,7 +290,8 @@ struct JSONFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }
@@ -365,6 +371,8 @@ struct JSONFormatter: CLIFormatter {
                 "from": offer.from.bareJID.description,
                 "account": account
             ])
+        case let .oobIQOfferReceived(offer):
+            return formatOOBIQOfferEvent(offer, account: account)
         case .jingleChecksumReceived,
              .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .connected, .streamResumed, .disconnected, .authenticationFailed,
@@ -383,9 +391,30 @@ struct JSONFormatter: CLIFormatter {
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .serviceOutageReceived:
             return nil
         }
+    }
+
+    private func formatOOBIQOfferEvent(_ offer: OOBIQOffer, account: String) -> String {
+        var dict: [String: String] = [
+            "type": "oob_iq_offer",
+            "id": offer.id,
+            "url": offer.url,
+            "from": offer.from.bareJID.description,
+            "account": account
+        ]
+        if let desc = offer.desc { dict["desc"] = desc }
+        return encode(dict)
+    }
+
+    private func formatOutageEvent(_ info: ServiceOutageInfo, account: String) -> String {
+        var dict: [String: String] = ["type": "service_outage", "account": account]
+        if let desc = info.description { dict["description"] = desc }
+        if let end = info.expectedEnd { dict["expected_end"] = end }
+        if let alt = info.alternativeDomain { dict["alternative_domain"] = alt }
+        return encode(dict)
     }
 
     func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String {
@@ -578,7 +607,8 @@ struct JSONFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
     }

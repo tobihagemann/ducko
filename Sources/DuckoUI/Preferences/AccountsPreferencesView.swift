@@ -39,6 +39,12 @@ struct AccountsPreferencesView: View {
                     connectionIndicator(for: account.id)
                     Text(account.displayName ?? account.jid.description)
                         .lineLimit(1)
+                    if environment.accountService.outageInfos[account.id] != nil {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.caption2)
+                            .help("Service outage reported")
+                    }
                 }
             }
 

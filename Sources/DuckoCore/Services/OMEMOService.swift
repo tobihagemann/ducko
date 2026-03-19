@@ -120,7 +120,8 @@ public final class OMEMOService {
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
-             .blockListLoaded, .contactBlocked, .contactUnblocked:
+             .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
     }
