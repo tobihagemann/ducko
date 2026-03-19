@@ -493,13 +493,13 @@ public actor XMPPClient {
     // MARK: - Private: Authentication
 
     private func authenticate(features: XMLElement, reader: EventReader) async throws {
-        let cbData = await connection.channelBindingData
+        // SASL1 has no XEP-0440 to confirm the server's supported channel binding types.
+        // Don't pass CB data — PLUS mechanisms require XEP-0440 negotiation (SASL2 path).
         var authenticator = SASLAuthenticator()
         let authElement: XMLElement
         do {
             authElement = try authenticator.begin(
-                features: features, authcid: credentials.username, password: credentials.password,
-                channelBindingData: cbData
+                features: features, authcid: credentials.username, password: credentials.password
             )
         } catch {
             let message = String(describing: error)

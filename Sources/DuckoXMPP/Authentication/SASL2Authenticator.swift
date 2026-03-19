@@ -82,11 +82,12 @@ struct SASL2Authenticator {
             throw SASLAuthError.noSupportedMechanism
         }
 
-        // XEP-0440: Only use CB data if the server supports tls-server-end-point
-        // (or doesn't advertise any types, meaning no filtering)
+        // XEP-0440: Only use CB data if the server explicitly advertises tls-server-end-point.
+        // When the server omits <sasl-channel-binding> entirely (isEmpty), it does not support
+        // channel binding — do NOT fall back to PLUS mechanisms.
         let effectiveCBData: [UInt8]? = if let channelBindingData,
-                                           sasl2Features.channelBindingTypes.isEmpty
-                                           || sasl2Features.channelBindingTypes.contains(tlsServerEndPointCBType) {
+                                           !sasl2Features.channelBindingTypes.isEmpty,
+                                           sasl2Features.channelBindingTypes.contains(tlsServerEndPointCBType) {
             channelBindingData
         } else {
             nil
