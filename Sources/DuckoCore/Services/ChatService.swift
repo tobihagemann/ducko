@@ -1508,7 +1508,8 @@ public final class ChatService {
             .compactMap { oob -> Attachment? in
                 guard let urlString = oob.child(named: "url")?.textContent, !urlString.isEmpty else { return nil }
                 let desc = oob.child(named: "desc")?.textContent
-                return Attachment(id: UUID(), url: urlString, fileName: desc)
+                let fileName = URL(string: urlString)?.lastPathComponent
+                return Attachment(id: UUID(), url: urlString, fileName: fileName, oobDescription: desc)
             }
     }
 

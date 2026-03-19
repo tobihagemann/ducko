@@ -537,7 +537,7 @@ public final class AccountService {
         guard attempt < 5 else { return }
 
         reconnectAttempts[accountID] = attempt + 1
-        let delay = min(pow(2.0, Double(attempt)), 30.0)
+        let delay = min(pow(2.0, Double(attempt)), 30.0) + Double.random(in: 0 ... 5)
 
         reconnectTasks[accountID] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))

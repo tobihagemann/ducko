@@ -71,6 +71,13 @@ struct AttachmentView: View {
                     .font(.callout)
                     .lineLimit(1)
 
+                if let oobDescription = attachment.oobDescription, !oobDescription.isEmpty {
+                    Text(oobDescription)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
                 if let size = attachment.formattedFileSize {
                     Text(size)
                         .font(.caption)

@@ -49,6 +49,11 @@ public struct XMPPMessage: XMPPStanza {
         set { element.setChildText(named: "thread", to: newValue) }
     }
 
+    /// The `parent` attribute of the `<thread>` element per RFC 6121 §5.2.5.
+    public var threadParent: String? {
+        element.child(named: "thread")?.attribute("parent")
+    }
+
     /// Whether the message contains a XEP-0393 `<unstyled/>` hint.
     public var isUnstyled: Bool {
         element.child(named: "unstyled", namespace: XMPPNamespaces.styling) != nil

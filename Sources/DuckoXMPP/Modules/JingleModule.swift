@@ -662,6 +662,27 @@ public final class JingleModule: XMPPModule, Sendable {
         Task { await beginTransportConnection(sid: sid, context: context) }
     }
 
+    /// Sends a `session-info` IQ with `<received/>` per XEP-0234 §5.1 after file reception.
+    public func sendReceivedSessionInfo(sid: String) async throws {
+        let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
+        guard let context else { throw JingleError.notConnected }
+        guard let session else { throw JingleError.sessionNotFound }
+
+        var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
+        var jingle = XMLElement(
+            name: "jingle",
+            namespace: XMPPNamespaces.jingle,
+            attributes: [
+                "action": JingleAction.sessionInfo.rawValue,
+                "sid": sid
+            ]
+        )
+        jingle.addChild(XMLElement(name: "received", namespace: XMPPNamespaces.jingleFileTransfer))
+        iq.element.addChild(jingle)
+
+        try await context.sendStanza(iq)
+    }
+
     /// Declines a pending incoming file transfer.
     public func declineFileTransfer(sid: String) async throws {
         try await terminateSession(sid: sid, reason: .decline)

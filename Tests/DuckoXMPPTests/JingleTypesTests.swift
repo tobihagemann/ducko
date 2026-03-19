@@ -74,6 +74,73 @@ enum JingleTypesTests {
             #expect(parsed?.mediaType == original.mediaType)
             #expect(parsed?.hash == original.hash)
             #expect(parsed?.date == original.date)
+            #expect(parsed?.desc == nil)
+        }
+    }
+
+    struct FileDescriptionDesc {
+        @Test
+        func `Parses desc element from file description`() {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "notes.txt")
+            file.setChildText(named: "size", to: "512")
+            file.setChildText(named: "desc", to: "Meeting notes from today")
+
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+
+            let parsed = JingleFileDescription(from: description)
+            #expect(parsed?.desc == "Meeting notes from today")
+        }
+
+        @Test
+        func `Desc survives round-trip`() {
+            let original = JingleFileDescription(name: "doc.pdf", size: 1024, desc: "Important document")
+            let xml = original.toXML()
+            let parsed = JingleFileDescription(from: xml)
+            #expect(parsed?.desc == "Important document")
+        }
+
+        @Test
+        func `Desc is nil when not present`() {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "test.txt")
+            file.setChildText(named: "size", to: "100")
+
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+
+            let parsed = JingleFileDescription(from: description)
+            #expect(parsed?.desc == nil)
+        }
+    }
+
+    struct FilenameSanitization {
+        @Test(arguments: [
+            ("test.txt", "test.txt"),
+            ("../../etc/passwd", "passwd"),
+            ("/absolute/path/file.pdf", "file.pdf"),
+            ("..\\..\\windows\\cmd.exe", "cmd.exe"),
+            ("..", "unnamed"),
+            (".", "unnamed"),
+            ("", "unnamed")
+        ])
+        func `sanitizeFileName strips path components`(input: String, expected: String) {
+            let result = JingleFileDescription.sanitizeFileName(input)
+            #expect(result == expected)
+        }
+
+        @Test
+        func `Parsing sanitizes filename from XML`() {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "../../../etc/passwd")
+            file.setChildText(named: "size", to: "1024")
+
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+
+            let parsed = JingleFileDescription(from: description)
+            #expect(parsed?.name == "passwd")
         }
     }
 

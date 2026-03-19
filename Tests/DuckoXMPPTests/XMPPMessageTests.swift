@@ -80,4 +80,32 @@ enum XMPPMessageTests {
             #expect(message.thread == nil)
         }
     }
+
+    struct ThreadParent {
+        @Test
+        func `Returns parent attribute from thread element`() {
+            var element = XMLElement(name: "message", attributes: ["type": "chat"])
+            var threadChild = XMLElement(name: "thread", attributes: ["parent": "parent-thread-id"])
+            threadChild.addText("child-thread-id")
+            element.addChild(threadChild)
+            let message = XMPPMessage(element: element)
+            #expect(message.threadParent == "parent-thread-id")
+        }
+
+        @Test
+        func `Returns nil when thread has no parent attribute`() {
+            var element = XMLElement(name: "message", attributes: ["type": "chat"])
+            var threadChild = XMLElement(name: "thread")
+            threadChild.addText("abc-123")
+            element.addChild(threadChild)
+            let message = XMPPMessage(element: element)
+            #expect(message.threadParent == nil)
+        }
+
+        @Test
+        func `Returns nil when no thread element`() {
+            let message = XMPPMessage(type: .chat)
+            #expect(message.threadParent == nil)
+        }
+    }
 }

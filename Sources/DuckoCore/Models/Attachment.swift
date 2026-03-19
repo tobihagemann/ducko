@@ -7,6 +7,7 @@ public struct Attachment: Sendable, Identifiable {
     public var fileName: String?
     public var fileSize: Int64?
     public var thumbnailData: Data?
+    public var oobDescription: String?
 
     public init(
         id: UUID,
@@ -14,7 +15,8 @@ public struct Attachment: Sendable, Identifiable {
         mimeType: String? = nil,
         fileName: String? = nil,
         fileSize: Int64? = nil,
-        thumbnailData: Data? = nil
+        thumbnailData: Data? = nil,
+        oobDescription: String? = nil
     ) {
         self.id = id
         self.url = url
@@ -22,6 +24,7 @@ public struct Attachment: Sendable, Identifiable {
         self.fileName = fileName
         self.fileSize = fileSize
         self.thumbnailData = thumbnailData
+        self.oobDescription = oobDescription
     }
 
     // MARK: - Computed Helpers

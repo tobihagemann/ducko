@@ -225,6 +225,7 @@ public final class FileTransferService {
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
                 let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: offer.fileSize)
+                try? await jingleModule.sendReceivedSessionInfo(sid: sid)
                 log.info("Received \(data.count) bytes via Jingle for sid: \(sid)")
             } catch {
                 log.warning("Jingle receive failed for sid \(sid): \(error)")

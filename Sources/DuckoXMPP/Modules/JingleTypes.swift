@@ -28,13 +28,15 @@ public struct JingleFileDescription: Sendable, Hashable {
     public let mediaType: String?
     public let hash: String?
     public let date: String?
+    public let desc: String?
 
-    public init(name: String, size: Int64, mediaType: String? = nil, hash: String? = nil, date: String? = nil) {
+    public init(name: String, size: Int64, mediaType: String? = nil, hash: String? = nil, date: String? = nil, desc: String? = nil) {
         self.name = name
         self.size = size
         self.mediaType = mediaType
         self.hash = hash
         self.date = date
+        self.desc = desc
     }
 
     /// Parses from a `<description xmlns='...file-transfer:5'>` element.
@@ -46,11 +48,12 @@ public struct JingleFileDescription: Sendable, Hashable {
               let sizeText = file.childText(named: "size"),
               let size = Int64(sizeText) else { return nil }
 
-        self.name = name
+        self.name = Self.sanitizeFileName(name)
         self.size = size
         self.mediaType = file.childText(named: "media-type")
         self.hash = file.child(named: "hash")?.textContent
         self.date = file.childText(named: "date")
+        self.desc = file.childText(named: "desc")
     }
 
     /// Serializes to a `<description>` element containing a `<file>`.
@@ -69,10 +72,28 @@ public struct JingleFileDescription: Sendable, Hashable {
         if let date {
             file.setChildText(named: "date", to: date)
         }
+        if let desc {
+            file.setChildText(named: "desc", to: desc)
+        }
 
         var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
         description.addChild(file)
         return description
+    }
+
+    /// Strips path components from a filename to prevent directory traversal (XEP-0234 §9).
+    static func sanitizeFileName(_ name: String) -> String {
+        var result = name
+        if let lastSlash = result.lastIndex(of: "/") {
+            result = String(result[result.index(after: lastSlash)...])
+        }
+        if let lastBackslash = result.lastIndex(of: "\\") {
+            result = String(result[result.index(after: lastBackslash)...])
+        }
+        if result.isEmpty || result == "." || result == ".." {
+            result = "unnamed"
+        }
+        return result
     }
 }
 

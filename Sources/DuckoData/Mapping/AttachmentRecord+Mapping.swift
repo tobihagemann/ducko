@@ -9,7 +9,8 @@ extension AttachmentRecord {
             mimeType: mimeType,
             fileName: fileName,
             fileSize: fileSize,
-            thumbnailData: thumbnailData
+            thumbnailData: thumbnailData,
+            oobDescription: oobDescription
         )
     }
 }

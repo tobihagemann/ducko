@@ -23,8 +23,12 @@ final class EventReader: @unchecked Sendable {
 
     func awaitFeatures() async throws -> XMLElement {
         let openEvent = try await awaitNextEvent()
-        guard case .streamOpened = openEvent else {
+        guard case let .streamOpened(attributes) = openEvent else {
             throw XMPPClientError.unexpectedStreamState("Expected stream opened")
+        }
+        // RFC 6120 §4.7.5: reject unsupported stream versions.
+        if let version = attributes["version"], version != "1.0" {
+            throw XMPPClientError.unexpectedStreamState("Unsupported stream version: \(version)")
         }
         let featuresEvent = try await awaitNextEvent()
         guard case let .stanzaReceived(features) = featuresEvent, features.name == "features" else {

@@ -9,6 +9,7 @@ final class AttachmentRecord {
     var fileName: String?
     var fileSize: Int64?
     @Attribute(.externalStorage) var thumbnailData: Data?
+    var oobDescription: String?
     // Retained for schema compatibility — no longer mapped to domain model
     var width: Int?
     var height: Int?
@@ -22,9 +23,10 @@ final class AttachmentRecord {
         mimeType: String? = nil,
         fileName: String? = nil,
         fileSize: Int64? = nil,
+        thumbnailData: Data? = nil,
+        oobDescription: String? = nil,
         width: Int? = nil,
         height: Int? = nil,
-        thumbnailData: Data? = nil,
         localPath: String? = nil,
         message: MessageRecord? = nil
     ) {
@@ -33,9 +35,10 @@ final class AttachmentRecord {
         self.mimeType = mimeType
         self.fileName = fileName
         self.fileSize = fileSize
+        self.thumbnailData = thumbnailData
+        self.oobDescription = oobDescription
         self.width = width
         self.height = height
-        self.thumbnailData = thumbnailData
         self.localPath = localPath
         self.message = message
     }
