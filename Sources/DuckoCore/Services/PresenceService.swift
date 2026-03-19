@@ -98,6 +98,8 @@ public final class PresenceService {
         case .disconnected:
             contactPresencesByAccount.removeValue(forKey: accountID)
             pendingRequestsByAccount.removeValue(forKey: accountID)
+        case .presenceSubscriptionApproved, .presenceSubscriptionRevoked:
+            break
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,

@@ -3,8 +3,8 @@ import os
 /// XEP-0424 fallback body for clients that don't support message retraction.
 private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
 
-/// Handles 1:1 `<message type="chat">` stanzas, including XEP-0308 corrections
-/// and XEP-0461 replies.
+/// Handles 1:1 `<message>` stanzas with `type="chat"` or `type="normal"`,
+/// including XEP-0308 corrections and XEP-0461 replies.
 public final class ChatModule: XMPPModule, Sendable {
     private let state: OSAllocatedUnfairLock<ModuleContext?>
 
@@ -21,7 +21,7 @@ public final class ChatModule: XMPPModule, Sendable {
     }
 
     public func handleMessage(_ message: XMPPMessage) throws {
-        guard message.messageType == .chat || message.messageType == .error else { return }
+        guard message.messageType == .chat || message.messageType == .normal || message.messageType == .error else { return }
         guard let from = message.from else { return }
 
         let context = state.withLock { $0 }

@@ -42,9 +42,7 @@ public final class PresenceModule: XMPPModule, Sendable {
         guard let from = presence.from else { return }
         let context = state.withLock { $0.context }
 
-        if presence.presenceType == .subscribe {
-            log.info("Subscription request from \(from)")
-            context?.emitEvent(.presenceSubscriptionRequest(from: from.bareJID))
+        if let handled = handleSubscriptionPresence(from: from, type: presence.presenceType, context: context) {
             return
         }
 
@@ -120,6 +118,30 @@ public final class PresenceModule: XMPPModule, Sendable {
     }
 
     // MARK: - Private
+
+    /// Handles subscription-related presence types. Returns `true` if the presence was handled.
+    @discardableResult
+    private func handleSubscriptionPresence(from: JID, type: XMPPPresence.PresenceType?, context: ModuleContext?) -> Bool? {
+        switch type {
+        case .subscribe:
+            log.info("Subscription request from \(from)")
+            context?.emitEvent(.presenceSubscriptionRequest(from: from.bareJID))
+            return true
+        case .subscribed:
+            log.info("Subscription approved by \(from)")
+            context?.emitEvent(.presenceSubscriptionApproved(from: from.bareJID))
+            return true
+        case .unsubscribed:
+            log.info("Subscription revoked by \(from)")
+            context?.emitEvent(.presenceSubscriptionRevoked(from: from.bareJID))
+            return true
+        case .unsubscribe, .probe, .error:
+            // Server handles unsubscribe/probe; no client event needed
+            return true
+        case .unavailable, nil:
+            return nil
+        }
+    }
 
     private func appendAvatarHash(to presence: inout XMPPPresence) {
         let hash = state.withLock { $0.ownAvatarHash }

@@ -136,6 +136,7 @@ public final class RosterService {
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,

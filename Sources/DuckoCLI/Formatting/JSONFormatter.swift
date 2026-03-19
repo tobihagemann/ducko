@@ -106,7 +106,8 @@ struct JSONFormatter: CLIFormatter {
             return formatCarbonEvent(forwarded, isOutgoing: false, account: account)
         case let .messageCarbonSent(forwarded):
             return formatCarbonEvent(forwarded, isOutgoing: true, account: account)
-        case .presenceSubscriptionRequest, .deliveryReceiptReceived,
+        case .presenceSubscriptionRequest, .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
+             .deliveryReceiptReceived,
              .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             return formatMiscEvent(event, account: account)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -155,6 +156,7 @@ struct JSONFormatter: CLIFormatter {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -185,6 +187,7 @@ struct JSONFormatter: CLIFormatter {
         case .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -219,10 +222,15 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func formatMiscEvent(_ event: XMPPEvent, account: String) -> String? {
         switch event {
         case let .presenceSubscriptionRequest(from: jid):
             return encode(["type": "subscription_request", "from": jid.description])
+        case let .presenceSubscriptionApproved(from: jid):
+            return encode(["type": "subscription_approved", "from": jid.description])
+        case let .presenceSubscriptionRevoked(from: jid):
+            return encode(["type": "subscription_revoked", "from": jid.description])
         case let .deliveryReceiptReceived(messageID, from):
             return encode(["type": "delivery_receipt", "messageID": messageID, "from": from.bareJID.description, "account": account])
         case let .messageCorrected(originalID, newBody, from):
@@ -325,6 +333,7 @@ struct JSONFormatter: CLIFormatter {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -495,6 +504,7 @@ struct JSONFormatter: CLIFormatter {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,

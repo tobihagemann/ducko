@@ -29,6 +29,7 @@ actor CLIEventHandler {
              .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .archivedMessagesLoaded,
              .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageRetracted, .messageModerated, .messageError,

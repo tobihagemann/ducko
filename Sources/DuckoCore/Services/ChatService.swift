@@ -18,6 +18,7 @@ public final class ChatService {
     public private(set) var newlyCreatedRoomJIDs: Set<String> = []
     public private(set) var roomFlags: [String: Set<RoomFlag>] = [:]
     public var onIncomingMessage: ((ChatMessage, Conversation) -> Void)?
+    public var onHeadlineMessage: (@Sendable (XMPPMessage) -> Void)?
 
     private let store: any PersistenceStore
     private let filterPipeline: MessageFilterPipeline
@@ -845,6 +846,7 @@ public final class ChatService {
              .presenceReceived, .iqReceived,
              .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .archivedMessagesLoaded,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
@@ -881,6 +883,7 @@ public final class ChatService {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
@@ -907,6 +910,7 @@ public final class ChatService {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
@@ -950,6 +954,7 @@ public final class ChatService {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
              .messageCorrected, .messageRetracted, .messageModerated, .messageError,
@@ -1070,6 +1075,7 @@ public final class ChatService {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived, .chatMarkerReceived,
@@ -1361,10 +1367,18 @@ public final class ChatService {
     private func handleMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
         if shouldSkipRawMessage(xmppMessage) { return }
 
+        // Headline messages are transient (RFC 6121 §5.2.2) — surface but don't persist
+        if xmppMessage.messageType == .headline {
+            if xmppMessage.body != nil, xmppMessage.from != nil {
+                onHeadlineMessage?(xmppMessage)
+            }
+            return
+        }
+
         // Parse OOB attachments before body check — OOB-only messages have no body
         let oobAttachments = parseOOBAttachments(from: xmppMessage.element)
 
-        guard xmppMessage.messageType == .chat,
+        guard xmppMessage.messageType == .chat || xmppMessage.messageType == .normal,
               let fromJID = xmppMessage.from?.bareJID else { return }
 
         // Accept messages with body or OOB attachments
@@ -1491,8 +1505,12 @@ public final class ChatService {
         if message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil { return true }
         if message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil { return true }
         if message.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil { return true }
+        // MUC invites — handled by .roomInviteReceived
+        if message.element.child(named: "x", namespace: XMPPNamespaces.mucDirectInvite) != nil { return true }
+        if let mucUser = message.element.child(named: "x", namespace: XMPPNamespaces.mucUser),
+           mucUser.child(named: "invite") != nil { return true }
         // MUC private messages — handled by .mucPrivateMessageReceived
-        if message.messageType == .chat, let from = message.from, case .full = from {
+        if message.messageType == .chat || message.messageType == .normal, let from = message.from, case .full = from {
             let roomJID = from.bareJID
             if openConversations.contains(where: { $0.jid == roomJID && $0.type == .groupchat })
                 || message.element.child(named: "x", namespace: XMPPNamespaces.mucUser) != nil {

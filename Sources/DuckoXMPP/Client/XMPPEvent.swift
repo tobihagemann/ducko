@@ -12,6 +12,8 @@ public enum XMPPEvent: Sendable {
     case rosterVersionChanged(String)
     case presenceUpdated(from: JID, presence: XMPPPresence)
     case presenceSubscriptionRequest(from: BareJID)
+    case presenceSubscriptionApproved(from: BareJID)
+    case presenceSubscriptionRevoked(from: BareJID)
     case messageCarbonReceived(ForwardedMessage)
     case messageCarbonSent(ForwardedMessage)
     case archivedMessagesLoaded([ArchivedMessage], fin: MAMFin)

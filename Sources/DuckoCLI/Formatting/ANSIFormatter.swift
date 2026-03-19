@@ -97,7 +97,8 @@ struct ANSIFormatter: CLIFormatter {
             return formatCarbonEvent(forwarded, isOutgoing: false)
         case let .messageCarbonSent(forwarded):
             return formatCarbonEvent(forwarded, isOutgoing: true)
-        case .presenceSubscriptionRequest, .deliveryReceiptReceived,
+        case .presenceSubscriptionRequest, .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
+             .deliveryReceiptReceived,
              .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             return formatMiscEvent(event)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
@@ -134,6 +135,7 @@ struct ANSIFormatter: CLIFormatter {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -164,6 +166,7 @@ struct ANSIFormatter: CLIFormatter {
         case .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -277,6 +280,7 @@ struct ANSIFormatter: CLIFormatter {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -382,6 +386,7 @@ struct ANSIFormatter: CLIFormatter {
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
              .archivedMessagesLoaded,
              .chatStateChanged, .deliveryReceiptReceived,
@@ -402,6 +407,10 @@ struct ANSIFormatter: CLIFormatter {
         switch event {
         case let .presenceSubscriptionRequest(from: jid):
             return "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
+        case let .presenceSubscriptionApproved(from: jid):
+            return "\(Color.green)✓ Subscription approved by \(jid)\(Color.reset)"
+        case let .presenceSubscriptionRevoked(from: jid):
+            return "\(Color.yellow)✗ Subscription revoked by \(jid)\(Color.reset)"
         case let .deliveryReceiptReceived(messageID, from):
             return "\(Color.dim)\u{2713} delivery receipt: \(messageID) from \(from.bareJID)\(Color.reset)"
         case let .messageCorrected(_, newBody, from):
