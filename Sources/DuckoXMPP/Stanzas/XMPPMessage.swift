@@ -44,6 +44,30 @@ public struct XMPPMessage: XMPPStanza {
         set { element.setChildText(named: "subject", to: newValue) }
     }
 
+    // MARK: - Multi-Language Content (RFC 6121 §5.2.3/5.2.4)
+
+    /// A text element with an optional `xml:lang` attribute.
+    public struct LocalizedText: Sendable, Equatable {
+        public let lang: String?
+        public let text: String
+    }
+
+    /// All `<body>` elements with their `xml:lang` attributes.
+    public var localizedBodies: [LocalizedText] {
+        element.children(named: "body").compactMap { child in
+            guard let text = child.textContent else { return nil }
+            return LocalizedText(lang: child.attribute("xml:lang"), text: text)
+        }
+    }
+
+    /// All `<subject>` elements with their `xml:lang` attributes.
+    public var localizedSubjects: [LocalizedText] {
+        element.children(named: "subject").compactMap { child in
+            guard let text = child.textContent else { return nil }
+            return LocalizedText(lang: child.attribute("xml:lang"), text: text)
+        }
+    }
+
     public var thread: String? {
         get { element.childText(named: "thread") }
         set { element.setChildText(named: "thread", to: newValue) }

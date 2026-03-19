@@ -44,6 +44,16 @@ struct ContactContextMenu: View {
             isShowingRenameSheet = true
         }
 
+        Button("Send Directed Presence") {
+            Task {
+                try? await environment.presenceService.sendDirectedPresence(
+                    to: contact.jid.description,
+                    accountID: contact.accountID
+                )
+            }
+        }
+        .accessibilityIdentifier("send-directed-presence-menu-item")
+
         Divider()
 
         Button(contact.isBlocked ? "Unblock" : "Block") {

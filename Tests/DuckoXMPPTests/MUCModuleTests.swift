@@ -70,6 +70,44 @@ enum MUCModuleTests {
         }
     }
 
+    struct JoinedRoomFullJIDs {
+        @Test
+        func `Returns empty when no rooms joined`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            #expect(module.joinedRoomFullJIDs.isEmpty)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Returns full JIDs for joined rooms`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/me'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let fullJIDs = module.joinedRoomFullJIDs
+            #expect(fullJIDs.count == 1)
+            #expect(fullJIDs.first?.description == "room@conference.example.com/me")
+
+            await client.disconnect()
+        }
+    }
+
     struct RoomFlags {
         @Test
         func `Non-anonymous room flag from status code 100`() async throws {

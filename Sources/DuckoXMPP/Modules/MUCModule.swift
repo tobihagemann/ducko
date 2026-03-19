@@ -581,6 +581,16 @@ public final class MUCModule: XMPPModule, Sendable {
         state.withLock { $0.rooms[room]?.nickname }
     }
 
+    /// Full JIDs (room + nickname) for all currently joined rooms.
+    public var joinedRoomFullJIDs: [JID] {
+        state.withLock { state in
+            state.rooms.compactMap { room, roomState in
+                guard let fullJID = FullJID(bareJID: room, resourcePart: roomState.nickname) else { return nil }
+                return JID.full(fullJID)
+            }
+        }
+    }
+
     /// Changes the user's nickname in a room.
     public func changeNickname(in room: BareJID, to newNickname: String) async throws {
         guard let context = state.withLock({ $0.context }) else { return }

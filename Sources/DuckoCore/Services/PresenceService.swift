@@ -57,6 +57,15 @@ public final class PresenceService {
         await sendPresence(accountID: accountID)
     }
 
+    /// Sends directed presence to a specific JID, using the user's current show/status.
+    public func sendDirectedPresence(to jidString: String, accountID: UUID) async throws {
+        guard let jid = JID.parse(jidString) else { return }
+        guard let client = accountService?.client(for: accountID) else { return }
+        guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
+
+        try await presenceModule.sendDirectedPresence(to: jid, show: currentShow, status: myStatusMessage)
+    }
+
     public func applyPresence(
         _ status: PresenceStatus,
         message: String?,
@@ -191,20 +200,21 @@ public final class PresenceService {
         }
     }
 
+    private var currentShow: XMPPPresence.Show? {
+        switch myPresence {
+        case .available, .offline: nil
+        case .away: .away
+        case .xa: .xa
+        case .dnd: .dnd
+        }
+    }
+
     private func sendPresence(accountID: UUID) async {
         guard myPresence != .offline else { return }
         guard let client = accountService?.client(for: accountID) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
-        let show: XMPPPresence.Show? = switch myPresence {
-        case .available: nil
-        case .away: .away
-        case .xa: .xa
-        case .dnd: .dnd
-        case .offline: nil // unreachable due to guard above
-        }
-
-        try? await presenceModule.broadcastPresence(show: show, status: myStatusMessage)
+        try? await presenceModule.broadcastPresence(show: currentShow, status: myStatusMessage)
     }
 }
 

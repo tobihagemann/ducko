@@ -38,6 +38,52 @@ enum PresenceModuleTests {
         }
     }
 
+    struct DirectedPresence {
+        @Test
+        func `sendDirectedPresence sends to specific JID`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: PresenceModule.self))
+
+            let sentCountBefore = await mock.sentBytes.count
+
+            let jid = try #require(JID.parse("contact@example.com/mobile"))
+            try await module.sendDirectedPresence(to: jid, show: .away, status: "brb")
+
+            let sentData = await mock.sentBytes
+            let newSent = sentData[sentCountBefore...].map { String(decoding: $0, as: UTF8.self) }
+            let directedPresence = newSent.first { $0.contains("<presence") && $0.contains("to=") }
+            let unwrapped = try #require(directedPresence)
+            #expect(unwrapped.contains("to=\"contact@example.com/mobile\""))
+            #expect(unwrapped.contains("<show>away</show>"))
+            #expect(unwrapped.contains("<status>brb</status>"))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `sendDirectedPresence without show or status`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: PresenceModule.self))
+
+            let sentCountBefore = await mock.sentBytes.count
+
+            let jid = try #require(JID.parse("room@conference.example.com/nick"))
+            try await module.sendDirectedPresence(to: jid)
+
+            let sentData = await mock.sentBytes
+            let newSent = sentData[sentCountBefore...].map { String(decoding: $0, as: UTF8.self) }
+            let directedPresence = newSent.first { $0.contains("<presence") && $0.contains("to=") }
+            let unwrapped = try #require(directedPresence)
+            #expect(unwrapped.contains("to=\"room@conference.example.com/nick\""))
+            #expect(!unwrapped.contains("<show>"))
+            #expect(!unwrapped.contains("<status>"))
+
+            await client.disconnect()
+        }
+    }
+
     struct PresenceTracking {
         @Test
         func `Available presence is tracked in map`() async throws {

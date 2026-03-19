@@ -117,6 +117,7 @@ public final class AvatarService {
         ownAvatarHash = hash
         presenceModule.setOwnAvatarHash(hash)
         try? await presenceModule.broadcastPresence()
+        await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
     }
 
     /// Removes the user's avatar.
@@ -140,6 +141,7 @@ public final class AvatarService {
         ownAvatarHash = nil
         presenceModule.setOwnAvatarHash(nil)
         try? await presenceModule.broadcastPresence()
+        await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
     }
 
     /// Fetches a contact's avatar. Returns `AvatarData` or nil.
@@ -150,6 +152,17 @@ public final class AvatarService {
         }
         // Fall back to vCard
         return await fetchVCardAvatar(for: jid, accountID: accountID)
+    }
+
+    // MARK: - Private: MUC Presence
+
+    /// XEP-0398 §4: Re-send directed presence to joined MUC rooms
+    /// so room occupants receive the updated vcard-temp:x:update hash.
+    private func resendPresenceToMUCRooms(client: XMPPClient, presenceModule: PresenceModule) async {
+        guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        for roomJID in mucModule.joinedRoomFullJIDs {
+            try? await presenceModule.sendDirectedPresence(to: roomJID)
+        }
     }
 
     // MARK: - Private: Connect

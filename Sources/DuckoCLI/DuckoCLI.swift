@@ -1394,6 +1394,7 @@ private func printREPLHelp() {
     print("  /search <jid> <query>    Search message history")
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
+    print("  /directed-presence <jid> Send directed presence to a JID")
     print("  /join <room> [nick]      Join a MUC room")
     print("  /leave [room]            Leave a MUC room")
     print("  /members [room]          Show room occupants")
@@ -1472,6 +1473,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input.hasPrefix("/edit ")
         || input.hasPrefix("/encrypt ")
         || input.hasPrefix("/pref ")
+        || input.hasPrefix("/directed-presence ")
 }
 
 private func dispatchMiscREPLCommand(
@@ -1506,6 +1508,18 @@ private func dispatchMiscREPLCommand(
         }
     } else if input == "/history" || input.hasPrefix("/history ") {
         await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
+    } else if input.hasPrefix("/directed-presence ") {
+        let jidString = input.dropFirst("/directed-presence ".count).trimmingCharacters(in: .whitespaces)
+        guard JID.parse(jidString) != nil else {
+            print(formatter.formatError(CLIError.invalidJID(jidString)))
+            return
+        }
+        do {
+            try await environment.presenceService.sendDirectedPresence(to: jidString, accountID: accountID)
+            print("Sent directed presence to \(jidString).")
+        } catch {
+            print(formatter.formatError(error))
+        }
     } else {
         await dispatchInfoREPLCommand(input, context: context)
     }
