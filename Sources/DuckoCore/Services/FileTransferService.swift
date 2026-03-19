@@ -40,6 +40,25 @@ public final class FileTransferService {
         }
     }
 
+    /// View-friendly representation of an incoming Jingle file request.
+    public struct IncomingFileRequest: Sendable, Identifiable { // periphery:ignore
+        public var id: String {
+            sid
+        }
+
+        public let sid: String
+        public let fileName: String
+        public let fileSize: Int64
+        public let fromJIDString: String
+
+        public init(sid: String, fileName: String, fileSize: Int64, fromJIDString: String) {
+            self.sid = sid
+            self.fileName = fileName
+            self.fileSize = fileSize
+            self.fromJIDString = fromJIDString
+        }
+    }
+
     public struct ActiveTransfer: Sendable, Identifiable {
         public let id: UUID
         public let fileName: String
@@ -110,11 +129,22 @@ public final class FileTransferService {
 
     public private(set) var activeTransfers: [ActiveTransfer] = []
     public private(set) var incomingOffers: [JingleFileOffer] = []
+    public private(set) var incomingRequests: [JingleFileRequest] = []
 
     /// View-friendly projection of `incomingOffers` for modules that cannot import DuckoXMPP.
     public var viewIncomingOffers: [IncomingFileOffer] {
         incomingOffers.map {
             IncomingFileOffer(sid: $0.sid, fileName: $0.fileName, fileSize: $0.fileSize, fromJIDString: $0.from.bareJID.description)
+        }
+    }
+
+    /// View-friendly projection of `incomingRequests` for modules that cannot import DuckoXMPP.
+    public var viewIncomingRequests: [IncomingFileRequest] { // periphery:ignore
+        incomingRequests.map {
+            IncomingFileRequest(
+                sid: $0.sid, fileName: $0.fileDescription.name,
+                fileSize: $0.fileDescription.size, fromJIDString: $0.from.bareJID.description
+            )
         }
     }
 
@@ -182,15 +212,21 @@ public final class FileTransferService {
                 sid: offer.sid
             )
             activeTransfers.append(transfer)
+        case let .jingleFileRequestReceived(request):
+            handleIncomingFileRequest(request)
         case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
             let progress = Double(bytesTransferred) / Double(totalBytes)
             updateTransferState(forSID: sid, state: .transferring(progress: progress))
         case let .jingleFileTransferCompleted(sid):
             updateTransferState(forSID: sid, state: .completedTransfer)
             incomingOffers.removeAll { $0.sid == sid }
+            incomingRequests.removeAll { $0.sid == sid }
         case let .jingleFileTransferFailed(sid, reason):
             updateTransferState(forSID: sid, state: .failed(reason))
             incomingOffers.removeAll { $0.sid == sid }
+            incomingRequests.removeAll { $0.sid == sid }
+        case .jingleChecksumReceived, .jingleChecksumMismatch:
+            break
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -212,6 +248,20 @@ public final class FileTransferService {
         }
     }
 
+    private func handleIncomingFileRequest(_ request: JingleFileRequest) {
+        incomingRequests.append(request)
+        let transfer = ActiveTransfer(
+            id: UUID(),
+            fileName: request.fileDescription.name,
+            fileSize: request.fileDescription.size,
+            state: .awaitingAcceptance,
+            method: .jingle,
+            direction: .outgoing,
+            sid: request.sid
+        )
+        activeTransfers.append(transfer)
+    }
+
     // MARK: - Incoming Transfer Management
 
     public func acceptIncomingTransfer(_ sid: String, accountID: UUID) async throws {
@@ -226,6 +276,9 @@ public final class FileTransferService {
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
                 let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: offer.fileSize)
+                if !jingleModule.verifyChecksum(sid: sid, receivedData: data) {
+                    log.warning("Checksum mismatch for received file, sid: \(sid)")
+                }
                 try? await jingleModule.sendReceivedSessionInfo(sid: sid)
                 log.info("Received \(data.count) bytes via Jingle for sid: \(sid)")
             } catch {
@@ -233,6 +286,37 @@ public final class FileTransferService {
                 updateTransferState(forSID: sid, state: .failed(error.localizedDescription))
             }
         }
+    }
+
+    /// Fulfills an incoming file request by sending the file at the given URL.
+    public func fulfillFileRequest(_ sid: String, fileURL: URL, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+
+        try await jingleModule.acceptFileTransfer(sid: sid)
+        incomingRequests.removeAll { $0.sid == sid }
+
+        updateTransferState(forSID: sid, state: .connectingTransport)
+
+        Task {
+            do {
+                try await jingleModule.awaitTransportReady(sid: sid)
+                let fileData = try Array(Data(contentsOf: fileURL))
+                updateTransferState(forSID: sid, state: .transferring(progress: 0))
+                try? await jingleModule.sendChecksumSessionInfo(sid: sid, data: fileData)
+                try await jingleModule.sendFileData(sid: sid, data: fileData)
+                updateTransferState(forSID: sid, state: .completedTransfer)
+            } catch {
+                log.warning("Jingle file request fulfillment failed for sid \(sid): \(error)")
+                updateTransferState(forSID: sid, state: .failed(error.localizedDescription))
+            }
+        }
+    }
+
+    /// Declines an incoming file request.
+    public func declineFileRequest(_ sid: String, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+        try await jingleModule.declineFileTransfer(sid: sid)
+        incomingRequests.removeAll { $0.sid == sid }
     }
 
     public func declineIncomingTransfer(_ sid: String, accountID: UUID) async throws {
@@ -332,6 +416,7 @@ public final class FileTransferService {
             let fileData = try Array(Data(contentsOf: file.url))
             updateTransferState(id: transferID, state: .transferring(progress: 0))
 
+            try? await jingleModule.sendChecksumSessionInfo(sid: sid, data: fileData)
             try await jingleModule.sendFileData(sid: sid, data: fileData)
             updateTransferState(id: transferID, state: .completedTransfer)
             return ""

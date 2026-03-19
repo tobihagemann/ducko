@@ -17,7 +17,7 @@ actor CLIEventHandler {
             ringBell()
         case .messageCarbonReceived, .messageCarbonSent,
              .roomMessageReceived, .mucPrivateMessageReceived, .roomInviteReceived,
-             .jingleFileTransferReceived:
+             .jingleFileTransferReceived, .jingleFileRequestReceived:
             ringBell()
         case let .chatStateChanged(from, state):
             handleChatState(from: from, state: state)
@@ -39,6 +39,7 @@ actor CLIEventHandler {
              .roomOccupantNickChanged, .roomSubjectChanged, .roomDestroyed,
              .mucSelfPingFailed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoEncryptedMessageReceived:
             break

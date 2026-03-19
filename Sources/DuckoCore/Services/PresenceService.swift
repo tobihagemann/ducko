@@ -115,6 +115,7 @@ public final class PresenceService {
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break

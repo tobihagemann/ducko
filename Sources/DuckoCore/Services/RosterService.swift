@@ -149,6 +149,7 @@ public final class RosterService {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
         }

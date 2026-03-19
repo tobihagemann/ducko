@@ -21,6 +21,15 @@ public enum JingleTerminateReason: String, Sendable {
     case failedTransport = "failed-transport"
 }
 
+/// Senders attribute on a Jingle content element per XEP-0166 §7.3.
+/// Controls which party sends media/file data within the content.
+public enum JingleContentSenders: String, Sendable {
+    case none
+    case initiator
+    case responder
+    case both
+}
+
 /// File description inside a Jingle content element per XEP-0234.
 public struct JingleFileDescription: Sendable, Hashable {
     public let name: String
@@ -240,12 +249,22 @@ public enum JingleTransportDescription: Sendable, Hashable {
 struct JingleContent {
     let name: String
     let creator: String
+    let senders: JingleContentSenders?
     let description: JingleFileDescription
     let transport: JingleTransportDescription
 
-    init(name: String, creator: String, description: JingleFileDescription, transport: JingleTransportDescription) {
+    /// The effective senders value, defaulting to `.both` when not explicitly set.
+    var effectiveSenders: JingleContentSenders {
+        senders ?? .both
+    }
+
+    init(
+        name: String, creator: String, senders: JingleContentSenders? = nil,
+        description: JingleFileDescription, transport: JingleTransportDescription
+    ) {
         self.name = name
         self.creator = creator
+        self.senders = senders
         self.description = description
         self.transport = transport
     }
@@ -264,13 +283,18 @@ struct JingleContent {
 
         self.name = name
         self.creator = creator
+        self.senders = element.attribute("senders").flatMap(JingleContentSenders.init(rawValue:))
         self.description = description
         self.transport = transport
     }
 
     /// Serializes to a `<content>` element.
     func toXML() -> XMLElement {
-        var content = XMLElement(name: "content", attributes: ["creator": creator, "name": name])
+        var attributes = ["creator": creator, "name": name]
+        if let senders {
+            attributes["senders"] = senders.rawValue
+        }
+        var content = XMLElement(name: "content", attributes: attributes)
         content.addChild(description.toXML())
         content.addChild(transport.toXML())
         return content
@@ -336,5 +360,32 @@ public struct JingleFileOffer: Sendable {
         self.fileName = fileName
         self.fileSize = fileSize
         self.mediaType = mediaType
+    }
+}
+
+/// A file request from a peer via session-initiate with senders='responder'.
+/// The peer is the initiator but wants us (the responder) to send data.
+public struct JingleFileRequest: Sendable {
+    public let sid: String
+    public let from: FullJID
+    public let fileDescription: JingleFileDescription
+
+    public init(sid: String, from: FullJID, fileDescription: JingleFileDescription) {
+        self.sid = sid
+        self.from = from
+        self.fileDescription = fileDescription
+    }
+}
+
+/// Parsed checksum from a session-info per XEP-0234 §5.
+public struct JingleChecksumInfo: Sendable {
+    public let contentName: String
+    public let algo: String
+    public let hash: String
+
+    public init(contentName: String, algo: String, hash: String) {
+        self.contentName = contentName
+        self.algo = algo
+        self.hash = hash
     }
 }

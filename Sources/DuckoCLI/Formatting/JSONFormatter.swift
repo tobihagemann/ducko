@@ -119,8 +119,9 @@ struct JSONFormatter: CLIFormatter {
              .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
              .mucSelfPingFailed:
             return formatMUCEvent(event, account: account)
-        case .jingleFileTransferReceived, .jingleFileTransferProgress,
-             .jingleFileTransferCompleted, .jingleFileTransferFailed:
+        case .jingleFileTransferReceived, .jingleFileRequestReceived,
+             .jingleFileTransferProgress, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleChecksumMismatch:
             return formatJingleEvent(event, account: account)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -129,6 +130,7 @@ struct JSONFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
@@ -171,8 +173,9 @@ struct JSONFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -202,8 +205,9 @@ struct JSONFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -273,8 +277,9 @@ struct JSONFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -323,15 +328,9 @@ struct JSONFormatter: CLIFormatter {
     private func formatJingleEvent(_ event: XMPPEvent, account: String) -> String? {
         switch event {
         case let .jingleFileTransferReceived(offer):
-            return encode([
-                "type": "file_offer",
-                "fileName": offer.fileName,
-                "fileSize": formatByteCount(offer.fileSize),
-                "fileSizeBytes": "\(offer.fileSize)",
-                "from": offer.from.bareJID.description,
-                "sid": offer.sid,
-                "account": account
-            ])
+            return formatFileOfferEvent(offer, account: account)
+        case let .jingleFileRequestReceived(request):
+            return formatFileRequest(request, account: account)
         case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
             let (progress, _) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
             return encode([
@@ -346,7 +345,13 @@ struct JSONFormatter: CLIFormatter {
             return encode(["type": "jingle_transfer_completed", "sid": sid, "account": account])
         case let .jingleFileTransferFailed(sid, reason):
             return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason, "account": account])
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+        case let .jingleChecksumMismatch(sid, expected, computed):
+            return encode([
+                "type": "jingle_checksum_mismatch", "sid": sid,
+                "expected": expected, "computed": computed, "account": account
+            ])
+        case .jingleChecksumReceived,
+             .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated, .presenceSubscriptionRequest,
@@ -387,6 +392,30 @@ struct JSONFormatter: CLIFormatter {
             dict["fileSizeBytes"] = "\(fileSize)"
         }
         return encode(dict)
+    }
+
+    private func formatFileOfferEvent(_ offer: JingleFileOffer, account: String) -> String {
+        encode([
+            "type": "file_offer",
+            "fileName": offer.fileName,
+            "fileSize": formatByteCount(offer.fileSize),
+            "fileSizeBytes": "\(offer.fileSize)",
+            "from": offer.from.bareJID.description,
+            "sid": offer.sid,
+            "account": account
+        ])
+    }
+
+    private func formatFileRequest(_ request: JingleFileRequest, account: String) -> String {
+        encode([
+            "type": "file_request",
+            "fileName": request.fileDescription.name,
+            "fileSize": formatByteCount(request.fileDescription.size),
+            "fileSizeBytes": "\(request.fileDescription.size)",
+            "from": request.from.bareJID.description,
+            "sid": request.sid,
+            "account": account
+        ])
     }
 
     func formatFileOffer(fileName: String, fileSize: Int64, from: String, sid: String) -> String {
@@ -528,8 +557,9 @@ struct JSONFormatter: CLIFormatter {
              .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil

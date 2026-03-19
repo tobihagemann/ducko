@@ -450,6 +450,7 @@ public final class AccountService {
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,

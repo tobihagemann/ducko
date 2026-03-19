@@ -84,8 +84,9 @@ struct PlainFormatter: CLIFormatter {
              .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
              .mucSelfPingFailed:
             return formatMUCEvent(event)
-        case .jingleFileTransferReceived, .jingleFileTransferProgress,
-             .jingleFileTransferCompleted, .jingleFileTransferFailed:
+        case .jingleFileTransferReceived, .jingleFileRequestReceived,
+             .jingleFileTransferProgress, .jingleFileTransferCompleted,
+             .jingleFileTransferFailed, .jingleChecksumMismatch:
             return formatJingleEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -94,6 +95,7 @@ struct PlainFormatter: CLIFormatter {
              .chatStateChanged, .chatMarkerReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
@@ -124,8 +126,9 @@ struct PlainFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -155,8 +158,9 @@ struct PlainFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -232,8 +236,9 @@ struct PlainFormatter: CLIFormatter {
              .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -332,6 +337,11 @@ struct PlainFormatter: CLIFormatter {
                 fileName: offer.fileName, fileSize: offer.fileSize,
                 from: offer.from.bareJID.description, sid: offer.sid
             )
+        case let .jingleFileRequestReceived(request):
+            return formatFileRequest(
+                fileName: request.fileDescription.name, fileSize: request.fileDescription.size,
+                from: request.from.bareJID.description, sid: request.sid
+            )
         case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
             let (progress, state) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
             return formatJingleTransferProgress(
@@ -341,6 +351,10 @@ struct PlainFormatter: CLIFormatter {
             return formatJingleTransferCompleted(sid: sid)
         case let .jingleFileTransferFailed(sid, reason):
             return formatJingleTransferFailed(sid: sid, reason: reason)
+        case let .jingleChecksumMismatch(sid, _, _):
+            return "Checksum mismatch for file transfer \(sid)"
+        case .jingleChecksumReceived:
+            return nil
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -394,8 +408,9 @@ struct PlainFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleChecksumReceived, .jingleChecksumMismatch,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -477,6 +492,10 @@ struct PlainFormatter: CLIFormatter {
 
     func formatFileOffer(fileName: String, fileSize: Int64, from: String, sid: String) -> String {
         "[File offer] \(fileName) (\(formatByteCount(fileSize))) from \(from) (\(sid)) — /accept or /decline"
+    }
+
+    func formatFileRequest(fileName: String, fileSize: Int64, from: String, sid: String) -> String {
+        "[File request] \(from) requests \(fileName) (\(formatByteCount(fileSize))) (\(sid)) — /fulfill or /decline"
     }
 
     func formatJingleTransferProgress(fileName: String, fileSize: Int64, progress: Double, state: String) -> String {

@@ -124,6 +124,7 @@ public final class BookmarksService {
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
+             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,

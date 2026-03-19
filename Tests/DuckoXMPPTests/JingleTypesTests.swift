@@ -290,4 +290,100 @@ enum JingleTypesTests {
             }
         }
     }
+
+    struct SendersRawValues {
+        @Test
+        func `JingleContentSenders raw values match XEP-0166 senders names`() {
+            #expect(JingleContentSenders.none.rawValue == "none")
+            #expect(JingleContentSenders.initiator.rawValue == "initiator")
+            #expect(JingleContentSenders.responder.rawValue == "responder")
+            #expect(JingleContentSenders.both.rawValue == "both")
+        }
+    }
+
+    struct ContentSendersParsing {
+        @Test
+        func `Parses senders attribute from content element`() {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "doc.pdf")
+            file.setChildText(named: "size", to: "2048")
+
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+
+            let transport = XMLElement(
+                name: "transport",
+                namespace: XMPPNamespaces.jingleS5B,
+                attributes: ["sid": "t-sid"]
+            )
+
+            var content = XMLElement(
+                name: "content",
+                attributes: ["creator": "initiator", "name": "a-file-offer", "senders": "responder"]
+            )
+            content.addChild(description)
+            content.addChild(transport)
+
+            let parsed = JingleContent(from: content)
+            #expect(parsed?.senders == .responder)
+            #expect(parsed?.effectiveSenders == .responder)
+        }
+
+        @Test
+        func `Absent senders parses as nil with effectiveSenders both`() {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "doc.pdf")
+            file.setChildText(named: "size", to: "2048")
+
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+
+            let transport = XMLElement(
+                name: "transport",
+                namespace: XMPPNamespaces.jingleS5B,
+                attributes: ["sid": "t-sid"]
+            )
+
+            var content = XMLElement(name: "content", attributes: ["creator": "initiator", "name": "a-file-offer"])
+            content.addChild(description)
+            content.addChild(transport)
+
+            let parsed = JingleContent(from: content)
+            #expect(parsed?.senders == nil)
+            #expect(parsed?.effectiveSenders == .both)
+        }
+    }
+
+    struct ContentSendersRoundTrip {
+        @Test
+        func `JingleContent with senders survives round-trip`() {
+            let original = JingleContent(
+                name: "file-offer",
+                creator: "initiator",
+                senders: .responder,
+                description: JingleFileDescription(name: "doc.pdf", size: 1024),
+                transport: .ibb(IBBTransport(sid: "ibb-1", blockSize: 4096))
+            )
+
+            let xml = original.toXML()
+            let parsed = JingleContent(from: xml)
+            #expect(parsed?.senders == .responder)
+        }
+
+        @Test
+        func `JingleContent without senders omits attribute in XML`() {
+            let original = JingleContent(
+                name: "file-offer",
+                creator: "initiator",
+                description: JingleFileDescription(name: "doc.pdf", size: 1024),
+                transport: .ibb(IBBTransport(sid: "ibb-1", blockSize: 4096))
+            )
+
+            let xml = original.toXML()
+            #expect(xml.attribute("senders") == nil)
+
+            let parsed = JingleContent(from: xml)
+            #expect(parsed?.senders == nil)
+        }
+    }
 }

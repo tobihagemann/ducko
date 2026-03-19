@@ -25,16 +25,18 @@ private func sessionInitiateXML(
     from: String = "peer@example.com/res",
     fileName: String = "test.txt",
     fileSize: Int64 = 1024,
-    mediaType: String? = "text/plain"
+    mediaType: String? = "text/plain",
+    senders: String? = nil
 ) -> String {
     var mediaTypeXML = ""
     if let mediaType {
         mediaTypeXML = "<media-type>\(mediaType)</media-type>"
     }
+    let sendersAttr = senders.map { " senders='\($0)'" } ?? ""
     return """
     <iq type='set' id='\(id)' from='\(from)'>\
     <jingle xmlns='urn:xmpp:jingle:1' action='session-initiate' sid='\(sid)' initiator='\(from)'>\
-    <content creator='initiator' name='a-file-offer'>\
+    <content creator='initiator' name='a-file-offer'\(sendersAttr)>\
     <description xmlns='urn:xmpp:jingle:apps:file-transfer:5'>\
     <file>\
     <name>\(fileName)</name>\
@@ -44,6 +46,28 @@ private func sessionInitiateXML(
     </description>\
     <transport xmlns='urn:xmpp:jingle:transports:s5b:1' sid='transport-sid'/>\
     </content>\
+    </jingle>\
+    </iq>
+    """
+}
+
+/// Builds a session-info checksum IQ XML string for testing.
+private func sessionInfoChecksumXML(
+    id: String = "jingle-info-1",
+    sid: String = "sid-123",
+    from: String = "peer@example.com/res",
+    contentName: String = "a-file-offer",
+    algo: String = "sha-256",
+    hash: String = "dGVzdA=="
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <jingle xmlns='urn:xmpp:jingle:1' action='session-info' sid='\(sid)'>\
+    <checksum xmlns='urn:xmpp:jingle:apps:file-transfer:5' name='\(contentName)'>\
+    <file>\
+    <hash xmlns='urn:xmpp:hashes:2' algo='\(algo)'>\(hash)</hash>\
+    </file>\
+    </checksum>\
     </jingle>\
     </iq>
     """
@@ -244,6 +268,137 @@ enum JingleModuleTests {
             }
             #expect(sid == "sid-123")
             #expect(reason == "disconnected")
+        }
+    }
+
+    struct SessionInitiateWithSendersResponder {
+        @Test
+        func `Emits jingleFileRequestReceived when senders is responder`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileRequestReceived = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(sessionInitiateXML(senders: "responder"))
+
+            let events = try await eventsTask.value
+            guard case let .jingleFileRequestReceived(request) = events.last else {
+                Issue.record("Expected jingleFileRequestReceived event")
+                await client.disconnect()
+                return
+            }
+            #expect(request.sid == "sid-123")
+            #expect(request.fileDescription.name == "test.txt")
+            #expect(request.from.description == "peer@example.com/res")
+
+            await client.disconnect()
+        }
+    }
+
+    struct SessionInitiateWithSendersInitiator {
+        @Test
+        func `Emits jingleFileTransferReceived when senders is initiator`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferReceived = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(sessionInitiateXML(senders: "initiator"))
+
+            let events = try await eventsTask.value
+            guard case let .jingleFileTransferReceived(offer) = events.last else {
+                Issue.record("Expected jingleFileTransferReceived event")
+                await client.disconnect()
+                return
+            }
+            #expect(offer.sid == "sid-123")
+
+            await client.disconnect()
+        }
+    }
+
+    struct SessionInitiateWithoutSenders {
+        @Test
+        func `Emits jingleFileTransferReceived when senders absent (defaults to both)`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferReceived = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(sessionInitiateXML())
+
+            let events = try await eventsTask.value
+            guard case .jingleFileTransferReceived = events.last else {
+                Issue.record("Expected jingleFileTransferReceived event")
+                await client.disconnect()
+                return
+            }
+
+            await client.disconnect()
+        }
+    }
+
+    struct SessionInfoChecksum {
+        @Test
+        func `Emits jingleChecksumReceived on session-info with checksum`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleChecksumReceived = event { return true }
+                    return false
+                }
+            }
+
+            // Create a session first
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(100))
+
+            // Send session-info with checksum
+            await mock.simulateReceive(sessionInfoChecksumXML(hash: "dGVzdA=="))
+
+            let events = try await eventsTask.value
+            guard case let .jingleChecksumReceived(sid, checksum) = events.last else {
+                Issue.record("Expected jingleChecksumReceived event")
+                await client.disconnect()
+                return
+            }
+            #expect(sid == "sid-123")
+            #expect(checksum.algo == "sha-256")
+            #expect(checksum.hash == "dGVzdA==")
+            #expect(checksum.contentName == "a-file-offer")
+
+            await client.disconnect()
+        }
+    }
+
+    struct VerifyChecksumMatch {
+        @Test
+        func `verifyChecksum returns true when no checksum pending`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            let result = module.verifyChecksum(sid: "nonexistent", receivedData: [1, 2, 3])
+            #expect(result == true)
+
+            await client.disconnect()
         }
     }
 }

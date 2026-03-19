@@ -127,7 +127,45 @@ func handleAcceptREPLCommand(_ input: String, context: REPLContext) async {
 
 func handleDeclineREPLCommand(_ input: String, context: REPLContext) async {
     await handleFileTransferREPLCommand(input, prefix: "/decline", verb: "Declined", context: context) { sid, accountID in
-        try await context.environment.fileTransferService.declineIncomingTransfer(sid, accountID: accountID)
+        let isFileRequest = await MainActor.run {
+            context.environment.fileTransferService.incomingRequests.contains { $0.sid == sid }
+        }
+        if isFileRequest {
+            try await context.environment.fileTransferService.declineFileRequest(sid, accountID: accountID)
+        } else {
+            try await context.environment.fileTransferService.declineIncomingTransfer(sid, accountID: accountID)
+        }
+    }
+}
+
+func handleFulfillREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/fulfill".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+
+    let sid: String
+    let filePath: String
+
+    if parts.count == 2 {
+        sid = String(parts[0])
+        filePath = String(parts[1])
+    } else if parts.count == 1 {
+        guard let request = await MainActor.run(body: { context.environment.fileTransferService.incomingRequests.last }) else {
+            print(context.formatter.formatError(CLIError.noIncomingOffers))
+            return
+        }
+        sid = request.sid
+        filePath = String(parts[0])
+    } else {
+        print("Usage: /fulfill [sid] <path>")
+        return
+    }
+
+    let fileURL = URL(fileURLWithPath: filePath)
+    do {
+        try await context.environment.fileTransferService.fulfillFileRequest(sid, fileURL: fileURL, accountID: context.accountID)
+        print("Fulfilling file request: \(sid)")
+    } catch {
+        print(context.formatter.formatError(error))
     }
 }
 

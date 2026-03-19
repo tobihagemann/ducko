@@ -1407,6 +1407,7 @@ private func printREPLHelp() {
     print("  /sendfile [jid] <path>   Send a file")
     print("  /accept [sid]            Accept incoming file transfer")
     print("  /decline [sid]           Decline incoming file transfer")
+    print("  /fulfill [sid] <path>    Fulfill incoming file request")
     print("  /transfers               List active transfers")
     print("  /rooms [service]         Discover available rooms")
     print("  /avatar [jid]            View avatar info (own or contact's)")
@@ -1449,6 +1450,7 @@ private func dispatchREPLCommand(
     } else if input == "/sendfile" || input.hasPrefix("/sendfile ")
         || input == "/accept" || input.hasPrefix("/accept ")
         || input == "/decline" || input.hasPrefix("/decline ")
+        || input == "/fulfill" || input.hasPrefix("/fulfill ")
         || input == "/transfers" {
         await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
     } else if isMiscREPLCommand(input) {
@@ -1613,6 +1615,8 @@ private func dispatchFileTransferREPLCommand(
         await handleAcceptREPLCommand(input, context: context)
     } else if input == "/decline" || input.hasPrefix("/decline ") {
         await handleDeclineREPLCommand(input, context: context)
+    } else if input == "/fulfill" || input.hasPrefix("/fulfill ") {
+        await handleFulfillREPLCommand(input, context: context)
     } else if input == "/transfers" {
         await handleTransfersREPLCommand(context: context)
     }

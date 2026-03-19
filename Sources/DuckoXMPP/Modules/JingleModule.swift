@@ -1,3 +1,4 @@
+import CryptoKit
 import os
 
 private let log = Logger(subsystem: "com.ducko.xmpp", category: "jingle")
@@ -59,6 +60,7 @@ public final class JingleModule: XMPPModule, Sendable {
         var ibbSIDToJingleSID: [String: String] = [:]
         var transportReadyContinuations: [String: CheckedContinuation<Void, Error>] = [:]
         var receiveDataContinuations: [String: CheckedContinuation<[UInt8], Error>] = [:]
+        var pendingChecksums: [String: JingleChecksumInfo] = [:]
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -96,6 +98,7 @@ public final class JingleModule: XMPPModule, Sendable {
             state.ibbSIDToJingleSID.removeAll()
             state.transportReadyContinuations.removeAll()
             state.receiveDataContinuations.removeAll()
+            state.pendingChecksums.removeAll()
             return (snapshot, transportConts, receiveConts)
         }
 
@@ -159,7 +162,7 @@ public final class JingleModule: XMPPModule, Sendable {
         case .transportReject:
             handleTransportReject(sid: sid, context: context)
         case .sessionInfo:
-            break
+            handleSessionInfo(jingle, sid: sid, context: context)
         }
     }
 
@@ -196,14 +199,45 @@ public final class JingleModule: XMPPModule, Sendable {
         let session = JingleSession(peer: fullJID, role: .responder, content: content)
         state.withLock { $0.sessions[sid] = session }
 
-        let offer = JingleFileOffer(
-            sid: sid,
-            from: fullJID,
-            fileName: content.description.name,
-            fileSize: content.description.size,
-            mediaType: content.description.mediaType
-        )
-        context.emitEvent(.jingleFileTransferReceived(offer))
+        switch content.effectiveSenders {
+        case .initiator, .both:
+            let offer = JingleFileOffer(
+                sid: sid,
+                from: fullJID,
+                fileName: content.description.name,
+                fileSize: content.description.size,
+                mediaType: content.description.mediaType
+            )
+            context.emitEvent(.jingleFileTransferReceived(offer))
+        case .responder:
+            let request = JingleFileRequest(
+                sid: sid,
+                from: fullJID,
+                fileDescription: content.description
+            )
+            context.emitEvent(.jingleFileRequestReceived(request))
+        case .none:
+            log.warning("session-initiate with senders='none' is invalid, ignoring sid: \(sid)")
+        }
+    }
+
+    private func handleSessionInfo(_ jingle: XMLElement, sid: String, context: ModuleContext) {
+        if let checksum = jingle.child(named: "checksum", namespace: XMPPNamespaces.jingleFileTransfer) {
+            let contentName = checksum.attribute("name") ?? ""
+            guard let file = checksum.child(named: "file"),
+                  let hashElement = file.child(named: "hash", namespace: XMPPNamespaces.hashes2),
+                  let algo = hashElement.attribute("algo"),
+                  let hashValue = hashElement.textContent else {
+                log.warning("session-info checksum: malformed element for sid: \(sid)")
+                return
+            }
+            let info = JingleChecksumInfo(contentName: contentName, algo: algo, hash: hashValue)
+            state.withLock { $0.pendingChecksums[sid] = info }
+            context.emitEvent(.jingleChecksumReceived(sid: sid, checksum: info))
+            return
+        }
+
+        // <hash-used/> and <received/> — acknowledged via IQ result; no further action needed.
     }
 
     private func handleSessionAccept(sid: String, context: ModuleContext) {
@@ -557,6 +591,7 @@ public final class JingleModule: XMPPModule, Sendable {
         if let ibbState = state.ibbStates.removeValue(forKey: sid) {
             state.ibbSIDToJingleSID.removeValue(forKey: ibbState.ibbSID)
         }
+        state.pendingChecksums.removeValue(forKey: sid)
         return SessionContinuations(transport: transportCont, receive: receiveCont)
     }
 
@@ -588,7 +623,9 @@ public final class JingleModule: XMPPModule, Sendable {
 
     /// Initiates a Jingle file transfer session with the given peer.
     /// Returns the session ID.
-    public func initiateFileTransfer(to peer: FullJID, file: JingleFileDescription) async throws -> String {
+    public func initiateFileTransfer(
+        to peer: FullJID, file: JingleFileDescription, senders: JingleContentSenders? = nil
+    ) async throws -> String {
         guard let context = state.withLock({ $0.context }) else {
             throw JingleError.notConnected
         }
@@ -605,6 +642,7 @@ public final class JingleModule: XMPPModule, Sendable {
         let content = JingleContent(
             name: "a-file-offer",
             creator: "initiator",
+            senders: senders,
             description: file,
             transport: transport
         )
@@ -683,7 +721,73 @@ public final class JingleModule: XMPPModule, Sendable {
         try await context.sendStanza(iq)
     }
 
-    /// Declines a pending incoming file transfer.
+    /// Sends a `session-info` IQ with `<checksum>` containing the SHA-256 hash of transferred data.
+    public func sendChecksumSessionInfo(sid: String, data: [UInt8]) async throws {
+        let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
+        guard let context else { throw JingleError.notConnected }
+        guard let session else { throw JingleError.sessionNotFound }
+
+        let hash = Array(SHA256.hash(data: data))
+        let hashBase64 = Base64.encode(hash)
+
+        var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
+        var jingle = XMLElement(
+            name: "jingle",
+            namespace: XMPPNamespaces.jingle,
+            attributes: [
+                "action": JingleAction.sessionInfo.rawValue,
+                "sid": sid
+            ]
+        )
+        var checksum = XMLElement(
+            name: "checksum",
+            namespace: XMPPNamespaces.jingleFileTransfer,
+            attributes: ["name": session.content.name]
+        )
+        var file = XMLElement(name: "file")
+        var hashElement = XMLElement(name: "hash", namespace: XMPPNamespaces.hashes2, attributes: ["algo": "sha-256"])
+        hashElement.addText(hashBase64)
+        file.addChild(hashElement)
+        checksum.addChild(file)
+        jingle.addChild(checksum)
+        iq.element.addChild(jingle)
+
+        try await context.sendStanza(iq)
+    }
+
+    /// Verifies received file data against a pending checksum (if one was received via session-info).
+    /// Returns `true` if no checksum was pending or verification passed, `false` on mismatch.
+    public func verifyChecksum(sid: String, receivedData: [UInt8]) -> Bool {
+        let (checksumInfo, context) = state.withLock {
+            ($0.pendingChecksums.removeValue(forKey: sid), $0.context)
+        }
+        guard let checksumInfo else { return true }
+
+        guard checksumInfo.algo == "sha-256" else {
+            log.warning("Unsupported hash algo for verification: \(checksumInfo.algo)")
+            return true
+        }
+
+        let computed = Array(SHA256.hash(data: receivedData))
+        let computedBase64 = Base64.encode(computed)
+
+        if computedBase64 == checksumInfo.hash {
+            return true
+        } else {
+            context?.emitEvent(.jingleChecksumMismatch(
+                sid: sid, expected: checksumInfo.hash, computed: computedBase64
+            ))
+            return false
+        }
+    }
+
+    /// Requests a file from a peer by sending session-initiate with senders='responder'.
+    /// Returns the session ID.
+    public func requestFileTransfer(from peer: FullJID, file: JingleFileDescription) async throws -> String { // periphery:ignore
+        try await initiateFileTransfer(to: peer, file: file, senders: .responder)
+    }
+
+    /// Declines a pending incoming file transfer or file request.
     public func declineFileTransfer(sid: String) async throws {
         try await terminateSession(sid: sid, reason: .decline)
     }
