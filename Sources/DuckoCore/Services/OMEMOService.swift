@@ -118,6 +118,8 @@ public final class OMEMOService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             break
         }

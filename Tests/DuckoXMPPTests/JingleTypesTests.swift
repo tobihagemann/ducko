@@ -386,4 +386,110 @@ enum JingleTypesTests {
             #expect(parsed?.senders == nil)
         }
     }
+
+    struct ContentActionRawValues {
+        @Test
+        func `JingleAction content action raw values match XEP-0166 names`() {
+            #expect(JingleAction.contentAdd.rawValue == "content-add")
+            #expect(JingleAction.contentAccept.rawValue == "content-accept")
+            #expect(JingleAction.contentReject.rawValue == "content-reject")
+            #expect(JingleAction.contentRemove.rawValue == "content-remove")
+        }
+    }
+
+    struct FileRangeParsing {
+        @Test
+        func `Parses range with offset and length`() {
+            let element = XMLElement(name: "range", attributes: ["offset": "100", "length": "500"])
+            let range = JingleFileRange(from: element)
+            #expect(range?.offset == 100)
+            #expect(range?.length == 500)
+        }
+
+        @Test
+        func `Parses empty range element`() {
+            let element = XMLElement(name: "range")
+            let range = JingleFileRange(from: element)
+            #expect(range != nil)
+            #expect(range?.offset == nil)
+            #expect(range?.length == nil)
+        }
+
+        @Test
+        func `Parses range with offset only`() {
+            let element = XMLElement(name: "range", attributes: ["offset": "200"])
+            let range = JingleFileRange(from: element)
+            #expect(range?.offset == 200)
+            #expect(range?.length == nil)
+        }
+
+        @Test
+        func `Returns nil for non-range element`() {
+            let element = XMLElement(name: "file")
+            let range = JingleFileRange(from: element)
+            #expect(range == nil)
+        }
+    }
+
+    struct FileRangeRoundTrip {
+        @Test
+        func `JingleFileRange survives round-trip`() {
+            let original = JingleFileRange(offset: 100, length: 500)
+            let xml = original.toXML()
+            let parsed = JingleFileRange(from: xml)
+            #expect(parsed?.offset == 100)
+            #expect(parsed?.length == 500)
+        }
+
+        @Test
+        func `Empty JingleFileRange serializes without attributes`() {
+            let original = JingleFileRange()
+            let xml = original.toXML()
+            #expect(xml.attribute("offset") == nil)
+            #expect(xml.attribute("length") == nil)
+
+            let parsed = JingleFileRange(from: xml)
+            #expect(parsed != nil)
+            #expect(parsed?.offset == nil)
+            #expect(parsed?.length == nil)
+        }
+    }
+
+    struct FileDescriptionWithRange {
+        @Test
+        func `Parses range from file description XML`() {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "test.txt")
+            file.setChildText(named: "size", to: "1024")
+            file.addChild(XMLElement(name: "range", attributes: ["offset": "100", "length": "500"]))
+
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+
+            let parsed = JingleFileDescription(from: description)
+            #expect(parsed?.range != nil)
+            #expect(parsed?.range?.offset == 100)
+            #expect(parsed?.range?.length == 500)
+        }
+
+        @Test
+        func `Range survives file description round-trip`() {
+            let original = JingleFileDescription(
+                name: "resume.dat", size: 10000,
+                range: JingleFileRange(offset: 5000, length: 5000)
+            )
+            let xml = original.toXML()
+            let parsed = JingleFileDescription(from: xml)
+            #expect(parsed?.range?.offset == 5000)
+            #expect(parsed?.range?.length == 5000)
+        }
+
+        @Test
+        func `Range is nil when not present in file description`() {
+            let original = JingleFileDescription(name: "test.txt", size: 100)
+            let xml = original.toXML()
+            let parsed = JingleFileDescription(from: xml)
+            #expect(parsed?.range == nil)
+        }
+    }
 }

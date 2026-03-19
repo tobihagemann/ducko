@@ -121,7 +121,8 @@ struct JSONFormatter: CLIFormatter {
             return formatMUCEvent(event, account: account)
         case .jingleFileTransferReceived, .jingleFileRequestReceived,
              .jingleFileTransferProgress, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleChecksumMismatch:
+             .jingleFileTransferFailed, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
             return formatJingleEvent(event, account: account)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -176,6 +177,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -208,6 +210,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -280,6 +283,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -325,6 +329,7 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    // swiftlint:disable:next function_body_length
     private func formatJingleEvent(_ event: XMPPEvent, account: String) -> String? {
         switch event {
         case let .jingleFileTransferReceived(offer):
@@ -350,7 +355,18 @@ struct JSONFormatter: CLIFormatter {
                 "type": "jingle_checksum_mismatch", "sid": sid,
                 "expected": expected, "computed": computed, "account": account
             ])
+        case let .jingleContentAddReceived(sid, contentName, offer):
+            return encode([
+                "type": "jingle_content_add",
+                "sid": sid,
+                "contentName": contentName,
+                "fileName": offer.fileName,
+                "fileSizeBytes": "\(offer.fileSize)",
+                "from": offer.from.bareJID.description,
+                "account": account
+            ])
         case .jingleChecksumReceived,
+             .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -560,6 +576,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil

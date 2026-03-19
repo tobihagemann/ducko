@@ -853,6 +853,8 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
@@ -894,6 +896,8 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
@@ -925,6 +929,8 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
@@ -970,6 +976,8 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             break
@@ -1090,6 +1098,8 @@ public final class ChatService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,

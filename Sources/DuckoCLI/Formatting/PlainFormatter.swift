@@ -86,7 +86,8 @@ struct PlainFormatter: CLIFormatter {
             return formatMUCEvent(event)
         case .jingleFileTransferReceived, .jingleFileRequestReceived,
              .jingleFileTransferProgress, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleChecksumMismatch:
+             .jingleFileTransferFailed, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
             return formatJingleEvent(event)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -129,6 +130,7 @@ struct PlainFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
         }
@@ -161,6 +163,7 @@ struct PlainFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -239,6 +242,7 @@ struct PlainFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil
@@ -353,7 +357,13 @@ struct PlainFormatter: CLIFormatter {
             return formatJingleTransferFailed(sid: sid, reason: reason)
         case let .jingleChecksumMismatch(sid, _, _):
             return "Checksum mismatch for file transfer \(sid)"
-        case .jingleChecksumReceived:
+        case let .jingleContentAddReceived(sid, _, offer):
+            return formatFileOffer(
+                fileName: offer.fileName, fileSize: offer.fileSize,
+                from: offer.from.bareJID.description, sid: sid
+            )
+        case .jingleChecksumReceived,
+             .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
             return nil
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
@@ -411,6 +421,7 @@ struct PlainFormatter: CLIFormatter {
              .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
             return nil

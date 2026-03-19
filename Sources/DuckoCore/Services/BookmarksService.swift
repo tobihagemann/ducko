@@ -125,6 +125,8 @@ public final class BookmarksService {
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,

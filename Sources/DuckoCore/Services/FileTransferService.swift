@@ -201,17 +201,7 @@ public final class FileTransferService {
     public func handleJingleEvent(_ event: XMPPEvent, accountID _: UUID) {
         switch event {
         case let .jingleFileTransferReceived(offer):
-            incomingOffers.append(offer)
-            let transfer = ActiveTransfer(
-                id: UUID(),
-                fileName: offer.fileName,
-                fileSize: offer.fileSize,
-                state: .awaitingAcceptance,
-                method: .jingle,
-                direction: .incoming,
-                sid: offer.sid
-            )
-            activeTransfers.append(transfer)
+            trackIncomingOffer(offer)
         case let .jingleFileRequestReceived(request):
             handleIncomingFileRequest(request)
         case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
@@ -225,7 +215,10 @@ public final class FileTransferService {
             updateTransferState(forSID: sid, state: .failed(reason))
             incomingOffers.removeAll { $0.sid == sid }
             incomingRequests.removeAll { $0.sid == sid }
-        case .jingleChecksumReceived, .jingleChecksumMismatch:
+        case let .jingleContentAddReceived(_, _, offer):
+            trackIncomingOffer(offer)
+        case .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
             break
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
@@ -248,6 +241,20 @@ public final class FileTransferService {
         }
     }
 
+    private func trackIncomingOffer(_ offer: JingleFileOffer) {
+        incomingOffers.append(offer)
+        let transfer = ActiveTransfer(
+            id: UUID(),
+            fileName: offer.fileName,
+            fileSize: offer.fileSize,
+            state: .awaitingAcceptance,
+            method: .jingle,
+            direction: .incoming,
+            sid: offer.sid
+        )
+        activeTransfers.append(transfer)
+    }
+
     private func handleIncomingFileRequest(_ request: JingleFileRequest) {
         incomingRequests.append(request)
         let transfer = ActiveTransfer(
@@ -264,18 +271,27 @@ public final class FileTransferService {
 
     // MARK: - Incoming Transfer Management
 
-    public func acceptIncomingTransfer(_ sid: String, accountID: UUID) async throws {
+    public func acceptIncomingTransfer(_ sid: String, accountID: UUID, range: JingleFileRange? = nil) async throws {
         let jingleModule = try await jingleModule(for: accountID)
 
-        try await jingleModule.acceptFileTransfer(sid: sid)
+        try await jingleModule.acceptFileTransfer(sid: sid, range: range)
 
         let offer = incomingOffers.first { $0.sid == sid }
         guard let offer else { return }
 
+        // Compute effective transfer size when a range is specified
+        let expectedSize: Int64
+        if let range {
+            let offset = range.offset ?? 0
+            expectedSize = range.length ?? (offer.fileSize - offset)
+        } else {
+            expectedSize = offer.fileSize
+        }
+
         Task {
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
-                let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: offer.fileSize)
+                let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: expectedSize)
                 if !jingleModule.verifyChecksum(sid: sid, receivedData: data) {
                     log.warning("Checksum mismatch for received file, sid: \(sid)")
                 }

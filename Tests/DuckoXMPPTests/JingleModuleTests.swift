@@ -89,6 +89,64 @@ private func sessionTerminateXML(
     """
 }
 
+/// Builds a content-add IQ XML string for testing.
+private func contentAddXML(
+    id: String = "jingle-ca-1",
+    sid: String = "sid-123",
+    from: String = "peer@example.com/res",
+    contentName: String = "file-1",
+    fileName: String = "extra.pdf",
+    fileSize: Int64 = 2048
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <jingle xmlns='urn:xmpp:jingle:1' action='content-add' sid='\(sid)'>\
+    <content creator='initiator' name='\(contentName)'>\
+    <description xmlns='urn:xmpp:jingle:apps:file-transfer:5'>\
+    <file>\
+    <name>\(fileName)</name>\
+    <size>\(fileSize)</size>\
+    </file>\
+    </description>\
+    <transport xmlns='urn:xmpp:jingle:transports:s5b:1' sid='transport-sid-2'/>\
+    </content>\
+    </jingle>\
+    </iq>
+    """
+}
+
+/// Builds a content-reject IQ XML string for testing.
+private func contentRejectXML(
+    id: String = "jingle-cr-1",
+    sid: String = "sid-123",
+    from: String = "peer@example.com/res",
+    contentName: String = "file-1"
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <jingle xmlns='urn:xmpp:jingle:1' action='content-reject' sid='\(sid)'>\
+    <content creator='initiator' name='\(contentName)'/>\
+    </jingle>\
+    </iq>
+    """
+}
+
+/// Builds a content-remove IQ XML string for testing.
+private func contentRemoveXML(
+    id: String = "jingle-crm-1",
+    sid: String = "sid-123",
+    from: String = "peer@example.com/res",
+    contentName: String = "file-1"
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <jingle xmlns='urn:xmpp:jingle:1' action='content-remove' sid='\(sid)'>\
+    <content creator='initiator' name='\(contentName)'/>\
+    </jingle>\
+    </iq>
+    """
+}
+
 // MARK: - Tests
 
 enum JingleModuleTests {
@@ -397,6 +455,107 @@ enum JingleModuleTests {
 
             let result = module.verifyChecksum(sid: "nonexistent", receivedData: [1, 2, 3])
             #expect(result == true)
+
+            await client.disconnect()
+        }
+    }
+
+    struct ContentAddHandling {
+        @Test
+        func `Emits jingleContentAddReceived on content-add`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // First create a session via session-initiate
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleContentAddReceived = event { return true }
+                    return false
+                }
+            }
+
+            // Send content-add for a second file
+            await mock.simulateReceive(contentAddXML())
+
+            let events = try await eventsTask.value
+            guard case let .jingleContentAddReceived(sid, contentName, offer) = events.last else {
+                Issue.record("Expected jingleContentAddReceived event")
+                await client.disconnect()
+                return
+            }
+            #expect(sid == "sid-123")
+            #expect(contentName == "file-1")
+            #expect(offer.fileName == "extra.pdf")
+            #expect(offer.fileSize == 2048)
+
+            await client.disconnect()
+        }
+    }
+
+    struct ContentRejectHandling {
+        @Test
+        func `Emits jingleContentRejected on content-reject`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // Create a session
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleContentRejected = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(contentRejectXML())
+
+            let events = try await eventsTask.value
+            guard case let .jingleContentRejected(sid, contentName) = events.last else {
+                Issue.record("Expected jingleContentRejected event")
+                await client.disconnect()
+                return
+            }
+            #expect(sid == "sid-123")
+            #expect(contentName == "file-1")
+
+            await client.disconnect()
+        }
+    }
+
+    struct ContentRemoveHandling {
+        @Test
+        func `Emits jingleContentRemoved on content-remove`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // Create a session and add content
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.simulateReceive(contentAddXML())
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleContentRemoved = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(contentRemoveXML())
+
+            let events = try await eventsTask.value
+            guard case let .jingleContentRemoved(sid, contentName) = events.last else {
+                Issue.record("Expected jingleContentRemoved event")
+                await client.disconnect()
+                return
+            }
+            #expect(sid == "sid-123")
+            #expect(contentName == "file-1")
 
             await client.disconnect()
         }

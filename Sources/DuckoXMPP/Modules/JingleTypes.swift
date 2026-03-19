@@ -8,6 +8,10 @@ enum JingleAction: String {
     case transportAccept = "transport-accept"
     case transportReject = "transport-reject"
     case sessionInfo = "session-info"
+    case contentAdd = "content-add"
+    case contentAccept = "content-accept"
+    case contentReject = "content-reject"
+    case contentRemove = "content-remove"
 }
 
 /// Reason for terminating a Jingle session per XEP-0166 §7.4.
@@ -30,6 +34,32 @@ public enum JingleContentSenders: String, Sendable {
     case both
 }
 
+/// Range element for partial file transfers per XEP-0234 §6.
+public struct JingleFileRange: Sendable, Hashable {
+    public let offset: Int64?
+    public let length: Int64?
+
+    public init(offset: Int64? = nil, length: Int64? = nil) {
+        self.offset = offset
+        self.length = length
+    }
+
+    /// Parses from a `<range/>` element.
+    public init?(from element: XMLElement) {
+        guard element.name == "range" else { return nil }
+        self.offset = element.attribute("offset").flatMap(Int64.init)
+        self.length = element.attribute("length").flatMap(Int64.init)
+    }
+
+    /// Serializes to a `<range/>` element.
+    public func toXML() -> XMLElement {
+        var attributes: [String: String] = [:]
+        if let offset { attributes["offset"] = String(offset) }
+        if let length { attributes["length"] = String(length) }
+        return XMLElement(name: "range", attributes: attributes)
+    }
+}
+
 /// File description inside a Jingle content element per XEP-0234.
 public struct JingleFileDescription: Sendable, Hashable {
     public let name: String
@@ -38,14 +68,19 @@ public struct JingleFileDescription: Sendable, Hashable {
     public let hash: String?
     public let date: String?
     public let desc: String?
+    public let range: JingleFileRange?
 
-    public init(name: String, size: Int64, mediaType: String? = nil, hash: String? = nil, date: String? = nil, desc: String? = nil) {
+    public init(
+        name: String, size: Int64, mediaType: String? = nil, hash: String? = nil,
+        date: String? = nil, desc: String? = nil, range: JingleFileRange? = nil
+    ) {
         self.name = name
         self.size = size
         self.mediaType = mediaType
         self.hash = hash
         self.date = date
         self.desc = desc
+        self.range = range
     }
 
     /// Parses from a `<description xmlns='...file-transfer:5'>` element.
@@ -63,6 +98,7 @@ public struct JingleFileDescription: Sendable, Hashable {
         self.hash = file.child(named: "hash")?.textContent
         self.date = file.childText(named: "date")
         self.desc = file.childText(named: "desc")
+        self.range = file.child(named: "range").flatMap(JingleFileRange.init(from:))
     }
 
     /// Serializes to a `<description>` element containing a `<file>`.
@@ -83,6 +119,9 @@ public struct JingleFileDescription: Sendable, Hashable {
         }
         if let desc {
             file.setChildText(named: "desc", to: desc)
+        }
+        if let range {
+            file.addChild(range.toXML())
         }
 
         var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
@@ -325,7 +364,14 @@ struct JingleSession {
     let peer: FullJID
     let role: Role
     var transportState: TransportState
-    let content: JingleContent
+    let primaryContentName: String
+    var contents: [String: JingleContent]
+
+    /// The primary content — deterministic lookup by name.
+    var content: JingleContent {
+        // swiftlint:disable:next force_unwrapping
+        contents[primaryContentName]!
+    }
 
     /// Whether this side initiated or is responding.
     enum Role {
@@ -342,7 +388,8 @@ struct JingleSession {
         self.peer = peer
         self.role = role
         self.transportState = transportState
-        self.content = content
+        self.primaryContentName = content.name
+        self.contents = [content.name: content]
     }
 }
 

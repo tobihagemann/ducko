@@ -136,6 +136,7 @@ public final class JingleModule: XMPPModule, Sendable {
         return false
     }
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func handleJingleIQ(_ iq: XMPPIQ, jingle: XMLElement) {
         guard let actionStr = jingle.attribute("action"),
               let action = JingleAction(rawValue: actionStr),
@@ -150,7 +151,7 @@ public final class JingleModule: XMPPModule, Sendable {
         case .sessionInitiate:
             handleSessionInitiate(jingle, from: iq.from, sid: sid, context: context)
         case .sessionAccept:
-            handleSessionAccept(sid: sid, context: context)
+            handleSessionAccept(jingle, sid: sid, context: context)
         case .sessionTerminate:
             handleSessionTerminate(jingle, sid: sid, context: context)
         case .transportInfo:
@@ -163,6 +164,14 @@ public final class JingleModule: XMPPModule, Sendable {
             handleTransportReject(sid: sid, context: context)
         case .sessionInfo:
             handleSessionInfo(jingle, sid: sid, context: context)
+        case .contentAdd:
+            handleContentAdd(jingle, sid: sid, context: context)
+        case .contentAccept:
+            handleContentAccept(jingle, sid: sid, context: context)
+        case .contentReject:
+            handleContentReject(jingle, sid: sid, context: context)
+        case .contentRemove:
+            handleContentRemove(jingle, sid: sid, context: context)
         }
     }
 
@@ -240,7 +249,81 @@ public final class JingleModule: XMPPModule, Sendable {
         // <hash-used/> and <received/> — acknowledged via IQ result; no further action needed.
     }
 
-    private func handleSessionAccept(sid: String, context: ModuleContext) {
+    // MARK: - Content Action Handlers
+
+    private func handleContentAdd(_ jingle: XMLElement, sid: String, context: ModuleContext) {
+        let contentElements = jingle.children(named: "content")
+        guard !contentElements.isEmpty else {
+            log.warning("content-add without content elements for sid: \(sid)")
+            return
+        }
+
+        let session = state.withLock { $0.sessions[sid] }
+        guard let session else {
+            log.warning("content-add for unknown session sid: \(sid)")
+            return
+        }
+
+        for contentElement in contentElements {
+            guard let content = JingleContent(from: contentElement) else {
+                log.warning("content-add: malformed content element for sid: \(sid)")
+                continue
+            }
+
+            state.withLock { $0.sessions[sid]?.contents[content.name] = content }
+
+            let offer = JingleFileOffer(
+                sid: sid,
+                from: session.peer,
+                fileName: content.description.name,
+                fileSize: content.description.size,
+                mediaType: content.description.mediaType
+            )
+            context.emitEvent(.jingleContentAddReceived(sid: sid, contentName: content.name, offer: offer))
+        }
+    }
+
+    private func handleContentAccept(_ jingle: XMLElement, sid: String, context: ModuleContext) {
+        for contentElement in jingle.children(named: "content") {
+            guard let name = contentElement.attribute("name") else { continue }
+            context.emitEvent(.jingleContentAccepted(sid: sid, contentName: name))
+        }
+
+        Task { await beginTransportConnection(sid: sid, context: context) }
+    }
+
+    private func handleContentReject(_ jingle: XMLElement, sid: String, context: ModuleContext) {
+        for contentElement in jingle.children(named: "content") {
+            guard let name = contentElement.attribute("name") else { continue }
+            state.withLock { _ = $0.sessions[sid]?.contents.removeValue(forKey: name) }
+            context.emitEvent(.jingleContentRejected(sid: sid, contentName: name))
+        }
+    }
+
+    private func handleContentRemove(_ jingle: XMLElement, sid: String, context: ModuleContext) {
+        for contentElement in jingle.children(named: "content") {
+            guard let name = contentElement.attribute("name") else { continue }
+            state.withLock { _ = $0.sessions[sid]?.contents.removeValue(forKey: name) }
+            context.emitEvent(.jingleContentRemoved(sid: sid, contentName: name))
+        }
+
+        // Terminate if all contents removed or primary content removed
+        let shouldTerminate = state.withLock { state -> Bool in
+            guard let session = state.sessions[sid] else { return false }
+            return session.contents.isEmpty || session.contents[session.primaryContentName] == nil
+        }
+        if shouldTerminate {
+            Task { try? await terminateSession(sid: sid, reason: .success) }
+        }
+    }
+
+    private func handleSessionAccept(_ jingle: XMLElement, sid: String, context: ModuleContext) {
+        // Update stored content from session-accept (responder may have added a range)
+        if let contentElement = jingle.child(named: "content"),
+           let acceptedContent = JingleContent(from: contentElement) {
+            state.withLock { $0.sessions[sid]?.contents[acceptedContent.name] = acceptedContent }
+        }
+
         // Initiator begins transport connection after session-accept
         Task { await beginTransportConnection(sid: sid, context: context) }
     }
@@ -668,7 +751,8 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     /// Accepts a pending incoming file transfer.
-    public func acceptFileTransfer(sid: String) async throws {
+    /// When `range` is provided, the session-accept includes a `<range/>` element to request partial transfer.
+    public func acceptFileTransfer(sid: String, range: JingleFileRange? = nil) async throws {
         let (context, session) = state.withLock { state -> (ModuleContext?, JingleSession?) in
             let context = state.context
             guard let session = state.sessions[sid] else { return (context, nil) }
@@ -681,6 +765,33 @@ public final class JingleModule: XMPPModule, Sendable {
             throw JingleError.noConnectedJID
         }
 
+        // Build the content for session-accept, optionally including a range
+        let acceptContent: JingleContent
+        if let range {
+            let base = session.content
+            let rangedDescription = JingleFileDescription(
+                name: base.description.name,
+                size: base.description.size,
+                mediaType: base.description.mediaType,
+                hash: base.description.hash,
+                date: base.description.date,
+                desc: base.description.desc,
+                range: range
+            )
+            let rangedContent = JingleContent(
+                name: base.name,
+                creator: base.creator,
+                senders: base.senders,
+                description: rangedDescription,
+                transport: base.transport
+            )
+            // Store the ranged content so sendFileData/receiveFileData can use it
+            state.withLock { $0.sessions[sid]?.contents[base.name] = rangedContent }
+            acceptContent = rangedContent
+        } else {
+            acceptContent = session.content
+        }
+
         var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
         var jingle = XMLElement(
             name: "jingle",
@@ -691,7 +802,7 @@ public final class JingleModule: XMPPModule, Sendable {
                 "sid": sid
             ]
         )
-        jingle.addChild(session.content.toXML())
+        jingle.addChild(acceptContent.toXML())
         iq.element.addChild(jingle)
 
         try await context.sendStanza(iq)
@@ -787,6 +898,96 @@ public final class JingleModule: XMPPModule, Sendable {
         try await initiateFileTransfer(to: peer, file: file, senders: .responder)
     }
 
+    // MARK: - Content Actions (Multi-file)
+
+    /// Proposes adding a file to an existing Jingle session. Returns the content name.
+    public func sendContentAdd(sid: String, file: JingleFileDescription) async throws -> String { // periphery:ignore
+        let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
+        guard let context else { throw JingleError.notConnected }
+        guard let session else { throw JingleError.sessionNotFound }
+
+        let contentName = "file-\(session.contents.count)"
+        let transportSID = context.generateID()
+        let candidates = await buildCandidates(context: context, sessionSID: sid)
+        let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: transportSID, candidates: candidates))
+        let content = JingleContent(
+            name: contentName,
+            creator: session.role == .initiator ? "initiator" : "responder",
+            description: file,
+            transport: transport
+        )
+
+        state.withLock { $0.sessions[sid]?.contents[contentName] = content }
+
+        var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
+        var jingle = XMLElement(
+            name: "jingle",
+            namespace: XMPPNamespaces.jingle,
+            attributes: ["action": JingleAction.contentAdd.rawValue, "sid": sid]
+        )
+        jingle.addChild(content.toXML())
+        iq.element.addChild(jingle)
+
+        try await context.sendStanza(iq)
+        return contentName
+    }
+
+    /// Accepts a proposed content-add from the peer.
+    public func acceptContentAdd(sid: String, contentName: String) async throws { // periphery:ignore
+        let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
+        guard let context else { throw JingleError.notConnected }
+        guard let session else { throw JingleError.sessionNotFound }
+        guard let content = session.contents[contentName] else {
+            throw JingleError.sessionNotFound
+        }
+
+        var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
+        var jingle = XMLElement(
+            name: "jingle",
+            namespace: XMPPNamespaces.jingle,
+            attributes: ["action": JingleAction.contentAccept.rawValue, "sid": sid]
+        )
+        jingle.addChild(content.toXML())
+        iq.element.addChild(jingle)
+
+        try await context.sendStanza(iq)
+
+        Task { await beginTransportConnection(sid: sid, context: context) }
+    }
+
+    /// Rejects a proposed content-add from the peer.
+    public func rejectContentAdd(sid: String, contentName: String) async throws { // periphery:ignore
+        try await sendContentAction(.contentReject, sid: sid, contentName: contentName)
+    }
+
+    /// Removes a content from an existing session.
+    public func removeContent(sid: String, contentName: String) async throws { // periphery:ignore
+        try await sendContentAction(.contentRemove, sid: sid, contentName: contentName)
+    }
+
+    private func sendContentAction(_ action: JingleAction, sid: String, contentName: String) async throws {
+        let creator = state.withLock { state -> String in
+            let creator = state.sessions[sid]?.contents[contentName]?.creator ?? "initiator"
+            _ = state.sessions[sid]?.contents.removeValue(forKey: contentName)
+            return creator
+        }
+        let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
+        guard let context else { throw JingleError.notConnected }
+        guard let session else { throw JingleError.sessionNotFound }
+
+        var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
+        var jingle = XMLElement(
+            name: "jingle",
+            namespace: XMPPNamespaces.jingle,
+            attributes: ["action": action.rawValue, "sid": sid]
+        )
+        let contentElement = XMLElement(name: "content", attributes: ["creator": creator, "name": contentName])
+        jingle.addChild(contentElement)
+        iq.element.addChild(jingle)
+
+        try await context.sendStanza(iq)
+    }
+
     /// Declines a pending incoming file transfer or file request.
     public func declineFileTransfer(sid: String) async throws {
         try await terminateSession(sid: sid, reason: .decline)
@@ -836,16 +1037,29 @@ public final class JingleModule: XMPPModule, Sendable {
     // MARK: - File Data Transfer
 
     /// Sends file data over the established transport (SOCKS5 or IBB) for a session.
+    /// If the session's content description includes a `<range/>`, only the requested portion is sent.
     public func sendFileData(sid: String, data: [UInt8]) async throws {
-        let (context, connection, ibbState) = state.withLock {
-            ($0.context, $0.activeConnections[sid], $0.ibbStates[sid])
+        let (context, connection, ibbState, range) = state.withLock {
+            ($0.context, $0.activeConnections[sid], $0.ibbStates[sid],
+             $0.sessions[sid]?.content.description.range)
         }
         guard let context else { throw JingleError.notConnected }
 
+        // Apply range if present — slice data to the requested portion
+        let sendData: [UInt8]
+        if let range {
+            let offset = min(Int(range.offset ?? 0), data.count)
+            let length = range.length.map(Int.init) ?? (data.count - offset)
+            let end = min(offset + length, data.count)
+            sendData = Array(data[offset ..< end])
+        } else {
+            sendData = data
+        }
+
         if let connection {
-            try await sendSOCKS5Data(sid: sid, data: data, connection: connection, context: context)
+            try await sendSOCKS5Data(sid: sid, data: sendData, connection: connection, context: context)
         } else if let ibbState {
-            try await sendIBBData(sid: sid, data: data, ibbState: ibbState, context: context)
+            try await sendIBBData(sid: sid, data: sendData, ibbState: ibbState, context: context)
         } else {
             throw JingleError.transportNegotiationFailed("No active transport for \(sid)")
         }

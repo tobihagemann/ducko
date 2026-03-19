@@ -40,6 +40,8 @@ actor CLIEventHandler {
              .mucSelfPingFailed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,
              .jingleChecksumReceived, .jingleChecksumMismatch,
+             .jingleContentAddReceived, .jingleContentAccepted,
+             .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoEncryptedMessageReceived:
             break
