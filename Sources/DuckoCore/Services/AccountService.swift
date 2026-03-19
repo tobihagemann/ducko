@@ -27,6 +27,7 @@ public final class AccountService {
     private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
     private var reconnectAttempts: [UUID: Int] = [:]
     private var redirectCounts: [UUID: Int] = [:]
+    private var isAppActive: Bool = true
     private weak var omemoService: OMEMOService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
 
@@ -289,6 +290,14 @@ public final class AccountService {
         }
     }
 
+    /// Notifies all connected clients of app active/inactive state for CSI.
+    public func setAppActive(_ active: Bool) async {
+        isAppActive = active
+        for (_, client) in clients {
+            await applyCSIState(to: client)
+        }
+    }
+
     /// Rejects the new certificate, clears the warning, and disconnects.
     public func rejectNewCertificate(for accountID: UUID) async {
         certificateWarnings[accountID] = nil
@@ -384,6 +393,7 @@ public final class AccountService {
         builder.withModule(StylingModule())
         builder.withModule(ChannelSearchModule())
         builder.withModule(RegistrationModule())
+        builder.withModule(CSIModule())
         let sm = StreamManagementModule(previousState: previousSMState)
         builder.withModule(sm)
         builder.withInterceptor(sm)
@@ -391,6 +401,15 @@ public final class AccountService {
     }
 
     // MARK: - Private: Event Consumption
+
+    private func applyCSIState(to client: XMPPClient) async {
+        guard let csiModule = await client.module(ofType: CSIModule.self) else { return }
+        if isAppActive {
+            try? await csiModule.sendActive()
+        } else {
+            try? await csiModule.sendInactive()
+        }
+    }
 
     private func startEventConsumption(for accountID: UUID, client: XMPPClient) {
         eventTasks[accountID]?.cancel()
@@ -410,6 +429,9 @@ public final class AccountService {
             reconnectAttempts[accountID] = 0
             redirectCounts[accountID] = nil
             checkCertificateFingerprint(accountID: accountID)
+            if let client = clients[accountID] {
+                Task { await applyCSIState(to: client) }
+            }
         case let .disconnected(reason):
             handleDisconnect(reason, accountID: accountID)
         case let .authenticationFailed(message):

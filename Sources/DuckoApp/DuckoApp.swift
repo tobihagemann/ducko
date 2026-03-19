@@ -20,7 +20,9 @@ struct DuckoApp: App {
             let container = try ModelContainerFactory.makeContainer()
             let store = SwiftDataPersistenceStore(modelContainer: container)
             let omemoStore = SwiftDataOMEMOStore(modelContainer: container)
-            self.environment = AppEnvironment(store: store, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
+            let env = AppEnvironment(store: store, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
+            self.environment = env
+            AppStateObserver(accountService: env.accountService)
         } catch {
             fatalError("Failed to create model container: \(error)")
         }
@@ -137,5 +139,24 @@ struct DuckoApp: App {
         notificationManager.onNotificationTapped = { [openWindow] jidString in
             openWindow(id: "chat", value: jidString)
         }
+    }
+}
+
+// MARK: - App Lifecycle Observer
+
+/// Observes NSApplication active/resign notifications for XEP-0352 CSI.
+/// Retained by `DuckoApp` for the app's lifetime, independent of any window.
+@MainActor
+private final class AppStateObserver {
+    init(accountService: AccountService) {
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil, queue: .main
+        ) { _ in Task { @MainActor in await accountService.setAppActive(true) } }
+
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification,
+            object: nil, queue: .main
+        ) { _ in Task { @MainActor in await accountService.setAppActive(false) } }
     }
 }
