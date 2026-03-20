@@ -214,13 +214,17 @@ public final class AccountService {
         domain: String,
         username: String,
         password: String,
-        email: String? = nil
+        email: String? = nil,
+        host: String? = nil,
+        port: UInt16 = 5222
     ) async throws -> UUID {
         try await XMPPRegistrationClient.register(
             domain: domain,
             username: username,
             password: password,
-            email: email
+            email: email,
+            host: host,
+            port: port
         )
 
         let jidString = "\(username)@\(domain)"

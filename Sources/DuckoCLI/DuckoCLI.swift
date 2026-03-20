@@ -1096,6 +1096,8 @@ extension DuckoCLI {
                 abstract: "Register a new account on a server via XEP-0077"
             )
 
+            @OptionGroup var global: GlobalOptions
+
             @Option(name: .long, help: "Server domain (e.g. example.com)")
             var server: String
 
@@ -1108,23 +1110,32 @@ extension DuckoCLI {
             @Option(name: .long, help: "Email address (optional)")
             var email: String?
 
+            @Option(name: .long, help: "Override hostname for connection")
+            var host: String?
+
+            @Option(name: .long, help: "Port (default 5222)")
+            var port: UInt16?
+
             func run() async throws {
                 guard let resolvedPassword = password ?? CredentialHelper.getPassword() else {
                     throw CLIError.noPassword
                 }
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: PlainFormatter())
-                }
-                let env = context.environment
+                let formatter = global.resolvedFormat.makeFormatter()
 
-                let accountID = try await env.accountService.registerAccount(
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+
+                let accountID = try await context.environment.accountService.registerAccount(
                     domain: server,
                     username: username,
                     password: resolvedPassword,
-                    email: email
+                    email: email,
+                    host: host,
+                    port: port ?? 5222
                 )
-                await env.accountService.disconnect(accountID: accountID)
+                await context.environment.accountService.disconnect(accountID: accountID)
                 print("Account registered: \(username)@\(server)")
             }
         }
