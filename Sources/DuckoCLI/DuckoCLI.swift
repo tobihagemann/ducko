@@ -956,7 +956,7 @@ extension DuckoCLI {
     struct Account: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage XMPP accounts",
-            subcommands: [List.self, Add.self, Delete.self, Register.self],
+            subcommands: [List.self, Add.self, Delete.self, Cancel.self, Register.self],
             defaultSubcommand: List.self
         )
 
@@ -1049,6 +1049,45 @@ extension DuckoCLI {
 
                 try await env.accountService.deleteAccount(account.id)
                 print("Account deleted: \(jid)")
+            }
+        }
+
+        struct Cancel: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                abstract: "Cancel (unregister) an account from the server via XEP-0077"
+            )
+
+            @Argument(help: "The bare JID of the account to cancel")
+            var jid: String
+
+            func run() async throws {
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: PlainFormatter())
+                }
+                let env = context.environment
+
+                try await env.accountService.loadAccounts()
+                let accounts = await MainActor.run { env.accountService.accounts }
+
+                guard let account = accounts.first(where: { $0.jid.description == jid }) else {
+                    throw CLIError.accountNotFound(jid)
+                }
+
+                print("WARNING: This will permanently unregister \(jid) from the server.")
+                print("Type 'yes' to confirm:")
+                guard readLine()?.trimmingCharacters(in: .whitespaces) == "yes" else {
+                    print("Cancelled.")
+                    return
+                }
+
+                guard let password = CredentialHelper.getPassword(for: account.jid.description, using: env.credentialStore) else {
+                    throw CLIError.noPassword
+                }
+
+                try await env.accountService.connect(accountID: account.id, password: password)
+                try await waitForConnected(accountID: account.id, environment: env)
+                try await env.accountService.cancelAccount(accountID: account.id)
+                print("Account cancelled: \(jid)")
             }
         }
 
@@ -1395,6 +1434,7 @@ private func printREPLHelp() {
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
     print("  /directed-presence <jid> Send directed presence to a JID")
+    print("  /cancel-account          Cancel (unregister) account from server")
     print("  /join <room> [nick]      Join a MUC room")
     print("  /leave [room]            Leave a MUC room")
     print("  /members [room]          Show room occupants")
@@ -1410,6 +1450,8 @@ private func printREPLHelp() {
     print("  /decline [sid]           Decline incoming file transfer")
     print("  /fulfill [sid] <path>    Fulfill incoming file request")
     print("  /transfers               List active transfers")
+    print("  /request-file <jid> <f>  Request a file from a peer")
+    print("  /remove-content <s> <c>  Remove content from Jingle session")
     print("  /rooms [service]         Discover available rooms")
     print("  /avatar [jid]            View avatar info (own or contact's)")
     print("  /connection-info         Show TLS connection info")
@@ -1452,7 +1494,9 @@ private func dispatchREPLCommand(
         || input == "/accept" || input.hasPrefix("/accept ")
         || input == "/decline" || input.hasPrefix("/decline ")
         || input == "/fulfill" || input.hasPrefix("/fulfill ")
-        || input == "/transfers" {
+        || input == "/transfers"
+        || input.hasPrefix("/request-file ")
+        || input.hasPrefix("/remove-content ") {
         await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
     } else if isMiscREPLCommand(input) {
         await dispatchMiscREPLCommand(input, context: context)
@@ -1474,6 +1518,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input.hasPrefix("/encrypt ")
         || input.hasPrefix("/pref ")
         || input.hasPrefix("/directed-presence ")
+        || input == "/cancel-account"
 }
 
 private func dispatchMiscREPLCommand(
@@ -1520,8 +1565,25 @@ private func dispatchMiscREPLCommand(
         } catch {
             print(formatter.formatError(error))
         }
+    } else if input == "/cancel-account" {
+        await handleCancelAccountREPLCommand(context: context)
     } else {
         await dispatchInfoREPLCommand(input, context: context)
+    }
+}
+
+private func handleCancelAccountREPLCommand(context: REPLContext) async {
+    print("WARNING: This will permanently unregister your account from the server.")
+    print("Type 'yes' to confirm:")
+    guard readLine()?.trimmingCharacters(in: .whitespaces) == "yes" else {
+        print("Cancelled.")
+        return
+    }
+    do {
+        try await context.environment.accountService.cancelAccount(accountID: context.accountID)
+        print("Account cancelled.")
+    } catch {
+        print(context.formatter.formatError(error))
     }
 }
 
@@ -1633,6 +1695,10 @@ private func dispatchFileTransferREPLCommand(
         await handleFulfillREPLCommand(input, context: context)
     } else if input == "/transfers" {
         await handleTransfersREPLCommand(context: context)
+    } else if input.hasPrefix("/request-file ") {
+        await handleRequestFileREPLCommand(input, context: context)
+    } else if input.hasPrefix("/remove-content ") {
+        await handleRemoveContentREPLCommand(input, context: context)
     }
 }
 

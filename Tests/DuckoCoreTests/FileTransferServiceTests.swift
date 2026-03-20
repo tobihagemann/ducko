@@ -160,6 +160,98 @@ enum FileTransferServiceTests {
     }
 
     @MainActor
+    struct ContentAddTracking {
+        @Test
+        func `handleJingleEvent tracks content-add offers separately`() throws {
+            let service = FileTransferService()
+
+            let peer = try #require(FullJID.parse("sender@example.com/res"))
+            let offer = JingleFileOffer(
+                sid: "session-1",
+                from: peer,
+                fileName: "extra.zip",
+                fileSize: 2000,
+                mediaType: "application/zip"
+            )
+
+            service.handleJingleEvent(.jingleContentAddReceived(sid: "session-1", contentName: "file-1", offer: offer), accountID: UUID())
+
+            #expect(service.incomingOffers.isEmpty)
+            #expect(service.incomingContentAddOffers.count == 1)
+            #expect(service.incomingContentAddOffers[0].sid == "session-1")
+            #expect(service.incomingContentAddOffers[0].contentName == "file-1")
+
+            let transfer = service.activeTransfers.first { $0.sid == "session-1/file-1" }
+            #expect(transfer != nil)
+            #expect(transfer?.fileName == "extra.zip")
+            if case .awaitingAcceptance = transfer?.state {
+                // Expected
+            } else {
+                Issue.record("Expected awaitingAcceptance state")
+            }
+        }
+
+        @Test
+        func `Multiple content-adds on same session use unique composite IDs`() throws {
+            let service = FileTransferService()
+
+            let peer = try #require(FullJID.parse("sender@example.com/res"))
+            let offer1 = JingleFileOffer(sid: "session-1", from: peer, fileName: "file-a.txt", fileSize: 100)
+            let offer2 = JingleFileOffer(sid: "session-1", from: peer, fileName: "file-b.txt", fileSize: 200)
+
+            service.handleJingleEvent(.jingleContentAddReceived(sid: "session-1", contentName: "file-0", offer: offer1), accountID: UUID())
+            service.handleJingleEvent(.jingleContentAddReceived(sid: "session-1", contentName: "file-1", offer: offer2), accountID: UUID())
+
+            #expect(service.incomingContentAddOffers.count == 2)
+            #expect(service.activeTransfers.count == 2)
+
+            let sids = Set(service.activeTransfers.compactMap(\.sid))
+            #expect(sids.contains("session-1/file-0"))
+            #expect(sids.contains("session-1/file-1"))
+        }
+
+        @Test
+        func `viewIncomingContentAddOffers projects correctly`() throws {
+            let service = FileTransferService()
+
+            let peer = try #require(FullJID.parse("sender@example.com/res"))
+            let offer = JingleFileOffer(sid: "session-1", from: peer, fileName: "doc.pdf", fileSize: 3000, mediaType: "application/pdf")
+
+            service.handleJingleEvent(.jingleContentAddReceived(sid: "session-1", contentName: "file-1", offer: offer), accountID: UUID())
+
+            let viewOffers = service.viewIncomingContentAddOffers
+            #expect(viewOffers.count == 1)
+            #expect(viewOffers[0].id == "session-1/file-1")
+            #expect(viewOffers[0].sid == "session-1")
+            #expect(viewOffers[0].contentName == "file-1")
+            #expect(viewOffers[0].fileName == "doc.pdf")
+            #expect(viewOffers[0].fileSize == 3000)
+            #expect(viewOffers[0].fromJIDString == "sender@example.com")
+        }
+
+        @Test
+        func `Content rejected event removes offer and fails transfer`() throws {
+            let service = FileTransferService()
+
+            let peer = try #require(FullJID.parse("sender@example.com/res"))
+            let offer = JingleFileOffer(sid: "session-1", from: peer, fileName: "file.txt", fileSize: 100)
+
+            service.handleJingleEvent(.jingleContentAddReceived(sid: "session-1", contentName: "file-0", offer: offer), accountID: UUID())
+            #expect(service.incomingContentAddOffers.count == 1)
+
+            service.handleJingleEvent(.jingleContentRejected(sid: "session-1", contentName: "file-0"), accountID: UUID())
+            #expect(service.incomingContentAddOffers.isEmpty)
+
+            let transfer = service.activeTransfers.first { $0.sid == "session-1/file-0" }
+            if case .failed = transfer?.state {
+                // Expected
+            } else {
+                Issue.record("Expected failed state after content rejection")
+            }
+        }
+    }
+
+    @MainActor
     struct JingleProgressTracking {
         @Test
         func `handleJingleEvent updates transfer progress`() throws {

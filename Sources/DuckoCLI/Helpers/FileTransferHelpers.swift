@@ -192,6 +192,46 @@ private func handleFileTransferREPLCommand(
     }
 }
 
+func handleRequestFileREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/request-file".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 2)
+    guard parts.count >= 2 else {
+        print("Usage: /request-file <full-jid> <filename> [size]")
+        return
+    }
+    let jidString = String(parts[0])
+    let fileName = String(parts[1])
+    let fileSize: Int64 = parts.count >= 3 ? Int64(parts[2]) ?? 0 : 0
+
+    do {
+        try await context.environment.fileTransferService.requestFile(
+            from: jidString, fileName: fileName, fileSize: fileSize, accountID: context.accountID
+        )
+        print("Requested file '\(fileName)' from \(jidString)")
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+}
+
+func handleRemoveContentREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/remove-content".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard parts.count == 2 else {
+        print("Usage: /remove-content <sid> <content-name>")
+        return
+    }
+    let sid = String(parts[0])
+    let contentName = String(parts[1])
+    do {
+        try await context.environment.fileTransferService.removeContent(
+            sid: sid, contentName: contentName, accountID: context.accountID
+        )
+        print("Removed content '\(contentName)' from session \(sid)")
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+}
+
 func handleTransfersREPLCommand(context: REPLContext) async {
     let transfers = await MainActor.run { context.environment.fileTransferService.activeTransfers }
     if transfers.isEmpty {

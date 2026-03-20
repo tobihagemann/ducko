@@ -131,6 +131,8 @@ private struct AccountDetailView: View {
     @State private var isShowingConnectionInfo = false
     @State private var isShowingServerInfo = false
     @State private var isShowingChangePassword = false
+    @State private var isCancelAccountConfirmPresented = false
+    @State private var cancelAccountError: String?
     let account: Account
     let onEdit: () -> Void
 
@@ -193,6 +195,11 @@ private struct AccountDetailView: View {
                         Button("Change Password...") {
                             isShowingChangePassword = true
                         }
+
+                        Button("Cancel Account...", role: .destructive) {
+                            isCancelAccountConfirmPresented = true
+                        }
+                        .accessibilityIdentifier("cancel-account-button")
                     }
 
                     Spacer()
@@ -212,6 +219,29 @@ private struct AccountDetailView: View {
         }
         .sheet(isPresented: $isShowingChangePassword) {
             ChangePasswordSheet(accountID: account.id)
+        }
+        .confirmationDialog("Cancel Account?", isPresented: $isCancelAccountConfirmPresented) {
+            Button("Cancel Account", role: .destructive) {
+                Task {
+                    do {
+                        try await environment.accountService.cancelAccount(accountID: account.id)
+                    } catch {
+                        cancelAccountError = error.localizedDescription
+                    }
+                }
+            }
+        } message: {
+            Text("This will permanently unregister your account from the server and remove it locally. This action cannot be undone.")
+        }
+        .alert("Account Cancellation Failed", isPresented: Binding(
+            get: { cancelAccountError != nil },
+            set: { if !$0 { cancelAccountError = nil } }
+        )) {
+            Button("OK") { cancelAccountError = nil }
+        } message: {
+            if let cancelAccountError {
+                Text(cancelAccountError)
+            }
         }
     }
 

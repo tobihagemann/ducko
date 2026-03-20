@@ -6,9 +6,21 @@ import Testing
 /// Empty roster response for tests that don't need roster items pre-loaded.
 private let emptyRosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'/></iq>"
 
+/// Post-auth features with bind and pre-approval.
+private let testFeaturesBindWithPreApproval = """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
+<sub xmlns='urn:xmpp:features:pre-approval'/>\
+</features>
+"""
+
 /// Creates a connected client with RosterModule registered.
 /// A roster response must always be provided since RosterModule blocks on connect waiting for it.
-private func makeConnectedClient(mock: MockTransport, rosterResponse: String = emptyRosterResponse) async throws -> XMPPClient {
+private func makeConnectedClient(
+    mock: MockTransport,
+    postAuthFeatures: String = testFeaturesBind,
+    rosterResponse: String = emptyRosterResponse
+) async throws -> XMPPClient {
     let client = XMPPClient(
         domain: "example.com",
         credentials: .init(username: "user", password: "pass"),
@@ -17,7 +29,9 @@ private func makeConnectedClient(mock: MockTransport, rosterResponse: String = e
     await client.register(RosterModule())
 
     let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
-    await simulateNoTLSConnect(mock, rosterResponse: rosterResponse)
+    await simulateNoTLSConnect(mock, postAuthFeatures: postAuthFeatures)
+    await mock.waitForSent(count: 5) // roster GET IQ sent
+    await mock.simulateReceive(rosterResponse)
     try await connectTask.value
 
     return client
@@ -219,7 +233,7 @@ enum RosterModuleTests {
         @Test
         func `Subscription methods send correct presence types`() async throws {
             let mock = MockTransport()
-            let client = try await makeConnectedClient(mock: mock)
+            let client = try await makeConnectedClient(mock: mock, postAuthFeatures: testFeaturesBindWithPreApproval)
             let module = try #require(await client.module(ofType: RosterModule.self))
 
             let jid = try #require(BareJID.parse("contact@example.com"))
@@ -261,6 +275,22 @@ enum RosterModuleTests {
     }
 
     struct PreApproval {
+        @Test
+        func `preApprove skips when server does not support pre-approval`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: RosterModule.self))
+            #expect(!module.supportsPreApproval)
+
+            let jid = try #require(BareJID.parse("contact@example.com"))
+            await mock.clearSentBytes()
+            try await module.preApprove(jid: jid)
+            let sentData = await mock.sentBytes
+            #expect(sentData.isEmpty)
+
+            await client.disconnect()
+        }
+
         @Test
         func `Roster item with approved=true parses correctly`() throws {
             let element = XMLElement(name: "item", attributes: ["jid": "alice@example.com", "subscription": "from", "approved": "true"])

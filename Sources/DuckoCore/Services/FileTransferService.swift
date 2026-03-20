@@ -40,6 +40,26 @@ public final class FileTransferService {
         }
     }
 
+    /// View-friendly representation of an incoming Jingle content-add offer.
+    public struct IncomingContentAddOffer: Sendable, Identifiable {
+        public var id: String {
+            "\(sid)/\(contentName)"
+        }
+
+        public let sid: String
+        public let contentName: String
+        public let fileName: String
+        public let fileSize: Int64
+        public let fromJIDString: String
+    }
+
+    /// Tracking type for a Jingle content-add offer.
+    public struct PendingContentAdd: Sendable {
+        public let sid: String
+        public let contentName: String
+        public let offer: JingleFileOffer
+    }
+
     /// View-friendly representation of an incoming Jingle file request.
     public struct IncomingFileRequest: Sendable, Identifiable {
         public var id: String {
@@ -134,6 +154,7 @@ public final class FileTransferService {
 
     public private(set) var activeTransfers: [ActiveTransfer] = []
     public private(set) var incomingOffers: [JingleFileOffer] = []
+    public private(set) var incomingContentAddOffers: [PendingContentAdd] = []
     public private(set) var incomingRequests: [JingleFileRequest] = []
     private var pendingOOBOfferIDs: Set<String> = []
 
@@ -141,6 +162,17 @@ public final class FileTransferService {
     public var viewIncomingOffers: [IncomingFileOffer] {
         incomingOffers.map {
             IncomingFileOffer(sid: $0.sid, fileName: $0.fileName, fileSize: $0.fileSize, fromJIDString: $0.from.bareJID.description)
+        }
+    }
+
+    /// View-friendly projection of `incomingContentAddOffers` for modules that cannot import DuckoXMPP.
+    public var viewIncomingContentAddOffers: [IncomingContentAddOffer] {
+        incomingContentAddOffers.map {
+            IncomingContentAddOffer(
+                sid: $0.sid, contentName: $0.contentName,
+                fileName: $0.offer.fileName, fileSize: $0.offer.fileSize,
+                fromJIDString: $0.offer.from.bareJID.description
+            )
         }
     }
 
@@ -215,18 +247,21 @@ public final class FileTransferService {
             updateTransferState(forSID: sid, state: .transferring(progress: progress))
         case let .jingleFileTransferCompleted(sid):
             updateTransferState(forSID: sid, state: .completedTransfer)
+            updateContentAddTransferStates(forSessionSID: sid, state: .completedTransfer)
             incomingOffers.removeAll { $0.sid == sid }
             incomingRequests.removeAll { $0.sid == sid }
+            incomingContentAddOffers.removeAll { $0.sid == sid }
         case let .jingleFileTransferFailed(sid, reason):
             updateTransferState(forSID: sid, state: .failed(reason))
+            updateContentAddTransferStates(forSessionSID: sid, state: .failed(reason))
             incomingOffers.removeAll { $0.sid == sid }
             incomingRequests.removeAll { $0.sid == sid }
-        case let .jingleContentAddReceived(_, _, offer):
-            trackIncomingOffer(offer)
+            incomingContentAddOffers.removeAll { $0.sid == sid }
+        case .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
+            handleContentAddEvent(event)
         case let .oobIQOfferReceived(offer):
             trackIncomingOOBOffer(offer)
-        case .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
+        case .jingleChecksumReceived, .jingleChecksumMismatch:
             break
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
@@ -275,6 +310,44 @@ public final class FileTransferService {
             method: .jingle,
             direction: .incoming,
             sid: offer.sid
+        )
+        activeTransfers.append(transfer)
+    }
+
+    private func handleContentAddEvent(_ event: XMPPEvent) {
+        switch event {
+        case let .jingleContentAddReceived(sid, contentName, offer):
+            trackIncomingContentAdd(sid: sid, contentName: contentName, offer: offer)
+        case let .jingleContentAccepted(sid, contentName):
+            log.info("Content accepted: \(Self.contentAddID(sid: sid, contentName: contentName))")
+        case let .jingleContentRejected(sid, contentName):
+            let id = Self.contentAddID(sid: sid, contentName: contentName)
+            incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
+            updateTransferState(forSID: id, state: .failed("Content rejected by peer"))
+        case let .jingleContentRemoved(sid, contentName):
+            let id = Self.contentAddID(sid: sid, contentName: contentName)
+            incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
+            updateTransferState(forSID: id, state: .failed("Content removed by peer"))
+        default:
+            break
+        }
+    }
+
+    private static func contentAddID(sid: String, contentName: String) -> String {
+        "\(sid)/\(contentName)"
+    }
+
+    private func trackIncomingContentAdd(sid: String, contentName: String, offer: JingleFileOffer) {
+        incomingContentAddOffers.append(PendingContentAdd(sid: sid, contentName: contentName, offer: offer))
+        let id = Self.contentAddID(sid: sid, contentName: contentName)
+        let transfer = ActiveTransfer(
+            id: UUID(),
+            fileName: offer.fileName,
+            fileSize: offer.fileSize,
+            state: .awaitingAcceptance,
+            method: .jingle,
+            direction: .incoming,
+            sid: id
         )
         activeTransfers.append(transfer)
     }
@@ -397,6 +470,91 @@ public final class FileTransferService {
 
         try await jingleModule.declineFileTransfer(sid: sid)
         incomingOffers.removeAll { $0.sid == sid }
+    }
+
+    // MARK: - Content-Add Management
+
+    /// Accepts a content-add offer from a peer.
+    public func acceptContentAdd(sid: String, contentName: String, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+        try await jingleModule.acceptContentAdd(sid: sid, contentName: contentName)
+        let id = Self.contentAddID(sid: sid, contentName: contentName)
+        incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
+        updateTransferState(forSID: id, state: .connectingTransport)
+    }
+
+    /// Rejects a content-add offer from a peer.
+    public func rejectContentAdd(sid: String, contentName: String, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+        try await jingleModule.rejectContentAdd(sid: sid, contentName: contentName)
+        let id = Self.contentAddID(sid: sid, contentName: contentName)
+        incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
+        updateTransferState(forSID: id, state: .failed("Declined"))
+    }
+
+    /// Removes content from an existing Jingle session.
+    public func removeContent(sid: String, contentName: String, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+        try await jingleModule.removeContent(sid: sid, contentName: contentName)
+        let id = Self.contentAddID(sid: sid, contentName: contentName)
+        updateTransferState(forSID: id, state: .failed("Removed"))
+    }
+
+    /// Requests a file from a peer (receiver-initiated transfer, XEP-0234).
+    public func requestFile(
+        from peerJIDString: String, fileName: String, fileSize: Int64,
+        mediaType: String? = nil, accountID: UUID
+    ) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+        guard let peerJID = FullJID.parse(peerJIDString) else {
+            throw FileTransferError.jingleFailed("Invalid peer JID: \(peerJIDString)")
+        }
+        let file = JingleFileDescription(
+            name: fileName, size: fileSize,
+            mediaType: mediaType ?? "application/octet-stream"
+        )
+        let sid = try await jingleModule.requestFileTransfer(from: peerJID, file: file)
+        let transfer = ActiveTransfer(
+            id: UUID(),
+            fileName: fileName,
+            fileSize: fileSize,
+            state: .negotiating,
+            method: .jingle,
+            direction: .incoming,
+            sid: sid
+        )
+        activeTransfers.append(transfer)
+    }
+
+    // periphery:ignore - service API, awaiting UI consumer
+    /// Adds a file to an existing Jingle session (multi-file transfer, XEP-0234).
+    public func addFileToSession(sid: String, url: URL, accountID: UUID) async throws {
+        let jingleModule = try await jingleModule(for: accountID)
+        let attributes: [FileAttributeKey: Any]
+        do {
+            attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        } catch {
+            throw FileTransferError.fileReadFailed(error.localizedDescription)
+        }
+        let fileName = url.lastPathComponent
+        let fileSize = (attributes[.size] as? Int64) ?? 0
+        let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        let file = JingleFileDescription(
+            name: fileName, size: fileSize,
+            mediaType: mimeType
+        )
+        let contentName = try await jingleModule.sendContentAdd(sid: sid, file: file)
+        let id = Self.contentAddID(sid: sid, contentName: contentName)
+        let transfer = ActiveTransfer(
+            id: UUID(),
+            fileName: fileName,
+            fileSize: fileSize,
+            state: .negotiating,
+            method: .jingle,
+            direction: .outgoing,
+            sid: id
+        )
+        activeTransfers.append(transfer)
     }
 
     // MARK: - Private: Method Resolution
@@ -606,6 +764,14 @@ public final class FileTransferService {
 
     private func updateTransferState(forSID sid: String, state: TransferState) {
         if let index = activeTransfers.firstIndex(where: { $0.sid == sid }) {
+            activeTransfers[index].state = state
+        }
+    }
+
+    /// Updates all content-add transfers belonging to the given session SID.
+    private func updateContentAddTransferStates(forSessionSID sid: String, state: TransferState) {
+        let prefix = sid + "/"
+        for index in activeTransfers.indices where activeTransfers[index].sid?.hasPrefix(prefix) == true {
             activeTransfers[index].state = state
         }
     }

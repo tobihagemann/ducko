@@ -2,10 +2,6 @@ import os
 
 private let log = Logger(subsystem: "com.ducko.xmpp", category: "muc")
 
-// periphery:ignore - used by sendRetraction (XEP-0424 module API)
-/// XEP-0424 fallback body for clients that don't support message retraction.
-private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
-
 /// Implements XEP-0045 Multi-User Chat — room join/leave, occupant tracking, group messaging, and invitations.
 public final class MUCModule: XMPPModule, Sendable {
     // MARK: - State
@@ -468,25 +464,6 @@ public final class MUCModule: XMPPModule, Sendable {
     public func sendCorrection(to room: BareJID, body: String, replacingID: String) async throws {
         let replace = XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": replacingID])
         try await sendMessage(to: room, body: body, additionalElements: [replace])
-    }
-
-    // periphery:ignore - XEP-0424 module API, currently routed through encryptAndSendGroupMessage
-    /// Sends a message retraction (XEP-0424) for a previously sent groupchat message.
-    public func sendRetraction(to room: BareJID, originalID: String) async throws {
-        guard let context = state.withLock({ $0.context }) else { return }
-        var message = XMPPMessage(type: .groupchat, to: .bare(room), id: context.generateID())
-        let retract = XMLElement(
-            name: "retract",
-            namespace: XMPPNamespaces.messageRetract,
-            attributes: ["id": originalID]
-        )
-        message.element.addChild(retract)
-        let fallback = XMLElement(name: "fallback", namespace: XMPPNamespaces.fallbackIndication, attributes: ["for": XMPPNamespaces.messageRetract])
-        message.element.addChild(fallback)
-        message.body = retractionFallbackBody
-        let store = XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
-        message.element.addChild(store)
-        try await context.sendStanza(message)
     }
 
     /// Sends a moderation request (XEP-0425) to retract a message by stanza-id.

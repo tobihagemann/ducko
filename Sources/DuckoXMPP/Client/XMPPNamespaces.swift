@@ -7,7 +7,6 @@ public enum XMPPNamespaces {
     public static let session = "urn:ietf:params:xml:ns:xmpp-session"
     public static let roster = "jabber:iq:roster"
     public static let rosterVersioning = "urn:xmpp:features:rosterver"
-    // periphery:ignore - specced feature, not yet wired
     public static let preApproval = "urn:xmpp:features:pre-approval"
     public static let discoInfo = "http://jabber.org/protocol/disco#info"
     public static let discoItems = "http://jabber.org/protocol/disco#items"

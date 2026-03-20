@@ -568,7 +568,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
         )
     }
 
-    // periphery:ignore:parameters header - reserved for future MUC OMEMO sender validation
     private func decryptKexKey(
         _ data: [UInt8], sessionKey: SessionKey,
         header: ParsedHeader
@@ -605,6 +604,10 @@ public final class OMEMOModule: XMPPModule, Sendable {
             )
             if let consumedPreKeyID {
                 $0.usedPreKeyIDs.insert(consumedPreKeyID)
+            }
+            if let knownDevices = $0.deviceLists[sessionKey.jid],
+               !knownDevices.contains(header.sid) {
+                log.warning("KEX from unannounced device \(header.sid) for \(sessionKey.jid)")
             }
             return $0.context
         }

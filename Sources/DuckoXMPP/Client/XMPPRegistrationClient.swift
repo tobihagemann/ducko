@@ -13,7 +13,7 @@ public enum XMPPRegistrationClient {
         case unexpectedResponse
     }
 
-    // periphery:ignore - specced feature, not yet wired
+    // periphery:ignore - called by AccountService.retrieveRegistrationForm, awaiting UI consumer
     /// Retrieves the registration form from a server without authenticating.
     public static func retrieveForm(
         domain: String,

@@ -249,7 +249,6 @@ public final class AccountService {
         await savePassword(accountID: accountID)
     }
 
-    // periphery:ignore - specced feature, not yet wired
     /// Cancels (unregisters) a connected account via XEP-0077.
     public func cancelAccount(accountID: UUID) async throws {
         guard let client = clients[accountID] else {
@@ -260,6 +259,59 @@ public final class AccountService {
         }
         try await regModule.cancelRegistration()
         try await deleteAccount(accountID)
+    }
+
+    // periphery:ignore - service API, awaiting UI consumer
+    /// Retrieves a registration form from a server without authenticating (XEP-0077).
+    public func retrieveRegistrationForm(
+        domain: String, host: String? = nil, port: UInt16 = 5222
+    ) async throws -> RegistrationFormInfo {
+        let form = try await XMPPRegistrationClient.retrieveForm(domain: domain, host: host, port: port)
+        return RegistrationFormInfo(from: form)
+    }
+
+    // periphery:ignore - service API, awaiting UI consumer
+    /// Retrieves a registration form from a connected server or component (XEP-0077).
+    public func retrieveRegistrationForm(accountID: UUID, from jid: String? = nil) async throws -> RegistrationFormInfo {
+        guard let client = clients[accountID] else {
+            throw AccountServiceError.notConnected(accountID.uuidString)
+        }
+        guard let regModule = await client.module(ofType: RegistrationModule.self) else {
+            throw AccountServiceError.moduleNotAvailable(accountID.uuidString)
+        }
+        let targetJID = jid.flatMap { JID.parse($0) }
+        let form = try await regModule.retrieveForm(from: targetJID)
+        return RegistrationFormInfo(from: form)
+    }
+
+    // periphery:ignore - service API, awaiting UI consumer
+    /// Submits a legacy registration form to a connected server or component (XEP-0077).
+    public func submitRegistration(
+        accountID: UUID, username: String, password: String, email: String? = nil, to jid: String? = nil
+    ) async throws {
+        guard let client = clients[accountID] else {
+            throw AccountServiceError.notConnected(accountID.uuidString)
+        }
+        guard let regModule = await client.module(ofType: RegistrationModule.self) else {
+            throw AccountServiceError.moduleNotAvailable(accountID.uuidString)
+        }
+        let targetJID = jid.flatMap { JID.parse($0) }
+        try await regModule.submitLegacy(username: username, password: password, email: email, to: targetJID)
+    }
+
+    // periphery:ignore - service API, awaiting UI consumer
+    /// Submits a data form registration to a connected server or component (XEP-0077).
+    public func submitRegistrationDataForm(
+        accountID: UUID, fields: [RoomConfigField], to jid: String? = nil
+    ) async throws {
+        guard let client = clients[accountID] else {
+            throw AccountServiceError.notConnected(accountID.uuidString)
+        }
+        guard let regModule = await client.module(ofType: RegistrationModule.self) else {
+            throw AccountServiceError.moduleNotAvailable(accountID.uuidString)
+        }
+        let targetJID = jid.flatMap { JID.parse($0) }
+        try await regModule.submitDataForm(fields.map { $0.toDataFormField() }, to: targetJID)
     }
 
     // MARK: - Wiring

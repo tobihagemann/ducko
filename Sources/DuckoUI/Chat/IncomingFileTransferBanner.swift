@@ -9,11 +9,15 @@ struct IncomingFileTransferBanner: View {
 
     var body: some View {
         let offers = environment.fileTransferService.viewIncomingOffers
+        let contentAddOffers = environment.fileTransferService.viewIncomingContentAddOffers
         let requests = environment.fileTransferService.viewIncomingRequests
-        if !offers.isEmpty || !requests.isEmpty {
+        if !offers.isEmpty || !contentAddOffers.isEmpty || !requests.isEmpty {
             VStack(spacing: 4) {
                 ForEach(offers) { offer in
                     IncomingFileTransferRow(offer: offer)
+                }
+                ForEach(contentAddOffers) { offer in
+                    IncomingContentAddRow(offer: offer)
                 }
                 ForEach(requests) { request in
                     IncomingFileRequestRow(request: request)
@@ -96,6 +100,88 @@ private struct IncomingFileTransferRow: View {
         Task {
             do {
                 try await environment.fileTransferService.declineIncomingTransfer(offer.sid, accountID: accountID)
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+}
+
+// MARK: - IncomingContentAddRow
+
+private struct IncomingContentAddRow: View {
+    @Environment(AppEnvironment.self) private var environment
+    let offer: FileTransferService.IncomingContentAddOffer
+    @State private var errorMessage: String?
+
+    private var account: Account? {
+        environment.accountService.accounts.first
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.callout)
+            }
+
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Additional file: \(offer.fileName)")
+                        .font(.callout)
+                        .lineLimit(1)
+
+                    Text("\(formattedFileSize) from \(offer.fromJIDString)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button("Accept") {
+                    accept()
+                }
+                .tint(.green)
+                .accessibilityIdentifier("accept-content-add-button")
+
+                Button("Decline") {
+                    decline()
+                }
+                .tint(.red)
+                .accessibilityIdentifier("decline-content-add-button")
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    private var formattedFileSize: String {
+        ByteCountFormatter.string(fromByteCount: offer.fileSize, countStyle: .file)
+    }
+
+    private func accept() {
+        guard let accountID = account?.id else { return }
+        Task {
+            do {
+                try await environment.fileTransferService.acceptContentAdd(
+                    sid: offer.sid, contentName: offer.contentName, accountID: accountID
+                )
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func decline() {
+        guard let accountID = account?.id else { return }
+        Task {
+            do {
+                try await environment.fileTransferService.rejectContentAdd(
+                    sid: offer.sid, contentName: offer.contentName, accountID: accountID
+                )
                 errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription

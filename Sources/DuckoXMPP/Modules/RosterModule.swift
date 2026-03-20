@@ -8,6 +8,7 @@ public final class RosterModule: XMPPModule, Sendable {
         var context: ModuleContext?
         var roster: [BareJID: RosterItem] = [:]
         var rosterVersionProvider: (@Sendable () -> String?)?
+        var supportsPreApproval: Bool = false
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -34,9 +35,14 @@ public final class RosterModule: XMPPModule, Sendable {
     public func handleConnect() async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
-        // Check if server supports roster versioning
+        // Check server feature support
         let serverFeatures = context.serverStreamFeatures()
         let supportsVersioning = serverFeatures?.child(named: "ver", namespace: XMPPNamespaces.rosterVersioning) != nil
+        let supportsPreApproval = serverFeatures?.child(named: "sub", namespace: XMPPNamespaces.preApproval) != nil
+        state.withLock { $0.supportsPreApproval = supportsPreApproval }
+        if supportsPreApproval {
+            log.info("Server supports subscription pre-approval")
+        }
 
         // Request roster (with version if supported)
         var iq = XMPPIQ(type: .get, id: context.generateID())
@@ -82,7 +88,10 @@ public final class RosterModule: XMPPModule, Sendable {
     }
 
     public func handleDisconnect() async {
-        state.withLock { $0.roster.removeAll() }
+        state.withLock {
+            $0.roster.removeAll()
+            $0.supportsPreApproval = false
+        }
     }
 
     // MARK: - IQ Handling
@@ -212,8 +221,18 @@ public final class RosterModule: XMPPModule, Sendable {
 
     /// Pre-approves a future subscription request (RFC 6121 §3.4).
     public func preApprove(jid: BareJID) async throws {
-        guard let context = state.withLock({ $0.context }) else { return }
+        let (context, supported) = state.withLock { ($0.context, $0.supportsPreApproval) }
+        guard let context else { return }
+        guard supported else {
+            log.info("Server does not support pre-approval, skipping for \(jid)")
+            return
+        }
         let presence = XMPPPresence(type: .subscribed, to: .bare(jid))
         try await context.sendStanza(presence)
+    }
+
+    /// Whether the server advertises subscription pre-approval support (RFC 6121 §3.4).
+    public var supportsPreApproval: Bool {
+        state.withLock { $0.supportsPreApproval }
     }
 }

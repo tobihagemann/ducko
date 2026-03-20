@@ -907,14 +907,15 @@ public final class JingleModule: XMPPModule, Sendable {
 
     /// Requests a file from a peer by sending session-initiate with senders='responder'.
     /// Returns the session ID.
-    public func requestFileTransfer(from peer: FullJID, file: JingleFileDescription) async throws -> String { // periphery:ignore
+    public func requestFileTransfer(from peer: FullJID, file: JingleFileDescription) async throws -> String {
         try await initiateFileTransfer(to: peer, file: file, senders: .responder)
     }
 
     // MARK: - Content Actions (Multi-file)
 
+    // periphery:ignore - called by FileTransferService.addFileToSession, awaiting UI consumer
     /// Proposes adding a file to an existing Jingle session. Returns the content name.
-    public func sendContentAdd(sid: String, file: JingleFileDescription) async throws -> String { // periphery:ignore
+    public func sendContentAdd(sid: String, file: JingleFileDescription) async throws -> String {
         let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
         guard let context else { throw JingleError.notConnected }
         guard let session else { throw JingleError.sessionNotFound }
@@ -946,7 +947,7 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     /// Accepts a proposed content-add from the peer.
-    public func acceptContentAdd(sid: String, contentName: String) async throws { // periphery:ignore
+    public func acceptContentAdd(sid: String, contentName: String) async throws {
         let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
         guard let context else { throw JingleError.notConnected }
         guard let session else { throw JingleError.sessionNotFound }
@@ -969,12 +970,12 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     /// Rejects a proposed content-add from the peer.
-    public func rejectContentAdd(sid: String, contentName: String) async throws { // periphery:ignore
+    public func rejectContentAdd(sid: String, contentName: String) async throws {
         try await sendContentAction(.contentReject, sid: sid, contentName: contentName)
     }
 
     /// Removes a content from an existing session.
-    public func removeContent(sid: String, contentName: String) async throws { // periphery:ignore
+    public func removeContent(sid: String, contentName: String) async throws {
         try await sendContentAction(.contentRemove, sid: sid, contentName: contentName)
     }
 
