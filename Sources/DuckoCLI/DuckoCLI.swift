@@ -1435,6 +1435,8 @@ private func printREPLHelp() {
     print("  /deny <jid>              Deny subscription request")
     print("  /directed-presence <jid> Send directed presence to a JID")
     print("  /cancel-account          Cancel (unregister) account from server")
+    print("  /check-registration [jid]  Show server registration form")
+    print("  /submit-registration [jid] Submit registration to server/component")
     print("  /join <room> [nick]      Join a MUC room")
     print("  /leave [room]            Leave a MUC room")
     print("  /members [room]          Show room occupants")
@@ -1519,8 +1521,11 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input.hasPrefix("/pref ")
         || input.hasPrefix("/directed-presence ")
         || input == "/cancel-account"
+        || input == "/check-registration" || input.hasPrefix("/check-registration ")
+        || input == "/submit-registration" || input.hasPrefix("/submit-registration ")
 }
 
+// swiftlint:disable:next cyclomatic_complexity
 private func dispatchMiscREPLCommand(
     _ input: String, context: REPLContext
 ) async {
@@ -1567,6 +1572,10 @@ private func dispatchMiscREPLCommand(
         }
     } else if input == "/cancel-account" {
         await handleCancelAccountREPLCommand(context: context)
+    } else if input == "/check-registration" || input.hasPrefix("/check-registration ") {
+        await handleCheckRegistrationREPLCommand(input, context: context)
+    } else if input == "/submit-registration" || input.hasPrefix("/submit-registration ") {
+        await handleSubmitRegistrationREPLCommand(input, context: context)
     } else {
         await dispatchInfoREPLCommand(input, context: context)
     }
@@ -1585,6 +1594,86 @@ private func handleCancelAccountREPLCommand(context: REPLContext) async {
     } catch {
         print(context.formatter.formatError(error))
     }
+}
+
+private func handleCheckRegistrationREPLCommand(_ input: String, context: REPLContext) async {
+    let jid = input.hasPrefix("/check-registration ")
+        ? String(input.dropFirst("/check-registration ".count)).trimmingCharacters(in: .whitespaces)
+        : nil
+    do {
+        let form = try await context.environment.accountService.retrieveRegistrationForm(
+            accountID: context.accountID, from: jid
+        )
+        print(context.formatter.formatRegistrationForm(form))
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+}
+
+private func handleSubmitRegistrationREPLCommand(_ input: String, context: REPLContext) async {
+    let jid = input.hasPrefix("/submit-registration ")
+        ? String(input.dropFirst("/submit-registration ".count)).trimmingCharacters(in: .whitespaces)
+        : nil
+    do {
+        let form = try await context.environment.accountService.retrieveRegistrationForm(
+            accountID: context.accountID, from: jid
+        )
+        print(context.formatter.formatRegistrationForm(form))
+
+        switch form.formKind {
+        case .legacy:
+            try await submitLegacyRegistration(form: form, jid: jid, context: context)
+        case .dataForm:
+            try await submitDataFormRegistration(form: form, jid: jid, context: context)
+        }
+        print("Registration submitted successfully.")
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+}
+
+private func submitLegacyRegistration(form: RegistrationFormInfo, jid: String?, context: REPLContext) async throws {
+    print("\nEnter registration details (press Enter to skip):")
+    var username = ""
+    var password = ""
+    var email = ""
+    if form.hasUsername {
+        print("Username: ", terminator: "")
+        username = readLine()?.trimmingCharacters(in: .whitespaces) ?? ""
+    }
+    if form.hasPassword {
+        password = String(cString: getpass("Password: "))
+    }
+    if form.hasEmail {
+        print("Email: ", terminator: "")
+        email = readLine()?.trimmingCharacters(in: .whitespaces) ?? ""
+    }
+    try await context.environment.accountService.submitRegistration(
+        accountID: context.accountID,
+        username: username,
+        password: password,
+        email: email.isEmpty ? nil : email,
+        to: jid
+    )
+}
+
+private func submitDataFormRegistration(form: RegistrationFormInfo, jid: String?, context: REPLContext) async throws {
+    var fields = form.dataFormFields
+    print("\nEnter field values (press Enter to keep current):")
+    for index in fields.indices where fields[index].isUserEditable {
+        let label = fields[index].displayLabel
+        let current = fields[index].values.joined(separator: ", ")
+        print("\(label) [\(current)]: ", terminator: "")
+        let fieldInput = readLine()?.trimmingCharacters(in: .whitespaces) ?? ""
+        if !fieldInput.isEmpty {
+            fields[index].values = [fieldInput]
+        }
+    }
+    try await context.environment.accountService.submitRegistrationDataForm(
+        accountID: context.accountID,
+        fields: fields,
+        to: jid
+    )
 }
 
 private func dispatchInfoREPLCommand(
@@ -1974,7 +2063,7 @@ private func handleConfigREPLCommand(
     }
     do {
         let fields = try await environment.chatService.getRoomConfig(jidString: roomJID, accountID: accountID)
-        let visible = fields.filter { $0.variable != "FORM_TYPE" && $0.type != "hidden" }
+        let visible = fields.filter(\.isUserEditable)
         if visible.isEmpty {
             print("No configuration fields.")
         } else {

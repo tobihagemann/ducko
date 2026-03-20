@@ -629,6 +629,32 @@ struct ANSIFormatter: CLIFormatter {
         return lines.joined(separator: "\n")
     }
 
+    func formatRegistrationForm(_ form: RegistrationFormInfo) -> String {
+        var lines: [String] = []
+        let kindLabel = form.formKind == .dataForm ? "Data Form" : "Legacy"
+        lines.append("\(Color.bold)Registration Form (\(kindLabel))\(Color.reset)")
+        let statusColor = form.isRegistered ? Color.green : Color.dim
+        lines.append("\(Color.bold)Status:\(Color.reset) \(statusColor)\(form.isRegistered ? "Registered" : "Not registered")\(Color.reset)")
+        if let instructions = form.instructions, !instructions.isEmpty {
+            lines.append("\(Color.bold)Instructions:\(Color.reset) \(instructions)")
+        }
+        switch form.formKind {
+        case .legacy:
+            lines.append("\(Color.bold)Fields:\(Color.reset)")
+            if form.hasUsername { lines.append("  \(Color.cyan)Username\(Color.reset): (required)") }
+            if form.hasPassword { lines.append("  \(Color.cyan)Password\(Color.reset): (required)") }
+            if form.hasEmail { lines.append("  \(Color.cyan)Email\(Color.reset): (optional)") }
+        case .dataForm:
+            lines.append("\(Color.bold)Fields:\(Color.reset)")
+            for field in form.dataFormFields where field.isUserEditable {
+                let label = field.displayLabel
+                let value = field.values.joined(separator: ", ")
+                lines.append("  \(Color.cyan)\(label)\(Color.reset): \(value.isEmpty ? "\(Color.dim)(empty)\(Color.reset)" : value)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     func formatSearchedChannel(_ channel: SearchedChannel) -> String {
         var line = "\(Color.bold)\(channel.name ?? channel.jidString)\(Color.reset)"
         if channel.name != nil {

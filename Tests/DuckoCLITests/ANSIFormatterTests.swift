@@ -253,4 +253,44 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}[2m")) // dim
         #expect(output.contains("typing"))
     }
+
+    // MARK: - formatRegistrationForm
+
+    @Test func `format legacy registration form with ANSI codes`() {
+        let form = RegistrationFormInfo(from: RegistrationModule.RegistrationForm(
+            formType: .legacy,
+            instructions: "Register here",
+            isRegistered: false,
+            hasUsername: true,
+            hasPassword: true,
+            hasEmail: false,
+            dataFormFields: []
+        ))
+        let output = formatter.formatRegistrationForm(form)
+        #expect(output.contains("\u{001B}[1m")) // bold
+        #expect(output.contains("Legacy"))
+        #expect(output.contains("Not registered"))
+        #expect(output.contains("Username"))
+        #expect(output.contains("Password"))
+        #expect(!output.contains("Email"))
+    }
+
+    @Test func `format data form registration with ANSI codes`() {
+        let form = RegistrationFormInfo(from: RegistrationModule.RegistrationForm(
+            formType: .dataForm,
+            instructions: nil,
+            isRegistered: true,
+            hasUsername: false,
+            hasPassword: false,
+            hasEmail: false,
+            dataFormFields: [
+                DataFormField(variable: "nick", type: "text-single", label: "Nickname", values: ["bob"])
+            ]
+        ))
+        let output = formatter.formatRegistrationForm(form)
+        #expect(output.contains("\u{001B}[36m")) // cyan for field labels
+        #expect(output.contains("Data Form"))
+        #expect(output.contains("Nickname"))
+        #expect(output.contains("bob"))
+    }
 }

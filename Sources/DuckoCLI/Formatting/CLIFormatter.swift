@@ -21,6 +21,7 @@ protocol CLIFormatter: Sendable {
     func formatProfile(_ profile: ProfileInfo) -> String
     func formatTLSInfo(_ info: TLSInfo) -> String
     func formatServerInfo(_ info: ServerInfo) -> String
+    func formatRegistrationForm(_ form: RegistrationFormInfo) -> String
     func formatSearchedChannel(_ channel: SearchedChannel) -> String
 }
 

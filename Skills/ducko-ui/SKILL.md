@@ -137,6 +137,15 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `decline-file-transfer-button` | Decline button on incoming file transfer | Chat |
 | `fulfill-file-request-button` | Fulfill button on incoming file request | Chat |
 | `decline-file-request-button` | Decline button on incoming file request | Chat |
+| `accept-content-add-button` | Accept button on content-add offer | Chat |
+| `decline-content-add-button` | Decline button on content-add offer | Chat |
+| `cancel-account-button` | Cancel Account button | Account Detail |
+| `check-registration-button` | Check Registration button | Account Detail |
+| `registration-form-sheet` | Registration form sheet | Registration |
+| `registration-submit-button` | Submit button in registration form | Registration |
+| `registration-username-field` | Username field in registration form | Registration |
+| `registration-password-field` | Password field in registration form | Registration |
+| `registration-email-field` | Email field in registration form | Registration |
 
 ## Context Menu Features
 

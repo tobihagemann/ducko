@@ -590,6 +590,31 @@ struct PlainFormatter: CLIFormatter {
         return lines.joined(separator: "\n")
     }
 
+    func formatRegistrationForm(_ form: RegistrationFormInfo) -> String {
+        var lines: [String] = []
+        let kindLabel = form.formKind == .dataForm ? "Data Form" : "Legacy"
+        lines.append("Registration Form (\(kindLabel))")
+        lines.append("Status: \(form.isRegistered ? "Registered" : "Not registered")")
+        if let instructions = form.instructions, !instructions.isEmpty {
+            lines.append("Instructions: \(instructions)")
+        }
+        switch form.formKind {
+        case .legacy:
+            lines.append("Fields:")
+            if form.hasUsername { lines.append("  Username: (required)") }
+            if form.hasPassword { lines.append("  Password: (required)") }
+            if form.hasEmail { lines.append("  Email: (optional)") }
+        case .dataForm:
+            lines.append("Fields:")
+            for field in form.dataFormFields where field.isUserEditable {
+                let label = field.displayLabel
+                let value = field.values.joined(separator: ", ")
+                lines.append("  \(label): \(value.isEmpty ? "(empty)" : value)")
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
     func formatSearchedChannel(_ channel: SearchedChannel) -> String {
         var line = channel.name ?? channel.jidString
         if channel.name != nil {

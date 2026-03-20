@@ -759,6 +759,26 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    func formatRegistrationForm(_ form: RegistrationFormInfo) -> String {
+        var dict: [String: String] = [
+            "type": "registration_form",
+            "form_kind": form.formKind == .dataForm ? "data_form" : "legacy",
+            "is_registered": form.isRegistered ? "true" : "false"
+        ]
+        if let instructions = form.instructions { dict["instructions"] = instructions }
+        switch form.formKind {
+        case .legacy:
+            if form.hasUsername { dict["has_username"] = "true" }
+            if form.hasPassword { dict["has_password"] = "true" }
+            if form.hasEmail { dict["has_email"] = "true" }
+        case .dataForm:
+            for field in form.dataFormFields where field.isUserEditable {
+                dict["field_\(field.variable)"] = field.values.joined(separator: ",")
+            }
+        }
+        return encode(dict)
+    }
+
     func formatSearchedChannel(_ channel: SearchedChannel) -> String {
         var dict: [String: String] = [
             "type": "searched_channel",

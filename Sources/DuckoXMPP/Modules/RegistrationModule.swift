@@ -42,7 +42,7 @@ public final class RegistrationModule: XMPPModule, Sendable {
 
     public enum RegistrationError: Error {
         case notConnected
-        case registrationNotSupported // periphery:ignore - thrown by retrieveForm
+        case registrationNotSupported
         // periphery:ignore - thrown by submitDataForm/submitLegacy error paths
         case formSubmissionFailed(String)
     }
@@ -69,7 +69,6 @@ public final class RegistrationModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    // periphery:ignore - called by AccountService, awaiting UI consumer
     /// Retrieves the registration form from the server or a specific entity.
     public func retrieveForm(from jid: JID? = nil) async throws -> RegistrationForm {
         guard let context = state.withLock({ $0.context }) else {
@@ -89,7 +88,6 @@ public final class RegistrationModule: XMPPModule, Sendable {
         return Self.parseForm(result)
     }
 
-    // periphery:ignore - called by AccountService, awaiting UI consumer
     /// Submits a legacy registration form with username/password/email.
     public func submitLegacy(
         username: String,
@@ -110,7 +108,6 @@ public final class RegistrationModule: XMPPModule, Sendable {
         log.info("Submitted legacy registration to \(jid?.description ?? "server")")
     }
 
-    // periphery:ignore - called by AccountService, awaiting UI consumer
     /// Submits a data form registration.
     public func submitDataForm(_ fields: [DataFormField], to jid: JID? = nil) async throws {
         guard let context = state.withLock({ $0.context }) else {
@@ -171,7 +168,6 @@ public final class RegistrationModule: XMPPModule, Sendable {
 
     // MARK: - Shared Helpers
 
-    // periphery:ignore - called by retrieveForm, awaiting UI consumer
     static func parseForm(_ element: XMLElement) -> RegistrationForm {
         let instructions = element.childText(named: "instructions")
         let isRegistered = element.child(named: "registered") != nil

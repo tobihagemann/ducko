@@ -1,6 +1,5 @@
 import DuckoXMPP
 
-// periphery:ignore - used by AccountService registration methods, awaiting UI consumer
 /// Bridge type for `RegistrationModule.RegistrationForm` so DuckoUI can display
 /// registration forms without importing DuckoXMPP.
 public struct RegistrationFormInfo: Sendable {

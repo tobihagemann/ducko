@@ -5,6 +5,22 @@ import UniformTypeIdentifiers
 
 private let log = Logger(subsystem: "com.ducko.core", category: "fileTransfer")
 
+private struct FileAttributes {
+    let fileName: String
+    let fileSize: Int64
+    let mimeType: String
+}
+
+/// Reads file name, size, and MIME type from a local file URL.
+private func readFileAttributes(at url: URL) throws -> FileAttributes {
+    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+    return FileAttributes(
+        fileName: url.lastPathComponent,
+        fileSize: (attributes[.size] as? Int64) ?? 0,
+        mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+    )
+}
+
 @MainActor @Observable
 public final class FileTransferService {
     // MARK: - Types
@@ -210,17 +226,17 @@ public final class FileTransferService {
         peerJID: String? = nil,
         onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> String {
-        let attributes: [FileAttributeKey: Any]
+        let attrs: FileAttributes
         do {
-            attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            attrs = try readFileAttributes(at: url)
         } catch {
             throw FileTransferError.fileReadFailed(error.localizedDescription)
         }
         let file = FileInfo(
             url: url,
-            name: url.lastPathComponent,
-            size: (attributes[.size] as? Int64) ?? 0,
-            mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            name: attrs.fileName,
+            size: attrs.fileSize,
+            mimeType: attrs.mimeType
         )
 
         let resolved = await resolveMethod(method, peerJIDString: peerJID ?? conversation.jid.description, accountID: accountID)
@@ -530,25 +546,22 @@ public final class FileTransferService {
     /// Adds a file to an existing Jingle session (multi-file transfer, XEP-0234).
     public func addFileToSession(sid: String, url: URL, accountID: UUID) async throws {
         let jingleModule = try await jingleModule(for: accountID)
-        let attributes: [FileAttributeKey: Any]
+        let attrs: FileAttributes
         do {
-            attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            attrs = try readFileAttributes(at: url)
         } catch {
             throw FileTransferError.fileReadFailed(error.localizedDescription)
         }
-        let fileName = url.lastPathComponent
-        let fileSize = (attributes[.size] as? Int64) ?? 0
-        let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
         let file = JingleFileDescription(
-            name: fileName, size: fileSize,
-            mediaType: mimeType
+            name: attrs.fileName, size: attrs.fileSize,
+            mediaType: attrs.mimeType
         )
         let contentName = try await jingleModule.sendContentAdd(sid: sid, file: file)
         let id = Self.contentAddID(sid: sid, contentName: contentName)
         let transfer = ActiveTransfer(
             id: UUID(),
-            fileName: fileName,
-            fileSize: fileSize,
+            fileName: attrs.fileName,
+            fileSize: attrs.fileSize,
             state: .negotiating,
             method: .jingle,
             direction: .outgoing,

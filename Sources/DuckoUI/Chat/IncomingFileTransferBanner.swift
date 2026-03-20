@@ -1,6 +1,5 @@
 import DuckoCore
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct IncomingFileTransferBanner: View {
     @Environment(AppEnvironment.self) private var environment
@@ -30,16 +29,18 @@ struct IncomingFileTransferBanner: View {
     }
 }
 
-// MARK: - IncomingFileTransferRow
+// MARK: - IncomingOfferRow
 
-private struct IncomingFileTransferRow: View {
-    @Environment(AppEnvironment.self) private var environment
-    let offer: FileTransferService.IncomingFileOffer
+private struct IncomingOfferRow: View {
+    let label: String
+    let fileName: String
+    let fileSize: Int64
+    let fromJIDString: String
+    let acceptAccessibilityID: String
+    let declineAccessibilityID: String
+    let onAccept: () async throws -> Void
+    let onDecline: () async throws -> Void
     @State private var errorMessage: String?
-
-    private var account: Account? {
-        environment.accountService.accounts.first
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -51,11 +52,11 @@ private struct IncomingFileTransferRow: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("File offer: \(offer.fileName)")
+                    Text("\(label): \(fileName)")
                         .font(.callout)
                         .lineLimit(1)
 
-                    Text("\(formattedFileSize) from \(offer.fromJIDString)")
+                    Text("\(formattedFileSize) from \(fromJIDString)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -66,13 +67,13 @@ private struct IncomingFileTransferRow: View {
                     accept()
                 }
                 .tint(.green)
-                .accessibilityIdentifier("accept-file-transfer-button")
+                .accessibilityIdentifier(acceptAccessibilityID)
 
                 Button("Decline") {
                     decline()
                 }
                 .tint(.red)
-                .accessibilityIdentifier("decline-file-transfer-button")
+                .accessibilityIdentifier(declineAccessibilityID)
             }
         }
         .padding(.horizontal, 12)
@@ -80,14 +81,13 @@ private struct IncomingFileTransferRow: View {
     }
 
     private var formattedFileSize: String {
-        ByteCountFormatter.string(fromByteCount: offer.fileSize, countStyle: .file)
+        ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
     }
 
     private func accept() {
-        guard let accountID = account?.id else { return }
         Task {
             do {
-                try await environment.fileTransferService.acceptIncomingTransfer(offer.sid, accountID: accountID)
+                try await onAccept()
                 errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription
@@ -96,10 +96,9 @@ private struct IncomingFileTransferRow: View {
     }
 
     private func decline() {
-        guard let accountID = account?.id else { return }
         Task {
             do {
-                try await environment.fileTransferService.declineIncomingTransfer(offer.sid, accountID: accountID)
+                try await onDecline()
                 errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription
@@ -108,85 +107,67 @@ private struct IncomingFileTransferRow: View {
     }
 }
 
-// MARK: - IncomingContentAddRow
+// MARK: - IncomingFileTransferRow
 
-private struct IncomingContentAddRow: View {
+private struct IncomingFileTransferRow: View {
     @Environment(AppEnvironment.self) private var environment
-    let offer: FileTransferService.IncomingContentAddOffer
-    @State private var errorMessage: String?
+    let offer: FileTransferService.IncomingFileOffer
 
     private var account: Account? {
         environment.accountService.accounts.first
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-                    .font(.callout)
+        IncomingOfferRow(
+            label: "File offer",
+            fileName: offer.fileName,
+            fileSize: offer.fileSize,
+            fromJIDString: offer.fromJIDString,
+            acceptAccessibilityID: "accept-file-transfer-button",
+            declineAccessibilityID: "decline-file-transfer-button",
+            onAccept: {
+                guard let accountID = account?.id else { return }
+                try await environment.fileTransferService.acceptIncomingTransfer(offer.sid, accountID: accountID)
+            },
+            onDecline: {
+                guard let accountID = account?.id else { return }
+                try await environment.fileTransferService.declineIncomingTransfer(offer.sid, accountID: accountID)
             }
+        )
+    }
+}
 
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Additional file: \(offer.fileName)")
-                        .font(.callout)
-                        .lineLimit(1)
+// MARK: - IncomingContentAddRow
 
-                    Text("\(formattedFileSize) from \(offer.fromJIDString)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+private struct IncomingContentAddRow: View {
+    @Environment(AppEnvironment.self) private var environment
+    let offer: FileTransferService.IncomingContentAddOffer
 
-                Spacer()
-
-                Button("Accept") {
-                    accept()
-                }
-                .tint(.green)
-                .accessibilityIdentifier("accept-content-add-button")
-
-                Button("Decline") {
-                    decline()
-                }
-                .tint(.red)
-                .accessibilityIdentifier("decline-content-add-button")
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
+    private var account: Account? {
+        environment.accountService.accounts.first
     }
 
-    private var formattedFileSize: String {
-        ByteCountFormatter.string(fromByteCount: offer.fileSize, countStyle: .file)
-    }
-
-    private func accept() {
-        guard let accountID = account?.id else { return }
-        Task {
-            do {
+    var body: some View {
+        IncomingOfferRow(
+            label: "Additional file",
+            fileName: offer.fileName,
+            fileSize: offer.fileSize,
+            fromJIDString: offer.fromJIDString,
+            acceptAccessibilityID: "accept-content-add-button",
+            declineAccessibilityID: "decline-content-add-button",
+            onAccept: {
+                guard let accountID = account?.id else { return }
                 try await environment.fileTransferService.acceptContentAdd(
                     sid: offer.sid, contentName: offer.contentName, accountID: accountID
                 )
-                errorMessage = nil
-            } catch {
-                errorMessage = error.localizedDescription
-            }
-        }
-    }
-
-    private func decline() {
-        guard let accountID = account?.id else { return }
-        Task {
-            do {
+            },
+            onDecline: {
+                guard let accountID = account?.id else { return }
                 try await environment.fileTransferService.rejectContentAdd(
                     sid: offer.sid, contentName: offer.contentName, accountID: accountID
                 )
-                errorMessage = nil
-            } catch {
-                errorMessage = error.localizedDescription
             }
-        }
+        )
     }
 }
 

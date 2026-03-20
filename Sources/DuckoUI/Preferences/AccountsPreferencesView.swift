@@ -131,6 +131,7 @@ private struct AccountDetailView: View {
     @State private var isShowingConnectionInfo = false
     @State private var isShowingServerInfo = false
     @State private var isShowingChangePassword = false
+    @State private var isShowingRegistrationForm = false
     @State private var isCancelAccountConfirmPresented = false
     @State private var cancelAccountError: String?
     let account: Account
@@ -196,6 +197,11 @@ private struct AccountDetailView: View {
                             isShowingChangePassword = true
                         }
 
+                        Button("Check Registration...") {
+                            isShowingRegistrationForm = true
+                        }
+                        .accessibilityIdentifier("check-registration-button")
+
                         Button("Cancel Account...", role: .destructive) {
                             isCancelAccountConfirmPresented = true
                         }
@@ -219,6 +225,9 @@ private struct AccountDetailView: View {
         }
         .sheet(isPresented: $isShowingChangePassword) {
             ChangePasswordSheet(accountID: account.id)
+        }
+        .sheet(isPresented: $isShowingRegistrationForm) {
+            RegistrationFormSheet(accountID: account.id)
         }
         .confirmationDialog("Cancel Account?", isPresented: $isCancelAccountConfirmPresented) {
             Button("Cancel Account", role: .destructive) {

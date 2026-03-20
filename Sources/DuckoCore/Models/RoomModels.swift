@@ -138,6 +138,16 @@ public struct RoomConfigField: Sendable, Identifiable {
     public var values: [String]
     public let options: [(label: String?, value: String)]
 
+    /// Whether this field should be displayed to users (excludes FORM_TYPE and hidden fields).
+    public var isUserEditable: Bool {
+        variable != "FORM_TYPE" && type != "hidden"
+    }
+
+    /// User-facing label, falling back to the variable name.
+    public var displayLabel: String {
+        label ?? variable
+    }
+
     public init(
         variable: String,
         type: String? = nil,

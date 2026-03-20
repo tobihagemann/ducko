@@ -274,4 +274,49 @@ struct JSONFormatterTests {
         #expect(json["type"] == "typing")
         #expect(json["state"] == "paused")
     }
+
+    // MARK: - formatRegistrationForm
+
+    @Test func `format legacy registration form as JSON`() throws {
+        let form = RegistrationFormInfo(from: RegistrationModule.RegistrationForm(
+            formType: .legacy,
+            instructions: "Please register",
+            isRegistered: false,
+            hasUsername: true,
+            hasPassword: true,
+            hasEmail: true,
+            dataFormFields: []
+        ))
+        let output = formatter.formatRegistrationForm(form)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "registration_form")
+        #expect(json["form_kind"] == "legacy")
+        #expect(json["is_registered"] == "false")
+        #expect(json["instructions"] == "Please register")
+        #expect(json["has_username"] == "true")
+        #expect(json["has_password"] == "true")
+        #expect(json["has_email"] == "true")
+    }
+
+    @Test func `format data form registration as JSON`() throws {
+        let form = RegistrationFormInfo(from: RegistrationModule.RegistrationForm(
+            formType: .dataForm,
+            instructions: nil,
+            isRegistered: true,
+            hasUsername: false,
+            hasPassword: false,
+            hasEmail: false,
+            dataFormFields: [
+                DataFormField(variable: "nick", type: "text-single", label: "Nickname", values: ["bob"])
+            ]
+        ))
+        let output = formatter.formatRegistrationForm(form)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "registration_form")
+        #expect(json["form_kind"] == "data_form")
+        #expect(json["is_registered"] == "true")
+        #expect(json["field_nick"] == "bob")
+    }
 }
