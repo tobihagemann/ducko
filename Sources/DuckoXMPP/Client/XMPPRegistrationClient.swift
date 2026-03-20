@@ -13,7 +13,6 @@ public enum XMPPRegistrationClient {
         case unexpectedResponse
     }
 
-    // periphery:ignore - called by AccountService pre-auth registration
     /// Retrieves the registration form from a server without authenticating.
     public static func retrieveForm(
         domain: String,

@@ -251,7 +251,6 @@ public final class AccountService {
         try await deleteAccount(accountID)
     }
 
-    // periphery:ignore - pre-auth registration, awaiting CLI `account register --check` consumer
     /// Retrieves a registration form from a server without authenticating (XEP-0077).
     public func retrieveRegistrationForm(
         domain: String, host: String? = nil, port: UInt16 = 5222

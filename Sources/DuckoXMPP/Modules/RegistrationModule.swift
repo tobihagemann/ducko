@@ -43,8 +43,6 @@ public final class RegistrationModule: XMPPModule, Sendable {
     public enum RegistrationError: Error {
         case notConnected
         case registrationNotSupported
-        // periphery:ignore - thrown by submitDataForm/submitLegacy error paths
-        case formSubmissionFailed(String)
     }
 
     // MARK: - State

@@ -956,7 +956,7 @@ extension DuckoCLI {
     struct Account: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage XMPP accounts",
-            subcommands: [List.self, Add.self, Delete.self, Cancel.self, Register.self],
+            subcommands: [List.self, Add.self, Delete.self, Cancel.self, Register.self, CheckRegistration.self],
             defaultSubcommand: List.self
         )
 
@@ -1126,6 +1126,37 @@ extension DuckoCLI {
                 )
                 await env.accountService.disconnect(accountID: accountID)
                 print("Account registered: \(username)@\(server)")
+            }
+        }
+
+        struct CheckRegistration: AsyncParsableCommand {
+            static let configuration = CommandConfiguration(
+                commandName: "check-registration",
+                abstract: "Show a server's registration form without registering (XEP-0077)"
+            )
+
+            @OptionGroup var global: GlobalOptions
+
+            @Option(name: .long, help: "Server domain (e.g. example.com)")
+            var server: String
+
+            @Option(name: .long, help: "Override hostname for connection")
+            var host: String?
+
+            @Option(name: .long, help: "Port (default 5222)")
+            var port: UInt16?
+
+            func run() async throws {
+                let formatter = global.resolvedFormat.makeFormatter()
+
+                let context = try await MainActor.run {
+                    try CLIBootstrap.setUp(formatter: formatter)
+                }
+
+                let form = try await context.environment.accountService.retrieveRegistrationForm(
+                    domain: server, host: host, port: port ?? 5222
+                )
+                print(formatter.formatRegistrationForm(form))
             }
         }
     }
