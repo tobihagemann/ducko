@@ -1,52 +1,41 @@
-# Ducko
+<p align="center">
+  <img src="AppIcon.png" width="128" height="128" alt="Ducko app icon">
+</p>
 
-A modern macOS XMPP client – spiritual successor to Adium.
+<h1 align="center">Ducko</h1>
+
+<p align="center">
+  A modern macOS XMPP client – spiritual successor to <a href="https://github.com/adium/adium">Adium</a>.
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-macOS_26%2B-blue" alt="macOS 26+">
+  <img src="https://img.shields.io/badge/swift-6.2-orange" alt="Swift 6.2">
+  <img src="https://img.shields.io/github/license/tobihagemann/ducko" alt="License">
+</p>
+
+---
 
 Ducko carries forward the spirit of Adium: personality-driven, deeply customizable, and unapologetically Mac-native. Where Adium unified dozens of protocols through libpurple, Ducko starts focused on XMPP and builds outward from a modern Swift foundation.
 
-## Requirements
+## Getting Started
 
-- macOS 26+
-- Swift 6.2+
-
-## Building
-
-```
-swift build
-```
-
-## Running
-
-```
-swift run DuckoApp    # GUI
-swift run DuckoCLI    # CLI
-```
-
-## Testing
-
-```
-swift test
+```sh
+swift build               # Build all modules
+swift run DuckoApp        # Run the GUI
+swift run DuckoCLI        # Run the CLI
+swift test                # Run tests
 ```
 
 ## Code Style
 
 [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and [SwiftLint](https://github.com/realm/SwiftLint) enforce code style. Install both via Homebrew:
 
-```
+```sh
 brew install swiftlint swiftformat
-```
-
-Set up the pre-commit hook (run once after cloning):
-
-```
-./Scripts/install-hooks.sh
-```
-
-Run manually:
-
-```
-./Scripts/lint.sh              # Format + autocorrect + lint all files
-./Scripts/lint.sh --check      # Check-only mode (CI)
+./Scripts/install-hooks.sh        # Pre-commit hook (run once after cloning)
+./Scripts/lint.sh                 # Format + autocorrect + lint
+./Scripts/lint.sh --check         # Check-only mode (CI)
 ```
 
 ## Agent Skills
