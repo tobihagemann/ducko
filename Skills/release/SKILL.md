@@ -1,6 +1,6 @@
 ---
 name: release
-description: This skill should be used when the user asks to "cut a release", "publish a new version", "prepare a release", "tag a release", or "ship it". Covers the full pipeline: update CHANGELOG.md, tag, and push to trigger GitHub Actions CI which builds, signs, notarizes, creates DMG, generates Sparkle appcast, and publishes a GitHub Release.
+description: "This skill should be used when the user asks to \"cut a release\", \"publish a new version\", \"prepare a release\", \"tag a release\", or \"ship it\". Covers the full pipeline: update CHANGELOG.md, tag, and push to trigger GitHub Actions CI which builds, signs, notarizes, creates DMG, generates Sparkle appcast, and publishes a GitHub Release."
 ---
 
 # Release

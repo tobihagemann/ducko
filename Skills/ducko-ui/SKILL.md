@@ -1,6 +1,6 @@
 ---
 name: ducko-ui
-description: End-to-end UI testing for the Ducko macOS app using pre-built helper scripts. This skill should be used when the user asks to "test ducko", "test the app", "run E2E tests", "test the app end-to-end", "test the UI", "send a test message", or wants to verify DuckoApp works from login through messaging.
+description: "End-to-end UI testing for the Ducko macOS app using pre-built helper scripts. This skill should be used when the user asks to \"test ducko\", \"test the app\", \"run E2E tests\", \"test the app end-to-end\", \"test the UI\", \"send a test message\", or wants to verify DuckoApp works from login through messaging."
 ---
 
 # Ducko UI Test

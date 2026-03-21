@@ -1,6 +1,6 @@
 ---
 name: macos-ui-testing
-description: Background-safe macOS app UI testing using Peekaboo CLI and osascript. This skill should be used when the user asks to "test the app UI", "check the UI", "interact with the running app", "take a screenshot of the app", "fill in the form", "click the button", "verify the UI state", "automate the app", or wants to automate interaction with a running macOS application without stealing keyboard/mouse focus from the user.
+description: "Background-safe macOS app UI testing using Peekaboo CLI and osascript. This skill should be used when the user asks to \"test the app UI\", \"check the UI\", \"interact with the running app\", \"take a screenshot of the app\", \"fill in the form\", \"click the button\", \"verify the UI state\", \"automate the app\", or wants to automate interaction with a running macOS application without stealing keyboard/mouse focus from the user."
 ---
 
 # macOS UI Testing (Background-Safe)
