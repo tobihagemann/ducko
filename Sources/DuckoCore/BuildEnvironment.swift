@@ -2,9 +2,23 @@ import Foundation
 
 public enum BuildEnvironment {
     #if DEBUG
-        public static let appSupportDirectoryName = "Ducko-Dev"
+        private static let profileName = ProcessInfo.processInfo.environment["DUCKO_PROFILE"]
+
+        public static let appSupportDirectoryName: String = {
+            if let profile = profileName {
+                return "Ducko-Dev-\(profile)"
+            }
+            return "Ducko-Dev"
+        }()
+
         public static let useKeychain = ProcessInfo.processInfo.environment["DUCKO_USE_KEYCHAIN"] == "1"
-        public static let userDefaultsSuiteName: String? = "de.tobiha.ducko.dev"
+
+        public static let userDefaultsSuiteName: String? = {
+            if let profile = profileName {
+                return "de.tobiha.ducko.dev.\(profile)"
+            }
+            return "de.tobiha.ducko.dev"
+        }()
     #else
         public static let appSupportDirectoryName = "Ducko"
         public static let useKeychain = true

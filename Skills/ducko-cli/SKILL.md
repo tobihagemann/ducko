@@ -125,12 +125,13 @@ ducko account list
 ducko account list --output json
 ```
 
-### `account add <jid>`
+### `account add <jid> [--password <password>]`
 
-Add a new XMPP account. Prompts for password, connects to verify credentials, saves password to Keychain, then disconnects.
+Add a new XMPP account. Connects to verify credentials, saves password, then disconnects. Password is prompted interactively if `--password` is omitted.
 
 ```
 ducko account add alice@example.com
+ducko account add alice@example.com --password secret
 ```
 
 ### `account delete <jid>`

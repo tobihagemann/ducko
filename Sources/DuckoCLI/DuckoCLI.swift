@@ -997,12 +997,15 @@ extension DuckoCLI {
             @Argument(help: "The bare JID (e.g. alice@example.com)")
             var jid: String
 
+            @Option(name: .long, help: "Password (prompted if omitted)")
+            var password: String?
+
             func run() async throws {
                 guard BareJID.parse(jid) != nil else {
                     throw CLIError.invalidJID(jid)
                 }
 
-                guard let password = CredentialHelper.getPassword() else {
+                guard let resolvedPassword = password ?? CredentialHelper.getPassword() else {
                     throw CLIError.noPassword
                 }
 
@@ -1013,7 +1016,7 @@ extension DuckoCLI {
 
                 let accountID = try await env.accountService.createAccount(jidString: jid)
                 do {
-                    try await env.accountService.connect(accountID: accountID, password: password)
+                    try await env.accountService.connect(accountID: accountID, password: resolvedPassword)
                     try await waitForConnected(accountID: accountID, environment: env)
                     await env.accountService.savePassword(accountID: accountID)
                     await env.accountService.disconnect(accountID: accountID)

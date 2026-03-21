@@ -71,6 +71,14 @@ Scripts/release.sh                       # build, sign, notarize, DMG, zip
 
 Set `DUCKO_USE_KEYCHAIN=1` to use real Keychain in debug builds.
 
+Set `DUCKO_PROFILE=<name>` to run multiple isolated instances side by side:
+
+| Component | Default Dev | `DUCKO_PROFILE=alice` |
+|-----------|-------------|----------------------|
+| SwiftData | `Ducko-Dev/` | `Ducko-Dev-alice/` |
+| Credentials | `Ducko-Dev/credentials.json` | `Ducko-Dev-alice/credentials.json` |
+| UserDefaults | `de.tobiha.ducko.dev` | `de.tobiha.ducko.dev.alice` |
+
 ## Lint & Format
 
 SwiftFormat and SwiftLint are installed via Homebrew. Run via the orchestrator script:
