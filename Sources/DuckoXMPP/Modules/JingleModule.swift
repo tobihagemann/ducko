@@ -913,7 +913,6 @@ public final class JingleModule: XMPPModule, Sendable {
 
     // MARK: - Content Actions (Multi-file)
 
-    // periphery:ignore - called by FileTransferService.addFileToSession, awaiting UI consumer
     /// Proposes adding a file to an existing Jingle session. Returns the content name.
     public func sendContentAdd(sid: String, file: JingleFileDescription) async throws -> String {
         let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }

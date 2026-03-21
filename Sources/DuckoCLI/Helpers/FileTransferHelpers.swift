@@ -213,6 +213,39 @@ func handleRequestFileREPLCommand(_ input: String, context: REPLContext) async {
     }
 }
 
+func handleAddFileREPLCommand(_ input: String, context: REPLContext) async {
+    let args = input.dropFirst("/add-file".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+
+    let sid: String
+    let filePath: String
+
+    if parts.count == 2 {
+        sid = String(parts[0])
+        filePath = String(parts[1])
+    } else if parts.count == 1 {
+        guard let transfer = await MainActor.run(body: {
+            context.environment.fileTransferService.activeTransfers.last { $0.isSessionLevel }
+        }), let transferSID = transfer.sid else {
+            print(context.formatter.formatError(CLIError.noActiveJingleSession))
+            return
+        }
+        sid = transferSID
+        filePath = String(parts[0])
+    } else {
+        print("Usage: /add-file [sid] <path>")
+        return
+    }
+
+    let fileURL = URL(fileURLWithPath: filePath)
+    do {
+        try await context.environment.fileTransferService.addFileToSession(sid: sid, url: fileURL, accountID: context.accountID)
+        print("Added file to session: \(sid)")
+    } catch {
+        print(context.formatter.formatError(error))
+    }
+}
+
 func handleRemoveContentREPLCommand(_ input: String, context: REPLContext) async {
     let args = input.dropFirst("/remove-content".count).trimmingCharacters(in: .whitespaces)
     let parts = args.split(separator: " ", maxSplits: 1)
@@ -246,7 +279,8 @@ func handleTransfersREPLCommand(context: REPLContext) async {
         case .httpUpload: "http"
         case .jingle: "jingle"
         }
-        print("  \(transfer.fileName) (\(formatByteCount(transfer.fileSize))) [\(direction)/\(method)] \(state)")
+        let sidSuffix = if let sid = transfer.sid, transfer.method == .jingle { " (sid: \(sid))" } else { "" }
+        print("  \(transfer.fileName) (\(formatByteCount(transfer.fileSize))) [\(direction)/\(method)] \(state)\(sidSuffix)")
     }
 }
 

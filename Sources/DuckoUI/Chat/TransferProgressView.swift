@@ -33,33 +33,102 @@ struct TransferProgressView: View {
 // MARK: - TransferProgressRow
 
 private struct TransferProgressRow: View {
+    @Environment(AppEnvironment.self) private var environment
     let transfer: FileTransferService.ActiveTransfer
+    @State private var showFileImporter = false
+    @State private var errorMessage: String?
+
+    private var account: Account? {
+        environment.accountService.accounts.first
+    }
+
+    private var canAddFile: Bool {
+        transfer.isSessionLevel
+    }
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(transfer.fileName)
-                    .font(.callout)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 2) {
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+            }
 
-                Text(stateLabel)
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(transfer.fileName)
+                        .font(.callout)
+                        .lineLimit(1)
+
+                    Text(stateLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if let progress = transferProgress {
+                    ProgressView(value: progress)
+                        .frame(width: 100)
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Text(formattedFileSize)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if canAddFile {
+                    Button {
+                        showFileImporter = true
+                    } label: {
+                        Image(systemName: "plus.circle")
+                            .font(.callout)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Add file to session")
+                    .accessibilityIdentifier("add-file-to-session-button")
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            handleFileSelected(result)
+        }
+    }
+
+    private func handleFileSelected(_ result: Result<[URL], Error>) {
+        switch result {
+        case let .success(urls):
+            guard let url = urls.first, let sid = transfer.sid, let accountID = account?.id else { return }
+
+            // Copy to temp so the security-scoped bookmark isn't needed when the peer accepts
+            guard url.startAccessingSecurityScopedResource() else {
+                errorMessage = "Cannot access file"
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            let tempDir = FileManager.default.temporaryDirectory
+            let dest = tempDir.appendingPathComponent("\(UUID().uuidString)-\(url.lastPathComponent)")
+            guard (try? FileManager.default.copyItem(at: url, to: dest)) != nil else {
+                errorMessage = "Failed to copy file"
+                return
             }
 
-            Spacer()
-
-            if let progress = transferProgress {
-                ProgressView(value: progress)
-                    .frame(width: 100)
-            } else {
-                ProgressView()
-                    .controlSize(.small)
+            Task {
+                do {
+                    try await environment.fileTransferService.addFileToSession(sid: sid, url: dest, accountID: accountID)
+                    errorMessage = nil
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             }
-
-            Text(formattedFileSize)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        case let .failure(error):
+            errorMessage = error.localizedDescription
         }
     }
 

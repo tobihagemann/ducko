@@ -104,6 +104,13 @@ public final class FileTransferService {
         public let direction: TransferDirection
         public let sid: String?
 
+        /// Whether this is a session-level Jingle transfer (not a content-add sub-transfer).
+        /// Content-add sub-transfers use a composite sid of `sessionSID/contentName`.
+        public var isSessionLevel: Bool {
+            guard let sid else { return false }
+            return method == .jingle && direction == .outgoing && !sid.contains("/")
+        }
+
         public init(
             id: UUID, fileName: String, fileSize: Int64,
             state: TransferState, method: TransferMethod = .httpUpload,
@@ -542,7 +549,6 @@ public final class FileTransferService {
         activeTransfers.append(transfer)
     }
 
-    // periphery:ignore - service API, awaiting UI consumer
     /// Adds a file to an existing Jingle session (multi-file transfer, XEP-0234).
     public func addFileToSession(sid: String, url: URL, accountID: UUID) async throws {
         let jingleModule = try await jingleModule(for: accountID)

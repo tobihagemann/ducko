@@ -16,6 +16,7 @@ enum CLIError: Error, LocalizedError {
     case noConversationTarget
     case invalidTransferMethod(String)
     case noIncomingOffers
+    case noActiveJingleSession
 
     var errorDescription: String? {
         switch self {
@@ -49,6 +50,8 @@ enum CLIError: Error, LocalizedError {
             "Invalid transfer method: \(method). Valid values: auto, http, jingle"
         case .noIncomingOffers:
             "No incoming file transfer offers."
+        case .noActiveJingleSession:
+            "No active Jingle session."
         }
     }
 }

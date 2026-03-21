@@ -1495,6 +1495,7 @@ private func printREPLHelp() {
     print("  /fulfill [sid] <path>    Fulfill incoming file request")
     print("  /transfers               List active transfers")
     print("  /request-file <jid> <f>  Request a file from a peer")
+    print("  /add-file [sid] <path>   Add file to Jingle session")
     print("  /remove-content <s> <c>  Remove content from Jingle session")
     print("  /rooms [service]         Discover available rooms")
     print("  /avatar [jid]            View avatar info (own or contact's)")
@@ -1540,6 +1541,7 @@ private func dispatchREPLCommand(
         || input == "/fulfill" || input.hasPrefix("/fulfill ")
         || input == "/transfers"
         || input.hasPrefix("/request-file ")
+        || input.hasPrefix("/add-file ")
         || input.hasPrefix("/remove-content ") {
         await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
     } else if isMiscREPLCommand(input) {
@@ -1828,6 +1830,8 @@ private func dispatchFileTransferREPLCommand(
         await handleTransfersREPLCommand(context: context)
     } else if input.hasPrefix("/request-file ") {
         await handleRequestFileREPLCommand(input, context: context)
+    } else if input.hasPrefix("/add-file ") {
+        await handleAddFileREPLCommand(input, context: context)
     } else if input.hasPrefix("/remove-content ") {
         await handleRemoveContentREPLCommand(input, context: context)
     }
