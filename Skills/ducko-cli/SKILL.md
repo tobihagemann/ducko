@@ -202,13 +202,13 @@ ducko bookmarks list
 ducko bookmarks list --output json
 ```
 
-### `bookmarks add <jid> [--name <name>] [--nick <nick>] [--autojoin] [--password <pw>]`
+### `bookmarks add <jid> [--name <name>] [--nickname <nick>] [--autojoin] [--password <pw>]`
 
 Add a bookmark for a room. Publishes to PEP with XEP-0223 persistent storage options.
 
 ```
 ducko bookmarks add chat@conference.example.com --name "Main Chat" --autojoin
-ducko bookmarks add chat@conference.example.com --nick alice --autojoin
+ducko bookmarks add chat@conference.example.com --nickname alice --autojoin
 ```
 
 ### `bookmarks remove <jid>`

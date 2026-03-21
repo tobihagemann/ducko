@@ -763,7 +763,7 @@ extension DuckoCLI {
             var name: String?
 
             @Option(name: .long, help: "Nickname to use in the room")
-            var nick: String?
+            var nickname: String?
 
             @Flag(name: .long, help: "Auto-join room on connect")
             var autojoin = false
@@ -792,7 +792,7 @@ extension DuckoCLI {
                     jidString: jid,
                     name: name,
                     autojoin: autojoin,
-                    nickname: nick,
+                    nickname: nickname,
                     password: password
                 )
                 try await env.bookmarksService.addBookmark(bookmark, accountID: selectedAccount.id)
