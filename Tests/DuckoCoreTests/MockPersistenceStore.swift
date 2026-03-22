@@ -104,6 +104,52 @@ actor MockPersistenceStore: PersistenceStore {
         }
     }
 
+    // MARK: - Batch Operations (Import)
+
+    func insertMessages(_ messages: [ChatMessage]) async throws {
+        self.messages.append(contentsOf: messages)
+    }
+
+    func existingStanzaIDs(_ stanzaIDs: Set<String>, in conversationID: UUID) async throws -> Set<String> {
+        let existing = messages
+            .filter { $0.conversationID == conversationID }
+            .compactMap(\.stanzaID)
+        return stanzaIDs.intersection(existing)
+    }
+
+    // MARK: - Cross-Conversation Queries (Transcripts)
+
+    func fetchAllConversations() async throws -> [Conversation] {
+        conversations
+    }
+
+    func searchMessages(query: String, conversationID: UUID?, before: Date?, after: Date?, limit: Int) async throws -> [ChatMessage] {
+        var results = messages.filter { $0.body.localizedStandardContains(query) }
+        if let conversationID {
+            results = results.filter { $0.conversationID == conversationID }
+        }
+        if let before {
+            results = results.filter { $0.timestamp < before }
+        }
+        if let after {
+            results = results.filter { $0.timestamp > after }
+        }
+        return Array(results.sorted(by: { $0.timestamp > $1.timestamp }).prefix(limit))
+    }
+
+    func messageCount(for conversationID: UUID) async throws -> Int {
+        messages.count(where: { $0.conversationID == conversationID })
+    }
+
+    func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
+        let convMessages = messages.filter { $0.conversationID == conversationID }
+        guard let earliest = convMessages.min(by: { $0.timestamp < $1.timestamp })?.timestamp,
+              let latest = convMessages.max(by: { $0.timestamp < $1.timestamp })?.timestamp else {
+            return nil
+        }
+        return (earliest, latest)
+    }
+
     // MARK: - Message Updates
 
     func updateMessageDeliveryStatus(stanzaID: String, isDelivered: Bool) async throws {

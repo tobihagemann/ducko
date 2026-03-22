@@ -14,6 +14,7 @@ final class AccountRecord {
     var requireTLS: Bool = true
     var rosterVersion: String?
     var certificateFingerprint: String?
+    var importedFrom: String?
     @Relationship(deleteRule: .cascade, inverse: \ContactRecord.account)
     var contacts: [ContactRecord]
     @Relationship(deleteRule: .cascade, inverse: \ConversationRecord.account)
@@ -32,6 +33,7 @@ final class AccountRecord {
         requireTLS: Bool = true,
         rosterVersion: String? = nil,
         certificateFingerprint: String? = nil,
+        importedFrom: String? = nil,
         contacts: [ContactRecord] = [],
         conversations: [ConversationRecord] = [],
         createdAt: Date = Date()
@@ -47,6 +49,7 @@ final class AccountRecord {
         self.requireTLS = requireTLS
         self.rosterVersion = rosterVersion
         self.certificateFingerprint = certificateFingerprint
+        self.importedFrom = importedFrom
         self.contacts = contacts
         self.conversations = conversations
         self.createdAt = createdAt

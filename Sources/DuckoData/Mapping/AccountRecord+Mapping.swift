@@ -16,6 +16,7 @@ extension AccountRecord {
             requireTLS: requireTLS,
             rosterVersion: rosterVersion,
             certificateFingerprint: certificateFingerprint,
+            importedFrom: importedFrom,
             createdAt: createdAt
         )
     }
@@ -31,5 +32,6 @@ extension AccountRecord {
         requireTLS = account.requireTLS
         rosterVersion = account.rosterVersion
         certificateFingerprint = account.certificateFingerprint
+        importedFrom = account.importedFrom
     }
 }

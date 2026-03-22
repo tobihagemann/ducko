@@ -28,6 +28,20 @@ public protocol PersistenceStore: Sendable {
     func messageExistsByServerID(_ serverID: String, conversationID: UUID) async throws -> Bool
     func messageExistsByStanzaID(_ stanzaID: String, conversationID: UUID) async throws -> Bool
 
+    // MARK: - Batch Operations (Import)
+
+    func insertMessages(_ messages: [ChatMessage]) async throws
+    func existingStanzaIDs(_ stanzaIDs: Set<String>, in conversationID: UUID) async throws -> Set<String>
+
+    // MARK: - Cross-Conversation Queries (Transcripts)
+
+    func fetchAllConversations() async throws -> [Conversation]
+    func searchMessages(query: String, conversationID: UUID?, before: Date?, after: Date?, limit: Int) async throws -> [ChatMessage]
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    func messageCount(for conversationID: UUID) async throws -> Int
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)?
+
     // MARK: - Message Updates
 
     func updateMessageDeliveryStatus(stanzaID: String, isDelivered: Bool) async throws
@@ -40,4 +54,46 @@ public protocol PersistenceStore: Sendable {
 
     func fetchLinkPreview(for url: String) async throws -> LinkPreview?
     func upsertLinkPreview(_ preview: LinkPreview) async throws
+}
+
+// MARK: - Default Implementations
+
+public extension PersistenceStore {
+    func insertMessages(_ messages: [ChatMessage]) async throws {
+        for message in messages {
+            try await insertMessage(message)
+        }
+    }
+
+    func existingStanzaIDs(_ stanzaIDs: Set<String>, in conversationID: UUID) async throws -> Set<String> {
+        var existing = Set<String>()
+        for stanzaID in stanzaIDs where try await messageExistsByStanzaID(stanzaID, conversationID: conversationID) {
+            existing.insert(stanzaID)
+        }
+        return existing
+    }
+
+    func fetchAllConversations() async throws -> [Conversation] {
+        let accounts = try await fetchAccounts()
+        var all: [Conversation] = []
+        for account in accounts {
+            all += try await fetchConversations(for: account.id)
+        }
+        return all
+    }
+
+    func searchMessages(query: String, conversationID: UUID?, before: Date?, after: Date?, limit: Int) async throws -> [ChatMessage] {
+        []
+    }
+
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    func messageCount(for conversationID: UUID) async throws -> Int {
+        let messages = try await fetchMessages(for: conversationID, before: nil, limit: Int.max)
+        return messages.count
+    }
+
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
+        nil
+    }
 }

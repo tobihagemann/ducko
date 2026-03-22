@@ -365,6 +365,196 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         }
     }
 
+    // MARK: - Batch Operations (Import)
+
+    // swiftlint:disable:next function_body_length
+    public func insertMessages(_ messages: [ChatMessage]) throws {
+        guard !messages.isEmpty else { return }
+
+        // Cache conversation record lookups by ID
+        var conversationCache: [UUID: ConversationRecord] = [:]
+
+        for message in messages {
+            let conversationID = message.conversationID
+            let conversationRecord: ConversationRecord
+            if let cached = conversationCache[conversationID] {
+                conversationRecord = cached
+            } else {
+                var descriptor = FetchDescriptor<ConversationRecord>(
+                    predicate: #Predicate { $0.id == conversationID }
+                )
+                descriptor.fetchLimit = 1
+                guard let record = try modelContext.fetch(descriptor).first else {
+                    throw PersistenceStoreError.parentNotFound("ConversationRecord(\(conversationID))")
+                }
+                conversationCache[conversationID] = record
+                conversationRecord = record
+            }
+
+            let record = MessageRecord(
+                id: message.id,
+                stanzaID: message.stanzaID,
+                serverID: message.serverID,
+                fromJID: message.fromJID,
+                body: message.body,
+                htmlBody: message.htmlBody,
+                timestamp: message.timestamp,
+                isOutgoing: message.isOutgoing,
+                isRead: message.isRead,
+                isDelivered: message.isDelivered,
+                isEdited: message.isEdited,
+                editedAt: message.editedAt,
+                type: message.type,
+                conversation: conversationRecord,
+                attachments: message.attachments.map { attachment in
+                    AttachmentRecord(
+                        id: attachment.id,
+                        url: attachment.url,
+                        mimeType: attachment.mimeType,
+                        fileName: attachment.fileName,
+                        fileSize: attachment.fileSize,
+                        thumbnailData: attachment.thumbnailData,
+                        oobDescription: attachment.oobDescription
+                    )
+                },
+                replyToID: message.replyToID,
+                errorText: message.errorText,
+                isEncrypted: message.isEncrypted
+            )
+            modelContext.insert(record)
+        }
+        try modelContext.save()
+    }
+
+    public func existingStanzaIDs(_ stanzaIDs: Set<String>, in conversationID: UUID) throws -> Set<String> {
+        let descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate {
+                $0.conversation?.id == conversationID && $0.stanzaID != nil
+            }
+        )
+        let records = try modelContext.fetch(descriptor)
+        let existing = Set(records.compactMap(\.stanzaID))
+        return existing.intersection(stanzaIDs)
+    }
+
+    // MARK: - Cross-Conversation Queries (Transcripts)
+
+    public func fetchAllConversations() throws -> [Conversation] {
+        let descriptor = FetchDescriptor<ConversationRecord>(
+            sortBy: [SortDescriptor(\.lastMessageDate, order: .reverse)]
+        )
+        let records = try modelContext.fetch(descriptor)
+        return records.compactMap { $0.toDomain() }
+    }
+
+    // swiftlint:disable:next function_body_length - SwiftData #Predicate requires separate branches for each optional combination
+    public func searchMessages(query: String, conversationID: UUID?, before: Date?, after: Date?, limit: Int) throws -> [ChatMessage] {
+        var descriptor = if let conversationID {
+            if let before, let after {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.conversation?.id == conversationID &&
+                            $0.body.localizedStandardContains(query) &&
+                            $0.timestamp < before && $0.timestamp > after
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            } else if let before {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.conversation?.id == conversationID &&
+                            $0.body.localizedStandardContains(query) &&
+                            $0.timestamp < before
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            } else if let after {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.conversation?.id == conversationID &&
+                            $0.body.localizedStandardContains(query) &&
+                            $0.timestamp > after
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            } else {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.conversation?.id == conversationID &&
+                            $0.body.localizedStandardContains(query)
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            }
+        } else {
+            if let before, let after {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.body.localizedStandardContains(query) &&
+                            $0.timestamp < before && $0.timestamp > after
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            } else if let before {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.body.localizedStandardContains(query) &&
+                            $0.timestamp < before
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            } else if let after {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.body.localizedStandardContains(query) &&
+                            $0.timestamp > after
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            } else {
+                FetchDescriptor<MessageRecord>(
+                    predicate: #Predicate {
+                        $0.body.localizedStandardContains(query)
+                    },
+                    sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+                )
+            }
+        }
+        descriptor.fetchLimit = limit
+
+        let records = try modelContext.fetch(descriptor)
+        return records.compactMap { $0.toDomain() }
+    }
+
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    public func messageCount(for conversationID: UUID) throws -> Int {
+        let descriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.conversation?.id == conversationID }
+        )
+        return try modelContext.fetchCount(descriptor)
+    }
+
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    public func messageDateRange(for conversationID: UUID) throws -> (earliest: Date, latest: Date)? {
+        var earliestDescriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.conversation?.id == conversationID },
+            sortBy: [SortDescriptor(\.timestamp, order: .forward)]
+        )
+        earliestDescriptor.fetchLimit = 1
+
+        var latestDescriptor = FetchDescriptor<MessageRecord>(
+            predicate: #Predicate { $0.conversation?.id == conversationID },
+            sortBy: [SortDescriptor(\.timestamp, order: .reverse)]
+        )
+        latestDescriptor.fetchLimit = 1
+
+        guard let earliest = try modelContext.fetch(earliestDescriptor).first?.timestamp,
+              let latest = try modelContext.fetch(latestDescriptor).first?.timestamp else {
+            return nil
+        }
+        return (earliest, latest)
+    }
+
     // MARK: - Link Previews
 
     public func fetchLinkPreview(for url: String) throws -> LinkPreview? {

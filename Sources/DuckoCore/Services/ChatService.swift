@@ -1609,6 +1609,34 @@ public final class ChatService {
             .reversed()
     }
 
+    // MARK: - Transcript Queries
+
+    public func fetchAllConversations() async throws -> [Conversation] {
+        try await store.fetchAllConversations()
+    }
+
+    public func searchTranscripts(
+        query: String,
+        conversationID: UUID? = nil,
+        before: Date? = nil,
+        after: Date? = nil,
+        limit: Int = 100
+    ) async throws -> [ChatMessage] {
+        try await store.searchMessages(query: query, conversationID: conversationID, before: before, after: after, limit: limit)
+    }
+
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    public func conversationMessageCount(_ conversationID: UUID) async throws -> Int {
+        try await store.messageCount(for: conversationID)
+    }
+
+    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
+    public func conversationDateRange(_ conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
+        try await store.messageDateRange(for: conversationID)
+    }
+
+    // MARK: - Server History
+
     public func fetchServerHistory(
         jid: BareJID,
         accountID: UUID,

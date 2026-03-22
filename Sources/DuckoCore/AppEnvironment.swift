@@ -3,6 +3,7 @@ import Foundation
 
 @MainActor @Observable
 public final class AppEnvironment {
+    public nonisolated let store: any PersistenceStore
     public nonisolated let credentialStore: any CredentialStore
     public let accountService: AccountService
     public let chatService: ChatService
@@ -52,6 +53,7 @@ public final class AppEnvironment {
 
         Self.registerFilters(pipeline: pipeline, linkPreviewService: linkPreviewService)
 
+        self.store = store
         self.credentialStore = resolvedCredentialStore
         self.accountService = accountService
         self.chatService = chatService

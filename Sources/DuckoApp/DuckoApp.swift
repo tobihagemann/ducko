@@ -13,6 +13,7 @@ struct DuckoApp: App {
     @State private var notificationManager = NotificationManager()
     @FocusedValue(\.chatTabManager) private var focusedTabManager
     @Environment(\.openWindow) private var openWindow
+    @State private var isShowingAdiumImport = false
 
     init() {
         LoggingConfiguration.bootstrap()
@@ -43,6 +44,10 @@ struct DuckoApp: App {
                 .onChange(of: totalUnread) { _, newValue in
                     notificationManager.updateDockBadge(totalUnread: newValue)
                 }
+                .sheet(isPresented: $isShowingAdiumImport) {
+                    AdiumImportView()
+                        .environment(environment)
+                }
         }
         .defaultSize(width: 280, height: 600)
         .defaultLaunchBehavior(.presented)
@@ -53,6 +58,13 @@ struct DuckoApp: App {
                 .environment(themeEngine)
         }
         .defaultSize(width: 500, height: 450)
+
+        Window("Chat Transcripts", id: "transcripts") {
+            TranscriptViewerWindow()
+                .environment(environment)
+                .environment(themeEngine)
+        }
+        .defaultSize(width: 900, height: 600)
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates...") {
@@ -67,6 +79,17 @@ struct DuckoApp: App {
 
             CommandGroup(after: .newItem) {
                 Divider()
+
+                Button("Chat Transcripts") {
+                    openWindow(id: "transcripts")
+                }
+                .keyboardShortcut("t", modifiers: [.command, .option])
+
+                Divider()
+
+                Button("Import Adium Logs...") {
+                    isShowingAdiumImport = true
+                }
             }
 
             CommandGroup(replacing: .textEditing) {
