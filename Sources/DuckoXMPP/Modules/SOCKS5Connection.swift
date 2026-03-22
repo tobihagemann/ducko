@@ -1,7 +1,7 @@
 import Darwin
-import os
+import Logging
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "socks5")
+private let log = Logger(label: "im.ducko.xmpp.socks5")
 
 /// SOCKS5 client connection for Jingle file transfer via XEP-0065 proxies.
 ///

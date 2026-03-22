@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "muc")
+private let log = Logger(label: "im.ducko.xmpp.muc")
 
 /// Implements XEP-0045 Multi-User Chat — room join/leave, occupant tracking, group messaging, and invitations.
 public final class MUCModule: XMPPModule, Sendable {

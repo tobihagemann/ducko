@@ -1,7 +1,8 @@
 import CryptoKit
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "caps")
+private let log = Logger(label: "im.ducko.xmpp.caps")
 
 /// Implements XEP-0115 Entity Capabilities and XEP-0390 Entity Capabilities 2.0 —
 /// advertises capabilities via presence and caches capabilities by verification hash.
@@ -158,8 +159,7 @@ public final class CapsModule: XMPPModule, Sendable {
                 let count = features.count
                 log.info("Cached \(count) features for ver=\(ver)")
             } catch {
-                let desc = String(describing: error)
-                log.warning("Disco#info query failed for \(jid): \(desc)")
+                log.warning("Disco#info query failed for \(jid): \(error)")
             }
         }
     }

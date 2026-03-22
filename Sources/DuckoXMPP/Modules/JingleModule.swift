@@ -1,7 +1,8 @@
 import CryptoKit
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "jingle")
+private let log = Logger(label: "im.ducko.xmpp.jingle")
 
 /// Implements XEP-0166 Jingle and XEP-0234 Jingle File Transfer —
 /// handles session negotiation for peer-to-peer file transfers.

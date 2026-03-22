@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "channelSearch")
+private let log = Logger(label: "im.ducko.xmpp.channelSearch")
 
 /// Implements XEP-0433 Extended Channel Search — discovers a search service
 /// and performs keyword-based channel searches with RSM pagination.

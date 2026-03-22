@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 enum KeychainHelper {
-    private static let serviceName = "de.tobiha.ducko"
+    private static let serviceName = "im.ducko"
 
     private static func baseQuery(for jid: String) -> [String: Any] {
         [

@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "oob")
+private let log = Logger(label: "im.ducko.xmpp.oob")
 
 /// Implements XEP-0066 Out-of-Band Data (IQ-based) — handles incoming
 /// IQ-set file transfer offers and provides accept/reject API.

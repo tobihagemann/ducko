@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "ping")
+private let log = Logger(label: "im.ducko.xmpp.ping")
 
 /// Implements XEP-0199 XMPP Ping — responds to incoming pings and
 /// sends periodic keepalive pings to the server.

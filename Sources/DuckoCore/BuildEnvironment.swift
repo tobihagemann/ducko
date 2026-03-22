@@ -15,9 +15,9 @@ public enum BuildEnvironment {
 
         public static let userDefaultsSuiteName: String? = {
             if let profile = profileName {
-                return "de.tobiha.ducko.dev.\(profile)"
+                return "im.ducko.dev.\(profile)"
             }
-            return "de.tobiha.ducko.dev"
+            return "im.ducko.dev"
         }()
     #else
         public static let appSupportDirectoryName = "Ducko"

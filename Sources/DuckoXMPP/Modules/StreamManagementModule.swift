@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "sm")
+private let log = Logger(label: "im.ducko.xmpp.sm")
 
 /// State snapshot for resuming a Stream Management session across reconnects.
 public struct SMResumeState: Sendable {

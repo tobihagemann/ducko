@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "registration")
+private let log = Logger(label: "im.ducko.xmpp.registration")
 
 /// Implements XEP-0077 In-Band Registration — provides post-auth operations
 /// like password change and account cancellation on connected clients.

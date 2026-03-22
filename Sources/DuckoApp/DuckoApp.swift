@@ -15,6 +15,7 @@ struct DuckoApp: App {
     @Environment(\.openWindow) private var openWindow
 
     init() {
+        LoggingConfiguration.bootstrap()
         NSApplication.shared.setActivationPolicy(.regular)
         do {
             let container = try ModelContainerFactory.makeContainer()
@@ -73,6 +74,12 @@ struct DuckoApp: App {
                     focusedTabManager?.toggleSearch()
                 }
                 .keyboardShortcut("f")
+            }
+
+            CommandGroup(after: .help) {
+                Button("Export Logs...") {
+                    exportLogs()
+                }
             }
 
             CommandMenu("Tab") {
@@ -138,6 +145,23 @@ struct DuckoApp: App {
 
         notificationManager.onNotificationTapped = { [openWindow] jidString in
             openWindow(id: "chat", value: jidString)
+        }
+    }
+
+    private func exportLogs() {
+        let panel = NSSavePanel()
+        let dateString = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        panel.nameFieldStringValue = "ducko-logs-\(dateString)"
+        panel.canCreateDirectories = true
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        do {
+            _ = try LogExporter.export(to: url)
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
         }
     }
 }

@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "blocking")
+private let log = Logger(label: "im.ducko.xmpp.blocking")
 
 /// Manages the XMPP blocking command (XEP-0191) — block list retrieval, block/unblock contacts, and push notifications.
 public final class BlockingModule: XMPPModule, Sendable {

@@ -1,7 +1,8 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 import Synchronization
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "client")
+private let log = Logger(label: "im.ducko.xmpp.client")
 
 /// Orchestrates the full XMPP connection flow and dispatches stanzas to feature modules.
 ///
@@ -150,7 +151,7 @@ public actor XMPPClient {
         do {
             try await establish()
         } catch {
-            log.error("Connection failed: \(String(describing: error), privacy: .public)")
+            log.error("Connection failed: \(error)")
             state = .disconnected
             throw error
         }
@@ -180,7 +181,7 @@ public actor XMPPClient {
                 }
             }
         } catch {
-            log.error("Handshake failed: \(String(describing: error), privacy: .public)")
+            log.error("Handshake failed: \(error)")
             serverFeaturesLock.withLock { $0 = nil }
             state = .disconnected
             await connection.disconnect()

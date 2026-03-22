@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "csi")
+private let log = Logger(label: "im.ducko.xmpp.csi")
 
 /// Implements XEP-0352 Client State Indication — tells the server
 /// whether the client is actively being used so it can optimize traffic.

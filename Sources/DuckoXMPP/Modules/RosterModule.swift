@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "roster")
+private let log = Logger(label: "im.ducko.xmpp.roster")
 
 /// Manages the XMPP roster (RFC 6121) — contact list, subscription management, and roster pushes.
 public final class RosterModule: XMPPModule, Sendable {

@@ -1,8 +1,8 @@
 import DuckoXMPP
 import Foundation
-import os
+import Logging
 
-private let log = Logger(subsystem: "com.ducko.core", category: "avatar")
+private let log = Logger(label: "im.ducko.core.avatar")
 
 /// Avatar fetch result containing image data, hash, and MIME type.
 public struct AvatarData: Sendable {

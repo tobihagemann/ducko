@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "disco")
+private let log = Logger(label: "im.ducko.xmpp.disco")
 
 /// Implements XEP-0030 Service Discovery — responds to incoming disco#info queries
 /// and provides API for querying other entities.

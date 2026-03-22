@@ -59,6 +59,21 @@ Scripts/release.sh                       # build, sign, notarize, DMG, zip
 
 `Resources/Entitlements.plist` holds app entitlements. `Resources/Assets.car` is the precompiled Liquid Glass icon.
 
+## Logging
+
+Uses `swift-log` as a facade with dual backends:
+
+- **OSLog backend** (`OSLogHandler`) — forwards to Apple's unified logging for Console.app/Xcode debugging
+- **File backend** (`FileLogHandler`) — writes to `~/Library/Application Support/<app-dir>/Logs/ducko.log` with size-based rotation (5 MB, 5 archives)
+
+Logger labels use dot notation: `Logger(label: "im.ducko.xmpp.client")` — last component is category, rest is subsystem.
+
+`LoggingConfiguration.bootstrap()` is called once at launch (DuckoApp.init / CLIBootstrap.setUp). `LoggingPreferences.debugLoggingEnabled` toggles file logger verbosity at runtime (info+ vs trace+).
+
+**Privacy policy**: error/warning/info/notice must never contain sensitive data (passwords, tokens, keys). Only debug/trace may contain JIDs, stanza fragments. Ultra-sensitive data is never logged.
+
+**Export**: `ducko logs` CLI subcommand, Help > Export Logs... in GUI.
+
 ## Dev/Prod Isolation
 
 `BuildEnvironment` (in DuckoCore) centralizes `#if DEBUG` config. Debug builds use separate storage to avoid polluting production data:
@@ -67,7 +82,7 @@ Scripts/release.sh                       # build, sign, notarize, DMG, zip
 |-----------|------|-----|
 | SwiftData | `~/Library/Application Support/Ducko/` | `~/Library/Application Support/Ducko-Dev/` |
 | Credentials | macOS Keychain | `Ducko-Dev/credentials.json` (file-based) |
-| UserDefaults | `.standard` | `UserDefaults(suiteName: "de.tobiha.ducko.dev")` |
+| UserDefaults | `.standard` | `UserDefaults(suiteName: "im.ducko.dev")` |
 
 Set `DUCKO_USE_KEYCHAIN=1` to use real Keychain in debug builds.
 
@@ -77,7 +92,7 @@ Set `DUCKO_PROFILE=<name>` to run multiple isolated instances side by side:
 |-----------|-------------|----------------------|
 | SwiftData | `Ducko-Dev/` | `Ducko-Dev-alice/` |
 | Credentials | `Ducko-Dev/credentials.json` | `Ducko-Dev-alice/credentials.json` |
-| UserDefaults | `de.tobiha.ducko.dev` | `de.tobiha.ducko.dev.alice` |
+| UserDefaults | `im.ducko.dev` | `im.ducko.dev.alice` |
 
 ## Lint & Format
 

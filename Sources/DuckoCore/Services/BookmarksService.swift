@@ -1,6 +1,6 @@
 import DuckoXMPP
 import Foundation
-import os
+import Logging
 
 enum BookmarksError: Error, LocalizedError {
     case invalidJID(String)
@@ -28,7 +28,7 @@ public final class BookmarksService {
 
     private weak var accountService: AccountService?
     private weak var chatService: ChatService?
-    private let log = Logger(subsystem: "ducko", category: "BookmarksService")
+    private let log = Logger(label: "im.ducko.core.BookmarksService")
 
     public init() {}
 

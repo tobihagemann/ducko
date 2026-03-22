@@ -1,8 +1,8 @@
 import DuckoXMPP
 import Foundation
-import os
+import Logging
 
-private let log = Logger(subsystem: "com.ducko.core", category: "profile")
+private let log = Logger(label: "im.ducko.core.profile")
 
 @MainActor @Observable
 public final class ProfileService {

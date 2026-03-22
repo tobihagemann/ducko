@@ -1,7 +1,8 @@
 import Foundation
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.core", category: "linkPreview")
+private let log = Logger(label: "im.ducko.core.linkPreview")
 
 public final class LinkPreviewService: Sendable {
     private let fetcher: any LinkPreviewFetcher

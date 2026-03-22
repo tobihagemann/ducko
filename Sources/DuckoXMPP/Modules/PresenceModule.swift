@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "presence")
+private let log = Logger(label: "im.ducko.xmpp.presence")
 
 /// Tracks presence for contacts and sends initial available presence on connect.
 public final class PresenceModule: XMPPModule, Sendable {

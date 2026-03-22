@@ -1,4 +1,4 @@
-import os
+import struct os.OSAllocatedUnfairLock
 
 /// Implements XEP-0163 Personal Eventing Protocol — publish, retrieve,
 /// retract PEP items and dispatch incoming PEP notifications.

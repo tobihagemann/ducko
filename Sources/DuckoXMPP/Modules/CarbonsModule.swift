@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "carbons")
+private let log = Logger(label: "im.ducko.xmpp.carbons")
 
 /// Implements XEP-0280 Message Carbons — receives copies of messages
 /// sent or received by other resources on the same account.

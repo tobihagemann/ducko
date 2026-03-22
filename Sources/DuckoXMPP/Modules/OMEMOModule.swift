@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "de.tobiha.ducko.xmpp", category: "omemo")
+private let log = Logger(label: "im.ducko.xmpp.omemo")
 
 /// Implements XEP-0384 OMEMO Encryption and XEP-0380 Explicit Message Encryption.
 ///

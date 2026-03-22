@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "receipts")
+private let log = Logger(label: "im.ducko.xmpp.receipts")
 
 /// Implements XEP-0184 Message Delivery Receipts and XEP-0333 Chat Markers —
 /// auto-replies to receipt requests and emits events for incoming receipts/markers.

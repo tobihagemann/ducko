@@ -1,12 +1,13 @@
 import Foundation
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
 /// Stores passwords as plaintext JSON on disk. Intended for development only.
 final class FileCredentialStore: CredentialStore, @unchecked Sendable {
     // Thread-safe via OSAllocatedUnfairLock — all mutable state accessed only inside withLock.
     private let lock = OSAllocatedUnfairLock(initialState: [String: String]())
     private let fileURL: URL
-    private let log = Logger(subsystem: "de.tobiha.ducko", category: "FileCredentialStore")
+    private let log = Logger(label: "im.ducko.core.FileCredentialStore")
 
     init(fileURL: URL) {
         self.fileURL = fileURL
@@ -18,7 +19,7 @@ final class FileCredentialStore: CredentialStore, @unchecked Sendable {
     func savePassword(_ password: String, for jid: String) {
         lock.withLock { $0[jid] = password }
         persist()
-        log.notice("Saved password for \(jid, privacy: .public) (file-based, not Keychain)")
+        log.notice("Saved password for \(jid) (file-based, not Keychain)")
     }
 
     func loadPassword(for jid: String) -> String? {
@@ -39,7 +40,7 @@ final class FileCredentialStore: CredentialStore, @unchecked Sendable {
             try data.write(to: fileURL, options: .atomic)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         } catch {
-            log.warning("Failed to write credentials file: \(error.localizedDescription, privacy: .public)")
+            log.warning("Failed to write credentials file: \(error.localizedDescription)")
         }
     }
 

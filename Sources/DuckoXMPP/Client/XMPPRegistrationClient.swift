@@ -1,6 +1,6 @@
-import os
+import Logging
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "registrationClient")
+private let log = Logger(label: "im.ducko.xmpp.registrationClient")
 
 /// Lightweight client for XEP-0077 pre-auth registration.
 /// Manages its own connection lifecycle — connect, negotiate TLS, register, disconnect.

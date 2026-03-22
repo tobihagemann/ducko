@@ -1,6 +1,7 @@
-import os
+import Logging
+import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(subsystem: "com.ducko.xmpp", category: "mam")
+private let log = Logger(label: "im.ducko.xmpp.mam")
 
 /// Implements XEP-0313 Message Archive Management — queries the server
 /// for archived messages with pagination support.

@@ -1,9 +1,9 @@
 import DuckoXMPP
 import Foundation
-import os
+import Logging
 import UniformTypeIdentifiers
 
-private let log = Logger(subsystem: "com.ducko.core", category: "fileTransfer")
+private let log = Logger(label: "im.ducko.core.fileTransfer")
 
 private struct FileAttributes {
     let fileName: String

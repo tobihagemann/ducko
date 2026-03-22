@@ -1,9 +1,9 @@
 import DuckoCore
-import os
+import Logging
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let log = Logger(subsystem: "com.ducko.ui", category: "chat-window")
+private let log = Logger(label: "im.ducko.ui.chat-window")
 
 @MainActor @Observable
 final class ChatWindowState {

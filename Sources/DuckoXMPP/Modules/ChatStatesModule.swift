@@ -1,4 +1,4 @@
-import os
+import struct os.OSAllocatedUnfairLock
 
 /// Implements XEP-0085 Chat State Notifications — sends and receives
 /// typing indicators and other chat state changes.

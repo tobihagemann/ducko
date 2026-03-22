@@ -1,9 +1,9 @@
 import CryptoKit
 import DuckoXMPP
 import Foundation
-import os
+import Logging
 
-private let log = Logger(subsystem: "com.ducko.core", category: "omemo")
+private let log = Logger(label: "im.ducko.core.omemo")
 
 private func omemoFingerprint(from identityKey: some Sequence<UInt8>) -> String {
     identityKey.map { String(format: "%02x", $0) }.joined()

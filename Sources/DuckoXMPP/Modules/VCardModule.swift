@@ -1,4 +1,4 @@
-import os
+import struct os.OSAllocatedUnfairLock
 
 /// Implements XEP-0054 vCard-temp — fetches, caches, and publishes vCards.
 public final class VCardModule: XMPPModule, Sendable {
