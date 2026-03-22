@@ -1,6 +1,6 @@
 import Logging
 
-private let log = Logger(label: "im.ducko.core.linkPreviewFilter")
+private let log = Logger(label: "im.ducko.core.linkpreviewfilter")
 
 /// Triggers async link preview fetching for detected URLs in incoming messages.
 /// Does not block the filter pipeline — previews are fetched in the background.

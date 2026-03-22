@@ -1,7 +1,7 @@
 import Logging
 import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(label: "im.ducko.xmpp.httpUpload")
+private let log = Logger(label: "im.ducko.xmpp.httpupload")
 
 /// Implements XEP-0363 HTTP File Upload — discovers the upload service
 /// and requests upload slots for file sharing.

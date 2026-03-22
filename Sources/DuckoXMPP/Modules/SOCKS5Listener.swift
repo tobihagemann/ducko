@@ -1,7 +1,7 @@
 import Darwin
 import Logging
 
-private let log = Logger(label: "im.ducko.xmpp.socks5-listener")
+private let log = Logger(label: "im.ducko.xmpp.socks5listener")
 
 /// SOCKS5 listening server for direct Jingle file transfer candidates (XEP-0260).
 ///

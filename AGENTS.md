@@ -66,9 +66,9 @@ Uses `swift-log` as a facade with dual backends:
 - **OSLog backend** (`OSLogHandler`) — forwards to Apple's unified logging for Console.app/Xcode debugging
 - **File backend** (`FileLogHandler`) — writes to `~/Library/Application Support/<app-dir>/Logs/ducko.log` with size-based rotation (5 MB, 5 archives)
 
-Logger labels use dot notation: `Logger(label: "im.ducko.xmpp.client")` — last component is category, rest is subsystem.
+Logger labels use dot notation: `Logger(label: "im.ducko.xmpp.client")` — last component is the category (flat lowercase), rest is the subsystem.
 
-`LoggingConfiguration.bootstrap()` is called once at launch (DuckoApp.init / CLIBootstrap.setUp). `LoggingPreferences.debugLoggingEnabled` toggles file logger verbosity at runtime (info+ vs trace+).
+`LoggingConfiguration.bootstrap()` is called once at launch (DuckoApp.init / CLIBootstrap.setUp). File log verbosity is controlled by the `advancedLogLevel` UserDefaults key (UI: Preferences > Advanced > Log Level) — "default" → info, "debug" → debug, "verbose" → trace.
 
 **Privacy policy**: error/warning/info/notice must never contain sensitive data (passwords, tokens, keys). Only debug/trace may contain JIDs, stanza fragments. Ultra-sensitive data is never logged.
 

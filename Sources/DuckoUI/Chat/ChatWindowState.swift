@@ -3,7 +3,7 @@ import Logging
 import SwiftUI
 import UniformTypeIdentifiers
 
-private let log = Logger(label: "im.ducko.ui.chat-window")
+private let log = Logger(label: "im.ducko.ui.chatwindow")
 
 @MainActor @Observable
 final class ChatWindowState {

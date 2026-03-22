@@ -1,7 +1,7 @@
 import struct os.OSAllocatedUnfairLock
 
 /// XEP-0424 fallback body for clients that don't support message retraction.
-private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
+package let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
 
 /// Handles 1:1 `<message>` stanzas with `type="chat"` or `type="normal"`,
 /// including XEP-0308 corrections and XEP-0461 replies.

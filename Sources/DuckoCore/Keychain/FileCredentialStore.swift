@@ -7,7 +7,7 @@ final class FileCredentialStore: CredentialStore, @unchecked Sendable {
     // Thread-safe via OSAllocatedUnfairLock — all mutable state accessed only inside withLock.
     private let lock = OSAllocatedUnfairLock(initialState: [String: String]())
     private let fileURL: URL
-    private let log = Logger(label: "im.ducko.core.FileCredentialStore")
+    private let log = Logger(label: "im.ducko.core.filecredentialstore")
 
     init(fileURL: URL) {
         self.fileURL = fileURL

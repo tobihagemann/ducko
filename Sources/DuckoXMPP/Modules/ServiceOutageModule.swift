@@ -1,7 +1,7 @@
 import Logging
 import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(label: "im.ducko.xmpp.service-outage")
+private let log = Logger(label: "im.ducko.xmpp.serviceoutage")
 
 /// Implements XEP-0455 Service Outage Status — parses outage information
 /// from stream features and emits an event for service-layer consumption.

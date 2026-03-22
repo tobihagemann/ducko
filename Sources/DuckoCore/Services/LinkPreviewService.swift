@@ -2,7 +2,7 @@ import Foundation
 import Logging
 import struct os.OSAllocatedUnfairLock
 
-private let log = Logger(label: "im.ducko.core.linkPreview")
+private let log = Logger(label: "im.ducko.core.linkpreview")
 
 public final class LinkPreviewService: Sendable {
     private let fetcher: any LinkPreviewFetcher

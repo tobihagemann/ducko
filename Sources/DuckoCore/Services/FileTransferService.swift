@@ -3,7 +3,7 @@ import Foundation
 import Logging
 import UniformTypeIdentifiers
 
-private let log = Logger(label: "im.ducko.core.fileTransfer")
+private let log = Logger(label: "im.ducko.core.filetransfer")
 
 private struct FileAttributes {
     let fileName: String

@@ -28,7 +28,7 @@ public final class BookmarksService {
 
     private weak var accountService: AccountService?
     private weak var chatService: ChatService?
-    private let log = Logger(label: "im.ducko.core.BookmarksService")
+    private let log = Logger(label: "im.ducko.core.bookmarksservice")
 
     public init() {}
 

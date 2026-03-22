@@ -4,9 +4,6 @@ import Logging
 
 private let log = Logger(label: "im.ducko.core.chat")
 
-/// XEP-0424 fallback body for clients that don't support message retraction.
-private let retractionFallbackBody = "This person attempted to retract a previous message, but it's unsupported by your client."
-
 @MainActor @Observable
 public final class ChatService {
     public private(set) var openConversations: [Conversation] = []

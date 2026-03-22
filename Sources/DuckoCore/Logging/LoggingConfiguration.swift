@@ -9,6 +9,17 @@ public enum LoggingConfiguration {
     /// Shared file writer used by all `FileLogHandler` instances.
     public static let fileWriter = FileLogWriter(directory: logsDirectory)
 
+    private static let logLevelKey = "advancedLogLevel"
+
+    /// Maps the UI log level picker value to a swift-log level for the file backend.
+    static var fileLogLevel: Logger.Level {
+        switch PreferencesDefaults.store.string(forKey: logLevelKey) {
+        case "debug": .debug
+        case "verbose": .trace
+        default: .info
+        }
+    }
+
     private nonisolated(unsafe) static var isBootstrapped = false
 
     /// Configures the logging system. Safe to call multiple times; only the first call takes effect.
@@ -19,7 +30,7 @@ public enum LoggingConfiguration {
             MultiplexLogHandler([
                 OSLogHandler(label: label),
                 FileLogHandler(label: label, writer: fileWriter, minimumLevel: {
-                    LoggingPreferences.isDebugLoggingEnabled ? .trace : .info
+                    fileLogLevel
                 })
             ])
         }
