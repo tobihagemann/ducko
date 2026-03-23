@@ -65,6 +65,36 @@ enum FileTranscriptStoreTests {
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched.count == 5)
         }
+
+        @Test
+        func `Concurrent appends from separate store instances produce valid JSONL`() async throws {
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("transcript-test-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let store1 = FileTranscriptStore(baseDirectory: dir)
+            let store2 = FileTranscriptStore(baseDirectory: dir)
+            let convID = UUID()
+            let base = Date()
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for i in 0 ..< 10 {
+                    let store = i.isMultiple(of: 2) ? store1 : store2
+                    group.addTask {
+                        try await store.appendMessage(makeMessage(
+                            conversationID: convID,
+                            stanzaID: "s\(i)",
+                            body: "msg-\(i)",
+                            timestamp: base.addingTimeInterval(Double(i))
+                        ))
+                    }
+                }
+                try await group.waitForAll()
+            }
+
+            let fetched = try await store1.fetchMessages(for: convID, before: nil, limit: 50)
+            #expect(fetched.count == 10)
+        }
     }
 
     struct Pagination {
@@ -170,7 +200,7 @@ enum FileTranscriptStoreTests {
         }
 
         @Test
-        func `ServerID-only retraction resolves via file scan`() async throws {
+        func `ServerID-only retraction resolves without stanzaID`() async throws {
             let (store, dir) = try makeTempStore()
             defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -183,6 +213,47 @@ enum FileTranscriptStoreTests {
             ))
 
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
+            #expect(fetched[0].isRetracted == true)
+            #expect(fetched[0].body == "")
+        }
+
+        @Test
+        func `ServerID amendment uses server index fast path`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            // Append with both stanzaID and serverID
+            let msg = makeMessage(stanzaID: "s1", serverID: "mam-456", body: "indexed")
+            try await store.appendMessage(msg)
+
+            // Amendment targets serverID only — should resolve via serverIndex
+            try await store.appendAmendment(TranscriptAmendment(
+                action: .retract, targetServerID: "mam-456", timestamp: Date()
+            ))
+
+            let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
+            #expect(fetched[0].isRetracted == true)
+            #expect(fetched[0].body == "")
+        }
+
+        @Test
+        func `Amendment for cold serverID resolves via file scan`() async throws {
+            // Use two separate store instances to simulate app restart (empty server index)
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("transcript-test-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let store1 = FileTranscriptStore(baseDirectory: dir)
+            let msg = makeMessage(serverID: "cold-srvid", body: "original")
+            try await store1.appendMessage(msg)
+
+            // New store instance = empty server index
+            let store2 = FileTranscriptStore(baseDirectory: dir)
+            try await store2.appendAmendment(TranscriptAmendment(
+                action: .retract, targetServerID: "cold-srvid", timestamp: Date()
+            ))
+
+            let fetched = try await store2.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].isRetracted == true)
             #expect(fetched[0].body == "")
         }
@@ -224,6 +295,22 @@ enum FileTranscriptStoreTests {
             #expect(found?.body == "target")
 
             let notFound = try await store.findMessage(stanzaID: "nonexistent", conversationID: testConversationID)
+            #expect(notFound == nil)
+        }
+
+        @Test
+        func `Find message by serverID`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let msg = makeMessage(serverID: "srv-lookup", body: "server indexed")
+            try await store.appendMessage(msg)
+
+            let found = try await store.findMessage(serverID: "srv-lookup", conversationID: testConversationID)
+            #expect(found != nil)
+            #expect(found?.body == "server indexed")
+
+            let notFound = try await store.findMessage(serverID: "nonexistent", conversationID: testConversationID)
             #expect(notFound == nil)
         }
 

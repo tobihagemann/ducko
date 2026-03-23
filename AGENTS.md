@@ -5,9 +5,10 @@ A native macOS XMPP client — spiritual successor to Adium.
 ## Tech Stack
 
 - Swift 6.2, macOS 26+, SwiftPM (no Xcode project)
-- SwiftUI, SwiftData, Sparkle
+- SwiftUI, SwiftData (metadata only), Sparkle
 - Custom XMPP implementation (no libpurple, no XMPPFramework)
 - All types use Swift strict concurrency (`Sendable`, actors, structured concurrency)
+- Messages stored as append-only JSONL transcript files (`FileTranscriptStore`), not SwiftData
 
 ## Module Boundaries
 
@@ -80,7 +81,8 @@ Logger labels use dot notation: `Logger(label: "im.ducko.xmpp.client")` — last
 
 | Component | Prod | Dev |
 |-----------|------|-----|
-| SwiftData | `~/Library/Application Support/Ducko/` | `~/Library/Application Support/Ducko-Dev/` |
+| SwiftData (metadata) | `~/Library/Application Support/Ducko/` | `~/Library/Application Support/Ducko-Dev/` |
+| Transcripts (JSONL) | `~/Library/Application Support/Ducko/Transcripts/` | `~/Library/Application Support/Ducko-Dev/Transcripts/` |
 | Credentials | macOS Keychain | `Ducko-Dev/credentials.json` (file-based) |
 | UserDefaults | `.standard` | `UserDefaults(suiteName: "im.ducko.dev")` |
 
@@ -90,7 +92,8 @@ Set `DUCKO_PROFILE=<name>` to run multiple isolated instances side by side:
 
 | Component | Default Dev | `DUCKO_PROFILE=alice` |
 |-----------|-------------|----------------------|
-| SwiftData | `Ducko-Dev/` | `Ducko-Dev-alice/` |
+| SwiftData (metadata) | `Ducko-Dev/` | `Ducko-Dev-alice/` |
+| Transcripts (JSONL) | `Ducko-Dev/Transcripts/` | `Ducko-Dev-alice/Transcripts/` |
 | Credentials | `Ducko-Dev/credentials.json` | `Ducko-Dev-alice/credentials.json` |
 | UserDefaults | `im.ducko.dev` | `im.ducko.dev.alice` |
 

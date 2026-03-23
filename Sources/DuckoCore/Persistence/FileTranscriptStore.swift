@@ -12,6 +12,9 @@ public actor FileTranscriptStore: TranscriptStore {
     /// In-memory index mapping stanzaID → (conversationID, date string) for fast amendment routing.
     private var stanzaIndex: [String: (UUID, String)] = [:]
 
+    /// In-memory index mapping serverID → (conversationID, date string) for fast moderation amendment routing.
+    private var serverIndex: [String: (UUID, String)] = [:]
+
     private static let newline = Data("\n".utf8)
 
     /// Creates a store using the default transcripts directory under `BuildEnvironment.appSupportDirectory`.
@@ -40,6 +43,9 @@ public actor FileTranscriptStore: TranscriptStore {
         try appendRecord(record, to: fileURL, conversationID: message.conversationID)
         if let sid = message.stanzaID {
             stanzaIndex[sid] = (message.conversationID, dateString)
+        }
+        if let srvid = message.serverID {
+            serverIndex[srvid] = (message.conversationID, dateString)
         }
     }
 
@@ -71,6 +77,9 @@ public actor FileTranscriptStore: TranscriptStore {
                 try writeRecord(record, to: handle)
                 if let sid = message.stanzaID {
                     stanzaIndex[sid] = (group.key.0, group.key.1)
+                }
+                if let srvid = message.serverID {
+                    serverIndex[srvid] = (group.key.0, group.key.1)
                 }
             }
         }
@@ -131,7 +140,16 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     public func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage? {
-        try findMessage(in: conversationID) { $0.serverID == serverID }
+        // Fast path: check server index to read only one file
+        if let (_, dateString) = serverIndex[serverID] {
+            let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateString)
+            let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
+            if let match = messages.first(where: { $0.serverID == serverID }) {
+                return match
+            }
+        }
+        // Slow path: scan all date files
+        return try findMessage(in: conversationID) { $0.serverID == serverID }
     }
 
     public func messageExists(stanzaID: String, conversationID: UUID) async throws -> Bool {
@@ -223,8 +241,9 @@ public actor FileTranscriptStore: TranscriptStore {
         if FileManager.default.fileExists(atPath: dir.path) {
             try FileManager.default.removeItem(at: dir)
         }
-        // Purge stanza index entries for this conversation
+        // Purge index entries for this conversation
         stanzaIndex = stanzaIndex.filter { $0.value.0 != conversationID }
+        serverIndex = serverIndex.filter { $0.value.0 != conversationID }
     }
 
     public func writeMetadata(_ metadata: TranscriptMetadata, for conversationID: UUID) async throws {
@@ -270,12 +289,16 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     private func fileHandle(for fileURL: URL) throws -> FileHandle {
-        if !FileManager.default.fileExists(atPath: fileURL.path) {
-            FileManager.default.createFile(atPath: fileURL.path, contents: nil, attributes: [.posixPermissions: 0o600])
+        let path = fileURL.path
+        let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
+        guard fd >= 0 else {
+            let posixError = POSIXError(.init(rawValue: errno) ?? .ENOENT)
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSFilePathErrorKey: path,
+                NSUnderlyingErrorKey: posixError
+            ])
         }
-        let handle = try FileHandle(forWritingTo: fileURL)
-        handle.seekToEndOfFile()
-        return handle
+        return FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     }
 
     private func appendRecord(_ record: TranscriptRecord, to fileURL: URL, conversationID: UUID) throws {
@@ -286,9 +309,9 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     private func writeRecord(_ record: TranscriptRecord, to handle: FileHandle) throws {
-        let data = try encoder.encode(record)
+        var data = try encoder.encode(record)
+        data.append(Self.newline)
         handle.write(data)
-        handle.write(Self.newline)
     }
 
     /// Scans all date files for a conversation and returns the first message matching the predicate.
@@ -351,7 +374,10 @@ public actor FileTranscriptStore: TranscriptStore {
                             stanzaToID[sid] = msg.id
                             stanzaIndex[sid] = (conversationID, dateString)
                         }
-                        if let srvid = msg.serverID { serverToID[srvid] = msg.id }
+                        if let srvid = msg.serverID {
+                            serverToID[srvid] = msg.id
+                            serverIndex[srvid] = (conversationID, dateString)
+                        }
                     }
                 case .amendment:
                     if let amendment = record.toAmendment() {
@@ -413,6 +439,10 @@ public actor FileTranscriptStore: TranscriptStore {
         if let sid = amendment.targetStanzaID, let location = stanzaIndex[sid] {
             return location
         }
+        // Fast path: server index lookup
+        if let srvid = amendment.targetServerID, let location = serverIndex[srvid] {
+            return location
+        }
         // Slow path: scan recent files to find the target message
         return scanForTarget(amendment: amendment)
     }
@@ -441,9 +471,12 @@ public actor FileTranscriptStore: TranscriptStore {
                     }
 
                     if matches {
-                        // Populate stanza index for future lookups
+                        // Populate indexes for future lookups
                         if let sid = entry.stanzaID {
                             stanzaIndex[sid] = (convID, dateString)
+                        }
+                        if let srvid = entry.serverID {
+                            serverIndex[srvid] = (convID, dateString)
                         }
                         return (convID, dateString)
                     }
