@@ -32,10 +32,10 @@ swift test                # Run tests
 [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and [SwiftLint](https://github.com/realm/SwiftLint) enforce code style. Install both via Homebrew:
 
 ```sh
-brew install swiftlint swiftformat
+brew install swiftlint swiftformat periphery
 ./Scripts/install-hooks.sh        # Pre-commit hook (run once after cloning)
-./Scripts/lint.sh                 # Format + autocorrect + lint
-./Scripts/lint.sh --check         # Check-only mode (CI)
+./Scripts/format.sh               # Auto-format + autocorrect
+./Scripts/lint.sh                 # Check format + lint + unused code (read-only)
 ```
 
 ## Agent Skills

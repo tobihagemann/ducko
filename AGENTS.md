@@ -96,11 +96,11 @@ Set `DUCKO_PROFILE=<name>` to run multiple isolated instances side by side:
 
 ## Lint & Format
 
-SwiftFormat and SwiftLint are installed via Homebrew. Run via the orchestrator script:
+SwiftFormat, SwiftLint, and Periphery are installed via Homebrew:
 
 ```
-./Scripts/lint.sh              # Format + autocorrect + lint all files
-./Scripts/lint.sh --check      # Check-only mode (CI)
+./Scripts/format.sh            # Auto-format + autocorrect
+./Scripts/lint.sh              # Check format + lint + unused code (read-only)
 ```
 
 ## Agent Skills

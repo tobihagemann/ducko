@@ -28,7 +28,7 @@ Key conventions for contributors:
 - **Strict concurrency** — all types must be `Sendable`. Use actors for mutable shared state.
 - **Exhaustive switches** — never use `default:` on project-defined enums.
 
-Run `./Scripts/lint.sh` and `swift test` before pushing.
+Run `./Scripts/format.sh`, `./Scripts/lint.sh`, and `swift test` before pushing.
 
 ## Use of Generative AI
 

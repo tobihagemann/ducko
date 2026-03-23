@@ -1,10 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 
-# Ducko lint & format script
+# Ducko lint & check script (read-only, exits non-zero on violations)
 # Usage:
-#   ./Scripts/lint.sh              # Format + autocorrect + lint all files
-#   ./Scripts/lint.sh --check      # Check-only mode for CI (exits non-zero on violations)
+#   ./Scripts/lint.sh   # Check format + lint + unused code
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -17,40 +16,34 @@ check_tool() {
         exit 1
     fi
 }
-check_tool swiftlint
 check_tool swiftformat
+check_tool swiftlint
 check_tool periphery
 
-case "${1:-}" in
-    --check)
-        echo "Checking format..."
-        FORMAT_OUTPUT=$(swiftformat --lint . 2>&1) || {
-            echo "${FORMAT_OUTPUT}"
-            echo ""
-            echo "error: SwiftFormat violations found. Run './Scripts/lint.sh' to auto-fix."
-            exit 1
-        }
+LINT_TMP="$TMPDIR/ducko-lint-$$"
+mkdir -p "$LINT_TMP"
+trap 'rm -rf "$LINT_TMP"' EXIT
 
-        echo "Linting..."
-        swiftlint lint --strict --quiet
+set +e
+FAIL=0
 
-        echo "Scanning for unused code..."
-        periphery scan --quiet --strict
-        ;;
+swiftformat --lint . >"$LINT_TMP/swiftformat.out" 2>&1 &
+PID_FORMAT=$!
 
-    *)
-        echo "Formatting all files..."
-        swiftformat .
+swiftlint lint --strict --quiet >"$LINT_TMP/swiftlint.out" 2>&1 &
+PID_LINT=$!
 
-        echo "Linting (autocorrect)..."
-        swiftlint lint --fix --quiet
+periphery scan --quiet --strict >"$LINT_TMP/periphery.out" 2>&1 &
+PID_PERIPHERY=$!
 
-        echo "Linting..."
-        swiftlint lint --strict --quiet
+wait $PID_FORMAT || { echo "--- SwiftFormat ---"; cat "$LINT_TMP/swiftformat.out"; echo "error: Run './Scripts/format.sh' to auto-fix."; FAIL=1; }
+wait $PID_LINT || { echo "--- SwiftLint ---"; cat "$LINT_TMP/swiftlint.out"; FAIL=1; }
+wait $PID_PERIPHERY || { echo "--- Periphery ---"; cat "$LINT_TMP/periphery.out"; FAIL=1; }
 
-        echo "Scanning for unused code..."
-        periphery scan --quiet --strict
-        ;;
-esac
+set -e
+
+if [ $FAIL -ne 0 ]; then
+    exit 1
+fi
 
 echo "Done."
