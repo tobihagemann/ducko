@@ -44,6 +44,17 @@ final class TranscriptViewerState {
         case .rooms: result = result.filter { $0.type == .groupchat }
         }
 
+        // Date filter
+        if dateFilter != .anyTime {
+            let interval = dateFilter.dateInterval
+            result = result.filter { conversation in
+                guard let date = conversation.lastMessageDate else { return false }
+                if let after = interval.after, date < after { return false }
+                if let before = interval.before, date > before { return false }
+                return true
+            }
+        }
+
         // Search filter
         if !searchText.isEmpty {
             result = result.filter { conversation in
@@ -69,6 +80,13 @@ final class TranscriptViewerState {
     }
 
     // MARK: - Actions
+
+    func clearSelectionIfFiltered() async {
+        if let selected = selectedConversation,
+           !filteredConversations.contains(where: { $0.id == selected.id }) {
+            await selectConversation(nil)
+        }
+    }
 
     func load() async {
         isLoading = true
