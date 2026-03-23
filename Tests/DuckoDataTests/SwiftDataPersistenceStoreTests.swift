@@ -60,32 +60,6 @@ struct SwiftDataPersistenceStoreTests {
         )
     }
 
-    private func makeMessage(
-        id: UUID = UUID(),
-        conversationID: UUID,
-        stanzaID: String? = nil,
-        serverID: String? = nil,
-        body: String = "Hello",
-        timestamp: Date = Date(),
-        isOutgoing: Bool = false,
-        isRead: Bool = false
-    ) -> ChatMessage {
-        ChatMessage(
-            id: id,
-            conversationID: conversationID,
-            stanzaID: stanzaID,
-            serverID: serverID,
-            fromJID: "sender@example.com",
-            body: body,
-            timestamp: timestamp,
-            isOutgoing: isOutgoing,
-            isRead: isRead,
-            isDelivered: false,
-            isEdited: false,
-            type: "chat"
-        )
-    }
-
     // MARK: - Accounts
 
     struct Accounts {
@@ -306,210 +280,22 @@ struct SwiftDataPersistenceStoreTests {
             let result = try await store.fetchConversation(jid: "nobody@example.com", type: .chat, accountID: account.id)
             #expect(result == nil)
         }
-    }
-
-    // MARK: - Messages
-
-    struct Messages {
-        private let outer = SwiftDataPersistenceStoreTests()
-
-        private func makeStoreWithConversation() async throws -> (SwiftDataPersistenceStore, UUID) {
-            let store = try outer.makeStore()
-            let account = outer.makeAccount()
-            try await store.saveAccount(account)
-            let conversation = outer.makeConversation(accountID: account.id)
-            try await store.upsertConversation(conversation)
-            return (store, conversation.id)
-        }
 
         @Test
-        func `Insert and fetch ordered by timestamp descending`() async throws {
-            let (store, conversationID) = try await makeStoreWithConversation()
-
-            let now = Date()
-            let msg1 = outer.makeMessage(
-                conversationID: conversationID, body: "First",
-                timestamp: now.addingTimeInterval(-60)
-            )
-            let msg2 = outer.makeMessage(
-                conversationID: conversationID, body: "Second",
-                timestamp: now
-            )
-            try await store.insertMessage(msg1)
-            try await store.insertMessage(msg2)
-
-            let fetched = try await store.fetchMessages(
-                for: conversationID, before: nil, limit: 50
-            )
-            #expect(fetched.count == 2)
-            #expect(fetched.first?.body == "Second")
-            #expect(fetched.last?.body == "First")
-        }
-
-        @Test
-        func `Pagination with before and limit`() async throws {
-            let (store, conversationID) = try await makeStoreWithConversation()
-
-            let now = Date()
-            for i in 0 ..< 5 {
-                let msg = outer.makeMessage(
-                    conversationID: conversationID,
-                    body: "Message \(i)",
-                    timestamp: now.addingTimeInterval(Double(i) * 10)
-                )
-                try await store.insertMessage(msg)
-            }
-
-            let page = try await store.fetchMessages(
-                for: conversationID,
-                before: now.addingTimeInterval(30),
-                limit: 2
-            )
-            #expect(page.count == 2)
-            #expect(page.first?.body == "Message 2")
-            #expect(page.last?.body == "Message 1")
-        }
-
-        @Test
-        func `Mark messages read resets unread count`() async throws {
-            let (store, conversationID) = try await makeStoreWithConversation()
-
-            let msg1 = outer.makeMessage(conversationID: conversationID, body: "Unread 1")
-            let msg2 = outer.makeMessage(conversationID: conversationID, body: "Unread 2")
-            try await store.insertMessage(msg1)
-            try await store.insertMessage(msg2)
-
-            try await store.markMessagesRead(in: conversationID)
-
-            let fetched = try await store.fetchMessages(
-                for: conversationID, before: nil, limit: 50
-            )
-            for msg in fetched {
-                #expect(msg.isRead == true)
-            }
-        }
-    }
-
-    // MARK: - Cascade Deletes
-
-    struct CascadeDeletes {
-        private let outer = SwiftDataPersistenceStoreTests()
-
-        @Test
-        func `Account deletion cascades through conversations to messages`() async throws {
+        func `Mark conversation read resets unread count`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
 
-            let conversation = outer.makeConversation(accountID: account.id)
+            var conversation = outer.makeConversation(accountID: account.id)
+            conversation.unreadCount = 5
             try await store.upsertConversation(conversation)
 
-            let message = outer.makeMessage(conversationID: conversation.id)
-            try await store.insertMessage(message)
+            try await store.markConversationRead(conversation.id)
 
-            try await store.deleteAccount(account.id)
-
-            let conversations = try await store.fetchConversations(for: account.id)
-            let messages = try await store.fetchMessages(
-                for: conversation.id, before: nil, limit: 50
-            )
-            #expect(conversations.isEmpty)
-            #expect(messages.isEmpty)
-        }
-    }
-
-    // MARK: - Dedup Queries
-
-    struct DedupQueries {
-        private let outer = SwiftDataPersistenceStoreTests()
-
-        private func makeStoreWithConversation() async throws -> (SwiftDataPersistenceStore, UUID) {
-            let store = try outer.makeStore()
-            let account = outer.makeAccount()
-            try await store.saveAccount(account)
-            let conversation = outer.makeConversation(accountID: account.id)
-            try await store.upsertConversation(conversation)
-            return (store, conversation.id)
-        }
-
-        @Test
-        func `messageExistsByServerID returns true for existing serverID`() async throws {
-            let (store, conversationID) = try await makeStoreWithConversation()
-            let msg = outer.makeMessage(conversationID: conversationID, serverID: "srv-1")
-            try await store.insertMessage(msg)
-
-            let exists = try await store.messageExistsByServerID("srv-1", conversationID: conversationID)
-            #expect(exists)
-        }
-
-        @Test
-        func `messageExistsByServerID returns false for unknown serverID`() async throws {
-            let (store, conversationID) = try await makeStoreWithConversation()
-            let msg = outer.makeMessage(conversationID: conversationID, serverID: "srv-1")
-            try await store.insertMessage(msg)
-
-            let exists = try await store.messageExistsByServerID("srv-999", conversationID: conversationID)
-            #expect(!exists)
-        }
-
-        @Test
-        func `messageExistsByServerID scoped to conversation`() async throws {
-            let store = try outer.makeStore()
-            let account = outer.makeAccount()
-            try await store.saveAccount(account)
-
-            let convA = outer.makeConversation(accountID: account.id, jid: "alice@example.com")
-            let convB = outer.makeConversation(accountID: account.id, jid: "bob@example.com")
-            try await store.upsertConversation(convA)
-            try await store.upsertConversation(convB)
-
-            let msg = outer.makeMessage(conversationID: convA.id, serverID: "srv-1")
-            try await store.insertMessage(msg)
-
-            let existsInA = try await store.messageExistsByServerID("srv-1", conversationID: convA.id)
-            let existsInB = try await store.messageExistsByServerID("srv-1", conversationID: convB.id)
-            #expect(existsInA)
-            #expect(!existsInB)
-        }
-
-        @Test
-        func `messageExistsByStanzaID returns true for existing stanzaID`() async throws {
-            let (store, conversationID) = try await makeStoreWithConversation()
-            let msg = outer.makeMessage(conversationID: conversationID, stanzaID: "stanza-1")
-            try await store.insertMessage(msg)
-
-            let exists = try await store.messageExistsByStanzaID("stanza-1", conversationID: conversationID)
-            #expect(exists)
-        }
-
-        @Test
-        func `messageExistsByStanzaID returns false for unknown stanzaID`() async throws {
-            let (store, conversationID) = try await makeStoreWithConversation()
-            let msg = outer.makeMessage(conversationID: conversationID, stanzaID: "stanza-1")
-            try await store.insertMessage(msg)
-
-            let exists = try await store.messageExistsByStanzaID("stanza-999", conversationID: conversationID)
-            #expect(!exists)
-        }
-
-        @Test
-        func `messageExistsByStanzaID scoped to conversation`() async throws {
-            let store = try outer.makeStore()
-            let account = outer.makeAccount()
-            try await store.saveAccount(account)
-
-            let convA = outer.makeConversation(accountID: account.id, jid: "alice@example.com")
-            let convB = outer.makeConversation(accountID: account.id, jid: "bob@example.com")
-            try await store.upsertConversation(convA)
-            try await store.upsertConversation(convB)
-
-            let msg = outer.makeMessage(conversationID: convA.id, stanzaID: "stanza-1")
-            try await store.insertMessage(msg)
-
-            let existsInA = try await store.messageExistsByStanzaID("stanza-1", conversationID: convA.id)
-            let existsInB = try await store.messageExistsByStanzaID("stanza-1", conversationID: convB.id)
-            #expect(existsInA)
-            #expect(!existsInB)
+            let fetched = try await store.fetchConversations(for: account.id)
+            #expect(fetched.first?.unreadCount == 0)
+            #expect(fetched.first?.lastReadTimestamp != nil)
         }
     }
 
@@ -524,11 +310,9 @@ struct SwiftDataPersistenceStoreTests {
             let accounts = try await store.fetchAccounts()
             let contacts = try await store.fetchContacts(for: UUID())
             let conversations = try await store.fetchConversations(for: UUID())
-            let messages = try await store.fetchMessages(for: UUID(), before: nil, limit: 50)
             #expect(accounts.isEmpty)
             #expect(contacts.isEmpty)
             #expect(conversations.isEmpty)
-            #expect(messages.isEmpty)
         }
 
         @Test

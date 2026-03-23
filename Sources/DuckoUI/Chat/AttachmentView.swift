@@ -20,11 +20,7 @@ struct AttachmentView: View {
 
     private var imageAttachment: some View {
         Group {
-            if let thumbnailData = attachment.thumbnailData, let nsImage = NSImage(data: thumbnailData) {
-                Image(nsImage: nsImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else if let imageURL = URL(string: attachment.url) {
+            if let imageURL = URL(string: attachment.url) {
                 AsyncImage(url: imageURL) { phase in
                     switch phase {
                     case let .success(image):

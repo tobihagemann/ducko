@@ -318,7 +318,6 @@ public final class OMEMOService {
             body: body,
             timestamp: Date(),
             isOutgoing: isOutgoing,
-            isRead: isOutgoing,
             isDelivered: false,
             isEdited: false,
             type: "chat",

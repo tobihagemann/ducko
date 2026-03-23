@@ -17,7 +17,6 @@ struct PlainFormatterTests {
             body: "Hello!",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -36,7 +35,7 @@ struct PlainFormatterTests {
             body: "Hi there",
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -271,7 +270,7 @@ struct PlainFormatterTests {
             body: "/me waves",
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -290,7 +289,7 @@ struct PlainFormatterTests {
             body: "/me waves",
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -307,7 +306,7 @@ struct PlainFormatterTests {
             body: "/me waves",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -328,7 +327,7 @@ struct PlainFormatterTests {
             body: "Hi",
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
+
             isDelivered: true,
             isEdited: false,
             type: "chat"
@@ -345,7 +344,7 @@ struct PlainFormatterTests {
             body: "Hi",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: true,
             isEdited: false,
             type: "chat"
@@ -362,7 +361,7 @@ struct PlainFormatterTests {
             body: "corrected text",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: true,
             type: "chat"
@@ -379,7 +378,7 @@ struct PlainFormatterTests {
             body: "failed message",
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
+
             isDelivered: false,
             isEdited: false,
             type: "chat",
@@ -399,7 +398,7 @@ struct PlainFormatterTests {
             body: "Check this out",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: false,
             type: "chat",
@@ -418,7 +417,7 @@ struct PlainFormatterTests {
             body: "Two files",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: false,
             type: "chat",

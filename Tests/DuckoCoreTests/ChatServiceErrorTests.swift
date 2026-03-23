@@ -9,8 +9,8 @@ private let testAccountID = UUID()
 private let contactJID = BareJID(localPart: "contact", domainPart: "example.com")!
 
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 // MARK: - Tests
@@ -21,7 +21,8 @@ enum ChatServiceErrorTests {
         @MainActor
         func `Message error updates errorText`() async throws {
             let store = MockPersistenceStore()
-            let service = makeChatService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let conversationID = UUID()
             await store.addConversation(Conversation(
@@ -31,10 +32,10 @@ enum ChatServiceErrorTests {
             let message = ChatMessage(
                 id: UUID(), conversationID: conversationID, stanzaID: "msg-err-1",
                 fromJID: contactJID.description, body: "Hello",
-                timestamp: Date(), isOutgoing: true, isRead: true,
+                timestamp: Date(), isOutgoing: true,
                 isDelivered: false, isEdited: false, type: "chat"
             )
-            await store.addMessage(message)
+            await transcripts.addMessage(message)
 
             let from = try #require(JID.parse("contact@example.com/res"))
             let stanzaError = XMPPStanzaError(errorType: .cancel, condition: .serviceUnavailable)
@@ -43,7 +44,7 @@ enum ChatServiceErrorTests {
                 accountID: testAccountID
             )
 
-            let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 50)
             #expect(messages[0].errorText == "service-unavailable")
         }
 
@@ -51,7 +52,8 @@ enum ChatServiceErrorTests {
         @MainActor
         func `Message error without ID is ignored`() async throws {
             let store = MockPersistenceStore()
-            let service = makeChatService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let from = try #require(JID.parse("contact@example.com/res"))
             let stanzaError = XMPPStanzaError(errorType: .cancel, condition: .undefinedCondition, text: "error")
@@ -61,7 +63,7 @@ enum ChatServiceErrorTests {
             )
 
             // No crash, no messages affected
-            let messageCount = try await store.fetchMessages(for: UUID(), before: nil, limit: 50).count
+            let messageCount = try await transcripts.fetchMessages(for: UUID(), before: nil, limit: 50).count
             #expect(messageCount == 0)
         }
     }

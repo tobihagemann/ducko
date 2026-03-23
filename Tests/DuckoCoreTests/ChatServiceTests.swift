@@ -13,9 +13,13 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
+private func makeTranscripts() -> MockTranscriptStore {
+    MockTranscriptStore()
+}
+
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 private func makeIncomingMessage(
@@ -41,7 +45,8 @@ enum ChatServiceTests {
         @MainActor
         func `Incoming message creates conversation and persists message`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let xmppMessage = makeIncomingMessage(from: contactJID, body: "Hello!")
             await service.handleEvent(.messageReceived(xmppMessage), accountID: testAccountID)
@@ -51,18 +56,18 @@ enum ChatServiceTests {
             #expect(conversations[0].jid == contactJID)
             #expect(conversations[0].type == .chat)
 
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages.count == 1)
             #expect(messages[0].body == "Hello!")
             #expect(messages[0].isOutgoing == false)
-            #expect(messages[0].isRead == false)
         }
 
         @Test
         @MainActor
         func `Incoming message upserts existing conversation`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // First message creates conversation
             let msg1 = makeIncomingMessage(from: contactJID, body: "First")
@@ -75,7 +80,7 @@ enum ChatServiceTests {
             let conversations = try await store.fetchConversations(for: testAccountID)
             #expect(conversations.count == 1)
 
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages.count == 2)
         }
 
@@ -83,7 +88,8 @@ enum ChatServiceTests {
         @MainActor
         func `Duplicate stanza ID is ignored`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let msg1 = makeIncomingMessage(from: contactJID, body: "Hello!", id: "msg-1")
             await service.handleEvent(.messageReceived(msg1), accountID: testAccountID)
@@ -96,7 +102,7 @@ enum ChatServiceTests {
             await service.handleEvent(.messageReceived(msg2), accountID: testAccountID)
 
             let conversations = try await store.fetchConversations(for: testAccountID)
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages.count == 1)
         }
 
@@ -104,7 +110,8 @@ enum ChatServiceTests {
         @MainActor
         func `Messages without body are ignored`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Message with no body
             var xmppMessage = XMPPMessage(type: .chat, to: .bare(testAccountJID))
@@ -119,7 +126,8 @@ enum ChatServiceTests {
         @MainActor
         func `Non-chat messages are ignored`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             var xmppMessage = XMPPMessage(type: .headline, to: .bare(testAccountJID))
             xmppMessage.from = try .full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
@@ -136,7 +144,8 @@ enum ChatServiceTests {
         @MainActor
         func `Conversation metadata is updated on incoming message`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let msg = makeIncomingMessage(from: contactJID, body: "Test message")
             await service.handleEvent(.messageReceived(msg), accountID: testAccountID)
@@ -151,7 +160,8 @@ enum ChatServiceTests {
         @MainActor
         func `Unread count increments with each message`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let msg1 = makeIncomingMessage(from: contactJID, body: "First")
             await service.handleEvent(.messageReceived(msg1), accountID: testAccountID)
@@ -169,7 +179,8 @@ enum ChatServiceTests {
         @MainActor
         func `Non-message events are ignored`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let presence = XMPPPresence(type: nil)
             await service.handleEvent(.presenceReceived(presence), accountID: testAccountID)
@@ -184,7 +195,8 @@ enum ChatServiceTests {
         @MainActor
         func `openConversation creates and returns conversation`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let conversation = try await service.openConversation(for: contactJID, accountID: testAccountID)
 
@@ -197,7 +209,8 @@ enum ChatServiceTests {
         @MainActor
         func `openConversation returns existing conversation`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let first = try await service.openConversation(for: contactJID, accountID: testAccountID)
             let second = try await service.openConversation(for: contactJID, accountID: testAccountID)
@@ -212,7 +225,8 @@ enum ChatServiceTests {
         @MainActor
         func `loadMessages returns messages in chronological order`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Create messages via incoming events
             let msg1 = makeIncomingMessage(from: contactJID, body: "First")
@@ -234,15 +248,16 @@ enum ChatServiceTests {
         @MainActor
         func `Message content passes through filter pipeline`() async throws {
             let store = makeStore()
+            let transcripts = makeTranscripts()
             let pipeline = MessageFilterPipeline()
             await pipeline.register(UppercaseFilter())
-            let service = ChatService(store: store, filterPipeline: pipeline)
+            let service = ChatService(store: store, transcripts: transcripts, filterPipeline: pipeline)
 
             let msg = makeIncomingMessage(from: contactJID, body: "hello")
             await service.handleEvent(.messageReceived(msg), accountID: testAccountID)
 
             let conversations = try await store.fetchConversations(for: testAccountID)
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages[0].body == "HELLO")
         }
     }

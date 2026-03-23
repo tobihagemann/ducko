@@ -15,8 +15,11 @@ enum CLIBootstrap {
         let omemoStore = SwiftDataOMEMOStore(modelContainer: container)
         let eventHandler = CLIEventHandler(formatter: formatter, isInteractive: isInteractive)
 
+        let transcripts = FileTranscriptStore.makeDefault()
+
         let environment = AppEnvironment(
             store: store,
+            transcripts: transcripts,
             omemoStore: omemoStore,
             onExternalEvent: { event, accountID in
                 Task {

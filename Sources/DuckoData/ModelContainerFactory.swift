@@ -7,8 +7,6 @@ public enum ModelContainerFactory {
         AccountRecord.self,
         ContactRecord.self,
         ConversationRecord.self,
-        MessageRecord.self,
-        AttachmentRecord.self,
         LinkPreviewRecord.self,
         OMEMOIdentityRecord.self,
         OMEMOPreKeyRecord.self,

@@ -15,7 +15,7 @@ struct ANSIFormatterTests {
             body: "Hello!",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -52,7 +52,7 @@ struct ANSIFormatterTests {
             body: "Hello!",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -145,7 +145,7 @@ struct ANSIFormatterTests {
             body: "Hi",
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -164,7 +164,7 @@ struct ANSIFormatterTests {
             body: "Hi",
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
+
             isDelivered: true,
             isEdited: false,
             type: "chat"
@@ -181,7 +181,7 @@ struct ANSIFormatterTests {
             body: "corrected",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: true,
             type: "chat"
@@ -216,7 +216,7 @@ struct ANSIFormatterTests {
             body: "Check this out",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: false,
             type: "chat",
@@ -235,7 +235,7 @@ struct ANSIFormatterTests {
             body: "Just text",
             timestamp: Date(),
             isOutgoing: false,
-            isRead: false,
+
             isDelivered: false,
             isEdited: false,
             type: "chat"

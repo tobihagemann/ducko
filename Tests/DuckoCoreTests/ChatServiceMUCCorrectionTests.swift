@@ -12,12 +12,16 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
-@MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeTranscripts() -> MockTranscriptStore {
+    MockTranscriptStore()
 }
 
-private func seedGroupchatMessage(store: MockPersistenceStore) async -> UUID {
+@MainActor
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
+}
+
+private func seedGroupchatMessage(store: MockPersistenceStore, transcripts: MockTranscriptStore) async -> UUID {
     let conversationID = UUID()
     await store.addConversation(Conversation(
         id: conversationID, accountID: testAccountID, jid: roomJID,
@@ -26,10 +30,10 @@ private func seedGroupchatMessage(store: MockPersistenceStore) async -> UUID {
     let message = ChatMessage(
         id: UUID(), conversationID: conversationID, stanzaID: "msg-original",
         fromJID: "alice", body: "Original text",
-        timestamp: Date(), isOutgoing: false, isRead: false,
+        timestamp: Date(), isOutgoing: false,
         isDelivered: false, isEdited: false, type: "groupchat"
     )
-    await store.addMessage(message)
+    await transcripts.addMessage(message)
     return conversationID
 }
 
@@ -41,8 +45,9 @@ enum ChatServiceMUCCorrectionTests {
         @MainActor
         func `MUC correction updates body when nickname matches`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
-            let conversationID = await seedGroupchatMessage(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let conversationID = await seedGroupchatMessage(store: store, transcripts: transcripts)
 
             let from = try #require(JID.parse("room@conference.example.com/alice"))
             await service.handleEvent(
@@ -50,7 +55,7 @@ enum ChatServiceMUCCorrectionTests {
                 accountID: testAccountID
             )
 
-            let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 50)
             #expect(messages[0].body == "Corrected text")
             #expect(messages[0].isEdited == true)
             #expect(messages[0].editedAt != nil)
@@ -62,8 +67,9 @@ enum ChatServiceMUCCorrectionTests {
         @MainActor
         func `MUC correction rejected when nickname does not match`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
-            let conversationID = await seedGroupchatMessage(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let conversationID = await seedGroupchatMessage(store: store, transcripts: transcripts)
 
             let attacker = try #require(JID.parse("room@conference.example.com/bob"))
             await service.handleEvent(
@@ -71,7 +77,7 @@ enum ChatServiceMUCCorrectionTests {
                 accountID: testAccountID
             )
 
-            let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 50)
             #expect(messages[0].body == "Original text")
             #expect(messages[0].isEdited == false)
         }
@@ -80,8 +86,9 @@ enum ChatServiceMUCCorrectionTests {
         @MainActor
         func `MUC correction rejected when from is bare JID`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
-            let conversationID = await seedGroupchatMessage(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let conversationID = await seedGroupchatMessage(store: store, transcripts: transcripts)
 
             let bareFrom = JID.bare(roomJID)
             await service.handleEvent(
@@ -89,7 +96,7 @@ enum ChatServiceMUCCorrectionTests {
                 accountID: testAccountID
             )
 
-            let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 50)
             #expect(messages[0].body == "Original text")
             #expect(messages[0].isEdited == false)
         }

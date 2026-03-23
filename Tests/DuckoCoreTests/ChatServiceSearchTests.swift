@@ -10,12 +10,16 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
-@MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeTranscripts() -> MockTranscriptStore {
+    MockTranscriptStore()
 }
 
-private func seedMessages(store: MockPersistenceStore, conversationID: UUID) async {
+@MainActor
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
+}
+
+private func seedMessages(transcripts: MockTranscriptStore, conversationID: UUID) async {
     let bodies = [
         "Hello world",
         "How are you?",
@@ -31,12 +35,11 @@ private func seedMessages(store: MockPersistenceStore, conversationID: UUID) asy
             body: body,
             timestamp: Date(timeIntervalSince1970: Double(index) * 60),
             isOutgoing: index.isMultiple(of: 2),
-            isRead: true,
             isDelivered: false,
             isEdited: false,
             type: "chat"
         )
-        await store.addMessage(message)
+        await transcripts.addMessage(message)
     }
 }
 
@@ -46,8 +49,9 @@ enum ChatServiceSearchTests {
         @Test
         func `filters messages case insensitively`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
-            await seedMessages(store: store, conversationID: testConversationID)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            await seedMessages(transcripts: transcripts, conversationID: testConversationID)
 
             let results = try await service.searchMessages(for: testConversationID, query: "cafe")
             #expect(results.count == 2)
@@ -58,8 +62,9 @@ enum ChatServiceSearchTests {
         @Test
         func `no matches returns empty`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
-            await seedMessages(store: store, conversationID: testConversationID)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            await seedMessages(transcripts: transcripts, conversationID: testConversationID)
 
             let results = try await service.searchMessages(for: testConversationID, query: "nonexistent")
             #expect(results.isEmpty)
@@ -68,7 +73,8 @@ enum ChatServiceSearchTests {
         @Test
         func `respects limit`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             for index in 0 ..< 10 {
                 let message = ChatMessage(
@@ -78,12 +84,11 @@ enum ChatServiceSearchTests {
                     body: "hello \(index)",
                     timestamp: Date(timeIntervalSince1970: Double(index) * 60),
                     isOutgoing: false,
-                    isRead: true,
                     isDelivered: false,
                     isEdited: false,
                     type: "chat"
                 )
-                await store.addMessage(message)
+                await transcripts.addMessage(message)
             }
 
             let results = try await service.searchMessages(for: testConversationID, query: "hello", limit: 3)
@@ -97,8 +102,9 @@ enum ChatServiceSearchTests {
         @Test
         func `returns chronological order`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
-            await seedMessages(store: store, conversationID: testConversationID)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            await seedMessages(transcripts: transcripts, conversationID: testConversationID)
 
             let results = try await service.searchMessages(for: testConversationID, query: "cafe")
             #expect(results.count == 2)

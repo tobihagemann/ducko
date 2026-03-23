@@ -9,7 +9,8 @@ enum AdiumImportServiceTests {
         @Test
         func `Jabber accounts use identifier directly`() async {
             let store = MockPersistenceStore()
-            let service = AdiumImportService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
             let jid = await service.syntheticJID(identifier: "saibot@exnet.me", service: "Jabber")
             #expect(jid == "saibot@exnet.me")
         }
@@ -17,7 +18,8 @@ enum AdiumImportServiceTests {
         @Test
         func `GTalk accounts use identifier directly`() async {
             let store = MockPersistenceStore()
-            let service = AdiumImportService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
             let jid = await service.syntheticJID(identifier: "user@gmail.com", service: "GTalk")
             #expect(jid == "user@gmail.com")
         }
@@ -25,7 +27,8 @@ enum AdiumImportServiceTests {
         @Test
         func `Non-XMPP services get synthetic JIDs`() async {
             let store = MockPersistenceStore()
-            let service = AdiumImportService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
 
             let aim = await service.syntheticJID(identifier: "musclerumble", service: "AIM")
             #expect(aim == "musclerumble@aim.adium-import")
@@ -42,7 +45,8 @@ enum AdiumImportServiceTests {
         @Test
         func `Importing same file twice produces no duplicates`() async throws {
             let store = MockPersistenceStore()
-            let service = AdiumImportService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
 
             let xml = """
             <?xml version="1.0" encoding="UTF-8" ?>
@@ -77,8 +81,8 @@ enum AdiumImportServiceTests {
             #expect(result2.importedMessages == 0)
             #expect(result2.skippedDuplicates == 2)
 
-            // Verify total messages in store
-            let allMessages = await store.messages
+            // Verify total messages in transcript store
+            let allMessages = await transcripts.messages
             #expect(allMessages.count == 2)
         }
     }
@@ -87,7 +91,8 @@ enum AdiumImportServiceTests {
         @Test
         func `Creates disabled placeholder account for new service`() async throws {
             let store = MockPersistenceStore()
-            let service = AdiumImportService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
 
             let xml = """
             <?xml version="1.0" encoding="UTF-8" ?>
@@ -130,7 +135,8 @@ enum AdiumImportServiceTests {
             )
             try await store.saveAccount(existingAccount)
 
-            let service = AdiumImportService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
             let xml = """
             <?xml version="1.0" encoding="UTF-8" ?>
             <chat xmlns="http://purl.org/net/ulf/ns/0.4-02" account="saibot@exnet.me" service="Jabber">
@@ -162,7 +168,8 @@ enum AdiumImportServiceTests {
         @Test
         func `Reports progress during import`() async throws {
             let store = MockPersistenceStore()
-            let service = AdiumImportService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
 
             let xml = """
             <?xml version="1.0" encoding="UTF-8" ?>

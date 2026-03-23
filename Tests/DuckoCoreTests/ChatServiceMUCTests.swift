@@ -13,9 +13,13 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
+private func makeTranscripts() -> MockTranscriptStore {
+    MockTranscriptStore()
+}
+
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 private func makeGroupMessage(
@@ -39,7 +43,8 @@ enum ChatServiceMUCTests {
         @MainActor
         func `roomJoined creates groupchat conversation`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let occupancy = RoomOccupancy(
                 nickname: "me",
@@ -61,7 +66,8 @@ enum ChatServiceMUCTests {
         @MainActor
         func `roomMessageReceived persists incoming group message`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Create the group conversation first
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
@@ -72,7 +78,7 @@ enum ChatServiceMUCTests {
             await service.handleEvent(.roomMessageReceived(xmppMessage), accountID: testAccountID)
 
             let conversations = try await store.fetchConversations(for: testAccountID)
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages.count == 1)
             #expect(messages[0].body == "Hello room!")
             #expect(messages[0].type == "groupchat")
@@ -84,7 +90,8 @@ enum ChatServiceMUCTests {
         @MainActor
         func `Own groupchat echo is persisted without a wired-up client`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Create the group conversation
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
@@ -98,7 +105,7 @@ enum ChatServiceMUCTests {
 
             // Without a wired-up client, the message is persisted (expected for unit test scope)
             let conversations = try await store.fetchConversations(for: testAccountID)
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages.count == 1)
         }
     }
@@ -108,7 +115,8 @@ enum ChatServiceMUCTests {
         @MainActor
         func `roomSubjectChanged updates conversation`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Create the group conversation
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
@@ -129,7 +137,8 @@ enum ChatServiceMUCTests {
         @MainActor
         func `Multiple events for same room reuse existing conversation`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Join creates conversation
             let occupancy = RoomOccupancy(nickname: "me", occupants: [], subject: nil)
@@ -142,7 +151,7 @@ enum ChatServiceMUCTests {
             let conversations = try await store.fetchConversations(for: testAccountID)
             #expect(conversations.count == 1)
 
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages.count == 1)
         }
     }

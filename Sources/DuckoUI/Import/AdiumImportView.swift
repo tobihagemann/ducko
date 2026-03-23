@@ -155,7 +155,7 @@ public struct AdiumImportView: View {
 
     private func performImport(_ sources: [AdiumServiceAccount]) async {
         isImporting = true
-        let importService = AdiumImportService(store: environment.store)
+        let importService = AdiumImportService(store: environment.store, transcripts: environment.transcripts)
 
         do {
             result = try await importService.importLogs(from: sources) { p in

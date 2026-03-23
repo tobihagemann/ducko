@@ -10,8 +10,8 @@ private let testAccountJID = BareJID(localPart: "user", domainPart: "example.com
 private let contactJID = BareJID(localPart: "contact", domainPart: "example.com")!
 
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 // MARK: - Tests
@@ -22,7 +22,8 @@ enum ChatServiceReplyTests {
         @MainActor
         func `Incoming message with reply element sets replyToID`() async throws {
             let store = MockPersistenceStore()
-            let service = makeChatService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             var xmppMessage = XMPPMessage(type: .chat, to: .bare(testAccountJID), id: "reply-msg-1")
             xmppMessage.from = try .full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
@@ -37,7 +38,7 @@ enum ChatServiceReplyTests {
             await service.handleEvent(.messageReceived(xmppMessage), accountID: testAccountID)
 
             let conversations = try await store.fetchConversations(for: testAccountID)
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages[0].replyToID == "original-msg-1")
             #expect(messages[0].body == "This is a reply")
         }
@@ -46,7 +47,8 @@ enum ChatServiceReplyTests {
         @MainActor
         func `Incoming message without reply element has nil replyToID`() async throws {
             let store = MockPersistenceStore()
-            let service = makeChatService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             var xmppMessage = XMPPMessage(type: .chat, to: .bare(testAccountJID), id: "plain-msg-1")
             xmppMessage.from = try .full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
@@ -55,7 +57,7 @@ enum ChatServiceReplyTests {
             await service.handleEvent(.messageReceived(xmppMessage), accountID: testAccountID)
 
             let conversations = try await store.fetchConversations(for: testAccountID)
-            let messages = try await store.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages[0].replyToID == nil)
         }
     }

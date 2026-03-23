@@ -10,7 +10,6 @@ public struct ChatMessage: Sendable, Identifiable {
     public var htmlBody: String?
     public var timestamp: Date
     public var isOutgoing: Bool
-    public var isRead: Bool
     public var isDelivered: Bool
     public var isEdited: Bool
     public var editedAt: Date?
@@ -32,7 +31,6 @@ public struct ChatMessage: Sendable, Identifiable {
         htmlBody: String? = nil,
         timestamp: Date,
         isOutgoing: Bool,
-        isRead: Bool,
         isDelivered: Bool,
         isEdited: Bool,
         editedAt: Date? = nil,
@@ -53,7 +51,6 @@ public struct ChatMessage: Sendable, Identifiable {
         self.htmlBody = htmlBody
         self.timestamp = timestamp
         self.isOutgoing = isOutgoing
-        self.isRead = isRead
         self.isDelivered = isDelivered
         self.isEdited = isEdited
         self.editedAt = editedAt
@@ -80,7 +77,6 @@ public struct ChatMessage: Sendable, Identifiable {
             body: body,
             timestamp: Date(),
             isOutgoing: true,
-            isRead: true,
             isDelivered: false,
             isEdited: false,
             type: type,

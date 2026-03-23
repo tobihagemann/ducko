@@ -4,6 +4,7 @@ import Foundation
 @MainActor @Observable
 public final class AppEnvironment {
     public nonisolated let store: any PersistenceStore
+    public nonisolated let transcripts: any TranscriptStore
     public nonisolated let credentialStore: any CredentialStore
     public let accountService: AccountService
     public let chatService: ChatService
@@ -18,6 +19,7 @@ public final class AppEnvironment {
 
     public init(
         store: any PersistenceStore,
+        transcripts: any TranscriptStore,
         credentialStore: (any CredentialStore)? = nil,
         omemoStore: (any OMEMOStore)? = nil,
         linkPreviewFetcher: any LinkPreviewFetcher = NoOpLinkPreviewFetcher(),
@@ -26,7 +28,7 @@ public final class AppEnvironment {
         let resolvedCredentialStore = credentialStore ?? CredentialStoreFactory.makeDefault()
 
         let pipeline = MessageFilterPipeline()
-        let chatService = ChatService(store: store, filterPipeline: pipeline)
+        let chatService = ChatService(store: store, transcripts: transcripts, filterPipeline: pipeline)
         let presenceService = PresenceService()
         let rosterService = RosterService(store: store)
         let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore)
@@ -54,6 +56,7 @@ public final class AppEnvironment {
         Self.registerFilters(pipeline: pipeline, linkPreviewService: linkPreviewService)
 
         self.store = store
+        self.transcripts = transcripts
         self.credentialStore = resolvedCredentialStore
         self.accountService = accountService
         self.chatService = chatService

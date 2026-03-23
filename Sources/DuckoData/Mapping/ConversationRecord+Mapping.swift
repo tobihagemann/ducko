@@ -21,6 +21,7 @@ extension ConversationRecord {
             roomNickname: roomNickname,
             encryptionEnabled: encryptionEnabled,
             occupantNickname: occupantNickname,
+            lastReadTimestamp: lastReadTimestamp,
             createdAt: createdAt
         )
     }
@@ -38,5 +39,6 @@ extension ConversationRecord {
         roomNickname = conversation.roomNickname
         encryptionEnabled = conversation.encryptionEnabled
         occupantNickname = conversation.occupantNickname
+        lastReadTimestamp = conversation.lastReadTimestamp
     }
 }

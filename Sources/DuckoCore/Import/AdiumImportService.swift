@@ -4,12 +4,14 @@ import Logging
 
 private let log = Logger(label: "im.ducko.core.import")
 
-/// Orchestrates importing Adium chat logs into Ducko's persistence store.
+/// Orchestrates importing Adium chat logs into Ducko's transcript store.
 public actor AdiumImportService {
     private let store: any PersistenceStore
+    private let transcripts: any TranscriptStore
 
-    public init(store: any PersistenceStore) {
+    public init(store: any PersistenceStore, transcripts: any TranscriptStore) {
         self.store = store
+        self.transcripts = transcripts
     }
 
     // MARK: - Progress
@@ -72,6 +74,10 @@ public actor AdiumImportService {
 
                 // Cache conversation for this contact
                 var conversation: Conversation?
+                // In-memory set of stanzaIDs already imported for this conversation
+                var knownStanzaIDs: Set<String> = []
+                // Track latest message for deferred conversation metadata update
+                var latestMessage: ChatMessage?
 
                 for fileURL in logFiles {
                     try Task.checkCancellation()
@@ -92,6 +98,9 @@ public actor AdiumImportService {
 
                             if let existing = try await store.fetchConversation(jid: jidString, type: chatType, accountID: account.id) {
                                 conversation = existing
+                                // Seed stanzaID cache for re-import scenario
+                                let existingMessages = try await transcripts.fetchMessages(for: existing.id, before: nil, limit: Int.max)
+                                knownStanzaIDs = Set(existingMessages.compactMap(\.stanzaID))
                             } else {
                                 guard let bareJID = BareJID.parse(jidString) else {
                                     result.errors.append(ImportError(file: contactDir.path, message: "Invalid JID: \(jidString)"))
@@ -116,7 +125,21 @@ public actor AdiumImportService {
 
                         guard let conv = conversation else { continue }
 
-                        // Build messages and check for duplicates
+                        // Write transcript metadata on first file for this contact
+                        if result.completedFiles == 0 || knownStanzaIDs.isEmpty {
+                            try await transcripts.writeMetadata(
+                                TranscriptMetadata(
+                                    conversationID: conv.id,
+                                    accountJID: account.jid.description,
+                                    contactJID: syntheticJID(identifier: contactUID, service: source.service),
+                                    type: conv.type.rawValue,
+                                    displayName: contactUID
+                                ),
+                                for: conv.id
+                            )
+                        }
+
+                        // Build messages
                         let messages = parsed.entries.enumerated().map { index, entry in
                             let stanzaID = AdiumXMLLogParser.stanzaID(sourcePath: parsed.sourcePath, messageIndex: index)
                             let isOutgoing = isOutgoingMessage(entry: entry, accountUID: source.accountUID)
@@ -135,34 +158,33 @@ public actor AdiumImportService {
                                 htmlBody: entry.htmlBody,
                                 timestamp: entry.timestamp,
                                 isOutgoing: isOutgoing,
-                                isRead: true,
                                 isDelivered: true,
                                 isEdited: false,
                                 type: conv.type.rawValue
                             )
                         }
 
-                        let allStanzaIDs = Set(messages.compactMap(\.stanzaID))
-                        let existingIDs = try await store.existingStanzaIDs(allStanzaIDs, in: conv.id)
+                        // Deduplicate using in-memory set (O(1) per message)
                         let newMessages = messages.filter { msg in
                             guard let sid = msg.stanzaID else { return true }
-                            return !existingIDs.contains(sid)
+                            return !knownStanzaIDs.contains(sid)
                         }
 
                         result.skippedDuplicates += messages.count - newMessages.count
 
                         if !newMessages.isEmpty {
-                            try await store.insertMessages(newMessages)
+                            try await transcripts.appendMessages(newMessages)
                             result.importedMessages += newMessages.count
 
-                            // Update conversation last message
-                            if let lastMessage = newMessages.max(by: { $0.timestamp < $1.timestamp }) {
-                                if lastMessage.timestamp > (conv.lastMessageDate ?? .distantPast) {
-                                    var updated = conv
-                                    updated.lastMessageDate = lastMessage.timestamp
-                                    updated.lastMessagePreview = String(lastMessage.body.prefix(100))
-                                    try await store.upsertConversation(updated)
-                                    conversation = updated
+                            // Track stanzaIDs and latest message
+                            for msg in newMessages {
+                                if let sid = msg.stanzaID {
+                                    knownStanzaIDs.insert(sid)
+                                }
+                            }
+                            if let fileLatest = newMessages.max(by: { $0.timestamp < $1.timestamp }) {
+                                if fileLatest.timestamp > (latestMessage?.timestamp ?? .distantPast) {
+                                    latestMessage = fileLatest
                                 }
                             }
                         }
@@ -176,6 +198,16 @@ public actor AdiumImportService {
                     result.completedFiles += 1
                     if result.completedFiles % 50 == 0 {
                         progress(result)
+                    }
+                }
+
+                // Update conversation metadata once per contact (not per file)
+                if let conv = conversation, let latestMessage {
+                    if latestMessage.timestamp > (conv.lastMessageDate ?? .distantPast) {
+                        var updated = conv
+                        updated.lastMessageDate = latestMessage.timestamp
+                        updated.lastMessagePreview = String(latestMessage.body.prefix(100))
+                        try await store.upsertConversation(updated)
                     }
                 }
             }

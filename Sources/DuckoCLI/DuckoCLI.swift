@@ -1498,7 +1498,7 @@ extension DuckoCLI {
                 }
 
                 print("Importing...")
-                let importService = AdiumImportService(store: context.environment.store)
+                let importService = AdiumImportService(store: context.environment.store, transcripts: context.environment.transcripts)
                 let result = try await importService.importLogs(from: sources) { progress in
                     let pct = progress.totalFiles > 0
                         ? Int(Double(progress.completedFiles) / Double(progress.totalFiles) * 100)

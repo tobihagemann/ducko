@@ -41,12 +41,7 @@ struct ImagePreviewSheet: View {
 
     @ViewBuilder
     private var imageContent: some View {
-        if let thumbnailData = attachment.thumbnailData, let nsImage = NSImage(data: thumbnailData) {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .padding()
-        } else if let imageURL = URL(string: attachment.url) {
+        if let imageURL = URL(string: attachment.url) {
             AsyncImage(url: imageURL) { phase in
                 switch phase {
                 case let .success(image):

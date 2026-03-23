@@ -13,12 +13,11 @@ final class ConversationRecord {
     var lastMessagePreview: String?
     var unreadCount: Int
     var account: AccountRecord?
-    @Relationship(deleteRule: .cascade, inverse: \MessageRecord.conversation)
-    var messages: [MessageRecord]
     var roomSubject: String?
     var roomNickname: String?
     var encryptionEnabled: Bool = false
     var occupantNickname: String?
+    var lastReadTimestamp: Date?
     var createdAt: Date
 
     init(
@@ -32,11 +31,11 @@ final class ConversationRecord {
         lastMessagePreview: String? = nil,
         unreadCount: Int = 0,
         account: AccountRecord? = nil,
-        messages: [MessageRecord] = [],
         roomSubject: String? = nil,
         roomNickname: String? = nil,
         encryptionEnabled: Bool = false,
         occupantNickname: String? = nil,
+        lastReadTimestamp: Date? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -49,11 +48,11 @@ final class ConversationRecord {
         self.lastMessagePreview = lastMessagePreview
         self.unreadCount = unreadCount
         self.account = account
-        self.messages = messages
         self.roomSubject = roomSubject
         self.roomNickname = roomNickname
         self.encryptionEnabled = encryptionEnabled
         self.occupantNickname = occupantNickname
+        self.lastReadTimestamp = lastReadTimestamp
         self.createdAt = createdAt
     }
 }

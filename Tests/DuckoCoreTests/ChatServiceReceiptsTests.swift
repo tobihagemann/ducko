@@ -12,9 +12,13 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
+private func makeTranscripts() -> MockTranscriptStore {
+    MockTranscriptStore()
+}
+
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 // MARK: - Tests
@@ -25,7 +29,8 @@ enum ChatServiceReceiptsTests {
         @MainActor
         func `Delivery receipt updates isDelivered`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let conversationID = UUID()
             await store.addConversation(Conversation(
@@ -35,10 +40,10 @@ enum ChatServiceReceiptsTests {
             let message = ChatMessage(
                 id: UUID(), conversationID: conversationID, stanzaID: "outgoing-1",
                 fromJID: contactJID.description, body: "Hello",
-                timestamp: Date(), isOutgoing: true, isRead: true,
+                timestamp: Date(), isOutgoing: true,
                 isDelivered: false, isEdited: false, type: "chat"
             )
-            await store.addMessage(message)
+            await transcripts.addMessage(message)
 
             let from = try #require(JID.parse("contact@example.com/res"))
             await service.handleEvent(
@@ -46,7 +51,7 @@ enum ChatServiceReceiptsTests {
                 accountID: testAccountID
             )
 
-            let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 50)
             #expect(messages[0].isDelivered == true)
         }
     }
@@ -56,7 +61,8 @@ enum ChatServiceReceiptsTests {
         @MainActor
         func `Displayed chat marker updates isDelivered`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let conversationID = UUID()
             await store.addConversation(Conversation(
@@ -66,10 +72,10 @@ enum ChatServiceReceiptsTests {
             let message = ChatMessage(
                 id: UUID(), conversationID: conversationID, stanzaID: "outgoing-2",
                 fromJID: contactJID.description, body: "Hi",
-                timestamp: Date(), isOutgoing: true, isRead: true,
+                timestamp: Date(), isOutgoing: true,
                 isDelivered: false, isEdited: false, type: "chat"
             )
-            await store.addMessage(message)
+            await transcripts.addMessage(message)
 
             let from = try #require(JID.parse("contact@example.com/res"))
             await service.handleEvent(
@@ -77,7 +83,7 @@ enum ChatServiceReceiptsTests {
                 accountID: testAccountID
             )
 
-            let messages = try await store.fetchMessages(for: conversationID, before: nil, limit: 50)
+            let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 50)
             #expect(messages[0].isDelivered == true)
         }
     }

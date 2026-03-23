@@ -13,9 +13,13 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
+private func makeTranscripts() -> MockTranscriptStore {
+    MockTranscriptStore()
+}
+
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 // MARK: - Tests
@@ -26,7 +30,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `roomJoined seeds roomParticipants`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let occupancy = RoomOccupancy(
                 nickname: "me",
@@ -50,7 +55,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `roomOccupantJoined adds to roomParticipants`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Seed with initial occupancy
             let occupancy = RoomOccupancy(
@@ -80,7 +86,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `roomOccupantLeft removes from roomParticipants`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Seed with two occupants
             let occupancy = RoomOccupancy(
@@ -108,7 +115,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `participantGroups groups and sorts by affiliation`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let occupancy = RoomOccupancy(
                 nickname: "me",
@@ -136,7 +144,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `roomInviteReceived appends to pendingInvites`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let invite = RoomInvite(
                 room: testRoomJID,
@@ -156,7 +165,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `Direct invite sets isDirect on pendingInvite`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let invite = RoomInvite(
                 room: testRoomJID,
@@ -173,7 +183,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `Duplicate invites are deduplicated`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let invite = RoomInvite(room: testRoomJID, from: .bare(testAccountJID))
             await service.handleEvent(.roomInviteReceived(invite), accountID: testAccountID)
@@ -188,7 +199,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `declineInvite removes from pendingInvites`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let invite = RoomInvite(room: testRoomJID, from: .bare(testAccountJID))
             await service.handleEvent(.roomInviteReceived(invite), accountID: testAccountID)
@@ -204,7 +216,8 @@ enum ChatServiceMUCUITests {
         @MainActor
         func `mapOccupant correctly maps all affiliation/role values`() async {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let occupants = [
                 RoomOccupant(nickname: "o", jid: testAccountJID, affiliation: .owner, role: .moderator),

@@ -22,7 +22,8 @@ struct DuckoApp: App {
             let container = try ModelContainerFactory.makeContainer()
             let store = SwiftDataPersistenceStore(modelContainer: container)
             let omemoStore = SwiftDataOMEMOStore(modelContainer: container)
-            let env = AppEnvironment(store: store, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
+            let transcripts = FileTranscriptStore.makeDefault()
+            let env = AppEnvironment(store: store, transcripts: transcripts, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
             self.environment = env
             AppStateObserver(accountService: env.accountService)
         } catch {

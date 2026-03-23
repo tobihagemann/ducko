@@ -13,9 +13,13 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
+private func makeTranscripts() -> MockTranscriptStore {
+    MockTranscriptStore()
+}
+
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 // MARK: - Tests
@@ -26,7 +30,8 @@ enum ChatServiceMAMTests {
         @MainActor
         func `rosterLoaded event is handled without error`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Fire .rosterLoaded — syncRecentHistory exits early (no client), no crash
             await service.handleEvent(.rosterLoaded([]), accountID: testAccountID)
@@ -45,7 +50,8 @@ enum ChatServiceMAMTests {
         @MainActor
         func `Returns empty when no client available`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             let (messages, hasMore) = try await service.fetchServerHistory(
                 jid: contactJID, accountID: testAccountID, before: nil, limit: 50
@@ -59,7 +65,8 @@ enum ChatServiceMAMTests {
         @MainActor
         func `String overload throws for invalid JID`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             await #expect(throws: ChatService.ChatServiceError.self) {
                 _ = try await service.fetchServerHistory(
@@ -72,7 +79,8 @@ enum ChatServiceMAMTests {
         @MainActor
         func `Returns empty for groupchat conversation without client`() async throws {
             let store = makeStore()
-            let service = makeChatService(store: store)
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             // Pre-create a groupchat conversation so the code path exercises MUC logic
             let conversation = Conversation(

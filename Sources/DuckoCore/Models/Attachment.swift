@@ -1,12 +1,11 @@
 import Foundation
 
-public struct Attachment: Sendable, Identifiable {
+public struct Attachment: Sendable, Identifiable, Codable {
     public var id: UUID
     public var url: String
     public var mimeType: String?
     public var fileName: String?
     public var fileSize: Int64?
-    public var thumbnailData: Data?
     public var oobDescription: String?
 
     public init(
@@ -15,7 +14,6 @@ public struct Attachment: Sendable, Identifiable {
         mimeType: String? = nil,
         fileName: String? = nil,
         fileSize: Int64? = nil,
-        thumbnailData: Data? = nil,
         oobDescription: String? = nil
     ) {
         self.id = id
@@ -23,7 +21,6 @@ public struct Attachment: Sendable, Identifiable {
         self.mimeType = mimeType
         self.fileName = fileName
         self.fileSize = fileSize
-        self.thumbnailData = thumbnailData
         self.oobDescription = oobDescription
     }
 

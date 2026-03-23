@@ -9,8 +9,8 @@ private let testAccountID = UUID()
 private let contactJID = BareJID(localPart: "contact", domainPart: "example.com")!
 
 @MainActor
-private func makeChatService(store: MockPersistenceStore) -> ChatService {
-    ChatService(store: store, filterPipeline: MessageFilterPipeline())
+private func makeChatService(store: MockPersistenceStore, transcripts: MockTranscriptStore) -> ChatService {
+    ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
 // MARK: - Tests
@@ -21,7 +21,8 @@ enum ChatServiceChatStatesTests {
         @MainActor
         func `Chat state event updates typingStates`() async {
             let store = MockPersistenceStore()
-            let service = makeChatService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             await service.handleEvent(
                 .chatStateChanged(from: contactJID, state: .composing),
@@ -35,7 +36,8 @@ enum ChatServiceChatStatesTests {
         @MainActor
         func `Active state replaces composing`() async {
             let store = MockPersistenceStore()
-            let service = makeChatService(store: store)
+            let transcripts = MockTranscriptStore()
+            let service = makeChatService(store: store, transcripts: transcripts)
 
             await service.handleEvent(
                 .chatStateChanged(from: contactJID, state: .composing),
