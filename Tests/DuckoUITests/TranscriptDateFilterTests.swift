@@ -19,25 +19,25 @@ struct TranscriptDateFilterTests {
         #expect(interval.before == nil)
     }
 
-    @Test func `today returns start of today`() {
+    @Test func `today returns bounded day interval`() throws {
         let interval = TranscriptDateFilter.today.dateInterval
-        let expectedStart = Calendar.current.startOfDay(for: Date())
-        #expect(interval.after == expectedStart)
-        #expect(interval.before == nil)
+        let expected = try #require(Calendar.current.dateInterval(of: .day, for: Date()))
+        #expect(interval.after == expected.start)
+        #expect(interval.before == expected.end)
     }
 
-    @Test func `thisWeek returns start of week`() {
+    @Test func `thisWeek returns bounded week interval`() throws {
         let interval = TranscriptDateFilter.thisWeek.dateInterval
-        let expectedStart = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start
-        #expect(interval.after == expectedStart)
-        #expect(interval.before == nil)
+        let expected = try #require(Calendar.current.dateInterval(of: .weekOfYear, for: Date()))
+        #expect(interval.after == expected.start)
+        #expect(interval.before == expected.end)
     }
 
-    @Test func `thisMonth returns start of month`() {
+    @Test func `thisMonth returns bounded month interval`() throws {
         let interval = TranscriptDateFilter.thisMonth.dateInterval
-        let expectedStart = Calendar.current.dateInterval(of: .month, for: Date())?.start
-        #expect(interval.after == expectedStart)
-        #expect(interval.before == nil)
+        let expected = try #require(Calendar.current.dateInterval(of: .month, for: Date()))
+        #expect(interval.after == expected.start)
+        #expect(interval.before == expected.end)
     }
 
     @Test func `before returns upper bound only`() {

@@ -61,5 +61,8 @@ struct TranscriptSidebarView: View {
         .onChange(of: state.dateFilter) {
             Task { await state.clearSelectionIfFiltered() }
         }
+        .onChange(of: state.typeFilter) {
+            Task { await state.clearSelectionIfFiltered() }
+        }
     }
 }

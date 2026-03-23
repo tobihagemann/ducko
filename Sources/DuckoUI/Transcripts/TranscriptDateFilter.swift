@@ -17,14 +17,14 @@ enum TranscriptDateFilter: Equatable {
         case .anyTime:
             return (nil, nil)
         case .today:
-            let start = calendar.startOfDay(for: now)
-            return (start, nil)
+            guard let interval = calendar.dateInterval(of: .day, for: now) else { return (nil, nil) }
+            return (interval.start, interval.end)
         case .thisWeek:
-            guard let start = calendar.dateInterval(of: .weekOfYear, for: now)?.start else { return (nil, nil) }
-            return (start, nil)
+            guard let interval = calendar.dateInterval(of: .weekOfYear, for: now) else { return (nil, nil) }
+            return (interval.start, interval.end)
         case .thisMonth:
-            guard let start = calendar.dateInterval(of: .month, for: now)?.start else { return (nil, nil) }
-            return (start, nil)
+            guard let interval = calendar.dateInterval(of: .month, for: now) else { return (nil, nil) }
+            return (interval.start, interval.end)
         case let .before(date):
             return (nil, date)
         case let .after(date):
