@@ -37,6 +37,16 @@ actor MockTranscriptStore: TranscriptStore {
         return result
     }
 
+    func fetchMessages(for conversationID: UUID, on date: Date) async throws -> [ChatMessage] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        var filtered = messages.filter {
+            $0.conversationID == conversationID && calendar.isDate($0.timestamp, inSameDayAs: date)
+        }
+        filtered = applyAmendments(to: filtered)
+        return filtered.sorted { $0.timestamp < $1.timestamp }
+    }
+
     // MARK: - Lookup
 
     func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage? {
@@ -80,6 +90,17 @@ actor MockTranscriptStore: TranscriptStore {
     }
 
     // MARK: - Stats
+
+    func messageDates(for conversationID: UUID) async throws -> [Date] {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .gmt
+        let dates = Set(
+            messages
+                .filter { $0.conversationID == conversationID }
+                .map { calendar.startOfDay(for: $0.timestamp) }
+        )
+        return dates.sorted(by: >)
+    }
 
     func messageCount(for conversationID: UUID) async throws -> Int {
         messages.count(where: { $0.conversationID == conversationID })

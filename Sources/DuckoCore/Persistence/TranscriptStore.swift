@@ -10,6 +10,7 @@ public protocol TranscriptStore: Sendable {
     // MARK: - Read
 
     func fetchMessages(for conversationID: UUID, before: Date?, limit: Int) async throws -> [ChatMessage]
+    func fetchMessages(for conversationID: UUID, on date: Date) async throws -> [ChatMessage]
 
     // MARK: - Lookup
 
@@ -26,6 +27,7 @@ public protocol TranscriptStore: Sendable {
     // MARK: - Stats
 
     func messageCount(for conversationID: UUID) async throws -> Int
+    func messageDates(for conversationID: UUID) async throws -> [Date]
     func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)?
 
     // MARK: - Lifecycle

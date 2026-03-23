@@ -124,6 +124,12 @@ public actor FileTranscriptStore: TranscriptStore {
         return Array(result.prefix(limit))
     }
 
+    public func fetchMessages(for conversationID: UUID, on date: Date) async throws -> [ChatMessage] {
+        let dateStr = Self.dateString(for: date)
+        let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateStr)
+        return try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
+    }
+
     // MARK: - Lookup
 
     public func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage? {
@@ -200,6 +206,11 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     // MARK: - Stats
+
+    public func messageDates(for conversationID: UUID) async throws -> [Date] {
+        let dateFiles = try listDateFiles(for: conversationID)
+        return dateFiles.compactMap { Self.parseDate($0.dateString) }
+    }
 
     public func messageCount(for conversationID: UUID) async throws -> Int {
         let dateFiles = try listDateFiles(for: conversationID)

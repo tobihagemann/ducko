@@ -406,6 +406,84 @@ enum FileTranscriptStoreTests {
             let count = try await store.messageCount(for: testConversationID)
             #expect(count == 3)
         }
+
+        @Test
+        func `Message dates returns distinct days sorted newest first`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .gmt
+            let day1 = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 12)))
+            let day2 = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 9)))
+            let day2b = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 15)))
+            let day3 = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 15, hour: 8)))
+
+            try await store.appendMessages([
+                makeMessage(body: "a", timestamp: day1),
+                makeMessage(body: "b", timestamp: day2),
+                makeMessage(body: "c", timestamp: day2b),
+                makeMessage(body: "d", timestamp: day3)
+            ])
+
+            let dates = try await store.messageDates(for: testConversationID)
+            #expect(dates.count == 3)
+            // Newest first
+            #expect(dates[0] == calendar.date(from: DateComponents(year: 2026, month: 3, day: 15))!)
+            #expect(dates[1] == calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!)
+            #expect(dates[2] == calendar.date(from: DateComponents(year: 2026, month: 3, day: 10))!)
+        }
+
+        @Test
+        func `Message dates returns empty for nonexistent conversation`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let dates = try await store.messageDates(for: UUID())
+            #expect(dates.isEmpty)
+        }
+    }
+
+    struct DateFetch {
+        @Test
+        func `Fetch messages on date returns all messages for that day`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .gmt
+            let day1Morning = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 9)))
+            let day1Evening = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 21)))
+            let day2Morning = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 11, hour: 10)))
+
+            try await store.appendMessages([
+                makeMessage(body: "morning", timestamp: day1Morning),
+                makeMessage(body: "evening", timestamp: day1Evening),
+                makeMessage(body: "next day", timestamp: day2Morning)
+            ])
+
+            let day1Start = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10)))
+            let fetched = try await store.fetchMessages(for: testConversationID, on: day1Start)
+            #expect(fetched.count == 2)
+            // Chronological order
+            #expect(fetched[0].body == "morning")
+            #expect(fetched[1].body == "evening")
+        }
+
+        @Test
+        func `Fetch messages on date with no messages returns empty`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .gmt
+            let msg = try makeMessage(body: "hello", timestamp: #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 12))))
+            try await store.appendMessage(msg)
+
+            let otherDay = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 11)))
+            let fetched = try await store.fetchMessages(for: testConversationID, on: otherDay)
+            #expect(fetched.isEmpty)
+        }
     }
 }
 

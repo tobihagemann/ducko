@@ -11,6 +11,10 @@ final class TranscriptViewerState {
     var selectedConversation: Conversation?
     var messages: [ChatMessage] = []
 
+    // Date-based detail navigation
+    var messageDates: [Date] = []
+    var selectedDate: Date?
+
     // Sidebar filters
     var searchText = ""
     var dateFilter: TranscriptDateFilter = .anyTime
@@ -19,14 +23,12 @@ final class TranscriptViewerState {
     // Detail search
     var transcriptSearchText = ""
     var searchResults: Set<UUID> = []
+    var searchMatchDates: Set<Date> = []
 
-    // Loading
+    /// Loading
     var isLoading = false
-    var isLoadingOlder = false
-    var hasReachedEnd = false
 
     private let environment: AppEnvironment
-    private let pageSize = 50
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -104,8 +106,10 @@ final class TranscriptViewerState {
     func selectConversation(_ conversation: Conversation?) async {
         selectedConversation = conversation
         messages = []
-        hasReachedEnd = false
+        messageDates = []
+        selectedDate = nil
         searchResults = []
+        searchMatchDates = []
         transcriptSearchText = ""
 
         guard let conversation else { return }
@@ -114,35 +118,31 @@ final class TranscriptViewerState {
         defer { isLoading = false }
 
         do {
-            let fetched = try await environment.chatService.fetchMessageHistory(
-                for: conversation.id, before: nil, limit: pageSize
-            )
-            messages = fetched
-            hasReachedEnd = fetched.count < pageSize
+            messageDates = try await environment.chatService.conversationMessageDates(conversation.id)
+            // Auto-select the most recent date
+            if let latestDate = messageDates.first {
+                await selectDate(latestDate)
+            }
         } catch {
-            log.error("Failed to load messages: \(error)")
+            log.error("Failed to load message dates: \(error)")
         }
     }
 
-    func loadOlderMessages() async {
-        guard !isLoadingOlder, !hasReachedEnd, let conversation = selectedConversation else { return }
+    func selectDate(_ date: Date?) async {
+        selectedDate = date
+        messages = []
 
-        isLoadingOlder = true
-        defer { isLoadingOlder = false }
+        guard let date, let conversation = selectedConversation else { return }
+
+        isLoading = true
+        defer { isLoading = false }
 
         do {
-            let oldest = messages.first?.timestamp
-            let older = try await environment.chatService.fetchMessageHistory(
-                for: conversation.id, before: oldest, limit: pageSize
+            messages = try await environment.chatService.fetchMessageHistory(
+                for: conversation.id, on: date
             )
-            if older.isEmpty {
-                hasReachedEnd = true
-            } else {
-                messages.insert(contentsOf: older, at: 0)
-                hasReachedEnd = older.count < pageSize
-            }
         } catch {
-            log.error("Failed to load older messages: \(error)")
+            log.error("Failed to load messages for date: \(error)")
         }
     }
 
@@ -150,6 +150,7 @@ final class TranscriptViewerState {
         let query = transcriptSearchText.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty, let conversation = selectedConversation else {
             searchResults = []
+            searchMatchDates = []
             return
         }
 
@@ -158,6 +159,12 @@ final class TranscriptViewerState {
                 query: query, conversationID: conversation.id, limit: 500
             )
             searchResults = Set(results.map(\.id))
+
+            // Compute which dates have matches for highlighting in the date table
+            // Use GMT to match FileTranscriptStore's date convention
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .gmt
+            searchMatchDates = Set(results.map { calendar.startOfDay(for: $0.timestamp) })
         } catch {
             log.error("Failed to search transcripts: \(error)")
         }

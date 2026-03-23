@@ -2,7 +2,6 @@ import DuckoCore
 import SwiftUI
 
 struct TranscriptDetailView: View {
-    @Environment(ThemeEngine.self) private var theme
     let state: TranscriptViewerState
 
     private var messages: [ChatMessage] {
@@ -36,40 +35,10 @@ struct TranscriptDetailView: View {
 
                 Divider()
 
-                // Messages
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        if !state.hasReachedEnd {
-                            Color.clear.frame(height: 1)
-                                .onAppear {
-                                    Task { await state.loadOlderMessages() }
-                                }
-                        }
-
-                        if state.isLoadingOlder {
-                            ProgressView()
-                                .padding()
-                        }
-
-                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                            let pos = positions[message.id] ?? MessagePosition(isFirstInGroup: true, isLastInGroup: true)
-
-                            if theme.current.timestampStyle == .grouped, isNewDay(at: index) {
-                                Text(message.timestamp.formatted(date: .abbreviated, time: .omitted))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 8)
-                            }
-
-                            TranscriptBubbleView(
-                                message: message,
-                                position: pos,
-                                isGroupchat: isGroupchat,
-                                isSearchResult: state.searchResults.contains(message.id)
-                            )
-                        }
-                    }
+                // Date list + messages
+                VSplitView {
+                    dateListView
+                    messageListView
                 }
             }
             .searchable(text: Binding(
@@ -89,10 +58,45 @@ struct TranscriptDetailView: View {
         }
     }
 
-    private func isNewDay(at index: Int) -> Bool {
-        guard index > 0 else { return true }
-        let current = messages[index].timestamp
-        let previous = messages[index - 1].timestamp
-        return !Calendar.current.isDate(current, inSameDayAs: previous)
+    // MARK: - Date List
+
+    private var dateListView: some View {
+        List(state.messageDates, id: \.self, selection: Binding(
+            get: { state.selectedDate },
+            set: { newDate in
+                Task { await state.selectDate(newDate) }
+            }
+        )) { date in
+            HStack {
+                Text(date.formatted(Date.FormatStyle(date: .long, time: .omitted, timeZone: .gmt)))
+                Spacer()
+                if state.searchMatchDates.contains(date) {
+                    Image(systemName: "text.magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+            }
+        }
+        .frame(minHeight: 100)
+    }
+
+    // MARK: - Message List
+
+    private var messageListView: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(messages) { message in
+                    let pos = positions[message.id] ?? MessagePosition(isFirstInGroup: true, isLastInGroup: true)
+
+                    TranscriptBubbleView(
+                        message: message,
+                        position: pos,
+                        isGroupchat: isGroupchat,
+                        isSearchResult: state.searchResults.contains(message.id)
+                    )
+                }
+            }
+        }
+        .frame(minHeight: 200)
     }
 }
