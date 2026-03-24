@@ -1606,6 +1606,15 @@ public final class ChatService {
             .reversed()
     }
 
+    // MARK: - Transcript Lifecycle
+
+    public func deleteTranscriptsForAccount(_ accountID: UUID) async throws {
+        let conversations = try await store.fetchConversations(for: accountID)
+        for conversation in conversations {
+            try await transcripts.deleteTranscripts(for: conversation.id)
+        }
+    }
+
     // MARK: - Transcript Queries
 
     public func fetchAllConversations() async throws -> [Conversation] {

@@ -32,7 +32,6 @@ public protocol TranscriptStore: Sendable {
 
     // MARK: - Lifecycle
 
-    // periphery:ignore - infrastructure for account/conversation deletion cascade
     func deleteTranscripts(for conversationID: UUID) async throws
     func writeMetadata(_ metadata: TranscriptMetadata, for conversationID: UUID) async throws
 }

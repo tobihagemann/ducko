@@ -6,6 +6,7 @@ struct AccountsPreferencesView: View {
     @State private var selectedAccountID: UUID?
     @State private var editingAccount: Account?
     @State private var isShowingAddSheet = false
+    @State private var isDeleteConfirmPresented = false
 
     private var accounts: [Account] {
         environment.accountService.accounts
@@ -27,6 +28,16 @@ struct AccountsPreferencesView: View {
         }
         .sheet(isPresented: $isShowingAddSheet) {
             AccountAddSheet()
+        }
+        .confirmationDialog("Remove Account?", isPresented: $isDeleteConfirmPresented) {
+            Button("Remove Account Only") {
+                deleteSelectedAccount(includeHistory: false)
+            }
+            Button("Remove Account and Chat History", role: .destructive) {
+                deleteSelectedAccount(includeHistory: true)
+            }
+        } message: {
+            Text("Do you also want to delete all chat history for this account? This cannot be undone.")
         }
     }
 
@@ -60,11 +71,8 @@ struct AccountsPreferencesView: View {
                 .accessibilityLabel("Add Account")
 
                 Button {
-                    guard let id = selectedAccountID else { return }
-                    Task {
-                        try? await environment.accountService.deleteAccount(id)
-                        selectedAccountID = nil
-                    }
+                    guard selectedAccountID != nil else { return }
+                    isDeleteConfirmPresented = true
                 } label: {
                     Image(systemName: "minus")
                 }
@@ -91,6 +99,19 @@ struct AccountsPreferencesView: View {
             Text("Select an account")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    // MARK: - Actions
+
+    private func deleteSelectedAccount(includeHistory: Bool) {
+        guard let id = selectedAccountID else { return }
+        Task {
+            if includeHistory {
+                try? await environment.chatService.deleteTranscriptsForAccount(id)
+            }
+            try? await environment.accountService.deleteAccount(id)
+            selectedAccountID = nil
         }
     }
 

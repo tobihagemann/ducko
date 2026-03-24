@@ -217,13 +217,7 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     public func messageCount(for conversationID: UUID) async throws -> Int {
-        let dateFiles = try listDateFiles(for: conversationID)
-        var count = 0
-        for (_, fileURL) in dateFiles {
-            let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
-            count += messages.count
-        }
-        return count
+        try await messageDateCounts(for: conversationID).reduce(0) { $0 + $1.count }
     }
 
     public func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {

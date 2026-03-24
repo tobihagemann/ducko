@@ -10,6 +10,7 @@ final class TranscriptViewerState {
     var accounts: [Account] = []
     var selectedConversation: Conversation?
     var messages: [ChatMessage] = []
+    var positions: [UUID: MessagePosition] = [:]
 
     // Date-based detail navigation
     var messageDates: [Date] = []
@@ -95,6 +96,7 @@ final class TranscriptViewerState {
     func selectConversation(_ conversation: Conversation?) async {
         selectedConversation = conversation
         messages = []
+        positions = [:]
         messageDates = []
         messageDateCounts = [:]
         selectedDate = nil
@@ -123,6 +125,7 @@ final class TranscriptViewerState {
     func selectDate(_ date: Date?) async {
         selectedDate = date
         messages = []
+        positions = [:]
 
         guard let date, let conversation = selectedConversation else { return }
 
@@ -133,6 +136,7 @@ final class TranscriptViewerState {
             messages = try await environment.chatService.fetchMessageHistory(
                 for: conversation.id, on: date
             )
+            positions = computeMessagePositions(messages)
         } catch {
             log.error("Failed to load messages for date: \(error)")
         }

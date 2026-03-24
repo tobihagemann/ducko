@@ -117,7 +117,6 @@ actor MockTranscriptStore: TranscriptStore {
 
     // MARK: - Lifecycle
 
-    // periphery:ignore - protocol conformance for conversation deletion cascade
     func deleteTranscripts(for conversationID: UUID) async throws {
         messages.removeAll { $0.conversationID == conversationID }
         amendments.removeAll { _ in

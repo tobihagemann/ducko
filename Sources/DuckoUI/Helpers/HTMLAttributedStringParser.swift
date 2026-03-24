@@ -1,7 +1,14 @@
 import AppKit
 
 enum HTMLAttributedStringParser {
+    private nonisolated(unsafe) static let cache = NSCache<NSString, NSAttributedString>()
+
     static func parse(_ html: String) -> AttributedString? {
+        let key = html as NSString
+        if let cached = cache.object(forKey: key) {
+            return AttributedString(cached)
+        }
+
         guard let data = html.data(using: .utf8) else { return nil }
         guard let nsAttr = try? NSAttributedString(
             data: data,
@@ -31,6 +38,8 @@ enum HTMLAttributedStringParser {
             attributed[range].appKit.font = nil
             attributed[range].appKit.foregroundColor = nil
         }
+
+        cache.setObject(NSAttributedString(attributed), forKey: key)
         return attributed
     }
 }

@@ -8,10 +8,6 @@ struct TranscriptDetailView: View {
         state.messages
     }
 
-    private var positions: [UUID: MessagePosition] {
-        computeMessagePositions(messages)
-    }
-
     private var isGroupchat: Bool {
         state.selectedConversation?.type == .groupchat
     }
@@ -93,7 +89,7 @@ struct TranscriptDetailView: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(messages) { message in
-                    let pos = positions[message.id] ?? MessagePosition(isFirstInGroup: true, isLastInGroup: true)
+                    let pos = state.positions[message.id] ?? MessagePosition(isFirstInGroup: true, isLastInGroup: true)
 
                     TranscriptBubbleView(
                         message: message,

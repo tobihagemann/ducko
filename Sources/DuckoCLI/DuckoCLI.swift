@@ -1039,6 +1039,9 @@ extension DuckoCLI {
             @Argument(help: "The bare JID of the account to delete")
             var jid: String
 
+            @Flag(name: .long, help: "Also delete chat history for the account")
+            var includeHistory = false
+
             func run() async throws {
                 let context = try await MainActor.run {
                     try CLIBootstrap.setUp(formatter: PlainFormatter())
@@ -1052,8 +1055,14 @@ extension DuckoCLI {
                     throw CLIError.accountNotFound(jid)
                 }
 
+                if includeHistory {
+                    try await env.chatService.deleteTranscriptsForAccount(account.id)
+                }
                 try await env.accountService.deleteAccount(account.id)
                 print("Account deleted: \(jid)")
+                if includeHistory {
+                    print("Chat history deleted.")
+                }
             }
         }
 
