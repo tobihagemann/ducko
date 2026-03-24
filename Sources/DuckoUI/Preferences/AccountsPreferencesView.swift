@@ -107,6 +107,7 @@ struct AccountsPreferencesView: View {
     private func deleteSelectedAccount(includeHistory: Bool) {
         guard let id = selectedAccountID else { return }
         Task {
+            await environment.accountService.disconnect(accountID: id)
             if includeHistory {
                 try? await environment.chatService.deleteTranscriptsForAccount(id)
             }
@@ -251,17 +252,14 @@ private struct AccountDetailView: View {
             RegistrationFormSheet(accountID: account.id)
         }
         .confirmationDialog("Cancel Account?", isPresented: $isCancelAccountConfirmPresented) {
-            Button("Cancel Account", role: .destructive) {
-                Task {
-                    do {
-                        try await environment.accountService.cancelAccount(accountID: account.id)
-                    } catch {
-                        cancelAccountError = error.localizedDescription
-                    }
-                }
+            Button("Cancel Account Only") {
+                cancelAccount(includeHistory: false)
+            }
+            Button("Cancel Account and Chat History", role: .destructive) {
+                cancelAccount(includeHistory: true)
             }
         } message: {
-            Text("This will permanently unregister your account from the server and remove it locally. This action cannot be undone.")
+            Text("This will permanently unregister your account from the server and remove it locally. You can also choose to delete all chat history. This action cannot be undone.")
         }
         .alert("Account Cancellation Failed", isPresented: Binding(
             get: { cancelAccountError != nil },
@@ -298,6 +296,21 @@ private struct AccountDetailView: View {
                 Task {
                     try? await environment.accountService.connect(accountID: account.id)
                 }
+            }
+        }
+    }
+
+    private func cancelAccount(includeHistory: Bool) {
+        Task {
+            do {
+                try await environment.accountService.cancelRegistration(accountID: account.id)
+                await environment.accountService.disconnect(accountID: account.id)
+                if includeHistory {
+                    try? await environment.chatService.deleteTranscriptsForAccount(account.id)
+                }
+                try? await environment.accountService.deleteAccount(account.id)
+            } catch {
+                cancelAccountError = error.localizedDescription
             }
         }
     }

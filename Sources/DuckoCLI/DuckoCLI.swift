@@ -1055,6 +1055,7 @@ extension DuckoCLI {
                     throw CLIError.accountNotFound(jid)
                 }
 
+                await env.accountService.disconnect(accountID: account.id)
                 if includeHistory {
                     try await env.chatService.deleteTranscriptsForAccount(account.id)
                 }
@@ -1074,6 +1075,9 @@ extension DuckoCLI {
             @Argument(help: "The bare JID of the account to cancel")
             var jid: String
 
+            @Flag(name: .long, help: "Also delete chat history for the account")
+            var includeHistory = false
+
             func run() async throws {
                 let context = try await MainActor.run {
                     try CLIBootstrap.setUp(formatter: PlainFormatter())
@@ -1088,6 +1092,9 @@ extension DuckoCLI {
                 }
 
                 print("WARNING: This will permanently unregister \(jid) from the server.")
+                if includeHistory {
+                    print("Chat history will also be deleted.")
+                }
                 print("Type 'yes' to confirm:")
                 guard readLine()?.trimmingCharacters(in: .whitespaces) == "yes" else {
                     print("Cancelled.")
@@ -1100,8 +1107,16 @@ extension DuckoCLI {
 
                 try await env.accountService.connect(accountID: account.id, password: password)
                 try await waitForConnected(accountID: account.id, environment: env)
-                try await env.accountService.cancelAccount(accountID: account.id)
+                try await env.accountService.cancelRegistration(accountID: account.id)
+                await env.accountService.disconnect(accountID: account.id)
+                if includeHistory {
+                    try? await env.chatService.deleteTranscriptsForAccount(account.id)
+                }
+                try? await env.accountService.deleteAccount(account.id)
                 print("Account cancelled: \(jid)")
+                if includeHistory {
+                    print("Chat history deleted.")
+                }
             }
         }
 
@@ -1771,9 +1786,19 @@ private func handleCancelAccountREPLCommand(context: REPLContext) async {
         print("Cancelled.")
         return
     }
+    print("Also delete chat history? (yes/no):")
+    let includeHistory = readLine()?.trimmingCharacters(in: .whitespaces) == "yes"
     do {
-        try await context.environment.accountService.cancelAccount(accountID: context.accountID)
+        try await context.environment.accountService.cancelRegistration(accountID: context.accountID)
+        await context.environment.accountService.disconnect(accountID: context.accountID)
+        if includeHistory {
+            try? await context.environment.chatService.deleteTranscriptsForAccount(context.accountID)
+        }
+        try? await context.environment.accountService.deleteAccount(context.accountID)
         print("Account cancelled.")
+        if includeHistory {
+            print("Chat history deleted.")
+        }
     } catch {
         print(context.formatter.formatError(error))
     }

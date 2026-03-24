@@ -248,11 +248,10 @@ public final class AccountService {
         await savePassword(accountID: accountID)
     }
 
-    /// Cancels (unregisters) a connected account via XEP-0077.
-    public func cancelAccount(accountID: UUID) async throws {
+    /// Sends a cancel-registration IQ to the server (XEP-0077) without deleting local data.
+    public func cancelRegistration(accountID: UUID) async throws {
         let regModule = try await registrationModule(for: accountID)
         try await regModule.cancelRegistration()
-        try await deleteAccount(accountID)
     }
 
     /// Retrieves a registration form from a server without authenticating (XEP-0077).
