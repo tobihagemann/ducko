@@ -15,7 +15,6 @@ struct JSONFormatterTests {
             body: "Hello!",
             timestamp: Date(),
             isOutgoing: false,
-
             isDelivered: false,
             isEdited: false,
             type: "chat"
@@ -172,7 +171,6 @@ struct JSONFormatterTests {
             body: "Hi",
             timestamp: Date(),
             isOutgoing: true,
-
             isDelivered: true,
             isEdited: false,
             type: "chat"
@@ -191,7 +189,6 @@ struct JSONFormatterTests {
             body: "corrected",
             timestamp: Date(),
             isOutgoing: false,
-
             isDelivered: false,
             isEdited: true,
             type: "chat"
@@ -224,7 +221,6 @@ struct JSONFormatterTests {
             body: "Check this out",
             timestamp: Date(),
             isOutgoing: false,
-
             isDelivered: false,
             isEdited: false,
             type: "chat",
@@ -244,7 +240,6 @@ struct JSONFormatterTests {
             body: "Just text",
             timestamp: Date(),
             isOutgoing: false,
-
             isDelivered: false,
             isEdited: false,
             type: "chat"

@@ -101,7 +101,6 @@ enum AttachmentModelTests {
                 body: "Hello",
                 timestamp: Date(),
                 isOutgoing: false,
-
                 isDelivered: false,
                 isEdited: false,
                 type: "chat"
@@ -119,7 +118,6 @@ enum AttachmentModelTests {
                 body: "",
                 timestamp: Date(),
                 isOutgoing: false,
-
                 isDelivered: false,
                 isEdited: false,
                 type: "chat",

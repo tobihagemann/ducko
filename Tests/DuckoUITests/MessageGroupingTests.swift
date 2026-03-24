@@ -17,7 +17,6 @@ struct MessageGroupingTests {
             body: "test",
             timestamp: timestamp,
             isOutgoing: isOutgoing,
-
             isDelivered: false,
             isEdited: false,
             type: "chat"
