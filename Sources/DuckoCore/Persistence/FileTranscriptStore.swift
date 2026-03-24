@@ -207,9 +207,13 @@ public actor FileTranscriptStore: TranscriptStore {
 
     // MARK: - Stats
 
-    public func messageDates(for conversationID: UUID) async throws -> [Date] {
+    public func messageDateCounts(for conversationID: UUID) async throws -> [(date: Date, count: Int)] {
         let dateFiles = try listDateFiles(for: conversationID)
-        return dateFiles.compactMap { Self.parseDate($0.dateString) }
+        return try dateFiles.compactMap { dateString, fileURL in
+            guard let date = Self.parseDate(dateString) else { return nil }
+            let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
+            return (date, messages.count)
+        }
     }
 
     public func messageCount(for conversationID: UUID) async throws -> Int {

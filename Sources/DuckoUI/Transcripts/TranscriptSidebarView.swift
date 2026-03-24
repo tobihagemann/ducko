@@ -42,24 +42,6 @@ struct TranscriptSidebarView: View {
                 }
                 .pickerStyle(.segmented)
             }
-
-            ToolbarItem(placement: .automatic) {
-                Menu {
-                    Button(TranscriptDateFilter.anyTime.label) { state.dateFilter = .anyTime }
-                    Button(TranscriptDateFilter.today.label) { state.dateFilter = .today }
-                    Button(TranscriptDateFilter.thisWeek.label) { state.dateFilter = .thisWeek }
-                    Button(TranscriptDateFilter.thisMonth.label) { state.dateFilter = .thisMonth }
-                } label: {
-                    Label(
-                        state.dateFilter.label,
-                        systemImage: state.dateFilter == .anyTime ? "calendar" : "calendar.badge.clock"
-                    )
-                }
-                .accessibilityIdentifier("transcript-date-filter-menu")
-            }
-        }
-        .onChange(of: state.dateFilter) {
-            Task { await state.clearSelectionIfFiltered() }
         }
         .onChange(of: state.typeFilter) {
             Task { await state.clearSelectionIfFiltered() }

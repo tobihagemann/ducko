@@ -36,7 +36,7 @@ struct TranscriptDetailView: View {
                 Divider()
 
                 // Date list + messages
-                VSplitView {
+                HSplitView {
                     dateListView
                     messageListView
                 }
@@ -67,17 +67,24 @@ struct TranscriptDetailView: View {
                 Task { await state.selectDate(newDate) }
             }
         )) { date in
-            HStack {
-                Text(date.formatted(Date.FormatStyle(date: .long, time: .omitted, timeZone: .gmt)))
-                Spacer()
-                if state.searchMatchDates.contains(date) {
-                    Image(systemName: "text.magnifyingglass")
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Text(date.formatted(Date.FormatStyle(date: .long, time: .omitted, timeZone: .gmt)))
+                    Spacer()
+                    if state.searchMatchDates.contains(date) {
+                        Image(systemName: "text.magnifyingglass")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+                if let count = state.messageDateCounts[date] {
+                    Text("\(count) \(count == 1 ? "message" : "messages")")
                         .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }
-        .frame(minHeight: 100)
+        .frame(minWidth: 180, idealWidth: 220, maxWidth: 300)
     }
 
     // MARK: - Message List
@@ -97,6 +104,6 @@ struct TranscriptDetailView: View {
                 }
             }
         }
-        .frame(minHeight: 200)
+        .frame(minWidth: 300)
     }
 }

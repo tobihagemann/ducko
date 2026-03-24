@@ -408,39 +408,42 @@ enum FileTranscriptStoreTests {
         }
 
         @Test
-        func `Message dates returns distinct days sorted newest first`() async throws {
+        func `Message date counts returns per-day counts sorted newest first`() async throws {
             let (store, dir) = try makeTempStore()
             defer { try? FileManager.default.removeItem(at: dir) }
 
             var calendar = Calendar(identifier: .gregorian)
             calendar.timeZone = .gmt
             let day1 = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 10, hour: 12)))
-            let day2 = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 9)))
+            let day2a = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 9)))
             let day2b = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 12, hour: 15)))
             let day3 = try #require(calendar.date(from: DateComponents(year: 2026, month: 3, day: 15, hour: 8)))
 
             try await store.appendMessages([
                 makeMessage(body: "a", timestamp: day1),
-                makeMessage(body: "b", timestamp: day2),
+                makeMessage(body: "b", timestamp: day2a),
                 makeMessage(body: "c", timestamp: day2b),
                 makeMessage(body: "d", timestamp: day3)
             ])
 
-            let dates = try await store.messageDates(for: testConversationID)
-            #expect(dates.count == 3)
+            let dateCounts = try await store.messageDateCounts(for: testConversationID)
+            #expect(dateCounts.count == 3)
             // Newest first
-            #expect(dates[0] == calendar.date(from: DateComponents(year: 2026, month: 3, day: 15))!)
-            #expect(dates[1] == calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!)
-            #expect(dates[2] == calendar.date(from: DateComponents(year: 2026, month: 3, day: 10))!)
+            #expect(dateCounts[0].date == calendar.date(from: DateComponents(year: 2026, month: 3, day: 15))!)
+            #expect(dateCounts[0].count == 1)
+            #expect(dateCounts[1].date == calendar.date(from: DateComponents(year: 2026, month: 3, day: 12))!)
+            #expect(dateCounts[1].count == 2)
+            #expect(dateCounts[2].date == calendar.date(from: DateComponents(year: 2026, month: 3, day: 10))!)
+            #expect(dateCounts[2].count == 1)
         }
 
         @Test
-        func `Message dates returns empty for nonexistent conversation`() async throws {
+        func `Message date counts returns empty for nonexistent conversation`() async throws {
             let (store, dir) = try makeTempStore()
             defer { try? FileManager.default.removeItem(at: dir) }
 
-            let dates = try await store.messageDates(for: UUID())
-            #expect(dates.isEmpty)
+            let dateCounts = try await store.messageDateCounts(for: UUID())
+            #expect(dateCounts.isEmpty)
         }
     }
 

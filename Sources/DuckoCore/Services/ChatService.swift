@@ -1622,8 +1622,8 @@ public final class ChatService {
         try await transcripts.searchMessages(query: query, conversationID: conversationID, before: before, after: after, limit: limit)
     }
 
-    public func conversationMessageDates(_ conversationID: UUID) async throws -> [Date] {
-        try await transcripts.messageDates(for: conversationID)
+    public func conversationMessageDateCounts(_ conversationID: UUID) async throws -> [(date: Date, count: Int)] {
+        try await transcripts.messageDateCounts(for: conversationID)
     }
 
     public func fetchMessageHistory(for conversationID: UUID, on date: Date) async throws -> [ChatMessage] {

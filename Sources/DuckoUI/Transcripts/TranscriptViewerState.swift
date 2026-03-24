@@ -13,11 +13,11 @@ final class TranscriptViewerState {
 
     // Date-based detail navigation
     var messageDates: [Date] = []
+    var messageDateCounts: [Date: Int] = [:]
     var selectedDate: Date?
 
     // Sidebar filters
     var searchText = ""
-    var dateFilter: TranscriptDateFilter = .anyTime
     var typeFilter: ConversationTypeFilter = .all
 
     // Detail search
@@ -44,17 +44,6 @@ final class TranscriptViewerState {
         case .all: break
         case .chats: result = result.filter { $0.type == .chat }
         case .rooms: result = result.filter { $0.type == .groupchat }
-        }
-
-        // Date filter
-        if dateFilter != .anyTime {
-            let interval = dateFilter.dateInterval
-            result = result.filter { conversation in
-                guard let date = conversation.lastMessageDate else { return false }
-                if let after = interval.after, date < after { return false }
-                if let before = interval.before, date > before { return false }
-                return true
-            }
         }
 
         // Search filter
@@ -107,6 +96,7 @@ final class TranscriptViewerState {
         selectedConversation = conversation
         messages = []
         messageDates = []
+        messageDateCounts = [:]
         selectedDate = nil
         searchResults = []
         searchMatchDates = []
@@ -118,7 +108,9 @@ final class TranscriptViewerState {
         defer { isLoading = false }
 
         do {
-            messageDates = try await environment.chatService.conversationMessageDates(conversation.id)
+            let dateCounts = try await environment.chatService.conversationMessageDateCounts(conversation.id)
+            messageDates = dateCounts.map(\.date)
+            messageDateCounts = Dictionary(uniqueKeysWithValues: dateCounts)
             // Auto-select the most recent date
             if let latestDate = messageDates.first {
                 await selectDate(latestDate)

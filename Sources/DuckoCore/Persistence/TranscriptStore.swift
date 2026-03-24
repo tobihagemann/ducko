@@ -27,7 +27,7 @@ public protocol TranscriptStore: Sendable {
     // MARK: - Stats
 
     func messageCount(for conversationID: UUID) async throws -> Int
-    func messageDates(for conversationID: UUID) async throws -> [Date]
+    func messageDateCounts(for conversationID: UUID) async throws -> [(date: Date, count: Int)]
     func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)?
 
     // MARK: - Lifecycle

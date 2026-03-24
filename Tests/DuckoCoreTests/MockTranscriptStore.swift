@@ -91,15 +91,15 @@ actor MockTranscriptStore: TranscriptStore {
 
     // MARK: - Stats
 
-    func messageDates(for conversationID: UUID) async throws -> [Date] {
+    func messageDateCounts(for conversationID: UUID) async throws -> [(date: Date, count: Int)] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
-        let dates = Set(
-            messages
-                .filter { $0.conversationID == conversationID }
-                .map { calendar.startOfDay(for: $0.timestamp) }
-        )
-        return dates.sorted(by: >)
+        var counts: [Date: Int] = [:]
+        for message in messages where message.conversationID == conversationID {
+            let day = calendar.startOfDay(for: message.timestamp)
+            counts[day, default: 0] += 1
+        }
+        return counts.map { ($0.key, $0.value) }.sorted { $0.date > $1.date }
     }
 
     func messageCount(for conversationID: UUID) async throws -> Int {
