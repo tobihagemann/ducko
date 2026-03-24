@@ -38,4 +38,51 @@ enum HTMLRenderingTests {
             #expect(attributed.runs.first?.foregroundColor == nil)
         }
     }
+
+    struct FontStripping {
+        @Test
+        func `Strips AppKit font from per-run attributes`() throws {
+            let html = #"<span style="font-family: Helvetica; font-size: 12pt;">hello</span>"#
+            let attributed = try #require(HTMLAttributedStringParser.parse(html))
+            for run in attributed.runs {
+                #expect(run.appKit.font == nil)
+            }
+        }
+
+        @Test
+        func `Strips AppKit foreground color from per-run attributes`() throws {
+            let html = #"<span style="color: #ff0000;">red text</span>"#
+            let attributed = try #require(HTMLAttributedStringParser.parse(html))
+            for run in attributed.runs {
+                #expect(run.appKit.foregroundColor == nil)
+            }
+        }
+
+        @Test
+        func `Preserves bold as InlinePresentationIntent`() throws {
+            let attributed = try #require(HTMLAttributedStringParser.parse("<b>bold</b>"))
+            let run = try #require(attributed.runs.first)
+            let intents = try #require(run.inlinePresentationIntent)
+            #expect(intents.contains(.stronglyEmphasized))
+        }
+
+        @Test
+        func `Preserves italic as InlinePresentationIntent`() throws {
+            let attributed = try #require(HTMLAttributedStringParser.parse("<i>italic</i>"))
+            let run = try #require(attributed.runs.first)
+            let intents = try #require(run.inlinePresentationIntent)
+            #expect(intents.contains(.emphasized))
+        }
+
+        @Test
+        func `Strips Adium-style inline CSS font while preserving text`() throws {
+            let html = #"<span style="font-family: Helvetica; font-size: 12pt; color: #000000;">message</span>"#
+            let attributed = try #require(HTMLAttributedStringParser.parse(html))
+            #expect(String(attributed.characters) == "message")
+            for run in attributed.runs {
+                #expect(run.appKit.font == nil)
+                #expect(run.appKit.foregroundColor == nil)
+            }
+        }
+    }
 }

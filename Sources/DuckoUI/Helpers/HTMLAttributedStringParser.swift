@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 enum HTMLAttributedStringParser {
     static func parse(_ html: String) -> AttributedString? {
@@ -9,8 +9,28 @@ enum HTMLAttributedStringParser {
             documentAttributes: nil
         ) else { return nil }
         var attributed = AttributedString(nsAttr)
-        attributed.font = nil
-        attributed.foregroundColor = nil
+        // Strip font and color from every run, not just the top level.
+        // NSAttributedString(html:) applies per-run fonts (e.g. Helvetica 12pt from
+        // Adium logs). Preserve bold/italic traits as InlinePresentationIntent so
+        // structural formatting survives while the view's inherited font takes over.
+        for run in attributed.runs {
+            let range = run.range
+            if let nsFont = run.appKit.font {
+                let traits = nsFont.fontDescriptor.symbolicTraits
+                var intents = run.inlinePresentationIntent ?? []
+                if traits.contains(.bold) {
+                    intents.insert(.stronglyEmphasized)
+                }
+                if traits.contains(.italic) {
+                    intents.insert(.emphasized)
+                }
+                if !intents.isEmpty {
+                    attributed[range].inlinePresentationIntent = intents
+                }
+            }
+            attributed[range].appKit.font = nil
+            attributed[range].appKit.foregroundColor = nil
+        }
         return attributed
     }
 }
