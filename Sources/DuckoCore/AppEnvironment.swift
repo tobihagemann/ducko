@@ -91,6 +91,27 @@ public final class AppEnvironment {
         accountService.setOMEMOService(omemoService)
     }
 
+    // MARK: - Account Teardown
+
+    /// Removes a local account: disconnect, optionally delete transcripts, delete account data.
+    /// All steps are fail-safe — errors are suppressed since this is cleanup.
+    public func removeAccount(_ id: UUID, includeHistory: Bool) async {
+        await accountService.disconnect(accountID: id)
+        if includeHistory {
+            try? await chatService.deleteTranscriptsForAccount(id)
+        }
+        try? await accountService.deleteAccount(id)
+    }
+
+    /// Cancels server-side registration (XEP-0077), then removes the account locally.
+    /// Throws only if server-side cancellation fails. Local cleanup is fail-safe.
+    public func cancelAccount(_ id: UUID, includeHistory: Bool) async throws {
+        try await accountService.cancelRegistration(accountID: id)
+        await removeAccount(id, includeHistory: includeHistory)
+    }
+
+    // MARK: - Filters
+
     private static func registerFilters(pipeline: MessageFilterPipeline, linkPreviewService: LinkPreviewService) {
         Task {
             await pipeline.register(StylingFilter())

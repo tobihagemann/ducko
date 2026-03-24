@@ -33,7 +33,7 @@ struct AccountsPreferencesView: View {
             Button("Remove Account Only") {
                 deleteSelectedAccount(includeHistory: false)
             }
-            Button("Remove Account and Chat History", role: .destructive) {
+            Button("Remove Account and Delete Chat History", role: .destructive) {
                 deleteSelectedAccount(includeHistory: true)
             }
         } message: {
@@ -107,11 +107,7 @@ struct AccountsPreferencesView: View {
     private func deleteSelectedAccount(includeHistory: Bool) {
         guard let id = selectedAccountID else { return }
         Task {
-            await environment.accountService.disconnect(accountID: id)
-            if includeHistory {
-                try? await environment.chatService.deleteTranscriptsForAccount(id)
-            }
-            try? await environment.accountService.deleteAccount(id)
+            await environment.removeAccount(id, includeHistory: includeHistory)
             selectedAccountID = nil
         }
     }
@@ -224,7 +220,7 @@ private struct AccountDetailView: View {
                         }
                         .accessibilityIdentifier("check-registration-button")
 
-                        Button("Cancel Account...", role: .destructive) {
+                        Button("Unregister Account...", role: .destructive) {
                             isCancelAccountConfirmPresented = true
                         }
                         .accessibilityIdentifier("cancel-account-button")
@@ -251,17 +247,17 @@ private struct AccountDetailView: View {
         .sheet(isPresented: $isShowingRegistrationForm) {
             RegistrationFormSheet(accountID: account.id)
         }
-        .confirmationDialog("Cancel Account?", isPresented: $isCancelAccountConfirmPresented) {
-            Button("Cancel Account Only") {
+        .confirmationDialog("Unregister Account?", isPresented: $isCancelAccountConfirmPresented) {
+            Button("Unregister Account Only") {
                 cancelAccount(includeHistory: false)
             }
-            Button("Cancel Account and Chat History", role: .destructive) {
+            Button("Unregister Account and Delete Chat History", role: .destructive) {
                 cancelAccount(includeHistory: true)
             }
         } message: {
             Text("This will permanently unregister your account from the server and remove it locally. You can also choose to delete all chat history. This action cannot be undone.")
         }
-        .alert("Account Cancellation Failed", isPresented: Binding(
+        .alert("Account Unregistration Failed", isPresented: Binding(
             get: { cancelAccountError != nil },
             set: { if !$0 { cancelAccountError = nil } }
         )) {
@@ -303,12 +299,7 @@ private struct AccountDetailView: View {
     private func cancelAccount(includeHistory: Bool) {
         Task {
             do {
-                try await environment.accountService.cancelRegistration(accountID: account.id)
-                await environment.accountService.disconnect(accountID: account.id)
-                if includeHistory {
-                    try? await environment.chatService.deleteTranscriptsForAccount(account.id)
-                }
-                try? await environment.accountService.deleteAccount(account.id)
+                try await environment.cancelAccount(account.id, includeHistory: includeHistory)
             } catch {
                 cancelAccountError = error.localizedDescription
             }

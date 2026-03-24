@@ -170,6 +170,12 @@ public final class AccountService {
         }
     }
 
+    /// Deletes a local account: disconnects, removes from store, deletes password, reloads accounts.
+    ///
+    /// This is the low-level deletion that does NOT remove transcripts.
+    /// For full teardown including optional transcript deletion, use
+    /// ``AppEnvironment/removeAccount(_:includeHistory:)`` or
+    /// ``AppEnvironment/cancelAccount(_:includeHistory:)``.
     public func deleteAccount(_ id: UUID) async throws {
         await disconnect(accountID: id)
         try await store.deleteAccount(id)

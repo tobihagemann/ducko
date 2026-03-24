@@ -1055,11 +1055,7 @@ extension DuckoCLI {
                     throw CLIError.accountNotFound(jid)
                 }
 
-                await env.accountService.disconnect(accountID: account.id)
-                if includeHistory {
-                    try await env.chatService.deleteTranscriptsForAccount(account.id)
-                }
-                try await env.accountService.deleteAccount(account.id)
+                await env.removeAccount(account.id, includeHistory: includeHistory)
                 print("Account deleted: \(jid)")
                 if includeHistory {
                     print("Chat history deleted.")
@@ -1107,12 +1103,7 @@ extension DuckoCLI {
 
                 try await env.accountService.connect(accountID: account.id, password: password)
                 try await waitForConnected(accountID: account.id, environment: env)
-                try await env.accountService.cancelRegistration(accountID: account.id)
-                await env.accountService.disconnect(accountID: account.id)
-                if includeHistory {
-                    try? await env.chatService.deleteTranscriptsForAccount(account.id)
-                }
-                try? await env.accountService.deleteAccount(account.id)
+                try await env.cancelAccount(account.id, includeHistory: includeHistory)
                 print("Account cancelled: \(jid)")
                 if includeHistory {
                     print("Chat history deleted.")
@@ -1789,16 +1780,12 @@ private func handleCancelAccountREPLCommand(context: REPLContext) async {
     print("Also delete chat history? (yes/no):")
     let includeHistory = readLine()?.trimmingCharacters(in: .whitespaces) == "yes"
     do {
-        try await context.environment.accountService.cancelRegistration(accountID: context.accountID)
-        await context.environment.accountService.disconnect(accountID: context.accountID)
-        if includeHistory {
-            try? await context.environment.chatService.deleteTranscriptsForAccount(context.accountID)
-        }
-        try? await context.environment.accountService.deleteAccount(context.accountID)
+        try await context.environment.cancelAccount(context.accountID, includeHistory: includeHistory)
         print("Account cancelled.")
         if includeHistory {
             print("Chat history deleted.")
         }
+        Foundation.exit(0)
     } catch {
         print(context.formatter.formatError(error))
     }
