@@ -244,7 +244,8 @@ public final class AccountService {
         password: String,
         email: String? = nil,
         host: String? = nil,
-        port: UInt16 = 5222
+        port: UInt16 = 5222,
+        afterConnect: ((UUID) async throws -> Void)? = nil
     ) async throws -> UUID {
         try await XMPPRegistrationClient.register(
             domain: domain,
@@ -254,7 +255,7 @@ public final class AccountService {
             host: host,
             port: port
         )
-        return try await createAndConnect(jidString: "\(username)@\(domain)", password: password)
+        return try await createAndConnect(jidString: "\(username)@\(domain)", password: password, afterConnect: afterConnect)
     }
 
     /// Changes the password for a connected account via XEP-0077.

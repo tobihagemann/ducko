@@ -1151,7 +1151,9 @@ extension DuckoCLI {
                     email: email,
                     host: host,
                     port: port ?? 5222
-                )
+                ) { accountID in
+                    try await waitForConnected(accountID: accountID, environment: context.environment)
+                }
                 await context.environment.accountService.disconnect(accountID: accountID)
                 print("Account registered: \(username)@\(server)")
             }
