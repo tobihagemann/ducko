@@ -216,10 +216,17 @@ public final class AccountService {
 
     /// Creates a local account, connects to verify credentials, saves the password, and reloads accounts.
     /// On connection failure, rolls back by deleting the partially-created account.
-    public func createAndConnect(jidString: String, password: String) async throws -> UUID {
+    /// The optional `afterConnect` closure runs after connection but before saving the password,
+    /// inside the rollback scope — any failure triggers cleanup.
+    public func createAndConnect(
+        jidString: String,
+        password: String,
+        afterConnect: ((UUID) async throws -> Void)? = nil
+    ) async throws -> UUID {
         let accountID = try await createAccount(jidString: jidString)
         do {
             try await connect(accountID: accountID, password: password)
+            try await afterConnect?(accountID)
             await savePassword(accountID: accountID)
             try await loadAccounts()
         } catch {

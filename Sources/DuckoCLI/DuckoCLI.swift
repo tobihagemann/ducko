@@ -1016,17 +1016,13 @@ extension DuckoCLI {
                 }
                 let env = context.environment
 
-                let accountID = try await env.accountService.createAccount(jidString: jid)
-                do {
-                    try await env.accountService.connect(accountID: accountID, password: resolvedPassword)
+                let accountID = try await env.accountService.createAndConnect(
+                    jidString: jid,
+                    password: resolvedPassword
+                ) { accountID in
                     try await waitForConnected(accountID: accountID, environment: env)
-                    await env.accountService.savePassword(accountID: accountID)
-                    await env.accountService.disconnect(accountID: accountID)
-                } catch {
-                    await env.accountService.disconnect(accountID: accountID)
-                    try? await env.accountService.deleteAccount(accountID)
-                    throw error
                 }
+                await env.accountService.disconnect(accountID: accountID)
 
                 print("Account added: \(jid)")
             }
