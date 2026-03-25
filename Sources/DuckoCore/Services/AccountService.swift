@@ -215,6 +215,21 @@ public final class AccountService {
 
     // MARK: - Registration
 
+    /// Creates a local account, connects to verify credentials, saves the password, and reloads accounts.
+    /// On connection failure, rolls back by deleting the partially-created account.
+    public func createAndConnect(jidString: String, password: String) async throws -> UUID {
+        let accountID = try await createAccount(jidString: jidString)
+        do {
+            try await connect(accountID: accountID, password: password)
+            await savePassword(accountID: accountID)
+        } catch {
+            try? await deleteAccount(accountID)
+            throw error
+        }
+        try await loadAccounts()
+        return accountID
+    }
+
     /// Registers a new account on a server via XEP-0077 pre-auth registration.
     public func registerAccount(
         domain: String,
@@ -232,18 +247,7 @@ public final class AccountService {
             host: host,
             port: port
         )
-
-        let jidString = "\(username)@\(domain)"
-        let accountID = try await createAccount(jidString: jidString)
-        do {
-            try await connect(accountID: accountID, password: password)
-            await savePassword(accountID: accountID)
-        } catch {
-            try? await deleteAccount(accountID)
-            throw error
-        }
-        try await loadAccounts()
-        return accountID
+        return try await createAndConnect(jidString: "\(username)@\(domain)", password: password)
     }
 
     /// Changes the password for a connected account via XEP-0077.

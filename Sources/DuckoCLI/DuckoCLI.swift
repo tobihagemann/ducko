@@ -958,7 +958,7 @@ extension DuckoCLI {
     struct Account: AsyncParsableCommand {
         static let configuration = CommandConfiguration(
             abstract: "Manage XMPP accounts",
-            subcommands: [List.self, Add.self, Delete.self, Cancel.self, Register.self, CheckRegistration.self],
+            subcommands: [List.self, Add.self, Delete.self, Unregister.self, Register.self, CheckRegistration.self],
             defaultSubcommand: List.self
         )
 
@@ -1063,12 +1063,12 @@ extension DuckoCLI {
             }
         }
 
-        struct Cancel: AsyncParsableCommand {
+        struct Unregister: AsyncParsableCommand {
             static let configuration = CommandConfiguration(
-                abstract: "Cancel (unregister) an account from the server via XEP-0077"
+                abstract: "Unregister an account from the server via XEP-0077"
             )
 
-            @Argument(help: "The bare JID of the account to cancel")
+            @Argument(help: "The bare JID of the account to unregister")
             var jid: String
 
             @Flag(name: .long, help: "Also delete chat history for the account")
@@ -1104,7 +1104,7 @@ extension DuckoCLI {
                 try await env.accountService.connect(accountID: account.id, password: password)
                 try await waitForConnected(accountID: account.id, environment: env)
                 try await env.cancelAccount(account.id, includeHistory: includeHistory)
-                print("Account cancelled: \(jid)")
+                print("Account unregistered: \(jid)")
                 if includeHistory {
                     print("Chat history deleted.")
                 }
@@ -1621,7 +1621,7 @@ private func printREPLHelp() {
     print("  /approve <jid>           Approve subscription request")
     print("  /deny <jid>              Deny subscription request")
     print("  /directed-presence <jid> Send directed presence to a JID")
-    print("  /cancel-account          Cancel (unregister) account from server")
+    print("  /unregister-account      Unregister account from server")
     print("  /check-registration [jid]  Show server registration form")
     print("  /submit-registration [jid] Submit registration to server/component")
     print("  /join <room> [nick]      Join a MUC room")
@@ -1709,7 +1709,7 @@ private func isMiscREPLCommand(_ input: String) -> Bool {
         || input.hasPrefix("/encrypt ")
         || input.hasPrefix("/pref ")
         || input.hasPrefix("/directed-presence ")
-        || input == "/cancel-account"
+        || input == "/unregister-account"
         || input == "/check-registration" || input.hasPrefix("/check-registration ")
         || input == "/submit-registration" || input.hasPrefix("/submit-registration ")
 }
@@ -1759,8 +1759,8 @@ private func dispatchMiscREPLCommand(
         } catch {
             print(formatter.formatError(error))
         }
-    } else if input == "/cancel-account" {
-        await handleCancelAccountREPLCommand(context: context)
+    } else if input == "/unregister-account" {
+        await handleUnregisterAccountREPLCommand(context: context)
     } else if input == "/check-registration" || input.hasPrefix("/check-registration ") {
         await handleCheckRegistrationREPLCommand(input, context: context)
     } else if input == "/submit-registration" || input.hasPrefix("/submit-registration ") {
@@ -1770,7 +1770,7 @@ private func dispatchMiscREPLCommand(
     }
 }
 
-private func handleCancelAccountREPLCommand(context: REPLContext) async {
+private func handleUnregisterAccountREPLCommand(context: REPLContext) async {
     print("WARNING: This will permanently unregister your account from the server.")
     print("Type 'yes' to confirm:")
     guard readLine()?.trimmingCharacters(in: .whitespaces) == "yes" else {
@@ -1781,7 +1781,7 @@ private func handleCancelAccountREPLCommand(context: REPLContext) async {
     let includeHistory = readLine()?.trimmingCharacters(in: .whitespaces) == "yes"
     do {
         try await context.environment.cancelAccount(context.accountID, includeHistory: includeHistory)
-        print("Account cancelled.")
+        print("Account unregistered.")
         if includeHistory {
             print("Chat history deleted.")
         }

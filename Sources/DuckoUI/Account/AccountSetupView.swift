@@ -133,15 +133,7 @@ struct AccountSetupView: View {
         defer { isConnecting = false }
 
         do {
-            let accountID = try await environment.accountService.createAccount(jidString: jidString)
-            do {
-                try await environment.accountService.connect(accountID: accountID, password: password)
-                await environment.accountService.savePassword(accountID: accountID)
-                try await environment.accountService.loadAccounts()
-            } catch {
-                try? await environment.accountService.deleteAccount(accountID)
-                throw error
-            }
+            _ = try await environment.accountService.createAndConnect(jidString: jidString, password: password)
         } catch {
             errorMessage = error.localizedDescription
         }

@@ -432,16 +432,8 @@ private struct AccountAddSheet: View {
         isAdding = true
         Task {
             do {
-                let accountID = try await environment.accountService.createAccount(jidString: jid)
-                do {
-                    try await environment.accountService.connect(accountID: accountID, password: password)
-                } catch {
-                    try? await environment.accountService.deleteAccount(accountID)
-                    throw error
-                }
-                await environment.accountService.savePassword(accountID: accountID)
+                let accountID = try await environment.accountService.createAndConnect(jidString: jid, password: password)
                 await environment.accountService.disconnect(accountID: accountID)
-                try await environment.accountService.loadAccounts()
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription
