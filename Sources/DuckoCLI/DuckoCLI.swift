@@ -1023,6 +1023,7 @@ extension DuckoCLI {
                     await env.accountService.savePassword(accountID: accountID)
                     await env.accountService.disconnect(accountID: accountID)
                 } catch {
+                    await env.accountService.disconnect(accountID: accountID)
                     try? await env.accountService.deleteAccount(accountID)
                     throw error
                 }
