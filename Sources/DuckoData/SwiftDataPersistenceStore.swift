@@ -130,14 +130,22 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         return records.compactMap { $0.toDomain() }
     }
 
-    public func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?) throws -> Conversation? {
+    public func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?, importSourceJID: String?) throws -> Conversation? {
         let jidString = jid
         let typeString = type.rawValue
         var descriptor = FetchDescriptor<ConversationRecord>(
-            predicate: #Predicate { $0.jid == jidString && $0.type == typeString && $0.account?.id == accountID }
+            predicate: #Predicate { $0.jid == jidString && $0.type == typeString && $0.account?.id == accountID && $0.importSourceJID == importSourceJID }
         )
         descriptor.fetchLimit = 1
         return try modelContext.fetch(descriptor).first?.toDomain()
+    }
+
+    public func fetchConversations(importSourceJID: String) throws -> [Conversation] {
+        let sourceJID = importSourceJID
+        let descriptor = FetchDescriptor<ConversationRecord>(
+            predicate: #Predicate { $0.importSourceJID == sourceJID }
+        )
+        return try modelContext.fetch(descriptor).compactMap { $0.toDomain() }
     }
 
     public func upsertConversation(_ conversation: Conversation) throws {
@@ -149,6 +157,18 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
 
         if let existing = try modelContext.fetch(descriptor).first {
             existing.update(from: conversation)
+            // Update account relationship if changed (e.g., auto-linking imported conversations)
+            if existing.account?.id != conversation.accountID {
+                if let accountID = conversation.accountID {
+                    var accountDescriptor = FetchDescriptor<AccountRecord>(
+                        predicate: #Predicate { $0.id == accountID }
+                    )
+                    accountDescriptor.fetchLimit = 1
+                    existing.account = try modelContext.fetch(accountDescriptor).first
+                } else {
+                    existing.account = nil
+                }
+            }
         } else {
             var accountRecord: AccountRecord?
             if let accountID = conversation.accountID {
@@ -173,6 +193,7 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
                 lastMessagePreview: conversation.lastMessagePreview,
                 unreadCount: conversation.unreadCount,
                 account: accountRecord,
+                importSourceJID: conversation.importSourceJID,
                 roomSubject: conversation.roomSubject,
                 roomNickname: conversation.roomNickname,
                 lastReadTimestamp: conversation.lastReadTimestamp,

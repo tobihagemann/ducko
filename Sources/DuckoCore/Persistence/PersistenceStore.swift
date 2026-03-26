@@ -16,7 +16,8 @@ public protocol PersistenceStore: Sendable {
     // MARK: - Conversations
 
     func fetchConversations(for accountID: UUID) async throws -> [Conversation]
-    func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?) async throws -> Conversation?
+    func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?, importSourceJID: String?) async throws -> Conversation?
+    func fetchConversations(importSourceJID: String) async throws -> [Conversation]
     func upsertConversation(_ conversation: Conversation) async throws
     func fetchAllConversations() async throws -> [Conversation]
     func markConversationRead(_ conversationID: UUID) async throws
@@ -25,17 +26,4 @@ public protocol PersistenceStore: Sendable {
 
     func fetchLinkPreview(for url: String) async throws -> LinkPreview?
     func upsertLinkPreview(_ preview: LinkPreview) async throws
-}
-
-// MARK: - Default Implementations
-
-public extension PersistenceStore {
-    func fetchAllConversations() async throws -> [Conversation] {
-        let accounts = try await fetchAccounts()
-        var all: [Conversation] = []
-        for account in accounts {
-            all += try await fetchConversations(for: account.id)
-        }
-        return all
-    }
 }

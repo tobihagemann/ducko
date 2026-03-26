@@ -264,10 +264,10 @@ struct SwiftDataPersistenceStoreTests {
             try await store.upsertConversation(chat)
             try await store.upsertConversation(room)
 
-            let fetchedRoom = try await store.fetchConversation(jid: "room@conference.example.com", type: .groupchat, accountID: account.id)
+            let fetchedRoom = try await store.fetchConversation(jid: "room@conference.example.com", type: .groupchat, accountID: account.id, importSourceJID: nil)
             #expect(fetchedRoom?.id == room.id)
 
-            let fetchedChat = try await store.fetchConversation(jid: "alice@example.com", type: .chat, accountID: account.id)
+            let fetchedChat = try await store.fetchConversation(jid: "alice@example.com", type: .chat, accountID: account.id, importSourceJID: nil)
             #expect(fetchedChat?.id == chat.id)
         }
 
@@ -277,7 +277,7 @@ struct SwiftDataPersistenceStoreTests {
             let account = outer.makeAccount()
             try await store.saveAccount(account)
 
-            let result = try await store.fetchConversation(jid: "nobody@example.com", type: .chat, accountID: account.id)
+            let result = try await store.fetchConversation(jid: "nobody@example.com", type: .chat, accountID: account.id, importSourceJID: nil)
             #expect(result == nil)
         }
 

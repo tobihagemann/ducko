@@ -59,6 +59,8 @@ public actor AdiumImportService {
             errors: []
         )
 
+        let existingAccounts = try await store.fetchAccounts()
+
         for source in sources {
             for contactDir in source.contactDirectories {
                 let contactUID = contactDir.lastPathComponent
@@ -93,8 +95,13 @@ public actor AdiumImportService {
                             let isGroupchat = detectGroupchat(entries: parsed.entries, accountUID: source.accountUID)
                             let chatType: Conversation.ConversationType = isGroupchat ? .groupchat : .chat
                             let jidString = syntheticJID(identifier: contactUID, service: source.service)
+                            let sourceAccountJID = syntheticJID(identifier: source.accountUID, service: source.service)
+                            let matchingAccount = existingAccounts.first { $0.jid.description == sourceAccountJID }
 
-                            if let existing = try await store.fetchConversation(jid: jidString, type: chatType, accountID: nil) {
+                            let lookupAccountID = matchingAccount?.id
+                            let lookupImportSourceJID: String? = matchingAccount == nil ? sourceAccountJID : nil
+
+                            if let existing = try await store.fetchConversation(jid: jidString, type: chatType, accountID: lookupAccountID, importSourceJID: lookupImportSourceJID) {
                                 conversation = existing
                                 // Seed stanzaID cache for re-import scenario
                                 let existingMessages = try await transcripts.fetchMessages(for: existing.id, before: nil, limit: Int.max)
@@ -107,6 +114,8 @@ public actor AdiumImportService {
                                 }
                                 let conv = Conversation(
                                     id: UUID(),
+                                    accountID: lookupAccountID,
+                                    importSourceJID: lookupImportSourceJID,
                                     jid: bareJID,
                                     type: chatType,
                                     displayName: contactUID,

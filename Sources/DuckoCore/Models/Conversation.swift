@@ -4,6 +4,7 @@ import Foundation
 public struct Conversation: Sendable, Identifiable {
     public var id: UUID
     public var accountID: UUID?
+    public var importSourceJID: String?
     public var jid: BareJID
     public var type: ConversationType
     public var displayName: String?
@@ -26,6 +27,7 @@ public struct Conversation: Sendable, Identifiable {
     public init(
         id: UUID,
         accountID: UUID? = nil,
+        importSourceJID: String? = nil,
         jid: BareJID,
         type: ConversationType,
         displayName: String? = nil,
@@ -43,6 +45,7 @@ public struct Conversation: Sendable, Identifiable {
     ) {
         self.id = id
         self.accountID = accountID
+        self.importSourceJID = importSourceJID
         self.jid = jid
         self.type = type
         self.displayName = displayName

@@ -8,6 +8,7 @@ extension ConversationRecord {
         return Conversation(
             id: id,
             accountID: account?.id,
+            importSourceJID: importSourceJID,
             jid: bareJID,
             type: Conversation.ConversationType(rawValue: type) ?? .chat,
             displayName: displayName,
@@ -28,6 +29,7 @@ extension ConversationRecord {
     func update(from conversation: Conversation) {
         jid = conversation.jid.description
         type = conversation.type.rawValue
+        importSourceJID = conversation.importSourceJID
         displayName = conversation.displayName
         isPinned = conversation.isPinned
         isMuted = conversation.isMuted

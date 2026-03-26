@@ -13,6 +13,7 @@ final class ConversationRecord {
     var lastMessagePreview: String?
     var unreadCount: Int
     var account: AccountRecord?
+    var importSourceJID: String?
     var roomSubject: String?
     var roomNickname: String?
     var encryptionEnabled: Bool = false
@@ -31,6 +32,7 @@ final class ConversationRecord {
         lastMessagePreview: String? = nil,
         unreadCount: Int = 0,
         account: AccountRecord? = nil,
+        importSourceJID: String? = nil,
         roomSubject: String? = nil,
         roomNickname: String? = nil,
         encryptionEnabled: Bool = false,
@@ -48,6 +50,7 @@ final class ConversationRecord {
         self.lastMessagePreview = lastMessagePreview
         self.unreadCount = unreadCount
         self.account = account
+        self.importSourceJID = importSourceJID
         self.roomSubject = roomSubject
         self.roomNickname = roomNickname
         self.encryptionEnabled = encryptionEnabled

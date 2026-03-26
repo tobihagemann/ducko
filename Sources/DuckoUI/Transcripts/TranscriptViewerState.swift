@@ -59,18 +59,19 @@ final class TranscriptViewerState {
         return result
     }
 
-    private var partitionedConversations: (byAccount: [UUID: [Conversation]], imported: [Conversation]) {
+    private var partitionedConversations: (byAccount: [UUID: [Conversation]], importedBySource: [String: [Conversation]]) {
         let filtered = filteredConversations
         var grouped: [UUID: [Conversation]] = [:]
-        var imported: [Conversation] = []
+        var importedBySource: [String: [Conversation]] = [:]
         for conversation in filtered {
             if let accountID = conversation.accountID {
                 grouped[accountID, default: []].append(conversation)
             } else {
-                imported.append(conversation)
+                let key = conversation.importSourceJID ?? "Unknown"
+                importedBySource[key, default: []].append(conversation)
             }
         }
-        return (grouped, imported)
+        return (grouped, importedBySource)
     }
 
     var conversationsByAccount: [(account: Account, conversations: [Conversation])] {
@@ -81,8 +82,10 @@ final class TranscriptViewerState {
         }
     }
 
-    var importedConversations: [Conversation] {
-        partitionedConversations.imported
+    var importedConversationsBySource: [(sourceJID: String, conversations: [Conversation])] {
+        partitionedConversations.importedBySource
+            .sorted { $0.key < $1.key }
+            .map { (sourceJID: $0.key, conversations: $0.value) }
     }
 
     // MARK: - Actions

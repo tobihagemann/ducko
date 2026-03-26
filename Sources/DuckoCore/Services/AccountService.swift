@@ -142,6 +142,15 @@ public final class AccountService {
             createdAt: Date()
         )
         try await store.saveAccount(account)
+
+        // Auto-link imported conversations whose source JID matches this account
+        let imported = try await store.fetchConversations(importSourceJID: jidString)
+        for var conv in imported {
+            conv.accountID = account.id
+            conv.importSourceJID = nil
+            try await store.upsertConversation(conv)
+        }
+
         return account.id
     }
 

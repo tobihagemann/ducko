@@ -9,6 +9,10 @@ actor MockPersistenceStore: PersistenceStore {
 
     // MARK: - Test Helpers
 
+    func addAccount(_ account: Account) {
+        accounts.append(account)
+    }
+
     func addConversation(_ conversation: Conversation) {
         conversations.append(conversation)
     }
@@ -55,8 +59,12 @@ actor MockPersistenceStore: PersistenceStore {
         conversations.filter { $0.accountID == accountID }
     }
 
-    func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?) async throws -> Conversation? {
-        conversations.first { $0.jid.description == jid && $0.type == type && $0.accountID == accountID }
+    func fetchConversations(importSourceJID: String) async throws -> [Conversation] {
+        conversations.filter { $0.importSourceJID == importSourceJID }
+    }
+
+    func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?, importSourceJID: String?) async throws -> Conversation? {
+        conversations.first { $0.jid.description == jid && $0.type == type && $0.accountID == accountID && $0.importSourceJID == importSourceJID }
     }
 
     func upsertConversation(_ conversation: Conversation) async throws {

@@ -938,7 +938,7 @@ public final class ChatService {
         switch reason {
         case .notJoined:
             log.warning("MUC self-ping: not joined \(room), triggering rejoin")
-            let conversation = await (try? store.fetchConversation(jid: room.description, type: .groupchat, accountID: accountID))
+            let conversation = await (try? store.fetchConversation(jid: room.description, type: .groupchat, accountID: accountID, importSourceJID: nil))
             let nickname = conversation?.roomNickname ?? room.localPart ?? "user"
             do {
                 try await joinRoom(jid: room, nickname: nickname, accountID: accountID)
@@ -1873,9 +1873,9 @@ public final class ChatService {
         if let cached = openConversations.first(where: { $0.jid == bareJID && $0.accountID == accountID }) {
             return cached.id
         }
-        if let chatConv = try? await store.fetchConversation(jid: bareJID.description, type: .chat, accountID: accountID) {
+        if let chatConv = try? await store.fetchConversation(jid: bareJID.description, type: .chat, accountID: accountID, importSourceJID: nil) {
             return chatConv.id
         }
-        return try? await store.fetchConversation(jid: bareJID.description, type: .groupchat, accountID: accountID)?.id
+        return try? await store.fetchConversation(jid: bareJID.description, type: .groupchat, accountID: accountID, importSourceJID: nil)?.id
     }
 }

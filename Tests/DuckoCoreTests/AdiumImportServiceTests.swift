@@ -87,9 +87,9 @@ enum AdiumImportServiceTests {
         }
     }
 
-    struct NoAccountCreation {
+    struct ImportSourceJID {
         @Test
-        func `Does not create accounts during import`() async throws {
+        func `Sets importSourceJID on imported conversations`() async throws {
             let store = MockPersistenceStore()
             let transcripts = MockTranscriptStore()
             let service = AdiumImportService(store: store, transcripts: transcripts)
@@ -122,7 +122,103 @@ enum AdiumImportServiceTests {
 
             let conversation = try #require(conversations.first)
             #expect(conversation.accountID == nil)
+            #expect(conversation.importSourceJID == "saibot@exnet.me")
             #expect(conversation.jid.description == "buddy@exnet.me")
+        }
+
+        @Test
+        func `Different source accounts with same contact create separate conversations`() async throws {
+            let store = MockPersistenceStore()
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
+
+            let xml1 = """
+            <?xml version="1.0" encoding="UTF-8" ?>
+            <chat xmlns="http://purl.org/net/ulf/ns/0.4-02" account="alice@jabber.org" service="Jabber">
+            <message sender="alice@jabber.org" time="2016-01-12T00:31:17+0100"><div>hello from alice</div></message>
+            </chat>
+            """
+            let xml2 = """
+            <?xml version="1.0" encoding="UTF-8" ?>
+            <chat xmlns="http://purl.org/net/ulf/ns/0.4-02" account="bob@jabber.org" service="Jabber">
+            <message sender="bob@jabber.org" time="2016-01-12T00:31:17+0100"><div>hello from bob</div></message>
+            </chat>
+            """
+
+            let tmpDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("adium-test-\(UUID().uuidString)")
+
+            // Two different source accounts chatting with the same contact
+            let serviceDir1 = tmpDir.appendingPathComponent("Jabber.alice@jabber.org")
+            let contactDir1 = serviceDir1.appendingPathComponent("buddy@jabber.org")
+            let chatlogDir1 = contactDir1.appendingPathComponent("test.chatlog")
+            try FileManager.default.createDirectory(at: chatlogDir1, withIntermediateDirectories: true)
+            try xml1.write(to: chatlogDir1.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+
+            let serviceDir2 = tmpDir.appendingPathComponent("Jabber.bob@jabber.org")
+            let contactDir2 = serviceDir2.appendingPathComponent("buddy@jabber.org")
+            let chatlogDir2 = contactDir2.appendingPathComponent("test.chatlog")
+            try FileManager.default.createDirectory(at: chatlogDir2, withIntermediateDirectories: true)
+            try xml2.write(to: chatlogDir2.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+
+            defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
+            _ = try await service.importLogs(from: sources) { _ in }
+
+            let conversations = await store.conversations
+            #expect(conversations.count == 2)
+
+            let sourceJIDs = Set(conversations.compactMap(\.importSourceJID))
+            #expect(sourceJIDs == ["alice@jabber.org", "bob@jabber.org"])
+
+            // Both conversations share the same contact JID but are distinct
+            let contactJIDs = Set(conversations.map(\.jid.description))
+            #expect(contactJIDs == ["buddy@jabber.org"])
+        }
+
+        @Test
+        func `Links to existing account instead of setting importSourceJID`() async throws {
+            let store = MockPersistenceStore()
+            let transcripts = MockTranscriptStore()
+            let service = AdiumImportService(store: store, transcripts: transcripts)
+
+            // Pre-create an account matching the import source
+            let account = try Account(
+                id: UUID(),
+                jid: #require(DuckoXMPP.BareJID.parse("saibot@exnet.me")),
+                isEnabled: true,
+                connectOnLaunch: false,
+                createdAt: Date()
+            )
+            await store.addAccount(account)
+
+            let xml = """
+            <?xml version="1.0" encoding="UTF-8" ?>
+            <chat xmlns="http://purl.org/net/ulf/ns/0.4-02" account="saibot@exnet.me" service="Jabber">
+            <message sender="saibot@exnet.me" time="2016-01-12T00:31:17+0100"><div>hello</div></message>
+            </chat>
+            """
+
+            let tmpDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("adium-test-\(UUID().uuidString)")
+            let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
+            let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
+            let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
+            try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
+            try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+
+            defer { try? FileManager.default.removeItem(at: tmpDir) }
+
+            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
+            _ = try await service.importLogs(from: sources) { _ in }
+
+            let conversations = await store.conversations
+            #expect(conversations.count == 1)
+
+            let conversation = try #require(conversations.first)
+            #expect(conversation.accountID == account.id)
+            #expect(conversation.importSourceJID == nil)
         }
     }
 

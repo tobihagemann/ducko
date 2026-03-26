@@ -19,9 +19,11 @@ struct TranscriptSidebarView: View {
                 )
             }
 
-            let imported = state.importedConversations
-            if !imported.isEmpty {
-                TranscriptSidebarSection(title: "Imported", conversations: imported)
+            ForEach(state.importedConversationsBySource, id: \.sourceJID) { group in
+                TranscriptSidebarSection(
+                    title: group.sourceJID,
+                    conversations: group.conversations
+                )
             }
         }
         .searchable(text: $state.searchText, placement: .sidebar, prompt: "Filter conversations")
