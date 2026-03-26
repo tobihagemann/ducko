@@ -106,7 +106,7 @@ struct SwiftDataPersistenceStoreTests {
         }
 
         @Test
-        func `Delete cascades contacts and conversations`() async throws {
+        func `Delete account nullifies relationships`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
             try await store.saveAccount(account)
@@ -119,10 +119,16 @@ struct SwiftDataPersistenceStoreTests {
 
             try await store.deleteAccount(account.id)
 
+            // Records no longer associated with the deleted account
             let contacts = try await store.fetchContacts(for: account.id)
             let conversations = try await store.fetchConversations(for: account.id)
             #expect(contacts.isEmpty)
             #expect(conversations.isEmpty)
+
+            // But conversation record still exists (nullified, not cascade-deleted)
+            let allConversations = try await store.fetchAllConversations()
+            #expect(allConversations.count == 1)
+            #expect(allConversations.first?.accountID == nil)
         }
     }
 
@@ -296,6 +302,91 @@ struct SwiftDataPersistenceStoreTests {
             let fetched = try await store.fetchConversations(for: account.id)
             #expect(fetched.first?.unreadCount == 0)
             #expect(fetched.first?.lastReadTimestamp != nil)
+        }
+    }
+
+    // MARK: - Account Cleanup
+
+    struct AccountCleanup {
+        private let outer = SwiftDataPersistenceStoreTests()
+
+        @Test
+        func `Unlink conversations restores importSourceJID`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let conversation = outer.makeConversation(accountID: account.id)
+            try await store.upsertConversation(conversation)
+
+            try await store.unlinkConversations(for: account.id, restoreImportSourceJID: "user@example.com")
+
+            let linked = try await store.fetchConversations(for: account.id)
+            #expect(linked.isEmpty)
+
+            let all = try await store.fetchAllConversations()
+            #expect(all.count == 1)
+            #expect(all.first?.accountID == nil)
+            #expect(all.first?.importSourceJID == "user@example.com")
+        }
+
+        @Test
+        func `Unlink then re-link round trip`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let conversation = outer.makeConversation(accountID: account.id)
+            try await store.upsertConversation(conversation)
+
+            try await store.unlinkConversations(for: account.id, restoreImportSourceJID: "user@example.com")
+
+            // Verify conversations are discoverable by importSourceJID
+            let imported = try await store.fetchConversations(importSourceJID: "user@example.com")
+            #expect(imported.count == 1)
+            #expect(imported.first?.id == conversation.id)
+        }
+
+        @Test
+        func `Delete conversations removes only target account`() async throws {
+            let store = try outer.makeStore()
+            let account1 = outer.makeAccount(jid: "user1@example.com")
+            let account2 = outer.makeAccount(jid: "user2@example.com")
+            try await store.saveAccount(account1)
+            try await store.saveAccount(account2)
+
+            let conv1 = outer.makeConversation(accountID: account1.id, jid: "alice@example.com")
+            let conv2 = outer.makeConversation(accountID: account2.id, jid: "bob@example.com")
+            try await store.upsertConversation(conv1)
+            try await store.upsertConversation(conv2)
+
+            try await store.deleteConversations(for: account1.id)
+
+            let remaining = try await store.fetchAllConversations()
+            #expect(remaining.count == 1)
+            #expect(remaining.first?.id == conv2.id)
+        }
+
+        @Test
+        func `Delete contacts removes only target account`() async throws {
+            let store = try outer.makeStore()
+            let account1 = outer.makeAccount(jid: "user1@example.com")
+            let account2 = outer.makeAccount(jid: "user2@example.com")
+            try await store.saveAccount(account1)
+            try await store.saveAccount(account2)
+
+            let contact1 = outer.makeContact(accountID: account1.id, jid: "alice@example.com")
+            let contact2 = outer.makeContact(accountID: account2.id, jid: "bob@example.com")
+            try await store.upsertContact(contact1)
+            try await store.upsertContact(contact2)
+
+            try await store.deleteContacts(for: account1.id)
+
+            let remaining1 = try await store.fetchContacts(for: account1.id)
+            let remaining2 = try await store.fetchContacts(for: account2.id)
+            #expect(remaining1.isEmpty)
+            #expect(remaining2.count == 1)
+            #expect(remaining2.first?.id == contact2.id)
         }
     }
 

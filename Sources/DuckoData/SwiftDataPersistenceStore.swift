@@ -224,6 +224,42 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         }
     }
 
+    // MARK: - Account Cleanup
+
+    public func unlinkConversations(for accountID: UUID, restoreImportSourceJID: String) throws {
+        let descriptor = FetchDescriptor<ConversationRecord>(
+            predicate: #Predicate { $0.account?.id == accountID }
+        )
+        let records = try modelContext.fetch(descriptor)
+        for record in records {
+            record.account = nil
+            record.importSourceJID = restoreImportSourceJID
+        }
+        try modelContext.save()
+    }
+
+    public func deleteConversations(for accountID: UUID) throws {
+        let descriptor = FetchDescriptor<ConversationRecord>(
+            predicate: #Predicate { $0.account?.id == accountID }
+        )
+        let records = try modelContext.fetch(descriptor)
+        for record in records {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
+    }
+
+    public func deleteContacts(for accountID: UUID) throws {
+        let descriptor = FetchDescriptor<ContactRecord>(
+            predicate: #Predicate { $0.account?.id == accountID }
+        )
+        let records = try modelContext.fetch(descriptor)
+        for record in records {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
+    }
+
     // MARK: - Link Previews
 
     public func fetchLinkPreview(for url: String) throws -> LinkPreview? {

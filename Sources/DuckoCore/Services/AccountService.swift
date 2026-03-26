@@ -240,6 +240,8 @@ public final class AccountService {
             try await loadAccounts()
         } catch {
             await disconnect(accountID: accountID)
+            try? await store.unlinkConversations(for: accountID, restoreImportSourceJID: jidString)
+            try? await store.deleteContacts(for: accountID)
             try? await deleteAccount(accountID)
             throw error
         }

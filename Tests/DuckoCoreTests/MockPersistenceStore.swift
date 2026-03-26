@@ -85,6 +85,23 @@ actor MockPersistenceStore: PersistenceStore {
         conversations[index].lastReadTimestamp = Date()
     }
 
+    // MARK: - Account Cleanup
+
+    func unlinkConversations(for accountID: UUID, restoreImportSourceJID: String) async throws {
+        for index in conversations.indices where conversations[index].accountID == accountID {
+            conversations[index].accountID = nil
+            conversations[index].importSourceJID = restoreImportSourceJID
+        }
+    }
+
+    func deleteConversations(for accountID: UUID) async throws {
+        conversations.removeAll { $0.accountID == accountID }
+    }
+
+    func deleteContacts(for accountID: UUID) async throws {
+        contacts.removeAll { $0.accountID == accountID }
+    }
+
     // MARK: - Link Previews
 
     func fetchLinkPreview(for url: String) async throws -> LinkPreview? {

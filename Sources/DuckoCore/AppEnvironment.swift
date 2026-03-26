@@ -96,10 +96,15 @@ public final class AppEnvironment {
     /// Removes a local account: disconnect, optionally delete transcripts, delete account data.
     /// All steps are fail-safe — errors are suppressed since this is cleanup.
     public func removeAccount(_ id: UUID, includeHistory: Bool) async {
+        let accountJID = accountService.accounts.first(where: { $0.id == id })?.jid.description
         await accountService.disconnect(accountID: id)
         if includeHistory {
             try? await chatService.deleteTranscriptsForAccount(id)
+            try? await store.deleteConversations(for: id)
+        } else if let accountJID {
+            try? await store.unlinkConversations(for: id, restoreImportSourceJID: accountJID)
         }
+        try? await store.deleteContacts(for: id)
         try? await accountService.deleteAccount(id)
     }
 

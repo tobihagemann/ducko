@@ -15,9 +15,9 @@ final class AccountRecord {
     var rosterVersion: String?
     var certificateFingerprint: String?
     var importedFrom: String?
-    @Relationship(deleteRule: .cascade, inverse: \ContactRecord.account)
+    @Relationship(deleteRule: .nullify, inverse: \ContactRecord.account)
     var contacts: [ContactRecord]
-    @Relationship(deleteRule: .cascade, inverse: \ConversationRecord.account)
+    @Relationship(deleteRule: .nullify, inverse: \ConversationRecord.account)
     var conversations: [ConversationRecord]
     var createdAt: Date
 

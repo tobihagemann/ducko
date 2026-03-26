@@ -22,6 +22,12 @@ public protocol PersistenceStore: Sendable {
     func fetchAllConversations() async throws -> [Conversation]
     func markConversationRead(_ conversationID: UUID) async throws
 
+    // MARK: - Account Cleanup
+
+    func unlinkConversations(for accountID: UUID, restoreImportSourceJID: String) async throws
+    func deleteConversations(for accountID: UUID) async throws
+    func deleteContacts(for accountID: UUID) async throws
+
     // MARK: - Link Previews
 
     func fetchLinkPreview(for url: String) async throws -> LinkPreview?
