@@ -55,7 +55,7 @@ actor MockPersistenceStore: PersistenceStore {
         conversations.filter { $0.accountID == accountID }
     }
 
-    func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID) async throws -> Conversation? {
+    func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?) async throws -> Conversation? {
         conversations.first { $0.jid.description == jid && $0.type == type && $0.accountID == accountID }
     }
 
@@ -65,6 +65,10 @@ actor MockPersistenceStore: PersistenceStore {
         } else {
             conversations.append(conversation)
         }
+    }
+
+    func fetchAllConversations() async throws -> [Conversation] {
+        conversations
     }
 
     func markConversationRead(_ conversationID: UUID) async throws {

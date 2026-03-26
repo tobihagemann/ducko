@@ -5,10 +5,9 @@ import Foundation
 extension ConversationRecord {
     func toDomain() -> Conversation? {
         guard let bareJID = BareJID.parse(jid) else { return nil }
-        guard let accountID = account?.id else { return nil }
         return Conversation(
             id: id,
-            accountID: accountID,
+            accountID: account?.id,
             jid: bareJID,
             type: Conversation.ConversationType(rawValue: type) ?? .chat,
             displayName: displayName,

@@ -87,9 +87,9 @@ enum AdiumImportServiceTests {
         }
     }
 
-    struct AccountCreation {
+    struct NoAccountCreation {
         @Test
-        func `Creates disabled placeholder account for new service`() async throws {
+        func `Does not create accounts during import`() async throws {
             let store = MockPersistenceStore()
             let transcripts = MockTranscriptStore()
             let service = AdiumImportService(store: store, transcripts: transcripts)
@@ -115,52 +115,14 @@ enum AdiumImportServiceTests {
             _ = try await service.importLogs(from: sources) { _ in }
 
             let accounts = await store.accounts
-            #expect(accounts.count == 1)
+            #expect(accounts.isEmpty)
 
-            let account = try #require(accounts.first)
-            #expect(account.isEnabled == false)
-            #expect(account.importedFrom == "adium")
-            #expect(account.jid.description == "saibot@exnet.me")
-        }
+            let conversations = await store.conversations
+            #expect(conversations.count == 1)
 
-        @Test
-        func `Reuses existing account with matching JID`() async throws {
-            let store = MockPersistenceStore()
-            let existingAccount = try Account(
-                id: UUID(),
-                jid: #require(BareJID.parse("saibot@exnet.me")),
-                isEnabled: true,
-                connectOnLaunch: true,
-                createdAt: Date()
-            )
-            try await store.saveAccount(existingAccount)
-
-            let transcripts = MockTranscriptStore()
-            let service = AdiumImportService(store: store, transcripts: transcripts)
-            let xml = """
-            <?xml version="1.0" encoding="UTF-8" ?>
-            <chat xmlns="http://purl.org/net/ulf/ns/0.4-02" account="saibot@exnet.me" service="Jabber">
-            <message sender="saibot@exnet.me" time="2016-01-12T00:31:17+0100"><div>hello</div></message>
-            </chat>
-            """
-
-            let tmpDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("adium-test-\(UUID().uuidString)")
-            let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
-            let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
-            let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
-            try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
-            try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
-
-            defer { try? FileManager.default.removeItem(at: tmpDir) }
-
-            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
-            _ = try await service.importLogs(from: sources) { _ in }
-
-            // Should not create a new account
-            let accounts = await store.accounts
-            #expect(accounts.count == 1)
-            #expect(accounts[0].id == existingAccount.id)
+            let conversation = try #require(conversations.first)
+            #expect(conversation.accountID == nil)
+            #expect(conversation.jid.description == "buddy@exnet.me")
         }
     }
 

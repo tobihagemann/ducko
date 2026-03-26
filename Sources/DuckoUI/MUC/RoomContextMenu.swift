@@ -23,49 +23,51 @@ struct RoomContextMenu: View {
             openWindow(id: "chat", value: conversation.jid.description)
         }
 
-        Divider()
-
-        Button(conversation.isPinned ? "Unpin" : "Pin") {
-            Task {
-                try? await environment.chatService.togglePin(
-                    conversationID: conversation.id,
-                    accountID: conversation.accountID
-                )
-            }
-        }
-
-        Button(conversation.isMuted ? "Unmute" : "Mute") {
-            Task {
-                try? await environment.chatService.toggleMute(
-                    conversationID: conversation.id,
-                    accountID: conversation.accountID
-                )
-            }
-        }
-
-        Divider()
-
-        Button("Invite User...") {
-            isShowingInviteSheet = true
-        }
-
-        if canManageRoom {
+        if let accountID = conversation.accountID {
             Divider()
 
-            Button("Room Settings...") {
-                isShowingSettingsSheet = true
+            Button(conversation.isPinned ? "Unpin" : "Pin") {
+                Task {
+                    try? await environment.chatService.togglePin(
+                        conversationID: conversation.id,
+                        accountID: accountID
+                    )
+                }
             }
-            .accessibilityIdentifier("room-settings-menu-item")
-        }
 
-        Divider()
+            Button(conversation.isMuted ? "Unmute" : "Mute") {
+                Task {
+                    try? await environment.chatService.toggleMute(
+                        conversationID: conversation.id,
+                        accountID: accountID
+                    )
+                }
+            }
 
-        Button("Leave Room", role: .destructive) {
-            Task {
-                try? await environment.chatService.leaveRoom(
-                    jidString: conversation.jid.description,
-                    accountID: conversation.accountID
-                )
+            Divider()
+
+            Button("Invite User...") {
+                isShowingInviteSheet = true
+            }
+
+            if canManageRoom {
+                Divider()
+
+                Button("Room Settings...") {
+                    isShowingSettingsSheet = true
+                }
+                .accessibilityIdentifier("room-settings-menu-item")
+            }
+
+            Divider()
+
+            Button("Leave Room", role: .destructive) {
+                Task {
+                    try? await environment.chatService.leaveRoom(
+                        jidString: conversation.jid.description,
+                        accountID: accountID
+                    )
+                }
             }
         }
     }

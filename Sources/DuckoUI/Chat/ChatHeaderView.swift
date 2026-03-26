@@ -8,11 +8,11 @@ struct ChatHeaderView: View {
     @State private var showDeviceFingerprints = false
 
     private var connectionState: AccountService.ConnectionState {
-        environment.accountService.connectionStates[conversation.accountID] ?? .disconnected
+        conversation.accountID.flatMap { environment.accountService.connectionStates[$0] } ?? .disconnected
     }
 
     private var hasOutage: Bool {
-        environment.accountService.outageInfos[conversation.accountID] != nil
+        conversation.accountID.flatMap { environment.accountService.outageInfos[$0] } != nil
     }
 
     private var isGroupchat: Bool {
@@ -73,30 +73,32 @@ struct ChatHeaderView: View {
 
             Spacer()
 
-            Menu {
-                Button(conversation.encryptionEnabled ? "Disable Encryption" : "Enable Encryption") {
-                    Task {
-                        try? await environment.chatService.setEncryptionEnabled(
-                            !conversation.encryptionEnabled,
-                            for: conversation.id, accountID: conversation.accountID
-                        )
+            if let accountID = conversation.accountID {
+                Menu {
+                    Button(conversation.encryptionEnabled ? "Disable Encryption" : "Enable Encryption") {
+                        Task {
+                            try? await environment.chatService.setEncryptionEnabled(
+                                !conversation.encryptionEnabled,
+                                for: conversation.id, accountID: accountID
+                            )
+                        }
                     }
+                    Button("Device Fingerprints…") {
+                        showDeviceFingerprints = true
+                    }
+                } label: {
+                    Image(systemName: conversation.encryptionEnabled ? "lock.fill" : "lock.open")
+                        .foregroundStyle(conversation.encryptionEnabled ? Color.green : .secondary)
                 }
-                Button("Device Fingerprints…") {
-                    showDeviceFingerprints = true
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .accessibilityIdentifier("encryption-menu")
+                .sheet(isPresented: $showDeviceFingerprints) {
+                    DeviceFingerprintsSheet(
+                        peerJID: conversation.jid.description,
+                        accountID: accountID
+                    )
                 }
-            } label: {
-                Image(systemName: conversation.encryptionEnabled ? "lock.fill" : "lock.open")
-                    .foregroundStyle(conversation.encryptionEnabled ? Color.green : .secondary)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .accessibilityIdentifier("encryption-menu")
-            .sheet(isPresented: $showDeviceFingerprints) {
-                DeviceFingerprintsSheet(
-                    peerJID: conversation.jid.description,
-                    accountID: conversation.accountID
-                )
             }
 
             if isGroupchat, let windowState {

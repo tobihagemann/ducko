@@ -1352,18 +1352,18 @@ public final class ChatService {
         conversation: Conversation, mucModule: MUCModule,
         additionalElements: [DuckoXMPP.XMLElement] = []
     ) async throws -> Bool {
-        guard conversation.encryptionEnabled, let omemoService else {
+        guard conversation.encryptionEnabled, let omemoService, let accountID = conversation.accountID else {
             try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true, additionalElements: additionalElements)
             return false
         }
 
-        let memberJIDs = try await roomMemberJIDs(roomJIDString: room.description, accountID: conversation.accountID)
+        let memberJIDs = try await roomMemberJIDs(roomJIDString: room.description, accountID: accountID)
         guard !memberJIDs.isEmpty else {
             throw ChatServiceError.encryptionFailed("Cannot encrypt: no room members with known JIDs")
         }
 
         let elements = try await omemoService.encryptGroupMessage(
-            body: body, roomJID: room, memberJIDs: memberJIDs, accountID: conversation.accountID
+            body: body, roomJID: room, memberJIDs: memberJIDs, accountID: accountID
         )
         let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
         try await mucModule.sendMessage(

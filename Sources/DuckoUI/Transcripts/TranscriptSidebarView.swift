@@ -13,23 +13,15 @@ struct TranscriptSidebarView: View {
             }
         )) {
             ForEach(state.conversationsByAccount, id: \.account.id) { group in
-                DisclosureGroup {
-                    ForEach(group.conversations) { conversation in
-                        TranscriptSidebarRow(conversation: conversation)
-                            .tag(conversation.id)
-                    }
-                } label: {
-                    HStack {
-                        Text(group.account.displayName ?? group.account.jid.description)
-                            .fontWeight(.semibold)
+                TranscriptSidebarSection(
+                    title: group.account.displayName ?? group.account.jid.description,
+                    conversations: group.conversations
+                )
+            }
 
-                        Spacer()
-
-                        Text("\(group.conversations.count)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            let imported = state.importedConversations
+            if !imported.isEmpty {
+                TranscriptSidebarSection(title: "Imported", conversations: imported)
             }
         }
         .searchable(text: $state.searchText, placement: .sidebar, prompt: "Filter conversations")
@@ -45,6 +37,33 @@ struct TranscriptSidebarView: View {
         }
         .onChange(of: state.typeFilter) {
             Task { await state.clearSelectionIfFiltered() }
+        }
+    }
+}
+
+// MARK: - Section
+
+private struct TranscriptSidebarSection: View {
+    let title: String
+    let conversations: [Conversation]
+
+    var body: some View {
+        DisclosureGroup {
+            ForEach(conversations) { conversation in
+                TranscriptSidebarRow(conversation: conversation)
+                    .tag(conversation.id)
+            }
+        } label: {
+            HStack {
+                Text(title)
+                    .fontWeight(.semibold)
+
+                Spacer()
+
+                Text("\(conversations.count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

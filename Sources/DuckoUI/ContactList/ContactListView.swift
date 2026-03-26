@@ -169,10 +169,12 @@ private struct RoomRowWithMenu: View {
                     environment.chatService.clearNewlyCreatedRoom(conversation.jid.description)
                 },
                 content: {
-                    RoomSettingsView(
-                        roomJIDString: conversation.jid.description,
-                        accountID: conversation.accountID
-                    )
+                    if let accountID = conversation.accountID {
+                        RoomSettingsView(
+                            roomJIDString: conversation.jid.description,
+                            accountID: accountID
+                        )
+                    }
                 }
             )
             .onChange(of: isNewlyCreated) {
@@ -242,13 +244,14 @@ private struct InviteUserSheet: View {
             return
         }
         let reasonText = reason.isEmpty ? nil : reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let accountID = conversation.accountID else { return }
         Task {
             do {
                 try await environment.chatService.inviteUser(
                     jidString: trimmed,
                     toRoomJIDString: conversation.jid.description,
                     reason: reasonText,
-                    accountID: conversation.accountID
+                    accountID: accountID
                 )
                 dismiss()
             } catch {

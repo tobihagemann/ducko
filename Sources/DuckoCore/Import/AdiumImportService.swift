@@ -60,8 +60,6 @@ public actor AdiumImportService {
         )
 
         for source in sources {
-            let account = try await findOrCreateAccount(for: source)
-
             for contactDir in source.contactDirectories {
                 let contactUID = contactDir.lastPathComponent
                 let logFiles: [URL]
@@ -96,7 +94,7 @@ public actor AdiumImportService {
                             let chatType: Conversation.ConversationType = isGroupchat ? .groupchat : .chat
                             let jidString = syntheticJID(identifier: contactUID, service: source.service)
 
-                            if let existing = try await store.fetchConversation(jid: jidString, type: chatType, accountID: account.id) {
+                            if let existing = try await store.fetchConversation(jid: jidString, type: chatType, accountID: nil) {
                                 conversation = existing
                                 // Seed stanzaID cache for re-import scenario
                                 let existingMessages = try await transcripts.fetchMessages(for: existing.id, before: nil, limit: Int.max)
@@ -109,7 +107,6 @@ public actor AdiumImportService {
                                 }
                                 let conv = Conversation(
                                     id: UUID(),
-                                    accountID: account.id,
                                     jid: bareJID,
                                     type: chatType,
                                     displayName: contactUID,
@@ -130,7 +127,7 @@ public actor AdiumImportService {
                             try await transcripts.writeMetadata(
                                 TranscriptMetadata(
                                     conversationID: conv.id,
-                                    accountJID: account.jid.description,
+                                    accountJID: syntheticJID(identifier: source.accountUID, service: source.service),
                                     contactJID: syntheticJID(identifier: contactUID, service: source.service),
                                     type: conv.type.rawValue,
                                     displayName: contactUID
@@ -222,42 +219,6 @@ public actor AdiumImportService {
 
     // MARK: - Private
 
-    /// Cache of resolved accounts by JID string to avoid repeated fetchAccounts calls.
-    private var accountCache: [String: Account] = [:]
-
-    private func findOrCreateAccount(for source: AdiumServiceAccount) async throws -> Account {
-        let jidString = syntheticJID(identifier: source.accountUID, service: source.service)
-
-        if let cached = accountCache[jidString] {
-            return cached
-        }
-
-        // Check if account already exists in the store
-        let accounts = try await store.fetchAccounts()
-        if let existing = accounts.first(where: { $0.jid.description == jidString }) {
-            accountCache[jidString] = existing
-            return existing
-        }
-
-        guard let bareJID = BareJID.parse(jidString) else {
-            throw ImportServiceError.invalidAccountJID(jidString)
-        }
-
-        let account = Account(
-            id: UUID(),
-            jid: bareJID,
-            displayName: "\(source.service) (\(source.accountUID))",
-            isEnabled: false,
-            connectOnLaunch: false,
-            importedFrom: "adium",
-            createdAt: Date()
-        )
-        try await store.saveAccount(account)
-        accountCache[jidString] = account
-        log.info("Created placeholder account for \(source.service).\(source.accountUID)")
-        return account
-    }
-
     private func parseLogFile(at url: URL, accountUID: String) throws -> AdiumLogFile {
         let data = try Data(contentsOf: url)
         let ext = url.pathExtension.lowercased()
@@ -303,19 +264,6 @@ public actor AdiumImportService {
             return identifier
         default:
             return "\(identifier)@\(normalizedService).adium-import"
-        }
-    }
-}
-
-// MARK: - Errors
-
-enum ImportServiceError: Error, LocalizedError {
-    case invalidAccountJID(String)
-
-    var errorDescription: String? {
-        switch self {
-        case let .invalidAccountJID(jid):
-            "Invalid account JID: \(jid)"
         }
     }
 }

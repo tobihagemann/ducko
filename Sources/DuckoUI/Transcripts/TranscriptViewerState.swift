@@ -59,16 +59,30 @@ final class TranscriptViewerState {
         return result
     }
 
-    var conversationsByAccount: [(account: Account, conversations: [Conversation])] {
+    private var partitionedConversations: (byAccount: [UUID: [Conversation]], imported: [Conversation]) {
         let filtered = filteredConversations
         var grouped: [UUID: [Conversation]] = [:]
+        var imported: [Conversation] = []
         for conversation in filtered {
-            grouped[conversation.accountID, default: []].append(conversation)
+            if let accountID = conversation.accountID {
+                grouped[accountID, default: []].append(conversation)
+            } else {
+                imported.append(conversation)
+            }
         }
+        return (grouped, imported)
+    }
+
+    var conversationsByAccount: [(account: Account, conversations: [Conversation])] {
+        let grouped = partitionedConversations.byAccount
         return accounts.compactMap { account in
             guard let convs = grouped[account.id], !convs.isEmpty else { return nil }
             return (account, convs)
         }
+    }
+
+    var importedConversations: [Conversation] {
+        partitionedConversations.imported
     }
 
     // MARK: - Actions

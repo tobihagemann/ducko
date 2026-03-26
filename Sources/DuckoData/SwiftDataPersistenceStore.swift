@@ -130,7 +130,7 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         return records.compactMap { $0.toDomain() }
     }
 
-    public func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID) throws -> Conversation? {
+    public func fetchConversation(jid: String, type: Conversation.ConversationType, accountID: UUID?) throws -> Conversation? {
         let jidString = jid
         let typeString = type.rawValue
         var descriptor = FetchDescriptor<ConversationRecord>(
@@ -150,13 +150,16 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         if let existing = try modelContext.fetch(descriptor).first {
             existing.update(from: conversation)
         } else {
-            let accountID = conversation.accountID
-            var accountDescriptor = FetchDescriptor<AccountRecord>(
-                predicate: #Predicate { $0.id == accountID }
-            )
-            accountDescriptor.fetchLimit = 1
-            guard let accountRecord = try modelContext.fetch(accountDescriptor).first else {
-                throw PersistenceStoreError.parentNotFound("AccountRecord(\(accountID))")
+            var accountRecord: AccountRecord?
+            if let accountID = conversation.accountID {
+                var accountDescriptor = FetchDescriptor<AccountRecord>(
+                    predicate: #Predicate { $0.id == accountID }
+                )
+                accountDescriptor.fetchLimit = 1
+                guard let record = try modelContext.fetch(accountDescriptor).first else {
+                    throw PersistenceStoreError.parentNotFound("AccountRecord(\(accountID))")
+                }
+                accountRecord = record
             }
 
             let record = ConversationRecord(
