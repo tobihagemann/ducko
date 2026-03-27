@@ -15,7 +15,7 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 1
         tell process "DuckoApp"
-            set allElems to entire contents of window 1
+            set allElems to entire contents of window "Welcome"
             repeat with elem in allElems
                 try
                     set elemId to value of attribute "AXIdentifier" of elem

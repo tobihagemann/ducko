@@ -27,7 +27,7 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 1
         tell process "DuckoApp"
-            set allElems to entire contents of window 1
+            set allElems to entire contents of window "Welcome"
 
             -- Click the Register tab in the setup mode picker
             set pickerFound to false
@@ -53,7 +53,7 @@ on run argv
             delay 0.5
 
             -- Re-read elements after mode switch
-            set allElems to entire contents of window 1
+            set allElems to entire contents of window "Welcome"
 
             -- Fill in the registration fields
             repeat with elem in allElems

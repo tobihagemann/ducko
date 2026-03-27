@@ -1,3 +1,4 @@
+import AppKit
 import DuckoCore
 import SwiftUI
 
@@ -19,6 +20,13 @@ struct AccountSetupView: View {
 
     var body: some View {
         VStack(spacing: 20) {
+            if let iconImage = NSApplication.shared.applicationIconImage {
+                Image(nsImage: iconImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 128, height: 128)
+            }
+
             Text("Welcome to Ducko")
                 .font(.largeTitle)
                 .fontWeight(.bold)
@@ -32,6 +40,7 @@ struct AccountSetupView: View {
                 }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .frame(maxWidth: 300)
             .accessibilityIdentifier("setup-mode-picker")
 

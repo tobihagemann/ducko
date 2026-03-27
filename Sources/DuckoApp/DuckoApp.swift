@@ -32,6 +32,15 @@ struct DuckoApp: App {
     }
 
     var body: some Scene {
+        Window("Welcome", id: "welcome") {
+            WelcomeView()
+                .environment(environment)
+                .environment(themeEngine)
+        }
+        .defaultSize(width: 480, height: 520)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+
         Window("Contacts", id: "contacts") {
             ContentView()
                 .environment(environment)
@@ -39,8 +48,6 @@ struct DuckoApp: App {
                 .task {
                     notificationManager.requestAuthorization()
                     wireNotifications()
-                    try? await environment.accountService.loadAccounts()
-                    await environment.accountService.connectEnabledAccounts()
                 }
                 .onChange(of: totalUnread) { _, newValue in
                     notificationManager.updateDockBadge(totalUnread: newValue)
