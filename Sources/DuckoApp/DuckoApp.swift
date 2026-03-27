@@ -58,6 +58,7 @@ struct DuckoApp: App {
                 }
         }
         .defaultSize(width: 280, height: 600)
+        .defaultPosition(.topLeading)
         .defaultLaunchBehavior(.presented)
 
         WindowGroup("Chat", id: "chat", for: String.self) { $jidString in
