@@ -37,7 +37,7 @@ struct DuckoApp: App {
                 .environment(environment)
                 .environment(themeEngine)
         }
-        .defaultSize(width: 480, height: 520)
+        .defaultSize(width: 520, height: 620)
         .defaultLaunchBehavior(.suppressed)
         .restorationBehavior(.disabled)
 

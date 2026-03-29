@@ -125,7 +125,9 @@ public final class AccountService {
         host: String? = nil,
         port: Int? = nil,
         resource: String? = nil,
-        connectOnLaunch: Bool = false
+        requireTLS: Bool = true,
+        connectOnLaunch: Bool = false,
+        importedFrom: String? = nil
     ) async throws -> UUID {
         guard let jid = BareJID.parse(jidString) else {
             throw AccountServiceError.invalidJID(jidString)
@@ -139,6 +141,8 @@ public final class AccountService {
             host: host,
             port: port,
             resource: resource,
+            requireTLS: requireTLS,
+            importedFrom: importedFrom,
             createdAt: Date()
         )
         try await store.saveAccount(account)
@@ -230,9 +234,23 @@ public final class AccountService {
     public func createAndConnect(
         jidString: String,
         password: String,
+        host: String? = nil,
+        port: Int? = nil,
+        resource: String? = nil,
+        requireTLS: Bool = true,
+        connectOnLaunch: Bool = false,
+        importedFrom: String? = nil,
         afterConnect: ((UUID) async throws -> Void)? = nil
     ) async throws -> UUID {
-        let accountID = try await createAccount(jidString: jidString)
+        let accountID = try await createAccount(
+            jidString: jidString,
+            host: host,
+            port: port,
+            resource: resource,
+            requireTLS: requireTLS,
+            connectOnLaunch: connectOnLaunch,
+            importedFrom: importedFrom
+        )
         do {
             try await connect(accountID: accountID, password: password)
             try await afterConnect?(accountID)

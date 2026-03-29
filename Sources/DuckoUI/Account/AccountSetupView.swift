@@ -4,7 +4,8 @@ import SwiftUI
 
 struct AccountSetupView: View {
     @Environment(AppEnvironment.self) private var environment
-    @State private var mode: SetupMode = .login
+    @Binding var importInProgress: Bool
+    @State private var mode: SetupMode = .importAdium
     @State private var jidString = ""
     @State private var password = ""
     @State private var serverDomain = ""
@@ -14,6 +15,7 @@ struct AccountSetupView: View {
     @State private var errorMessage: String?
 
     private enum SetupMode: String, CaseIterable {
+        case importAdium = "Import"
         case login = "Login"
         case register = "Register"
     }
@@ -31,7 +33,7 @@ struct AccountSetupView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
 
-            Text("Enter your XMPP account details to get started.")
+            Text(subtitleText)
                 .foregroundStyle(.secondary)
 
             Picker("Mode", selection: $mode) {
@@ -41,11 +43,14 @@ struct AccountSetupView: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
+            .disabled(importInProgress)
             .frame(maxWidth: 300)
             .accessibilityIdentifier("setup-mode-picker")
 
             VStack(spacing: 12) {
                 switch mode {
+                case .importAdium:
+                    AdiumOnboardingImportView(importInProgress: $importInProgress)
                 case .login:
                     loginFields
                 case .register:
@@ -54,32 +59,36 @@ struct AccountSetupView: View {
             }
             .frame(maxWidth: 300)
 
-            if let errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-                    .font(.callout)
-            }
+            if mode != .importAdium {
+                if let errorMessage {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                        .font(.callout)
+                }
 
-            Button {
-                Task {
-                    switch mode {
-                    case .login:
-                        await connectAccount()
-                    case .register:
-                        await registerAccount()
+                Button {
+                    Task {
+                        switch mode {
+                        case .login:
+                            await connectAccount()
+                        case .register:
+                            await registerAccount()
+                        case .importAdium:
+                            break
+                        }
+                    }
+                } label: {
+                    if isConnecting {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(mode == .login ? "Connect" : "Register")
                     }
                 }
-            } label: {
-                if isConnecting {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Text(mode == .login ? "Connect" : "Register")
-                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isActionDisabled)
+                .accessibilityIdentifier(mode == .login ? "connect-button" : "register-button")
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(isActionDisabled)
-            .accessibilityIdentifier(mode == .login ? "connect-button" : "register-button")
         }
         .padding(40)
         .frame(minWidth: 400, minHeight: 300)
@@ -124,9 +133,22 @@ struct AccountSetupView: View {
         }
     }
 
+    // MARK: - Computed
+
+    private var subtitleText: String {
+        switch mode {
+        case .importAdium:
+            "Import your accounts and chat history from Adium."
+        case .login, .register:
+            "Enter your XMPP account details to get started."
+        }
+    }
+
     private var isActionDisabled: Bool {
         if isConnecting { return true }
         switch mode {
+        case .importAdium:
+            return true
         case .login:
             return jidString.isEmpty || password.isEmpty
         case .register:

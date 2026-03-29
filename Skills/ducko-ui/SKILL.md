@@ -113,7 +113,12 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `retract-button` | Retract context menu button (own msgs) | Chat |
 | `moderate-button` | Moderate context menu button (other users' msgs) | Chat |
 | `retracted-message` | Retracted message tombstone | Chat |
-| `setup-mode-picker` | Login/Register segmented control | Account Setup |
+| `setup-mode-picker` | Import/Login/Register segmented control | Account Setup |
+| `import-button` | Import & Connect / Import Logs button (Import mode) | Account Setup |
+| `import-done-button` | Done button after import completes | Account Setup |
+| `choose-adium-folder-button` | Browse for Adium folder (shown when no data found) | Account Setup |
+| `account-toggle-{id}` | Toggle checkbox for each discovered Adium account | Account Setup |
+| `account-password-{id}` | Password field for each discovered Adium account | Account Setup |
 | `register-server-field` | Server domain field (Register mode) | Account Setup |
 | `register-username-field` | Username field (Register mode) | Account Setup |
 | `register-password-field` | Password field (Register mode) | Account Setup |
@@ -186,6 +191,7 @@ Right-click a participant in the chat window sidebar:
 | Script | Purpose | Arguments |
 |---|---|---|
 | `ducko-launch.sh` | Build and launch DuckoApp, output window ID | none |
+| `ducko-import.sh` | Switch to Import mode and click Import button | none |
 | `ducko-login.sh` | Fill JID + password, click Connect | `JID PASSWORD` |
 | `ducko-new-chat.sh` | Open New Chat sheet from contact list, fill JID, start chat | `JID` |
 | `ducko-add-contact.sh` | Open Add Contact sheet from contact list, fill JID, submit | `JID` |
