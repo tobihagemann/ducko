@@ -13,6 +13,7 @@ struct AccountSetupView: View {
     @State private var email = ""
     @State private var adiumAccounts: [AdiumAccount]?
     @State private var adiumLogSources: [AdiumServiceAccount]?
+    @State private var adiumKeychainPasswords: [String: String]?
     @State private var isConnecting = false
     @State private var errorMessage: String?
 
@@ -55,7 +56,8 @@ struct AccountSetupView: View {
                     AdiumOnboardingImportView(
                         importInProgress: $importInProgress,
                         cachedAccounts: $adiumAccounts,
-                        cachedLogSources: $adiumLogSources
+                        cachedLogSources: $adiumLogSources,
+                        cachedKeychainPasswords: $adiumKeychainPasswords
                     )
                 case .login:
                     loginFields

@@ -7,15 +7,18 @@ struct AdiumOnboardingImportView: View {
     @Binding var importInProgress: Bool
     @Binding var cachedAccounts: [AdiumAccount]?
     @Binding var cachedLogSources: [AdiumServiceAccount]?
+    @Binding var cachedKeychainPasswords: [String: String]?
 
     @State private var step: ImportStep = .loading
     @State private var accounts: [AdiumAccount] = []
     @State private var logSources: [AdiumServiceAccount] = []
     @State private var selectedAccountIDs: Set<String> = []
     @State private var passwords: [String: String] = [:]
+    @State private var keychainPasswords: [String: String] = [:]
     @State private var progress: AdiumImportService.ImportProgress?
     @State private var accountResults: [AccountResult] = []
     @State private var importResult: AdiumImportService.ImportProgress?
+    @State private var logImportSkipped = false
 
     private enum ImportStep {
         case loading
@@ -122,13 +125,19 @@ struct AdiumOnboardingImportView: View {
                     .accessibilityIdentifier("account-toggle-\(account.id)")
 
                     if selectedAccountIDs.contains(account.id) {
-                        SecureField("Password", text: Binding(
-                            get: { passwords[account.id, default: ""] },
-                            set: { passwords[account.id] = $0 }
-                        ))
-                        .textFieldStyle(.roundedBorder)
-                        .textContentType(.password)
-                        .accessibilityIdentifier("account-password-\(account.id)")
+                        if keychainPasswords[account.id] != nil {
+                            Label("Password from Keychain", systemImage: "key.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            SecureField("Password", text: Binding(
+                                get: { passwords[account.id, default: ""] },
+                                set: { passwords[account.id] = $0 }
+                            ))
+                            .textFieldStyle(.roundedBorder)
+                            .textContentType(.password)
+                            .accessibilityIdentifier("account-password-\(account.id)")
+                        }
 
                         if let server = account.connectServer {
                             Text("Server: \(server)")
@@ -163,6 +172,12 @@ struct AdiumOnboardingImportView: View {
         VStack(spacing: 12) {
             AdiumImportCompletionView(result: importResult, accountResults: accountResults)
 
+            if logImportSkipped {
+                Text("Log import was skipped because no accounts could connect. You can import logs separately from the app menu.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
             Button("Done") {
                 importInProgress = false
             }
@@ -180,7 +195,12 @@ struct AdiumOnboardingImportView: View {
     }
 
     private var hasImportableData: Bool {
-        !logSources.isEmpty || !selectedAccountsWithPasswords.isEmpty
+        if !selectedAccountIDs.isEmpty {
+            return selectedAccountIDs.allSatisfy { id in
+                !(passwords[id]?.isEmpty ?? true)
+            }
+        }
+        return !logSources.isEmpty
     }
 
     // MARK: - Actions
@@ -188,12 +208,14 @@ struct AdiumOnboardingImportView: View {
     private func discover() async {
         if let cached = cachedAccounts {
             accounts = cached
-            selectedAccountIDs = Set(cached.map(\.id))
             logSources = cachedLogSources ?? []
+            keychainPasswords = cachedKeychainPasswords ?? [:]
+            for (id, pw) in keychainPasswords {
+                passwords[id] = pw
+            }
+            selectedAccountIDs = Set(keychainPasswords.keys)
         } else {
             discoverAt(AdiumAccountDiscovery.defaultUserURL)
-            cachedAccounts = accounts
-            cachedLogSources = logSources
         }
         step = .accountSetup
     }
@@ -211,7 +233,15 @@ struct AdiumOnboardingImportView: View {
 
     private func discoverAt(_ userDirectoryURL: URL) {
         accounts = AdiumAccountDiscovery.discoverAccounts(at: userDirectoryURL)
-        selectedAccountIDs = Set(accounts.map(\.id))
+
+        keychainPasswords = [:]
+        for account in accounts {
+            if let pw = AdiumKeychainReader.password(for: account) {
+                keychainPasswords[account.id] = pw
+                passwords[account.id] = pw
+            }
+        }
+        selectedAccountIDs = Set(keychainPasswords.keys)
 
         let logsURL = userDirectoryURL.appendingPathComponent("Logs")
         do {
@@ -222,6 +252,7 @@ struct AdiumOnboardingImportView: View {
 
         cachedAccounts = accounts
         cachedLogSources = logSources
+        cachedKeychainPasswords = keychainPasswords
     }
 
     private func performImport() async {
@@ -248,8 +279,12 @@ struct AdiumOnboardingImportView: View {
             }
         }
 
-        // Phase 2: Import logs
-        if !logSources.isEmpty {
+        // Phase 2: Import logs (gated on account connection success when accounts were selected)
+        let accountsWereSelected = !selectedAccountIDs.isEmpty
+        let anyAccountSucceeded = accountResults.contains(where: \.success)
+        let shouldImportLogs = !logSources.isEmpty && (!accountsWereSelected || anyAccountSucceeded)
+
+        if shouldImportLogs {
             let importService = AdiumImportService(store: environment.store, transcripts: environment.transcripts)
             do {
                 importResult = try await importService.importLogs(from: logSources) { p in
@@ -260,6 +295,8 @@ struct AdiumOnboardingImportView: View {
             } catch {
                 importResult = .failure(error: error)
             }
+        } else if accountsWereSelected, !logSources.isEmpty {
+            logImportSkipped = true
         }
 
         step = .complete
