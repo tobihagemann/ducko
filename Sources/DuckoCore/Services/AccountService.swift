@@ -268,6 +268,12 @@ public final class AccountService {
         return accountID
     }
 
+    /// Whether the error represents an XMPP authentication failure (wrong password, etc.).
+    public nonisolated static func isAuthenticationError(_ error: Error) -> Bool {
+        if case .authenticationFailed = error as? XMPPClientError { return true }
+        return false
+    }
+
     /// Registers a new account on a server via XEP-0077 pre-auth registration.
     public func registerAccount(
         domain: String,

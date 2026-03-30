@@ -312,6 +312,26 @@ enum AccountServiceTests {
         }
     }
 
+    struct IsAuthenticationError {
+        @Test
+        func `returns true for authenticationFailed`() {
+            let error: any Error = XMPPClientError.authenticationFailed("not-authorized")
+            #expect(AccountService.isAuthenticationError(error))
+        }
+
+        @Test
+        func `returns false for other XMPPClientError cases`() {
+            #expect(!AccountService.isAuthenticationError(XMPPClientError.notConnected))
+            #expect(!AccountService.isAuthenticationError(XMPPClientError.timeout))
+            #expect(!AccountService.isAuthenticationError(XMPPClientError.tlsRequired))
+        }
+
+        @Test
+        func `returns false for unrelated errors`() {
+            #expect(!AccountService.isAuthenticationError(TestError()))
+        }
+    }
+
     struct SavePassword {
         @Test
         @MainActor

@@ -1,5 +1,5 @@
 /// Errors from XMPP client operations.
-enum XMPPClientError: Error {
+public enum XMPPClientError: Error {
     case notConnected
     case alreadyConnected
     case tlsRequired

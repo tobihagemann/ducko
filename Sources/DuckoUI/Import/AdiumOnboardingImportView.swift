@@ -19,6 +19,8 @@ struct AdiumOnboardingImportView: View {
     @State private var accountResults: [AccountResult] = []
     @State private var importResult: AdiumImportService.ImportProgress?
     @State private var logImportSkipped = false
+    @State private var succeededAccountIDs: Set<String> = []
+    @State private var authErrorMessages: [String: String] = [:]
 
     private enum ImportStep {
         case loading
@@ -125,7 +127,7 @@ struct AdiumOnboardingImportView: View {
                     .accessibilityIdentifier("account-toggle-\(account.id)")
 
                     if selectedAccountIDs.contains(account.id) {
-                        if keychainPasswords[account.id] != nil {
+                        if keychainPasswords[account.id] != nil, authErrorMessages[account.id] == nil {
                             Label("Password from Keychain", systemImage: "key.fill")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -137,6 +139,12 @@ struct AdiumOnboardingImportView: View {
                             .textFieldStyle(.roundedBorder)
                             .textContentType(.password)
                             .accessibilityIdentifier("account-password-\(account.id)")
+                        }
+
+                        if let authError = authErrorMessages[account.id] {
+                            Text(authError)
+                                .font(.caption)
+                                .foregroundStyle(.red)
                         }
 
                         if let server = account.connectServer {
@@ -190,17 +198,20 @@ struct AdiumOnboardingImportView: View {
 
     private var selectedAccountsWithPasswords: [AdiumAccount] {
         accounts.filter { account in
-            selectedAccountIDs.contains(account.id) && !(passwords[account.id]?.isEmpty ?? true)
+            selectedAccountIDs.contains(account.id)
+                && !succeededAccountIDs.contains(account.id)
+                && !(passwords[account.id]?.isEmpty ?? true)
         }
     }
 
     private var hasImportableData: Bool {
-        if !selectedAccountIDs.isEmpty {
-            return selectedAccountIDs.allSatisfy { id in
+        let pendingSelectedIDs = selectedAccountIDs.subtracting(succeededAccountIDs)
+        if !pendingSelectedIDs.isEmpty {
+            return pendingSelectedIDs.allSatisfy { id in
                 !(passwords[id]?.isEmpty ?? true)
             }
         }
-        return !logSources.isEmpty
+        return !logSources.isEmpty || !succeededAccountIDs.isEmpty
     }
 
     // MARK: - Actions
@@ -258,8 +269,11 @@ struct AdiumOnboardingImportView: View {
     private func performImport() async {
         importInProgress = true
         step = .importing
+        authErrorMessages = [:]
+        accountResults = accounts.filter { succeededAccountIDs.contains($0.id) }
+            .map { AccountResult(id: $0.id, jid: $0.uid, success: true, error: nil) }
 
-        // Phase 1: Create and connect accounts
+        // Phase 1: Create and connect accounts (skip already-succeeded ones)
         for account in selectedAccountsWithPasswords {
             let password = passwords[account.id] ?? ""
             do {
@@ -273,13 +287,30 @@ struct AdiumOnboardingImportView: View {
                     connectOnLaunch: account.autoConnect,
                     importedFrom: "Adium"
                 )
+                succeededAccountIDs.insert(account.id)
                 accountResults.append(AccountResult(id: account.id, jid: account.uid, success: true, error: nil))
             } catch {
-                accountResults.append(AccountResult(id: account.id, jid: account.uid, success: false, error: error.localizedDescription))
+                if AccountService.isAuthenticationError(error) {
+                    authErrorMessages[account.id] = "Authentication failed. Please check your password."
+                    passwords[account.id] = ""
+                } else {
+                    accountResults.append(AccountResult(id: account.id, jid: account.uid, success: false, error: error.localizedDescription))
+                }
             }
         }
 
-        // Phase 2: Import logs (gated on account connection success when accounts were selected)
+        // If any auth failures, rewind to account setup for retry
+        if !authErrorMessages.isEmpty {
+            importInProgress = !succeededAccountIDs.isEmpty
+            step = .accountSetup
+            return
+        }
+
+        await importLogsIfNeeded()
+        step = .complete
+    }
+
+    private func importLogsIfNeeded() async {
         let accountsWereSelected = !selectedAccountIDs.isEmpty
         let anyAccountSucceeded = accountResults.contains(where: \.success)
         let shouldImportLogs = !logSources.isEmpty && (!accountsWereSelected || anyAccountSucceeded)
@@ -298,7 +329,5 @@ struct AdiumOnboardingImportView: View {
         } else if accountsWereSelected, !logSources.isEmpty {
             logImportSkipped = true
         }
-
-        step = .complete
     }
 }
