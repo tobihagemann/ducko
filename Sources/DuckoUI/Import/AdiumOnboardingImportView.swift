@@ -21,6 +21,7 @@ struct AdiumOnboardingImportView: View {
     @State private var logImportSkipped = false
     @State private var succeededAccountIDs: Set<String> = []
     @State private var authErrorMessages: [String: String] = [:]
+    @State private var totalSelectedAccountCount = 0
 
     private enum ImportStep {
         case loading
@@ -109,6 +110,8 @@ struct AdiumOnboardingImportView: View {
     private var accountListView: some View {
         VStack(spacing: 8) {
             ForEach(accounts) { account in
+                let alreadySucceeded = succeededAccountIDs.contains(account.id)
+
                 VStack(alignment: .leading, spacing: 4) {
                     Toggle(isOn: Binding(
                         get: { selectedAccountIDs.contains(account.id) },
@@ -124,9 +127,14 @@ struct AdiumOnboardingImportView: View {
                             .font(.body)
                     }
                     .toggleStyle(.checkbox)
+                    .disabled(alreadySucceeded)
                     .accessibilityIdentifier("account-toggle-\(account.id)")
 
-                    if selectedAccountIDs.contains(account.id) {
+                    if alreadySucceeded {
+                        Label("Connected", systemImage: "checkmark.circle")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    } else if selectedAccountIDs.contains(account.id) {
                         if keychainPasswords[account.id] != nil, authErrorMessages[account.id] == nil {
                             Label("Password from Keychain", systemImage: "key.fill")
                                 .font(.caption)
@@ -163,9 +171,9 @@ struct AdiumOnboardingImportView: View {
             ProgressView()
                 .controlSize(.small)
 
-            if !accountResults.isEmpty {
+            if totalSelectedAccountCount > 0 {
                 let succeeded = accountResults.filter(\.success).count
-                Text("\(succeeded)/\(accountResults.count) accounts connected")
+                Text("\(succeeded)/\(totalSelectedAccountCount) accounts connected")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -270,6 +278,7 @@ struct AdiumOnboardingImportView: View {
         importInProgress = true
         step = .importing
         authErrorMessages = [:]
+        totalSelectedAccountCount = selectedAccountIDs.count
         accountResults = accounts.filter { succeededAccountIDs.contains($0.id) }
             .map { AccountResult(id: $0.id, jid: $0.uid, success: true, error: nil) }
 
