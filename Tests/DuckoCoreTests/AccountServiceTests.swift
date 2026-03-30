@@ -5,6 +5,8 @@ import Testing
 
 // MARK: - Helpers
 
+private struct TestError: Error {}
+
 private let testJIDString = "alice@example.com"
 private let testJID = BareJID(localPart: "alice", domainPart: "example.com")!
 
@@ -17,8 +19,12 @@ private func makeCredentials() -> MockCredentialStore {
 }
 
 @MainActor
-private func makeAccountService(store: MockPersistenceStore, credentials: MockCredentialStore = makeCredentials()) -> AccountService {
-    AccountService(store: store, credentialStore: credentials)
+private func makeAccountService(
+    store: MockPersistenceStore,
+    credentials: MockCredentialStore = makeCredentials(),
+    clientFactory: any XMPPClientFactory = DefaultXMPPClientFactory()
+) -> AccountService {
+    AccountService(store: store, credentialStore: credentials, clientFactory: clientFactory)
 }
 
 private func makeAccount(id: UUID = UUID(), jid: BareJID = testJID) -> Account {
@@ -198,6 +204,135 @@ enum AccountServiceTests {
             await #expect(throws: AccountService.AccountServiceError.self) {
                 try await service.connect(accountID: account.id)
             }
+        }
+    }
+
+    struct CreateAndConnect {
+        @Test
+        @MainActor
+        func `rollback on connection failure deletes account and unlinks conversations`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let contactJID = try #require(BareJID(localPart: "bob", domainPart: "example.com"))
+            let conv = makeConversation(jid: contactJID, importSourceJID: testJIDString)
+            await store.addConversation(conv)
+
+            let transport = MockTransport(connectError: TestError())
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+
+            await #expect(throws: TestError.self) {
+                _ = try await service.createAndConnect(
+                    jidString: testJIDString, password: "secret",
+                    host: "example.com", port: 5222
+                )
+            }
+
+            let accounts = try await store.fetchAccounts()
+            #expect(accounts.isEmpty)
+
+            let all = try await store.fetchAllConversations()
+            #expect(all.count == 1)
+            #expect(all[0].accountID == nil)
+            #expect(all[0].importSourceJID == testJIDString)
+
+            #expect(credentials.loadPassword(for: testJIDString) == nil)
+        }
+
+        @Test
+        @MainActor
+        func `success saves password and reloads accounts`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let transport = MockTransport()
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+
+            let connectTask = Task { @MainActor in
+                try await service.createAndConnect(
+                    jidString: testJIDString, password: "secret",
+                    host: "example.com", port: 5222
+                )
+            }
+            await simulateNoTLSConnect(transport)
+            let accountID = try await connectTask.value
+
+            #expect(credentials.loadPassword(for: testJIDString) == "secret")
+
+            let accounts = try await store.fetchAccounts()
+            #expect(accounts.count == 1)
+            #expect(accounts[0].id == accountID)
+        }
+
+        @Test
+        @MainActor
+        func `afterConnect failure triggers rollback with contact deletion`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let contactJID = try #require(BareJID(localPart: "bob", domainPart: "example.com"))
+            let conv = makeConversation(jid: contactJID, importSourceJID: testJIDString)
+            await store.addConversation(conv)
+
+            let transport = MockTransport()
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+
+            let connectTask = Task { @MainActor in
+                try await service.createAndConnect(
+                    jidString: testJIDString, password: "secret",
+                    host: "example.com", port: 5222,
+                    afterConnect: { accountID in
+                        let contact = Contact(
+                            id: UUID(), accountID: accountID, jid: contactJID,
+                            subscription: .both, groups: [], isBlocked: false, createdAt: Date()
+                        )
+                        try await store.upsertContact(contact)
+                        throw TestError()
+                    }
+                )
+            }
+            await simulateNoTLSConnect(transport)
+
+            await #expect(throws: TestError.self) {
+                _ = try await connectTask.value
+            }
+
+            let accounts = try await store.fetchAccounts()
+            #expect(accounts.isEmpty)
+
+            let contacts = await store.contacts
+            #expect(contacts.isEmpty)
+
+            let all = try await store.fetchAllConversations()
+            #expect(all.count == 1)
+            #expect(all[0].accountID == nil)
+            #expect(all[0].importSourceJID == testJIDString)
+
+            #expect(credentials.loadPassword(for: testJIDString) == nil)
+        }
+    }
+
+    struct SavePassword {
+        @Test
+        @MainActor
+        func `savePassword persists to credential store`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let transport = MockTransport(connectError: TestError())
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+
+            let accountID = try await service.createAccount(jidString: testJIDString)
+            try await service.loadAccounts()
+
+            // connect sets passwords[accountID] before performConnect throws
+            do {
+                try await service.connect(accountID: accountID, password: "secret")
+            } catch is TestError {}
+
+            await service.savePassword(accountID: accountID)
+
+            #expect(credentials.loadPassword(for: testJIDString) == "secret")
         }
     }
 }

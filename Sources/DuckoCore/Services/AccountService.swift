@@ -20,6 +20,7 @@ public final class AccountService {
 
     private let store: any PersistenceStore
     private let credentialStore: any CredentialStore
+    private let clientFactory: any XMPPClientFactory
     private var clients: [UUID: XMPPClient] = [:]
     private var smModules: [UUID: StreamManagementModule] = [:]
     private var smResumeStates: [UUID: SMResumeState] = [:]
@@ -57,9 +58,10 @@ public final class AccountService {
         }
     }
 
-    public init(store: any PersistenceStore, credentialStore: any CredentialStore) {
+    public init(store: any PersistenceStore, credentialStore: any CredentialStore, clientFactory: any XMPPClientFactory = DefaultXMPPClientFactory()) {
         self.store = store
         self.credentialStore = credentialStore
+        self.clientFactory = clientFactory
     }
 
     // MARK: - Lifecycle
@@ -439,52 +441,13 @@ public final class AccountService {
         account: Account, previousSMState: SMResumeState?,
         requireTLSOverride: Bool? = nil
     ) async -> (XMPPClient, StreamManagementModule) {
-        var builder = XMPPClientBuilder(
-            domain: account.jid.domainPart,
-            username: account.jid.localPart ?? "",
-            password: passwords[account.id] ?? ""
+        await clientFactory.makeClient(
+            account: account,
+            password: passwords[account.id] ?? "",
+            previousSMState: previousSMState,
+            requireTLSOverride: requireTLSOverride,
+            omemoService: omemoService
         )
-        builder.withRequireTLS(requireTLSOverride ?? account.requireTLS)
-        builder.withPreferredResource(account.resource)
-        let rosterModule = RosterModule()
-        let rosterVersion = account.rosterVersion
-        rosterModule.setRosterVersionProvider { rosterVersion }
-        builder.withModule(ChatModule())
-        builder.withModule(rosterModule)
-        builder.withModule(PresenceModule())
-        builder.withModule(ServiceDiscoveryModule())
-        builder.withModule(CapsModule())
-        builder.withModule(VCardModule())
-        builder.withModule(ReceiptsModule())
-        builder.withModule(ChatStatesModule())
-        builder.withModule(CarbonsModule())
-        builder.withModule(MAMModule())
-        builder.withModule(PingModule())
-        builder.withModule(MUCModule())
-        builder.withModule(HTTPUploadModule())
-        builder.withModule(JingleModule())
-        let pepModule = PEPModule()
-        pepModule.registerNotifyInterest(XMPPNamespaces.bookmarks2)
-        pepModule.registerNotifyInterest(XMPPNamespaces.avatarMetadata)
-        pepModule.registerNotifyInterest(XMPPNamespaces.omemoDevices)
-        builder.withModule(pepModule)
-        let omemoModule: OMEMOModule = if let omemoService {
-            await omemoService.buildModule(for: account.jid, pepModule: pepModule)
-        } else {
-            OMEMOModule(pepModule: pepModule)
-        }
-        builder.withModule(omemoModule)
-        builder.withModule(BlockingModule())
-        builder.withModule(StylingModule())
-        builder.withModule(ChannelSearchModule())
-        builder.withModule(RegistrationModule())
-        builder.withModule(OOBModule())
-        builder.withModule(ServiceOutageModule())
-        builder.withModule(CSIModule())
-        let sm = StreamManagementModule(previousState: previousSMState)
-        builder.withModule(sm)
-        builder.withInterceptor(sm)
-        return await (builder.build(), sm)
     }
 
     // MARK: - Private: Event Consumption

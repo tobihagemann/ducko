@@ -140,13 +140,7 @@ public struct AdiumImportView: View {
                 }
             }
         } catch {
-            result = AdiumImportService.ImportProgress(
-                totalFiles: 0,
-                completedFiles: 0,
-                importedMessages: 0,
-                skippedDuplicates: 0,
-                errors: [AdiumImportService.ImportError(file: "", message: error.localizedDescription)]
-            )
+            result = .failure(error: error)
         }
         isImporting = false
     }

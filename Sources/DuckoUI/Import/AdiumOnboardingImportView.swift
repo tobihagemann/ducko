@@ -258,13 +258,7 @@ struct AdiumOnboardingImportView: View {
                     }
                 }
             } catch {
-                importResult = AdiumImportService.ImportProgress(
-                    totalFiles: 0,
-                    completedFiles: 0,
-                    importedMessages: 0,
-                    skippedDuplicates: 0,
-                    errors: [AdiumImportService.ImportError(file: "", message: error.localizedDescription)]
-                )
+                importResult = .failure(error: error)
             }
         }
 

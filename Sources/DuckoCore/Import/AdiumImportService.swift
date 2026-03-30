@@ -30,6 +30,16 @@ public actor AdiumImportService {
             self.skippedDuplicates = skippedDuplicates
             self.errors = errors
         }
+
+        public static func failure(error: any Error) -> ImportProgress {
+            ImportProgress(
+                totalFiles: 0,
+                completedFiles: 0,
+                importedMessages: 0,
+                skippedDuplicates: 0,
+                errors: [ImportError(file: "", message: error.localizedDescription)]
+            )
+        }
     }
 
     public struct ImportError: Sendable {
