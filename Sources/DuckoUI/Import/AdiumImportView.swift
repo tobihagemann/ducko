@@ -103,36 +103,12 @@ public struct AdiumImportView: View {
     }
 
     private func importingView(_ progress: AdiumImportService.ImportProgress) -> some View {
-        VStack(spacing: 12) {
-            ProgressView(value: Double(progress.completedFiles), total: Double(max(progress.totalFiles, 1)))
-
-            Text("\(progress.completedFiles) / \(progress.totalFiles) files")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Text("\(progress.importedMessages) messages imported")
-                .font(.caption)
-        }
+        AdiumImportProgressView(progress: progress)
     }
 
     private func completionView(_ result: AdiumImportService.ImportProgress) -> some View {
         VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.green)
-
-            Text("Import Complete")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Messages imported: \(result.importedMessages)")
-                Text("Duplicates skipped: \(result.skippedDuplicates)")
-                if !result.errors.isEmpty {
-                    Text("Errors: \(result.errors.count)")
-                        .foregroundStyle(.red)
-                }
-            }
-            .font(.callout)
+            AdiumImportCompletionView(result: result)
 
             Button("Done") { dismiss() }
                 .keyboardShortcut(.defaultAction)

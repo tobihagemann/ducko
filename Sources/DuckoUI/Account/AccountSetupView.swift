@@ -11,6 +11,8 @@ struct AccountSetupView: View {
     @State private var serverDomain = ""
     @State private var username = ""
     @State private var email = ""
+    @State private var adiumAccounts: [AdiumAccount]?
+    @State private var adiumLogSources: [AdiumServiceAccount]?
     @State private var isConnecting = false
     @State private var errorMessage: String?
 
@@ -50,7 +52,11 @@ struct AccountSetupView: View {
             VStack(spacing: 12) {
                 switch mode {
                 case .importAdium:
-                    AdiumOnboardingImportView(importInProgress: $importInProgress)
+                    AdiumOnboardingImportView(
+                        importInProgress: $importInProgress,
+                        cachedAccounts: $adiumAccounts,
+                        cachedLogSources: $adiumLogSources
+                    )
                 case .login:
                     loginFields
                 case .register:

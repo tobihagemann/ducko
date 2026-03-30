@@ -5,6 +5,8 @@ import SwiftUI
 struct AdiumOnboardingImportView: View {
     @Environment(AppEnvironment.self) private var environment
     @Binding var importInProgress: Bool
+    @Binding var cachedAccounts: [AdiumAccount]?
+    @Binding var cachedLogSources: [AdiumServiceAccount]?
 
     @State private var step: ImportStep = .loading
     @State private var accounts: [AdiumAccount] = []
@@ -22,12 +24,7 @@ struct AdiumOnboardingImportView: View {
         case complete
     }
 
-    private struct AccountResult: Identifiable {
-        let id: String
-        let jid: String
-        let success: Bool
-        let error: String?
-    }
+    private typealias AccountResult = AdiumImportCompletionView.AccountResult
 
     var body: some View {
         VStack(spacing: 12) {
@@ -79,7 +76,7 @@ struct AdiumOnboardingImportView: View {
                 Button {
                     Task { await performImport() }
                 } label: {
-                    Text(hasPasswordsEntered ? "Import & Connect" : "Import Logs")
+                    Text("Import from Adium")
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(!hasImportableData)
@@ -157,53 +154,14 @@ struct AdiumOnboardingImportView: View {
             }
 
             if let progress {
-                ProgressView(value: Double(progress.completedFiles), total: Double(max(progress.totalFiles, 1)))
-
-                Text("\(progress.completedFiles) / \(progress.totalFiles) files")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("\(progress.importedMessages) messages imported")
-                    .font(.caption)
+                AdiumImportProgressView(progress: progress)
             }
         }
     }
 
     private var completionView: some View {
         VStack(spacing: 12) {
-            Image(systemName: "checkmark.circle.fill")
-                .font(.largeTitle)
-                .foregroundStyle(.green)
-
-            Text("Import Complete")
-                .font(.headline)
-
-            VStack(alignment: .leading, spacing: 4) {
-                if !accountResults.isEmpty {
-                    let succeeded = accountResults.filter(\.success).count
-                    Text("Accounts connected: \(succeeded)/\(accountResults.count)")
-                }
-                if let result = importResult {
-                    Text("Messages imported: \(result.importedMessages)")
-                    Text("Duplicates skipped: \(result.skippedDuplicates)")
-                    if !result.errors.isEmpty {
-                        Text("Errors: \(result.errors.count)")
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
-            .font(.callout)
-
-            let failedAccounts = accountResults.filter { !$0.success }
-            if !failedAccounts.isEmpty {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(failedAccounts) { account in
-                        Text("\(account.jid): \(account.error ?? "Failed")")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                }
-            }
+            AdiumImportCompletionView(result: importResult, accountResults: accountResults)
 
             Button("Done") {
                 importInProgress = false
@@ -221,18 +179,22 @@ struct AdiumOnboardingImportView: View {
         }
     }
 
-    private var hasPasswordsEntered: Bool {
-        !selectedAccountsWithPasswords.isEmpty
-    }
-
     private var hasImportableData: Bool {
-        !logSources.isEmpty || hasPasswordsEntered
+        !logSources.isEmpty || !selectedAccountsWithPasswords.isEmpty
     }
 
     // MARK: - Actions
 
     private func discover() async {
-        discoverAt(AdiumAccountDiscovery.defaultUserURL)
+        if let cached = cachedAccounts {
+            accounts = cached
+            selectedAccountIDs = Set(cached.map(\.id))
+            logSources = cachedLogSources ?? []
+        } else {
+            discoverAt(AdiumAccountDiscovery.defaultUserURL)
+            cachedAccounts = accounts
+            cachedLogSources = logSources
+        }
         step = .accountSetup
     }
 
@@ -257,6 +219,9 @@ struct AdiumOnboardingImportView: View {
         } catch {
             logSources = []
         }
+
+        cachedAccounts = accounts
+        cachedLogSources = logSources
     }
 
     private func performImport() async {
