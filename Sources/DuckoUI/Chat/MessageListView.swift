@@ -73,6 +73,13 @@ struct MessageListView: View {
                     }
                 }
             }
+            // `.id(windowState.jidString)` gives the ScrollView a fresh identity
+            // on conversation switch so `.defaultScrollAnchor(.bottom)` re-applies
+            // — otherwise SwiftUI reuses the prior ScrollView and keeps its
+            // offset. Scoped to the ScrollView (not ChatView) so sibling chat
+            // chrome like the message input draft keeps its state.
+            .defaultScrollAnchor(.bottom)
+            .id(windowState.jidString)
             .onChange(of: messages.last?.id) { _, lastID in
                 guard let lastID else { return }
                 withAnimation {
