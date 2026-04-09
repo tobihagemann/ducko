@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 private let log = Logger(label: "im.ducko.ui.chatwindow")
 
 @MainActor @Observable
-final class ChatWindowState {
+public final class ChatWindowState {
     var conversation: Conversation?
     var contact: Contact?
     var messages: [ChatMessage] = []
@@ -274,6 +274,14 @@ final class ChatWindowState {
         searchText = ""
         searchResults = []
         currentSearchIndex = 0
+    }
+
+    public func toggleSearch() {
+        if isSearching {
+            dismissSearch()
+        } else {
+            isSearching = true
+        }
     }
 
     // MARK: - Link Previews

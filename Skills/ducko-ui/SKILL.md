@@ -46,8 +46,6 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `jid-field` | JID field in account setup | Contacts |
 | `password-field` | Password field in account setup | Contacts |
 | `connect-button` | Connect button in account setup | Contacts |
-| `chat-tab-bar` | Tab bar (visible when >1 tab) | Chat |
-| `chat-tab-{jid}` | Individual chat tab | Chat |
 | `typing-indicator` | Typing indicator dots | Chat |
 | `reply-compose-bar` | Reply/edit compose bar above input | Chat |
 | `message-search-bar` | Cmd+F search bar in chat | Chat |
@@ -234,7 +232,6 @@ Right-click a participant in the chat window sidebar:
 | `ducko-room-config-save.sh` | Save room config in Room Settings sheet | `ROOM_JID` |
 | `ducko-room-settings-tab.sh` | Switch to a tab in the Room Settings sheet | `<General\|Members>` |
 | `ducko-add-affiliation.sh` | Add a JID to a room's affiliation list | `ROOM_JID JID` |
-| `ducko-switch-tab.sh` | Switch to a specific chat tab by JID | `JID` |
 | `ducko-stop.sh` | Kill DuckoApp process | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
 

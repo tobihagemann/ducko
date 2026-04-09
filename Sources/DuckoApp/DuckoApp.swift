@@ -11,7 +11,7 @@ struct DuckoApp: App {
     @State private var themeEngine = ThemeEngine()
     @State private var updateManager = UpdateManager()
     @State private var notificationManager = NotificationManager()
-    @FocusedValue(\.chatTabManager) private var focusedTabManager
+    @FocusedValue(\.chatWindowState) private var focusedChatWindowState
     @Environment(\.openWindow) private var openWindow
     @State private var isShowingAdiumImport = false
 
@@ -103,42 +103,15 @@ struct DuckoApp: App {
 
             CommandGroup(replacing: .textEditing) {
                 Button("Find...") {
-                    focusedTabManager?.toggleSearch()
+                    focusedChatWindowState?.toggleSearch()
                 }
                 .keyboardShortcut("f")
+                .disabled(focusedChatWindowState == nil)
             }
 
             CommandGroup(after: .help) {
                 Button("Export Logs...") {
                     exportLogs()
-                }
-            }
-
-            CommandMenu("Tab") {
-                Button("Close Tab") {
-                    focusedTabManager?.closeSelectedTab()
-                }
-                .keyboardShortcut("w")
-
-                Divider()
-
-                Button("Next Tab") {
-                    focusedTabManager?.selectNextTab()
-                }
-                .keyboardShortcut("]", modifiers: [.command, .shift])
-
-                Button("Previous Tab") {
-                    focusedTabManager?.selectPreviousTab()
-                }
-                .keyboardShortcut("[", modifiers: [.command, .shift])
-
-                Divider()
-
-                ForEach(1 ... 9, id: \.self) { n in
-                    Button("Tab \(n)") {
-                        focusedTabManager?.selectTab(at: n - 1)
-                    }
-                    .keyboardShortcut(KeyEquivalent(Character("\(n)")))
                 }
             }
         }
