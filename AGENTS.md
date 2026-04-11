@@ -39,11 +39,14 @@ DuckoApp (GUI) and DuckoCLI (CLI) are independent consumers of DuckoCore. When a
 
 ```
 swift build
+swift build --build-tests            # compile test targets without running them
 swift test
 swift test --filter DuckoXMPPTests   # run a specific test target
 swift run DuckoApp                   # run GUI
 swift run DuckoCLI                   # run CLI
 ```
+
+Note: `swift build` only compiles executable and library targets. Use `swift build --build-tests` to verify test target compilation.
 
 After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., `.build/debug/DuckoCLI`).
 
