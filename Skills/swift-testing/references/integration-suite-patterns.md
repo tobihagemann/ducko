@@ -12,16 +12,33 @@ To enforce serial execution across a whole integration test target, nest every c
 ```swift
 @Suite(.serialized, .enabled(if: LiveServerFixture.isAvailable))
 enum IntegrationTests {
-    @Suite enum ProtocolLayer {}
-    @Suite enum APILayer {}
-    @Suite enum UILayer {}
+    enum ProtocolLayer {}
+    enum APILayer {}
+    enum UILayer {}
 }
 ```
 
 
 ## `@Suite` annotation on intermediate nested enums
 
-Intermediate enums used purely for namespacing (e.g. `ProtocolLayer`, `APILayer`) must carry `@Suite` for Swift Testing to discover them and propagate parent traits correctly. Without `@Suite`, leaf test types under the enum may be discovered as standalone suites outside the parent's scope — losing serialization and condition traits.
+Bare `@Suite` (no arguments) on intermediate namespacing enums is **not** required in modern Swift Testing. Traits attached to a parent `@Suite` propagate through plain nested enums to leaf types via lexical nesting. Verified empirically: `.serialized` and `.enabled(if:)` on a root suite still govern leaf test types that live inside plain `enum Layer {}` namespaces.
+
+SwiftFormat's `redundantSwiftTestingSuite` rule also strips bare `@Suite` — attempting to keep it on intermediate enums will be reverted by the formatter. Only attach `@Suite(arg)` when you need to add a specific trait (e.g., `@Suite(.serialized)`) to that exact type.
+
+```swift
+@Suite(.serialized, .enabled(if: LiveServerFixture.isAvailable))
+enum IntegrationTests {
+    enum ProtocolLayer {}
+    enum APILayer {}
+    enum UILayer {}
+}
+
+extension IntegrationTests.ProtocolLayer {
+    struct MessagingTests {
+        @Test func sendReceive() async throws { ... }
+    }
+}
+```
 
 
 ## Extension pattern for nesting suites across files
@@ -31,7 +48,7 @@ Put the parent enum and layer enums in a central harness file. Individual test f
 ```swift
 // Tests/CheckoutTests.swift
 extension IntegrationTests.APILayer {
-    @Suite struct CheckoutTests {
+    struct CheckoutTests {
         @Test func placesOrder() async throws { ... }
     }
 }
