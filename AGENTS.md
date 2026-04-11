@@ -111,7 +111,14 @@ SwiftFormat, SwiftLint, and Periphery are installed via Homebrew:
 
 ## Agent Skills
 
-Project-specific agent skills live in `Skills/`. Both `.claude/skills/` and `.agents/skills/` contain symlinks pointing there. When creating a new skill, add the `SKILL.md` to `Skills/<name>/` and create symlinks from both directories.
+All project-visible agent skills live under `Skills/`. `.claude/skills` and `.agents/skills` are single top-level symlinks pointing at `../Skills`, so adding a new skill is just `mkdir Skills/<name>` — nothing else to wire up.
+
+The set is a mix of:
+
+- **Ducko-original skills** — written for this repo (`create-dmg`, `ducko-cli`, `ducko-ui`, `macos-ui-testing`, `package-app`, `release`, `smoke-test-party`).
+- **Upstream-derived skills** — merged from open-source agent skills from [twostraws/SwiftUI-Agent-Skill](https://github.com/twostraws/SwiftUI-Agent-Skill) and related catalogs (`swiftui`, `swiftdata`, `swift-concurrency`, `swift-testing`, `swift-language`, `swift-architecture`, `swift-security`, `swiftui-performance-audit`, `accessibility`, `writing-for-interfaces`, `macos-spm-app-packaging`).
+
+See `Skills/ATTRIBUTION.md` for per-skill upstream sources and MIT copyright notices.
 
 ## Code Conventions
 
