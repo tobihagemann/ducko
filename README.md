@@ -27,6 +27,15 @@ swift run DuckoCLI        # Run the CLI
 swift test                # Run tests
 ```
 
+### Integration Tests
+
+Integration tests run against a live XMPP server and skip when credentials are not configured:
+
+```sh
+cp .env.test.example .env.test   # Fill in real credentials
+source .env.test && swift test --filter DuckoIntegrationTests
+```
+
 ## Code Style
 
 [SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and [SwiftLint](https://github.com/realm/SwiftLint) enforce code style. Install both via Homebrew:

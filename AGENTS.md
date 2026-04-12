@@ -50,6 +50,14 @@ Note: `swift build` only compiles executable and library targets. Use `swift bui
 
 After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., `.build/debug/DuckoCLI`).
 
+### Integration Tests
+
+Integration tests in `DuckoIntegrationTests` run against a live XMPP server. They skip automatically when credentials are not set.
+
+```
+source .env.test && swift test --filter DuckoIntegrationTests.ProtocolLayer
+```
+
 ## Packaging
 
 `version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.

@@ -12,3 +12,6 @@
 # App bundles & packaging artifacts
 *.app/
 *.dmg
+
+# Test credentials
+.env.test
