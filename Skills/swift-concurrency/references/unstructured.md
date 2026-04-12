@@ -19,9 +19,22 @@ func example() {
 }
 ```
 
-However, what you are less likely to know is this: `Task.detached` is rarely the right choice. 
+However, what you are less likely to know is this: `Task.detached` is rarely the right choice.
 
-Prefer `Task {}` with explicit isolation changes, or structured concurrency. Only use `Task.detached` when you specifically need to shed the caller's actor context and priority, and even then only if there are no better choices.
+In Swift 6.2+, prefer `@concurrent` over `Task.detached` when the goal is to leave the caller's actor. `Task.detached` discards `@TaskLocal` values and priority inheritance, which is almost never what you want. `@concurrent` opts out of actor isolation while preserving task-local state and priority.
+
+```swift
+// PREFER: Leaves the caller's actor, keeps @TaskLocal values and priority.
+@concurrent
+func analyzeData(_ data: [Double]) async -> Result { ... }
+
+// AVOID: Discards @TaskLocal values and priority. Use only when that is the explicit intent.
+Task.detached {
+    await analyzeData(data)
+}
+```
+
+Only use `Task.detached` when you specifically need to shed task-local values or priority — and document why.
 
 
 ## Cancellation is cooperative

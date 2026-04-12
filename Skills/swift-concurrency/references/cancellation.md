@@ -63,6 +63,58 @@ func observe() async throws -> [Change] {
 ```
 
 
+## `onCancel` handler constraints
+
+The handler has signature `@Sendable () -> Void`, which imposes hard limits:
+
+- **Synchronous only** – no `await` calls permitted.
+- **No returns or throws** – cannot propagate values or errors back to the operation.
+- **Sendable** – must use only thread-safe constructs. Cannot access actor-isolated state.
+
+The handler can only *influence* the operation indirectly: cancel a stored `Task` handle, signal through a `Mutex`, or set a flag. It cannot short-circuit the operation itself.
+
+
+## Early cancellation trap
+
+If the task is **already cancelled** when `withTaskCancellationHandler` is entered, the `onCancel` handler fires *before* the operation closure runs. This is a common source of hangs:
+
+```swift
+// BUG: If the task is already cancelled, onCancel fires before
+// the continuation is stored in `state`. The continuation is
+// never resumed and the caller hangs forever.
+await withTaskCancellationHandler {
+    await withCheckedContinuation { continuation in
+        state.continuation = continuation
+    }
+} onCancel: {
+    state.continuation?.resume()  // nil – operation hasn't run yet
+}
+```
+
+**Fix:** Check for cancellation *inside* a mutex-protected section, after storing the state the handler needs:
+
+```swift
+await withTaskCancellationHandler {
+    await withCheckedContinuation { continuation in
+        mutex.withLock { value in
+            if Task.isCancelled {
+                continuation.resume()
+                return
+            }
+            value.continuation = continuation
+        }
+    }
+} onCancel: {
+    mutex.withLock { value in
+        value.continuation?.resume()
+        value.continuation = nil
+    }
+}
+```
+
+Checking `Task.isCancelled` outside the mutex creates a race where cancellation arrives between the check and the state store.
+
+
 ## Broken cancellation patterns
 
 **Catching and ignoring `CancellationError`:**

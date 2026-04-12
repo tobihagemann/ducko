@@ -96,6 +96,20 @@ await withTaskGroup(of: (URL, Result<Data, Error>).self) { group in
 ```
 
 
+## Discarded `async let` still creates a dependency
+
+Even if the result is unused, `async let` establishes a parent-child relationship. The scope waits for the child to complete (or be cancelled) before exiting.
+
+```swift
+func example() async {
+    async let _ = load()  // Still awaited before this function returns
+    // ...
+}
+```
+
+This means `async let` is not a fire-and-forget mechanism. If you need truly independent work that outlives the current scope, use an unstructured `Task`.
+
+
 ## Inferring the type of task groups
 
 Swift is usually able to infer the type of task groups, but not always. Simple types like `String`, `URL`, `Data`, etc, usually work fine, but the example above uses `withTaskGroup(of: (URL, Result<Data, Error>).self)` and that is an example of the specific type being required – Swift would not be able to infer that.

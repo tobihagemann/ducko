@@ -21,7 +21,31 @@ actor Cache {
 }
 ```
 
-**Fix:** Capture the async result into a local before writing. For deduplication, store in-flight `Task` handles. See `actors.md` for the full pattern.
+**Fix:** Capture the async result into a local before writing. For deduplication, store in-flight `Task` handles so concurrent callers await the same computation:
+
+```swift
+actor Cache {
+    private var data: [String: Data] = [:]
+    private var inFlight: [String: Task<Data, any Error>] = [:]
+
+    func load(_ key: String) async throws -> Data {
+        if let cached = data[key] { return cached }
+        if let task = inFlight[key] { return try await task.value }
+
+        let task = Task {
+            try await download(key)
+        }
+        inFlight[key] = task
+
+        let result = try await task.value
+        data[key] = result
+        inFlight.removeValue(forKey: key)
+        return result
+    }
+}
+```
+
+Multiple callers safely `await task.value` on the same `Task` handle — tasks are `Sendable` and thread-safe. See `actors.md` for more on reentrancy.
 
 
 ## Continuation resumed zero times
