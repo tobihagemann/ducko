@@ -129,6 +129,58 @@ enum JIDTests {
         }
     }
 
+    struct CaseNormalization {
+        @Test(arguments: [
+            ("User@Example.COM", "user", "example.com"),
+            ("USER@EXAMPLE.COM", "user", "example.com"),
+            ("uSeR@eXaMpLe.CoM", "user", "example.com")
+        ])
+        func `Bare JID localpart and domain are lowercased`(
+            input: String, expectedLocal: String, expectedDomain: String
+        ) throws {
+            let jid = try #require(BareJID.parse(input))
+            #expect(jid.localPart == expectedLocal)
+            #expect(jid.domainPart == expectedDomain)
+        }
+
+        @Test
+        func `Domain-only bare JID is lowercased`() throws {
+            let jid = try #require(BareJID.parse("Example.COM"))
+            #expect(jid.domainPart == "example.com")
+        }
+
+        @Test
+        func `BareJIDs differing only in case are equal`() throws {
+            let a = try #require(BareJID.parse("User@Example.COM"))
+            let b = try #require(BareJID.parse("user@example.com"))
+            #expect(a == b)
+        }
+
+        @Test
+        func `FullJID resource part preserves case`() throws {
+            let jid = try #require(FullJID.parse("User@Example.COM/MyResource"))
+            #expect(jid.bareJID.localPart == "user")
+            #expect(jid.bareJID.domainPart == "example.com")
+            #expect(jid.resourcePart == "MyResource")
+        }
+
+        @Test
+        func `Mixed-case description is lowercased`() throws {
+            let jid = try #require(BareJID.parse("User@Example.COM"))
+            #expect(jid.description == "user@example.com")
+        }
+
+        @Test
+        func `Codable round-trip normalizes case`() throws {
+            let jid = try #require(BareJID.parse("User@Example.COM"))
+            let data = try JSONEncoder().encode(jid)
+            let json = try #require(String(data: data, encoding: .utf8))
+            #expect(json.contains("user@example.com"))
+            let decoded = try JSONDecoder().decode(BareJID.self, from: data)
+            #expect(jid == decoded)
+        }
+    }
+
     struct Description {
         @Test(arguments: [
             ("user@example.com", "user@example.com"),

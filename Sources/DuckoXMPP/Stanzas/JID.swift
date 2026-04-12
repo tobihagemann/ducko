@@ -6,8 +6,10 @@ public struct BareJID: Hashable, Sendable {
     public init?(localPart: String?, domainPart: String) {
         guard !domainPart.isEmpty else { return nil }
         if let localPart, localPart.isEmpty { return nil }
-        self.localPart = localPart
-        self.domainPart = domainPart
+        // RFC 7622 §3.3: localpart uses UsernameCaseMapped (case-folded to lowercase)
+        // RFC 7622 §3.2: domainpart uses IDNA2008 (case-insensitive, normalized to lowercase)
+        self.localPart = localPart?.lowercased()
+        self.domainPart = domainPart.lowercased()
     }
 }
 
