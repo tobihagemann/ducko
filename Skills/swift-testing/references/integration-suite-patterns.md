@@ -93,6 +93,34 @@ static func withHarness(
 Make `tearDown()` non-throwing (swallow and log internally) so the original test error is always propagated rather than replaced by a cleanup error.
 
 
+## `Issue.record` + `return` silently passes scoped-closure tests
+
+Inside a `withHarness { ... }` or similar scoped closure that returns `Void`, `Issue.record("..."); return` records a non-fatal failure but exits the closure normally — the test passes green. This is especially dangerous in mid-test extraction patterns:
+
+```swift
+// BAD: test passes green even though the assertion failed
+let event = try await account.waitForEvent { ... }
+if case let .messageReceived(m) = event {
+    #expect(m.body == expected)
+} else {
+    Issue.record("Expected .messageReceived")  // non-fatal
+    return  // exits closure normally — test passes!
+}
+```
+
+Use `guard case let ... else { throw }` to fail hard:
+
+```swift
+// GOOD: thrown error propagates through the scoped closure and fails the test
+guard case let .messageReceived(m) = event else {
+    throw SomeTestError("Expected .messageReceived, got \(event)")
+}
+#expect(m.body == expected)
+```
+
+`Issue.record` is appropriate only for terminal assertions where no subsequent code depends on the result. For precondition checks or value extraction, always throw.
+
+
 ## Credential gating: `.enabled(if:)` with computed properties
 
 Gate integration test suites that need external state (env vars, network, seeded accounts) with `.enabled(if: ...)` so they skip cleanly when the prerequisites are missing.
