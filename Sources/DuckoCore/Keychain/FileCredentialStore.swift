@@ -19,7 +19,7 @@ final class FileCredentialStore: CredentialStore, @unchecked Sendable {
     func savePassword(_ password: String, for jid: String) {
         lock.withLock { $0[jid] = password }
         persist()
-        log.notice("Saved password for \(jid) (file-based, not Keychain)")
+        log.debug("Saved password for \(jid) (file-based, not Keychain)")
     }
 
     func loadPassword(for jid: String) -> String? {

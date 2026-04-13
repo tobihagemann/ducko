@@ -157,6 +157,7 @@ public final class AccountService {
             try await store.upsertConversation(conv)
         }
 
+        try? await loadAccounts()
         return account.id
     }
 

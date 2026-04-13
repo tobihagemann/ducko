@@ -49,6 +49,18 @@ public final class PresenceService {
         accountService = service
     }
 
+    public enum PresenceServiceError: Error, LocalizedError {
+        case notConnected(UUID)
+        case invalidJID(String)
+
+        public var errorDescription: String? {
+            switch self {
+            case let .notConnected(id): "Not connected: \(id)"
+            case let .invalidJID(string): "Invalid JID: \(string)"
+            }
+        }
+    }
+
     // MARK: - Public API
 
     public func setPresence(_ status: PresenceStatus, message: String?, accountID: UUID) async {
@@ -59,8 +71,8 @@ public final class PresenceService {
 
     /// Sends directed presence to a specific JID, using the user's current show/status.
     public func sendDirectedPresence(to jidString: String, accountID: UUID) async throws {
-        guard let jid = JID.parse(jidString) else { return }
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let jid = JID.parse(jidString) else { throw PresenceServiceError.invalidJID(jidString) }
+        guard let client = accountService?.client(for: accountID) else { throw PresenceServiceError.notConnected(accountID) }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
         try await presenceModule.sendDirectedPresence(to: jid, show: currentShow, status: myStatusMessage)

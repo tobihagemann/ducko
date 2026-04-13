@@ -134,7 +134,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
-        @Test @MainActor func `Composing chat state reaches the peer`() async throws {
+        @Test(arguments: ChatState.allCases) @MainActor func `Chat state reaches the peer`(chatState: ChatState) async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: [
                     "alice": TestCredentials.alice,
@@ -148,11 +148,11 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
 
                 let states = try #require(await aliceClient.module(ofType: ChatStatesModule.self))
-                try await states.sendChatState(.composing, to: .bare(bobJID))
+                try await states.sendChatState(chatState, to: .bare(bobJID))
 
                 _ = try await bob.waitForEvent { event in
                     if case let .chatStateChanged(from, state) = event,
-                       from == aliceBareJID, state == .composing {
+                       from == aliceBareJID, state == chatState {
                         return true
                     }
                     return false
@@ -314,6 +314,14 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     }
                     return false
                 }
+
+                // Verify Alice's transcript persists the edit.
+                let aliceConversation = try await harness.environment.chatService.openConversation(for: bobJID, accountID: alice.accountID)
+                let messages = await harness.environment.chatService.loadMessages(for: aliceConversation.id)
+                try #require(!messages.isEmpty)
+                let edited = try #require(messages.first { $0.stanzaID == capturedID })
+                #expect(edited.isEdited)
+                #expect(edited.body == updatedBody)
             }
         }
 
@@ -361,6 +369,13 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     }
                     return false
                 }
+
+                // Verify Alice's transcript persists the retraction.
+                let aliceConversation = try await harness.environment.chatService.openConversation(for: bobJID, accountID: alice.accountID)
+                let messages = await harness.environment.chatService.loadMessages(for: aliceConversation.id)
+                try #require(!messages.isEmpty)
+                let retracted = try #require(messages.first { $0.stanzaID == capturedID })
+                #expect(retracted.isRetracted)
             }
         }
 

@@ -8,7 +8,7 @@ public struct ChatWindow: View {
 
     private var observedLastMessageDate: Date? {
         environment.chatService.openConversations
-            .first(where: { $0.jid.description == windowState?.jidString })?
+            .first(where: { $0.id == windowState?.conversation?.id })?
             .lastMessageDate
     }
 

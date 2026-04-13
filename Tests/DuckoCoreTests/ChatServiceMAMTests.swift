@@ -48,17 +48,16 @@ enum ChatServiceMAMTests {
     struct FetchServerHistory {
         @Test
         @MainActor
-        func `Returns empty when no client available`() async throws {
+        func `Throws notConnected when no client available`() async throws {
             let store = makeStore()
             let transcripts = makeTranscripts()
             let service = makeChatService(store: store, transcripts: transcripts)
 
-            let (messages, hasMore) = try await service.fetchServerHistory(
-                jid: contactJID, accountID: testAccountID, before: nil, limit: 50
-            )
-
-            #expect(messages.isEmpty)
-            #expect(!hasMore)
+            await #expect(throws: ChatService.ChatServiceError.self) {
+                _ = try await service.fetchServerHistory(
+                    jid: contactJID, accountID: testAccountID, before: nil, limit: 50
+                )
+            }
         }
 
         @Test
@@ -77,7 +76,7 @@ enum ChatServiceMAMTests {
 
         @Test
         @MainActor
-        func `Returns empty for groupchat conversation without client`() async throws {
+        func `Throws notConnected for groupchat conversation without client`() async throws {
             let store = makeStore()
             let transcripts = makeTranscripts()
             let service = makeChatService(store: store, transcripts: transcripts)
@@ -96,12 +95,11 @@ enum ChatServiceMAMTests {
             )
             try await store.upsertConversation(conversation)
 
-            let (messages, hasMore) = try await service.fetchServerHistory(
-                jid: roomJID, accountID: testAccountID, before: nil, limit: 50
-            )
-
-            #expect(messages.isEmpty)
-            #expect(!hasMore)
+            await #expect(throws: ChatService.ChatServiceError.self) {
+                _ = try await service.fetchServerHistory(
+                    jid: roomJID, accountID: testAccountID, before: nil, limit: 50
+                )
+            }
         }
     }
 }

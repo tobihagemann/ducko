@@ -252,28 +252,29 @@ enum RosterServiceTests {
     struct StringBasedMethods {
         @Test
         @MainActor
-        func `addContact(jidString:) delegates to addContact(jid:)`() async throws {
-            // Without an account service wired, the guard returns early — no crash
+        func `addContact(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
-            // Should not throw even without wired account service
-            try await service.addContact(jidString: "alice@example.com", name: "Alice", groups: ["Friends"], accountID: testAccountID)
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.addContact(jidString: "alice@example.com", name: "Alice", groups: ["Friends"], accountID: testAccountID)
+            }
         }
 
         @Test
         @MainActor
-        func `addContact(jidString:) silently ignores invalid JID`() async throws {
+        func `addContact(jidString:) throws invalidJID for empty string`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
-            // Invalid JID — should return without error
-            try await service.addContact(jidString: "invalid", name: nil, groups: [], accountID: testAccountID)
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.addContact(jidString: "", name: nil, groups: [], accountID: testAccountID)
+            }
         }
 
         @Test
         @MainActor
-        func `removeContact(jidString:) finds contact by JID string`() async throws {
+        func `removeContact(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
@@ -281,38 +282,43 @@ enum RosterServiceTests {
             let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
             await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
 
-            // Without account service, the guard returns early — no crash
-            try await service.removeContact(jidString: contactJID1.description, accountID: testAccountID)
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.removeContact(jidString: contactJID1.description, accountID: testAccountID)
+            }
         }
 
         @Test
         @MainActor
-        func `removeContact(jidString:) silently ignores unknown JID`() async throws {
+        func `removeContact(jidString:) throws invalidJID for empty string`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
-            // No contacts loaded — should return without error
-            try await service.removeContact(jidString: "unknown@example.com", accountID: testAccountID)
+            // Empty string fails BareJID.parse — should throw invalidJID
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.removeContact(jidString: "", accountID: testAccountID)
+            }
         }
 
         @Test
         @MainActor
-        func `approveSubscription(jidString:) silently returns without account service`() async throws {
+        func `approveSubscription(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
-            // Without account service, the guard returns early
-            try await service.approveSubscription(jidString: "alice@example.com", accountID: testAccountID)
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.approveSubscription(jidString: "alice@example.com", accountID: testAccountID)
+            }
         }
 
         @Test
         @MainActor
-        func `denySubscription(jidString:) silently returns without account service`() async throws {
+        func `denySubscription(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
 
-            // Without account service, the guard returns early
-            try await service.denySubscription(jidString: "alice@example.com", accountID: testAccountID)
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.denySubscription(jidString: "alice@example.com", accountID: testAccountID)
+            }
         }
     }
 
