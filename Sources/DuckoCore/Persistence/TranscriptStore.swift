@@ -5,7 +5,7 @@ public protocol TranscriptStore: Sendable {
 
     func appendMessage(_ message: ChatMessage) async throws
     func appendMessages(_ messages: [ChatMessage]) async throws
-    func appendAmendment(_ amendment: TranscriptAmendment) async throws
+    func appendAmendment(_ amendment: TranscriptAmendment, conversationID: UUID) async throws
 
     // MARK: - Read
 

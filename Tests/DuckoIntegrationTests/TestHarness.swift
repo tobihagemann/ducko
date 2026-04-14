@@ -111,7 +111,6 @@ final class TestHarness {
         }, timeout: timeout)
     }
 
-    // periphery:ignore - reserved for MUC tests
     /// Creates an ephemeral MUC room owned by `label` and registers destroy + leave cleanup.
     /// The room JID is randomized so concurrent test runs do not collide.
     func createEphemeralRoom(using label: String = "alice") async throws -> BareJID {
@@ -140,13 +139,24 @@ final class TestHarness {
             }
         }
 
-        _ = try await account.waitForEvent(
+        let joinEvent = try await account.waitForEvent(
             matching: { event in
                 if case let .roomJoined(joinedRoom, _, _) = event, joinedRoom == roomJID { return true }
                 return false
             },
             timeout: TestTimeout.event
         )
+
+        // Accept default config for newly created rooms so they are unlocked for
+        // other occupants. Without this, the room stays in a "locked" state (MUC
+        // status 201) and rejects join attempts from non-owners.
+        if case let .roomJoined(_, _, isNewlyCreated) = joinEvent, isNewlyCreated {
+            guard let client = environment.accountService.client(for: account.accountID),
+                  let mucModule = await client.module(ofType: MUCModule.self) else {
+                throw TestHarnessError.notConnected(label: label)
+            }
+            try await mucModule.acceptDefaultConfig(roomJID)
+        }
 
         return roomJID
     }
@@ -168,6 +178,32 @@ final class TestHarness {
             try FileManager.default.removeItem(at: tempDir)
         } catch {
             log.warning("Failed to remove temp directory \(tempDir.path): \(error.localizedDescription)")
+        }
+    }
+
+    /// Races an event predicate against a timeout on a raw `AsyncStream<XMPPEvent>`.
+    /// Throws `TestHarnessError.timeout` if the event does not arrive in time.
+    static func waitForRawEvent(
+        in events: AsyncStream<XMPPEvent>,
+        timeout: Duration = TestTimeout.event,
+        matching predicate: @Sendable @escaping (XMPPEvent) -> Bool
+    ) async throws {
+        let found = try await withThrowingTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await event in events where predicate(event) {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                return false
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? false
+        }
+        if !found {
+            throw TestHarnessError.timeout
         }
     }
 

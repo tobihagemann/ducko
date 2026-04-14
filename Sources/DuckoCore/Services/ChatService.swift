@@ -61,21 +61,11 @@ public final class ChatService {
 
         // Encrypt if conversation has encryption enabled and peer has trusted devices
         let encryptionEnabled = conversation.encryptionEnabled
-        var isEncrypted = false
-        if let omemoService, let trustedDeviceIDs = await omemoService.shouldEncrypt(jid: jid, accountID: accountID, conversationEncryptionEnabled: encryptionEnabled) {
-            let elements = try await omemoService.encryptMessage(body: filtered.body, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
-            let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
-            try await chatModule.sendMessage(
-                to: recipient, body: elements.fallbackBody, id: stanzaID,
-                requestReceipt: true, markable: true, includeChatState: chatStatesEnabled,
-                additionalElements: [elements.encrypted, elements.encryption, storeHint]
-            )
-            isEncrypted = true
-        } else {
-            try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled, additionalElements: additionalElements)
-        }
+        let trustedDeviceIDs = await omemoService?.shouldEncrypt(jid: jid, accountID: accountID, conversationEncryptionEnabled: encryptionEnabled)
 
-        // Persist with the original body (not the OMEMO fallback)
+        // Persist before sending so the server's carbon copy finds the stanzaID
+        // via isDuplicate and is correctly skipped. Without this, handleCarbon
+        // can persist a duplicate before persistMessage runs.
         let message = ChatMessage(
             id: UUID(),
             conversationID: conversation.id,
@@ -88,9 +78,36 @@ public final class ChatService {
             isDelivered: false,
             isEdited: false,
             type: "chat",
-            isEncrypted: isEncrypted
+            isEncrypted: trustedDeviceIDs != nil
         )
         try await persistMessage(message, in: conversation, accountID: accountID)
+
+        // If the send fails, roll back the persisted message so the transcript
+        // doesn't show a ghost entry that never actually reached the network.
+        do {
+            if let omemoService, let trustedDeviceIDs {
+                let elements = try await omemoService.encryptMessage(body: filtered.body, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
+                let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+                try await chatModule.sendMessage(
+                    to: recipient, body: elements.fallbackBody, id: stanzaID,
+                    requestReceipt: true, markable: true, includeChatState: chatStatesEnabled,
+                    additionalElements: [elements.encrypted, elements.encryption, storeHint]
+                )
+            } else {
+                try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled, additionalElements: additionalElements)
+            }
+        } catch {
+            // Append a local retract amendment so the ghost doesn't linger in the
+            // transcript. The retract is local-only — it has no effect on the server.
+            try? await transcripts.appendAmendment(
+                TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
+                conversationID: conversation.id
+            )
+            if conversation.id == activeConversationID {
+                messages = await loadMessages(for: conversation.id)
+            }
+            throw error
+        }
     }
 
     public func selectConversation(_ id: UUID?, accountID: UUID? = nil) async {
@@ -203,7 +220,10 @@ public final class ChatService {
         } else {
             try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
         }
-        try await transcripts.appendAmendment(TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody))
+        try await transcripts.appendAmendment(
+            TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
+            conversationID: conversation.id
+        )
         await reloadActiveMessages()
     }
 
@@ -236,7 +256,10 @@ public final class ChatService {
             conversation: conversation, mucModule: mucModule,
             additionalElements: [replaceElement]
         )
-        try await transcripts.appendAmendment(TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody))
+        try await transcripts.appendAmendment(
+            TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
+            conversationID: conversation.id
+        )
         await reloadActiveMessages()
     }
 
@@ -273,7 +296,10 @@ public final class ChatService {
         } else {
             try await chatModule.sendRetraction(to: .bare(jid), originalID: stanzaID)
         }
-        try await transcripts.appendAmendment(TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()))
+        try await transcripts.appendAmendment(
+            TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
+            conversationID: conversation.id
+        )
         await reloadActiveMessages()
     }
 
@@ -307,7 +333,10 @@ public final class ChatService {
             conversation: conversation, mucModule: mucModule,
             additionalElements: [retractElement, fallbackElement]
         )
-        try await transcripts.appendAmendment(TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()))
+        try await transcripts.appendAmendment(
+            TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
+            conversationID: conversation.id
+        )
         await reloadActiveMessages()
     }
 
@@ -323,7 +352,12 @@ public final class ChatService {
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         try await mucModule.moderateMessage(room: room, stanzaID: serverID, reason: reason)
-        try await transcripts.appendAmendment(TranscriptAmendment(action: .retract, targetServerID: serverID, timestamp: Date()))
+        if let conversationID = await conversationID(for: .bare(room), accountID: accountID) {
+            try await transcripts.appendAmendment(
+                TranscriptAmendment(action: .retract, targetServerID: serverID, timestamp: Date()),
+                conversationID: conversationID
+            )
+        }
         await reloadActiveMessages()
     }
 
@@ -823,10 +857,10 @@ public final class ChatService {
             await handleMessageReceived(xmppMessage, accountID: accountID)
         case .messageCarbonReceived, .messageCarbonSent:
             await handleCarbonEvent(event, accountID: accountID)
-        case let .deliveryReceiptReceived(messageID, _):
-            await handleDeliveryReceipt(messageID: messageID)
-        case let .chatMarkerReceived(messageID, markerType, _):
-            await handleChatMarker(messageID: messageID, type: markerType)
+        case let .deliveryReceiptReceived(messageID, from):
+            await handleDeliveryReceipt(messageID: messageID, from: from, accountID: accountID)
+        case let .chatMarkerReceived(messageID, markerType, from):
+            await handleChatMarker(messageID: messageID, type: markerType, from: from, accountID: accountID)
         case let .chatStateChanged(from, chatState):
             handleChatStateChanged(from: from, state: chatState)
         case .messageCorrected, .messageRetracted:
@@ -990,28 +1024,36 @@ public final class ChatService {
 
     // MARK: - Private: Event Handlers
 
-    private func handleDeliveryReceipt(messageID: String) async {
-        try? await transcripts.appendAmendment(TranscriptAmendment(action: .delivery, targetStanzaID: messageID))
+    private func handleDeliveryReceipt(messageID: String, from: JID, accountID: UUID) async {
+        guard let conversationID = await conversationID(for: from, accountID: accountID) else { return }
+        try? await transcripts.appendAmendment(
+            TranscriptAmendment(action: .delivery, targetStanzaID: messageID),
+            conversationID: conversationID
+        )
         await reloadActiveMessages()
     }
 
-    private func handleChatMarker(messageID: String, type: ChatMarkerType) async {
+    private func handleChatMarker(messageID: String, type: ChatMarkerType, from: JID, accountID: UUID) async {
         guard type == .displayed else { return }
-        try? await transcripts.appendAmendment(TranscriptAmendment(action: .delivery, targetStanzaID: messageID))
+        guard let conversationID = await conversationID(for: from, accountID: accountID) else { return }
+        try? await transcripts.appendAmendment(
+            TranscriptAmendment(action: .delivery, targetStanzaID: messageID),
+            conversationID: conversationID
+        )
         await reloadActiveMessages()
     }
 
     /// Returns `true` if the element contained a receipt or chat marker that was handled.
-    private func handleCarbonReceiptOrMarker(_ element: DuckoXMPP.XMLElement) async -> Bool {
+    private func handleCarbonReceiptOrMarker(_ element: DuckoXMPP.XMLElement, from: JID, accountID: UUID) async -> Bool {
         if let received = element.child(named: "received", namespace: XMPPNamespaces.receipts),
            let messageID = received.attribute("id") {
-            await handleDeliveryReceipt(messageID: messageID)
+            await handleDeliveryReceipt(messageID: messageID, from: from, accountID: accountID)
             return true
         }
         for markerType in ChatMarkerType.allCases {
             if let marker = element.child(named: markerType.rawValue, namespace: XMPPNamespaces.chatMarkers),
                let messageID = marker.attribute("id") {
-                await handleChatMarker(messageID: messageID, type: markerType)
+                await handleChatMarker(messageID: messageID, type: markerType, from: from, accountID: accountID)
                 return true
             }
         }
@@ -1028,7 +1070,10 @@ public final class ChatService {
               let original = try? await transcripts.findMessage(stanzaID: originalID, conversationID: conversationID) else { return }
         guard await verifySender(from: from, original: original, action: "correction", accountID: accountID) else { return }
 
-        try? await transcripts.appendAmendment(TranscriptAmendment(action: .edit, targetStanzaID: originalID, timestamp: Date(), body: newBody))
+        try? await transcripts.appendAmendment(
+            TranscriptAmendment(action: .edit, targetStanzaID: originalID, timestamp: Date(), body: newBody),
+            conversationID: conversationID
+        )
         await reloadActiveMessages()
     }
 
@@ -1038,7 +1083,10 @@ public final class ChatService {
               let original = try? await transcripts.findMessage(stanzaID: originalID, conversationID: conversationID) else { return }
         guard await verifySender(from: from, original: original, action: "retraction", accountID: accountID) else { return }
 
-        try? await transcripts.appendAmendment(TranscriptAmendment(action: .retract, targetStanzaID: originalID, timestamp: Date()))
+        try? await transcripts.appendAmendment(
+            TranscriptAmendment(action: .retract, targetStanzaID: originalID, timestamp: Date()),
+            conversationID: conversationID
+        )
         await reloadActiveMessages()
     }
 
@@ -1086,10 +1134,15 @@ public final class ChatService {
             await handleMessageCorrected(originalID: originalID, newBody: newBody, from: from, accountID: accountID)
         case let .messageRetracted(originalID, from):
             await handleMessageRetracted(originalID: originalID, from: from, accountID: accountID)
-        case let .messageModerated(originalID, _, _, _):
-            try? await transcripts.appendAmendment(TranscriptAmendment(action: .retract, targetServerID: originalID, timestamp: Date()))
-        case let .messageError(messageID, _, error):
-            await handleMessageError(messageID: messageID, errorText: error.displayText)
+        case let .messageModerated(originalID, _, room, _):
+            if let conversationID = await conversationID(for: .bare(room), accountID: accountID) {
+                try? await transcripts.appendAmendment(
+                    TranscriptAmendment(action: .retract, targetServerID: originalID, timestamp: Date()),
+                    conversationID: conversationID
+                )
+            }
+        case let .messageError(messageID, from, error):
+            await handleMessageError(messageID: messageID, errorText: error.displayText, from: from, accountID: accountID)
             return
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
@@ -1118,9 +1171,13 @@ public final class ChatService {
         await reloadActiveMessages()
     }
 
-    private func handleMessageError(messageID: String?, errorText: String) async {
+    private func handleMessageError(messageID: String?, errorText: String, from: JID, accountID: UUID) async {
         guard let messageID else { return }
-        try? await transcripts.appendAmendment(TranscriptAmendment(action: .error, targetStanzaID: messageID, errorText: errorText))
+        guard let conversationID = await conversationID(for: from, accountID: accountID) else { return }
+        try? await transcripts.appendAmendment(
+            TranscriptAmendment(action: .error, targetStanzaID: messageID, errorText: errorText),
+            conversationID: conversationID
+        )
         await reloadActiveMessages()
     }
 
@@ -1458,7 +1515,7 @@ public final class ChatService {
 
         // Handle receipt/marker carbons (bodyless) before the body guard.
         // Carbon-forwarded stanzas bypass ReceiptsModule dispatch, so parse XML directly.
-        if await handleCarbonReceiptOrMarker(forwarded.message.element) {
+        if await handleCarbonReceiptOrMarker(forwarded.message.element, from: .bare(jid), accountID: accountID) {
             return
         }
 
@@ -1576,15 +1633,10 @@ public final class ChatService {
     }
 
     private func isDuplicate(stanzaID: String?, from jid: BareJID, occupantNickname: String? = nil, accountID: UUID) async -> Bool {
-        guard let stanzaID else { return false }
-        guard let conversation = openConversations.first(where: {
-            $0.jid == jid && $0.accountID == accountID &&
-                (occupantNickname == nil || $0.occupantNickname == occupantNickname)
-        }) else {
-            return false
-        }
-        let existing = try? await transcripts.fetchMessages(for: conversation.id, before: nil, limit: 50)
-        return existing?.contains { $0.stanzaID == stanzaID } ?? false
+        guard let stanzaID,
+              let conversationID = await conversationID(for: .bare(jid), accountID: accountID, occupantNickname: occupantNickname)
+        else { return false }
+        return await (try? transcripts.messageExists(stanzaID: stanzaID, conversationID: conversationID)) ?? false
     }
 
     public func loadMessages(for conversationID: UUID) async -> [ChatMessage] {
@@ -1874,14 +1926,23 @@ public final class ChatService {
     }
 
     /// Resolves the conversation ID for a JID, checking in-memory list first then the store.
-    private func conversationID(for from: JID, accountID: UUID) async -> UUID? {
+    private func conversationID(for from: JID, accountID: UUID, occupantNickname: String? = nil) async -> UUID? {
         let bareJID = from.bareJID
-        if let cached = openConversations.first(where: { $0.jid == bareJID && $0.accountID == accountID }) {
+        let predicate: (Conversation) -> Bool = {
+            $0.jid == bareJID && $0.accountID == accountID &&
+                (occupantNickname == nil || $0.occupantNickname == occupantNickname)
+        }
+        if let cached = openConversations.first(where: predicate) {
             return cached.id
         }
-        if let chatConv = try? await store.fetchConversation(jid: bareJID.description, type: .chat, accountID: accountID, importSourceJID: nil) {
+        if let chatConv = try? await store.fetchConversation(jid: bareJID.description, type: .chat, accountID: accountID, importSourceJID: nil),
+           occupantNickname == nil || chatConv.occupantNickname == occupantNickname {
             return chatConv.id
         }
-        return try? await store.fetchConversation(jid: bareJID.description, type: .groupchat, accountID: accountID, importSourceJID: nil)?.id
+        if let groupConv = try? await store.fetchConversation(jid: bareJID.description, type: .groupchat, accountID: accountID, importSourceJID: nil),
+           occupantNickname == nil || groupConv.occupantNickname == occupantNickname {
+            return groupConv.id
+        }
+        return nil
     }
 }

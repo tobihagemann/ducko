@@ -142,7 +142,7 @@ enum FileTranscriptStoreTests {
 
             try await store.appendAmendment(TranscriptAmendment(
                 action: .edit, targetStanzaID: "s1", timestamp: Date(), body: "corrected"
-            ))
+            ), conversationID: testConversationID)
 
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].body == "corrected")
@@ -160,7 +160,7 @@ enum FileTranscriptStoreTests {
 
             try await store.appendAmendment(TranscriptAmendment(
                 action: .retract, targetStanzaID: "s1", timestamp: Date()
-            ))
+            ), conversationID: testConversationID)
 
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].isRetracted == true)
@@ -177,7 +177,7 @@ enum FileTranscriptStoreTests {
 
             try await store.appendAmendment(TranscriptAmendment(
                 action: .delivery, targetStanzaID: "s1"
-            ))
+            ), conversationID: testConversationID)
 
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].isDelivered == true)
@@ -193,7 +193,7 @@ enum FileTranscriptStoreTests {
 
             try await store.appendAmendment(TranscriptAmendment(
                 action: .error, targetStanzaID: "s1", errorText: "Service unavailable"
-            ))
+            ), conversationID: testConversationID)
 
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].errorText == "Service unavailable")
@@ -210,7 +210,7 @@ enum FileTranscriptStoreTests {
             // Amendment targets serverID only (moderation path)
             try await store.appendAmendment(TranscriptAmendment(
                 action: .retract, targetServerID: "mam-123", timestamp: Date()
-            ))
+            ), conversationID: testConversationID)
 
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].isRetracted == true)
@@ -218,7 +218,7 @@ enum FileTranscriptStoreTests {
         }
 
         @Test
-        func `ServerID amendment uses server index fast path`() async throws {
+        func `ServerID amendment applies when message has both stanzaID and serverID`() async throws {
             let (store, dir) = try makeTempStore()
             defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -226,10 +226,10 @@ enum FileTranscriptStoreTests {
             let msg = makeMessage(stanzaID: "s1", serverID: "mam-456", body: "indexed")
             try await store.appendMessage(msg)
 
-            // Amendment targets serverID only — should resolve via serverIndex
+            // Amendment targets serverID only — should match via serverToID map during materialization
             try await store.appendAmendment(TranscriptAmendment(
                 action: .retract, targetServerID: "mam-456", timestamp: Date()
-            ))
+            ), conversationID: testConversationID)
 
             let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].isRetracted == true)
@@ -237,30 +237,8 @@ enum FileTranscriptStoreTests {
         }
 
         @Test
-        func `Amendment for cold serverID resolves via file scan`() async throws {
-            // Use two separate store instances to simulate app restart (empty server index)
-            let dir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("transcript-test-\(UUID().uuidString)")
-            defer { try? FileManager.default.removeItem(at: dir) }
-
-            let store1 = FileTranscriptStore(baseDirectory: dir)
-            let msg = makeMessage(serverID: "cold-srvid", body: "original")
-            try await store1.appendMessage(msg)
-
-            // New store instance = empty server index
-            let store2 = FileTranscriptStore(baseDirectory: dir)
-            try await store2.appendAmendment(TranscriptAmendment(
-                action: .retract, targetServerID: "cold-srvid", timestamp: Date()
-            ))
-
-            let fetched = try await store2.fetchMessages(for: testConversationID, before: nil, limit: 50)
-            #expect(fetched[0].isRetracted == true)
-            #expect(fetched[0].body == "")
-        }
-
-        @Test
-        func `Amendment for cold stanzaID resolves via file scan`() async throws {
-            // Use two separate store instances to simulate app restart (empty stanza index)
+        func `Amendment persists across store instance restart`() async throws {
+            // Use two separate store instances to simulate app restart.
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("transcript-test-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: dir) }
@@ -269,15 +247,72 @@ enum FileTranscriptStoreTests {
             let msg = makeMessage(stanzaID: "cold-sid", body: "original")
             try await store1.appendMessage(msg)
 
-            // New store instance = empty stanza index
+            // New store instance writes the amendment scoped to the conversation.
             let store2 = FileTranscriptStore(baseDirectory: dir)
             try await store2.appendAmendment(TranscriptAmendment(
                 action: .edit, targetStanzaID: "cold-sid", timestamp: Date(), body: "edited after restart"
-            ))
+            ), conversationID: testConversationID)
 
             let fetched = try await store2.fetchMessages(for: testConversationID, before: nil, limit: 50)
             #expect(fetched[0].body == "edited after restart")
             #expect(fetched[0].isEdited == true)
+        }
+
+        @Test
+        func `Amendment dated later than message lands in message's date file`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            // Message timestamped two days in the past — different UTC date file.
+            let twoDaysAgo = Date().addingTimeInterval(-2 * 86400)
+            let msg = makeMessage(stanzaID: "old-sid", body: "from yesterday", timestamp: twoDaysAgo)
+            try await store.appendMessage(msg)
+
+            // Amendment timestamped now (today's UTC date) targeting yesterday's message.
+            try await store.appendAmendment(TranscriptAmendment(
+                action: .edit, targetStanzaID: "old-sid", timestamp: Date(), body: "edited today"
+            ), conversationID: testConversationID)
+
+            // Without conversation-scoped date resolution, the amendment would be
+            // written to today's file and never apply to yesterday's message.
+            let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
+            let target = try #require(fetched.first { $0.stanzaID == "old-sid" })
+            #expect(target.body == "edited today")
+            #expect(target.isEdited == true)
+        }
+
+        @Test
+        func `Amendment routes to correct conversation when stanzaIDs collide`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let convA = UUID()
+            let convB = UUID()
+
+            // Both conversations have a message with the same stanzaID — possible
+            // when alice and bob share a process (multi-account or test harness)
+            // and each generates the same client-side ID.
+            let msgA = makeMessage(conversationID: convA, stanzaID: "ducko-12", body: "alice's msg")
+            let msgB = makeMessage(conversationID: convB, stanzaID: "ducko-12", body: "bob's msg")
+            try await store.appendMessage(msgA)
+            try await store.appendMessage(msgB)
+
+            // Edit only convA's message.
+            try await store.appendAmendment(TranscriptAmendment(
+                action: .edit, targetStanzaID: "ducko-12", timestamp: Date(), body: "alice's edit"
+            ), conversationID: convA)
+
+            let fetchedA = try await store.fetchMessages(for: convA, before: nil, limit: 50)
+            let fetchedB = try await store.fetchMessages(for: convB, before: nil, limit: 50)
+
+            let targetA = try #require(fetchedA.first { $0.stanzaID == "ducko-12" })
+            let targetB = try #require(fetchedB.first { $0.stanzaID == "ducko-12" })
+
+            #expect(targetA.body == "alice's edit")
+            #expect(targetA.isEdited == true)
+            // convB must remain untouched even though stanzaID matches.
+            #expect(targetB.body == "bob's msg")
+            #expect(targetB.isEdited == false)
         }
     }
 

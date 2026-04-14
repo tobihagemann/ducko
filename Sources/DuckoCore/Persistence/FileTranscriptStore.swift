@@ -9,10 +9,10 @@ public actor FileTranscriptStore: TranscriptStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    /// In-memory index mapping stanzaID → (conversationID, date string) for fast amendment routing.
+    /// In-memory index mapping stanzaID → (conversationID, date string) for single-file lookups in findMessage/messageExists.
     private var stanzaIndex: [String: (UUID, String)] = [:]
 
-    /// In-memory index mapping serverID → (conversationID, date string) for fast moderation amendment routing.
+    /// In-memory index mapping serverID → (conversationID, date string) for single-file lookups in findMessage/messageExists.
     private var serverIndex: [String: (UUID, String)] = [:]
 
     private static let newline = Data("\n".utf8)
@@ -85,15 +85,74 @@ public actor FileTranscriptStore: TranscriptStore {
         }
     }
 
-    public func appendAmendment(_ amendment: TranscriptAmendment) async throws {
-        // Find which file the target message lives in
-        guard let (conversationID, dateString) = resolveTarget(amendment: amendment) else {
-            log.warning("Amendment target not found: stanzaID=\(amendment.targetStanzaID ?? "nil") serverID=\(amendment.targetServerID ?? "nil")")
+    public func appendAmendment(_ amendment: TranscriptAmendment, conversationID: UUID) async throws {
+        // Amendments must land in the SAME daily file as the target message because
+        // applyAmendments runs per-file. If the amendment's date differs from the
+        // message's date, the per-file stanzaToID map won't resolve the target and
+        // the amendment is silently dropped. Resolve via the in-memory index first
+        // (verifying the conversationID matches to reject cross-conversation
+        // stanzaID collisions), then scan this conversation's files. Fail closed
+        // if the target cannot be located — writing to an arbitrary date file
+        // would leave a dangling amendment record that may later attach to an
+        // unrelated message with a colliding stanzaID.
+        guard let dateString = resolveAmendmentDate(amendment: amendment, conversationID: conversationID) else {
+            log.warning("Amendment target not found in conversation \(conversationID): stanzaID=\(amendment.targetStanzaID ?? "nil") serverID=\(amendment.targetServerID ?? "nil")")
             return
         }
         let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateString)
         let record = TranscriptRecord.from(amendment)
         try appendRecord(record, to: fileURL, conversationID: conversationID)
+    }
+
+    /// Locates the date file containing the amendment's target message within `conversationID`.
+    /// Returns nil if the target cannot be found in the indexes or by scanning the conversation's files.
+    private func resolveAmendmentDate(amendment: TranscriptAmendment, conversationID: UUID) -> String? {
+        if let sid = amendment.targetStanzaID,
+           let (indexedConv, indexedDate) = stanzaIndex[sid],
+           indexedConv == conversationID {
+            return indexedDate
+        }
+        if let srvid = amendment.targetServerID,
+           let (indexedConv, indexedDate) = serverIndex[srvid],
+           indexedConv == conversationID {
+            return indexedDate
+        }
+        return scanConversationForTarget(amendment: amendment, conversationID: conversationID)
+    }
+
+    /// Scans the given conversation's transcript files for the amendment's target message.
+    /// Populates the in-memory indexes for any matching message found. Newest files first.
+    private func scanConversationForTarget(amendment: TranscriptAmendment, conversationID: UUID) -> String? {
+        guard let dateFiles = try? listDateFiles(for: conversationID) else { return nil }
+        for (dateString, fileURL) in dateFiles {
+            guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else { continue }
+            let lines = data.split(separator: UInt8(ascii: "\n"))
+            for line in lines {
+                guard !line.isEmpty,
+                      let record = try? decoder.decode(TranscriptRecord.self, from: Data(line)),
+                      case let .message(entry) = record
+                else { continue }
+
+                let matches: Bool = if let sid = amendment.targetStanzaID {
+                    entry.stanzaID == sid
+                } else if let srvid = amendment.targetServerID {
+                    entry.serverID == srvid
+                } else {
+                    false
+                }
+
+                if matches {
+                    if let sid = entry.stanzaID {
+                        stanzaIndex[sid] = (conversationID, dateString)
+                    }
+                    if let srvid = entry.serverID {
+                        serverIndex[srvid] = (conversationID, dateString)
+                    }
+                    return dateString
+                }
+            }
+        }
+        return nil
     }
 
     // MARK: - Read
@@ -133,8 +192,10 @@ public actor FileTranscriptStore: TranscriptStore {
     // MARK: - Lookup
 
     public func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage? {
-        // Fast path: check stanza index to read only one file
-        if let (_, dateString) = stanzaIndex[stanzaID] {
+        // Fast path: check stanza index to read only one file. Verify the indexed
+        // conversationID matches — stanzaIDs can collide across conversations and
+        // last-write-wins would otherwise probe the wrong conversation's file.
+        if let (indexedConv, dateString) = stanzaIndex[stanzaID], indexedConv == conversationID {
             let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateString)
             let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
             if let match = messages.first(where: { $0.stanzaID == stanzaID }) {
@@ -146,8 +207,9 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     public func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage? {
-        // Fast path: check server index to read only one file
-        if let (_, dateString) = serverIndex[serverID] {
+        // Fast path: check server index to read only one file. Verify the indexed
+        // conversationID matches for consistency with findMessage(stanzaID:).
+        if let (indexedConv, dateString) = serverIndex[serverID], indexedConv == conversationID {
             let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateString)
             let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
             if let match = messages.first(where: { $0.serverID == serverID }) {
@@ -440,58 +502,5 @@ public actor FileTranscriptStore: TranscriptStore {
 
             messages[targetID] = msg
         }
-    }
-
-    /// Resolves which conversation and date file an amendment's target lives in.
-    private func resolveTarget(amendment: TranscriptAmendment) -> (UUID, String)? {
-        // Fast path: stanza index lookup
-        if let sid = amendment.targetStanzaID, let location = stanzaIndex[sid] {
-            return location
-        }
-        // Fast path: server index lookup
-        if let srvid = amendment.targetServerID, let location = serverIndex[srvid] {
-            return location
-        }
-        // Slow path: scan recent files to find the target message
-        return scanForTarget(amendment: amendment)
-    }
-
-    // swiftlint:disable:next cyclomatic_complexity
-    private func scanForTarget(amendment: TranscriptAmendment) -> (UUID, String)? {
-        guard let conversationIDs = try? listConversationIDs() else { return nil }
-        for convID in conversationIDs {
-            guard let dateFiles = try? listDateFiles(for: convID) else { continue }
-            // Scan newest files first (amendments typically target recent messages)
-            for (dateString, fileURL) in dateFiles {
-                guard let data = try? Data(contentsOf: fileURL), !data.isEmpty else { continue }
-                let lines = data.split(separator: UInt8(ascii: "\n"))
-                for line in lines {
-                    guard !line.isEmpty,
-                          let record = try? decoder.decode(TranscriptRecord.self, from: Data(line)),
-                          case let .message(entry) = record
-                    else { continue }
-
-                    let matches: Bool = if let sid = amendment.targetStanzaID {
-                        entry.stanzaID == sid
-                    } else if let srvid = amendment.targetServerID {
-                        entry.serverID == srvid
-                    } else {
-                        false
-                    }
-
-                    if matches {
-                        // Populate indexes for future lookups
-                        if let sid = entry.stanzaID {
-                            stanzaIndex[sid] = (convID, dateString)
-                        }
-                        if let srvid = entry.serverID {
-                            serverIndex[srvid] = (convID, dateString)
-                        }
-                        return (convID, dateString)
-                    }
-                }
-            }
-        }
-        return nil
     }
 }

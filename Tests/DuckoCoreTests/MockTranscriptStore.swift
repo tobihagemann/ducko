@@ -3,7 +3,7 @@ import Foundation
 
 actor MockTranscriptStore: TranscriptStore {
     var messages: [ChatMessage] = []
-    var amendments: [TranscriptAmendment] = []
+    var amendments: [(amendment: TranscriptAmendment, conversationID: UUID)] = []
 
     // MARK: - Test Helpers
 
@@ -21,8 +21,8 @@ actor MockTranscriptStore: TranscriptStore {
         self.messages.append(contentsOf: messages)
     }
 
-    func appendAmendment(_ amendment: TranscriptAmendment) async throws {
-        amendments.append(amendment)
+    func appendAmendment(_ amendment: TranscriptAmendment, conversationID: UUID) async throws {
+        amendments.append((amendment, conversationID))
     }
 
     // MARK: - Read
@@ -134,8 +134,8 @@ actor MockTranscriptStore: TranscriptStore {
 
     private func applyAmendments(to messages: [ChatMessage]) -> [ChatMessage] {
         var result = messages
-        for amendment in amendments {
-            for index in result.indices {
+        for (amendment, conversationID) in amendments {
+            for index in result.indices where result[index].conversationID == conversationID {
                 let matchesStanza = amendment.targetStanzaID != nil && result[index].stanzaID == amendment.targetStanzaID
                 let matchesServer = amendment.targetServerID != nil && result[index].serverID == amendment.targetServerID
                 guard matchesStanza || matchesServer else { continue }

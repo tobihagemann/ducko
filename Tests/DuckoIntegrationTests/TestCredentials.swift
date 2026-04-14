@@ -10,7 +10,6 @@ enum TestCredentials {
         let password: String
     }
 
-    // periphery:ignore - reserved for MUC tests
     static let mucService = "conference.xmpp.tobiha.de"
 
     static var isAvailable: Bool {
