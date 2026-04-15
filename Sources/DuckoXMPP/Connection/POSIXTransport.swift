@@ -227,8 +227,12 @@ actor POSIXTransport: XMPPTransport {
         }
     }
 
-    func disconnect() {
+    func disconnect() async {
+        // Await the receive task before tearDownSSL/close(fd) — Secure Transport
+        // is not thread-safe to concurrent SSLClose/SSLRead, and tearDownSSL
+        // deallocates the fdPtr that the SSL I/O callbacks dereference.
         receiveTask?.cancel()
+        await receiveTask?.value
         receiveTask = nil
         tearDownSSL()
         if fd >= 0 {

@@ -848,6 +848,10 @@ public actor XMPPClient {
         pendingIQs.removeAll()
 
         eventContinuation.yield(.disconnected(reason))
+        // XMPPClient is terminal after cleanUp: callers drop the instance and
+        // build a new one on reconnect. Finishing the stream releases any
+        // lingering `for await` consumers instead of leaving them suspended.
+        eventContinuation.finish()
     }
 
     // MARK: - Private: Module Context
