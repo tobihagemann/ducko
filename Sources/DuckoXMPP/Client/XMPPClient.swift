@@ -767,7 +767,7 @@ public actor XMPPClient {
     private func dispatchIQ(_ element: XMLElement) {
         let iq = XMPPIQ(element: element)
         if let stanzaID = iq.id, let pending = pendingIQs[stanzaID],
-           pending.expectedFrom == nil || iq.from?.bareJID == pending.expectedFrom {
+           iqResponseMatchesExpectedFrom(iq, expectedFrom: pending.expectedFrom) {
             pendingIQs.removeValue(forKey: stanzaID)
             pending.timeoutTask.cancel()
             if iq.isError {
@@ -785,6 +785,24 @@ public actor XMPPClient {
         if !handled, iq.isGet || iq.isSet {
             replyServiceUnavailable(for: iq)
         }
+    }
+
+    /// Returns `true` if an inbound IQ response should be routed to the pending IQ.
+    ///
+    /// Matches when `expectedFrom` is nil or equals the stanza's `from`. The
+    /// RFC 6120 §8.1.2.1 carve-out — server omitting/substituting `from` on
+    /// stanzas it generates on the client's behalf (e.g. Prosody `mod_pep`
+    /// for same-server PEP IQs) — only applies to same-server responses, so
+    /// an absent or own-bare `from` matches only when `expectedFrom` is the
+    /// connected client's own bare JID.
+    private func iqResponseMatchesExpectedFrom(_ iq: XMPPIQ, expectedFrom: BareJID?) -> Bool {
+        guard let expectedFrom else { return true }
+        if let from = iq.from?.bareJID, from == expectedFrom { return true }
+        let ownBare = connectedJIDLock.withLock { $0?.bareJID }
+        if let from = iq.from?.bareJID {
+            return from == ownBare && expectedFrom == ownBare
+        }
+        return expectedFrom == ownBare
     }
 
     private func replyServiceUnavailable(for iq: XMPPIQ) {

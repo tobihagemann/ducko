@@ -47,7 +47,9 @@ func buildSubmitForm(_ fields: [DataFormField]) -> XMLElement {
     var form = XMLElement(name: "x", namespace: XMPPNamespaces.dataForms, attributes: ["type": "submit"])
 
     for field in fields {
-        var fieldElement = XMLElement(name: "field", attributes: ["var": field.variable])
+        var attributes = ["var": field.variable]
+        if let type = field.type { attributes["type"] = type }
+        var fieldElement = XMLElement(name: "field", attributes: attributes)
         for value in field.values {
             var valueElement = XMLElement(name: "value")
             valueElement.addText(value)

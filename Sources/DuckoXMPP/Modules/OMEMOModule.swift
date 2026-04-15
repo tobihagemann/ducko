@@ -154,15 +154,28 @@ public final class OMEMOModule: XMPPModule, Sendable {
         }
     }
 
-    /// Fetches device IDs for a JID (from cache or PEP).
+    /// Fetches device IDs for a JID. Returns the cached list when available;
+    /// pass `forceRefresh: true` to bypass the cache and pull from PEP.
+    ///
+    /// A forced refresh updates the module cache and emits
+    /// `.omemoDeviceListReceived` so downstream services (trust store, UI)
+    /// observe the new list exactly as they would for a +notify. Without a
+    /// force, the cache hit path is silent — callers that need the store to
+    /// reflect the peer's current publish must opt into a refresh.
     public func fetchDeviceList(
-        for jid: BareJID
+        for jid: BareJID, forceRefresh: Bool = false
     ) async throws -> [UInt32] {
-        if let cached = state.withLock({ $0.deviceLists[jid] }) {
+        if !forceRefresh, let cached = state.withLock({ $0.deviceLists[jid] }) {
             return cached
         }
         let devices = try await fetchDeviceListFromPEP(jid)
-        state.withLock { $0.deviceLists[jid] = devices }
+        let context = state.withLock { state in
+            state.deviceLists[jid] = devices
+            return state.context
+        }
+        if forceRefresh {
+            context?.emitEvent(.omemoDeviceListReceived(jid: jid, devices: devices))
+        }
         return devices
     }
 
@@ -192,11 +205,18 @@ public final class OMEMOModule: XMPPModule, Sendable {
             contentKey: contentKey, identity: identity,
             devices: recipientDevices.map { (jid: recipientJID, deviceID: $0) }
         )
+        // No usable recipient device — refuse to send a sender-only OMEMO
+        // envelope. Covers both the "PEP list empty" case and the "every
+        // listed device returned item-not-found" case, which are otherwise
+        // indistinguishable from a lost message to the recipient.
+        if results.isEmpty {
+            throw OMEMOModuleError.noUsableRecipientDevices
+        }
         results += try await encryptKeyForOwnDevices(
             contentKey: contentKey, identity: identity,
             ownDeviceIDs: ownDeviceIDs
         )
-        // All encryptions succeeded — commit session updates atomically
+        // Commit session updates atomically
         applySessionUpdates(results)
         let keys = results.map(\.keyElement)
         return buildEncryptedElements(
@@ -223,11 +243,14 @@ public final class OMEMOModule: XMPPModule, Sendable {
         var results = try await encryptKeysInParallel(
             contentKey: contentKey, identity: identity, devices: devices
         )
+        if results.isEmpty {
+            throw OMEMOModuleError.noUsableRecipientDevices
+        }
         results += try await encryptKeyForOwnDevices(
             contentKey: contentKey, identity: identity,
             ownDeviceIDs: ownDeviceIDs
         )
-        // All encryptions succeeded — commit session updates atomically
+        // Commit session updates atomically
         applySessionUpdates(results)
         let keys = results.map(\.keyElement)
         return buildEncryptedElements(
@@ -249,18 +272,35 @@ public final class OMEMOModule: XMPPModule, Sendable {
             Set(devices.map { SessionKey(jid: $0.jid, deviceID: $0.deviceID) }).count == devices.count,
             "Duplicate devices would corrupt Double Ratchet sessions"
         )
-        return try await withThrowingTaskGroup(of: EncryptionResult.self) { group in
+        // XEP-0384 §5.4: A device listed without a published bundle is not an
+        // error state — skip it instead of aborting the whole send. Guards the
+        // sender against stale PEP device-list entries whose bundle was never
+        // (or no longer) published.
+        return try await withThrowingTaskGroup(of: EncryptionResult?.self) { group in
             for device in devices {
                 group.addTask {
-                    try await self.encryptKeyForDevice(
-                        contentKey: contentKey, jid: device.jid,
-                        deviceID: device.deviceID, identity: identity
-                    )
+                    do {
+                        return try await self.encryptKeyForDevice(
+                            contentKey: contentKey, jid: device.jid,
+                            deviceID: device.deviceID, identity: identity
+                        )
+                    } catch OMEMOModuleError.bundleNotFound {
+                        log.debug(
+                            "OMEMO: skipping \(device.jid)/\(device.deviceID) — bundle not found"
+                        )
+                        return nil
+                    } catch let stanzaError as XMPPStanzaError
+                        where stanzaError.condition == .itemNotFound {
+                        log.debug(
+                            "OMEMO: skipping \(device.jid)/\(device.deviceID) — item-not-found"
+                        )
+                        return nil
+                    }
                 }
             }
             var results: [EncryptionResult] = []
             for try await result in group {
-                results.append(result)
+                if let result { results.append(result) }
             }
             return results
         }
@@ -1075,7 +1115,15 @@ public final class OMEMOModule: XMPPModule, Sendable {
     private func pepPublishOptions(
         maxItems: Int? = nil
     ) -> [DataFormField] {
+        // FORM_TYPE per XEP-0004 §3.2 is required on submitted forms; Prosody and
+        // other servers silently drop the entire publish-options form without it,
+        // leaving PEP nodes with default access_model=presence instead of open.
         var fields = [
+            DataFormField(
+                variable: "FORM_TYPE",
+                type: "hidden",
+                values: ["http://jabber.org/protocol/pubsub#publish-options"]
+            ),
             DataFormField(variable: "pubsub#persist_items", values: ["true"]),
             DataFormField(variable: "pubsub#access_model", values: ["open"])
         ]
@@ -1217,6 +1265,9 @@ enum OMEMOModuleError: Error {
     case invalidKeyData
     case invalidHeader
     case invalidPayload
+    /// Every recipient device listed returned `item-not-found` (or equivalent)
+    /// for its bundle. The message was not sent.
+    case noUsableRecipientDevices
 }
 
 // MARK: - Private Types

@@ -1,7 +1,7 @@
+import DuckoCore
 import DuckoData
 import DuckoXMPP
 import Foundation
-@testable import DuckoCore
 
 /// Factory for fully isolated `AppEnvironment` instances backed by in-memory
 /// SwiftData and a private temp directory for transcripts and credentials.

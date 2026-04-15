@@ -29,12 +29,15 @@ swift test                # Run tests
 
 ### Integration Tests
 
-Integration tests run against a live XMPP server and skip when credentials are not configured:
+Integration tests live in a sibling SwiftPM package at `IntegrationTests/` so a plain `swift test` at the repo root never runs them. They run against a live XMPP server and skip when credentials are not configured:
 
 ```sh
-cp .env.test.example .env.test   # Fill in real credentials
-source .env.test && swift test --filter DuckoIntegrationTests
+cp IntegrationTests/.env.test.example IntegrationTests/.env.test   # Fill in real credentials
+swift test --package-path IntegrationTests                          # All suites
+swift test --package-path IntegrationTests --filter AvatarTests     # One suite
 ```
+
+`IntegrationTests/.env.test` is loaded automatically on first use; sourcing it in the shell is optional and still overrides.
 
 ## Code Style
 

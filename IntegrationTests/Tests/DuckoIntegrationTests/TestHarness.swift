@@ -1,8 +1,8 @@
+import DuckoCore
 import DuckoXMPP
 import Foundation
 import Logging
 import Testing
-@testable import DuckoCore
 
 private let log = Logger(label: "im.ducko.integrationtests.harness")
 

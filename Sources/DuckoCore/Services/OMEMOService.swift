@@ -384,35 +384,50 @@ public final class OMEMOService {
         else { return }
         guard let accountJID = accountJIDString(for: accountID) else { return }
 
-        // Persist identity if this is a first-time generation
+        // First-time persistence only: if an identity is already stored, the
+        // module will restore it on handleConnect and there's nothing to do
+        // here. Skip both the readiness poll and the persistence writes.
         let existingIdentity = try? await omemoStore.loadIdentity(for: accountJID)
-        if existingIdentity == nil, let identityData = omemoModule.ownIdentityData {
-            let stored = OMEMOStoredIdentity(
-                accountJID: accountJID,
-                deviceID: identityData.deviceID,
-                identityKeyData: Data(identityData.identityKeyRaw),
-                registrationID: 0
-            )
-            try? await omemoStore.saveIdentity(stored)
-
-            // Persist pre-keys
-            let preKeys = identityData.preKeys.map {
-                OMEMOStoredPreKey(
-                    accountJID: accountJID, keyID: $0.keyID,
-                    keyData: Data($0.keyRaw), isUsed: false
-                )
+        if existingIdentity == nil {
+            // `.connected` is yielded before `OMEMOModule.handleConnect` runs,
+            // so `ownIdentityData` may still be `nil` on first-time generation.
+            // Poll up to ~5s (two IQ round-trips: publish device list + bundle).
+            var readyIdentity = omemoModule.ownIdentityData
+            for _ in 0 ..< 100 where readyIdentity == nil {
+                if Task.isCancelled { return }
+                try? await Task.sleep(for: .milliseconds(50))
+                readyIdentity = omemoModule.ownIdentityData
             }
-            try? await omemoStore.savePreKeys(preKeys)
+            if let identityData = readyIdentity {
+                let stored = OMEMOStoredIdentity(
+                    accountJID: accountJID,
+                    deviceID: identityData.deviceID,
+                    identityKeyData: Data(identityData.identityKeyRaw),
+                    registrationID: 0
+                )
+                try? await omemoStore.saveIdentity(stored)
 
-            // Persist signed pre-key
-            let spk = OMEMOStoredSignedPreKey(
-                accountJID: accountJID,
-                keyID: identityData.signedPreKeyID,
-                keyData: Data(identityData.signedPreKeyRaw),
-                signature: Data(identityData.signedPreKeySignature),
-                timestamp: Date()
-            )
-            try? await omemoStore.saveSignedPreKey(spk)
+                // Persist pre-keys
+                let preKeys = identityData.preKeys.map {
+                    OMEMOStoredPreKey(
+                        accountJID: accountJID, keyID: $0.keyID,
+                        keyData: Data($0.keyRaw), isUsed: false
+                    )
+                }
+                try? await omemoStore.savePreKeys(preKeys)
+
+                // Persist signed pre-key
+                let spk = OMEMOStoredSignedPreKey(
+                    accountJID: accountJID,
+                    keyID: identityData.signedPreKeyID,
+                    keyData: Data(identityData.signedPreKeyRaw),
+                    signature: Data(identityData.signedPreKeySignature),
+                    timestamp: Date()
+                )
+                try? await omemoStore.saveSignedPreKey(spk)
+            } else {
+                log.warning("OMEMO identity not ready after 5s wait; skipping first-time persistence")
+            }
         }
 
         // Mark consumed pre-keys

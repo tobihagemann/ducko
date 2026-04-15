@@ -363,7 +363,7 @@ public final class AccountService {
         jid.flatMap { JID.parse($0) }
     }
 
-    func client(for accountID: UUID) -> XMPPClient? {
+    public func client(for accountID: UUID) -> XMPPClient? {
         clients[accountID]
     }
 

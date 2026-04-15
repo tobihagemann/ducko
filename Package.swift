@@ -6,7 +6,10 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .executable(name: "DuckoApp", targets: ["DuckoApp"]),
-        .executable(name: "DuckoCLI", targets: ["DuckoCLI"])
+        .executable(name: "DuckoCLI", targets: ["DuckoCLI"]),
+        .library(name: "DuckoCore", targets: ["DuckoCore"]),
+        .library(name: "DuckoData", targets: ["DuckoData"]),
+        .library(name: "DuckoXMPP", targets: ["DuckoXMPP"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
@@ -61,12 +64,6 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log")
             ]
         ),
-        .testTarget(name: "DuckoCLITests", dependencies: ["DuckoCLI"]),
-
-        .testTarget(name: "DuckoIntegrationTests", dependencies: [
-            "DuckoCore",
-            "DuckoData",
-            "DuckoXMPP"
-        ])
+        .testTarget(name: "DuckoCLITests", dependencies: ["DuckoCLI"])
     ]
 )

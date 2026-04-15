@@ -1,20 +1,14 @@
 included:
-  - Sources/DuckoXMPP
-  - Sources/DuckoCore
-  - Sources/DuckoData
-  - Sources/DuckoUI
-  - Sources/DuckoApp
-  - Sources/DuckoCLI
   - Tests
 
 excluded:
   - .build
   - DerivedData
-  - IntegrationTests
 
 disabled_rules:
   - closure_parameter_position
   - file_length
+  - identifier_name
   - line_length
   - optional_data_string_conversion
   - todo

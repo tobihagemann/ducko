@@ -1,5 +1,5 @@
 --minversion 0.55.0
---exclude .build,DerivedData,Skills,Sources/CLibxml2,Sources/CDnssd
+--exclude .build,DerivedData,Skills,Sources/CLibxml2,Sources/CDnssd,IntegrationTests/.build
 
 # Format options
 --closurevoid preserve

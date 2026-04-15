@@ -52,11 +52,17 @@ After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., 
 
 ### Integration Tests
 
-Integration tests in `DuckoIntegrationTests` run against a live XMPP server. They skip automatically when credentials are not set.
+Integration tests live in a sibling SwiftPM package at `IntegrationTests/` so a plain `swift test` at the repo root never runs them. They run against a live XMPP server and skip automatically when credentials are not set.
+
+Credentials live in `IntegrationTests/.env.test` (git-ignored; copy `IntegrationTests/.env.test.example`). `TestCredentials` auto-loads that file on first access — no need to `source` it.
 
 ```
-source .env.test && swift test --filter DuckoIntegrationTests.ProtocolLayer
+swift test --package-path IntegrationTests
+swift test --package-path IntegrationTests --filter AvatarTests
+swift test --package-path IntegrationTests --filter "Alice connects to server"
 ```
+
+Sourcing the file in the shell still works and overrides any value from the file.
 
 ## Packaging
 

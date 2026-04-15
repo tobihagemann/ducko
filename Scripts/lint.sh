@@ -33,11 +33,22 @@ PID_FORMAT=$!
 swiftlint lint --strict --quiet >"$LINT_TMP/swiftlint.out" 2>&1 &
 PID_LINT=$!
 
-periphery scan --quiet --strict >"$LINT_TMP/periphery.out" 2>&1 &
+# IntegrationTests is a sibling SwiftPM package. SwiftLint's SPM-aware
+# test-target detection only works when invoked from the package that
+# declares the target, so run a second pass from there with its own config.
+(cd "${PROJECT_ROOT}/IntegrationTests" && swiftlint lint --strict --quiet) \
+    >"$LINT_TMP/swiftlint-integration.out" 2>&1 &
+PID_LINT_INT=$!
+
+# --retain-public is needed because the sibling IntegrationTests package consumes
+# DuckoCore / DuckoData / DuckoXMPP as library products; Periphery scans only the
+# root package and would otherwise flag their externally-used public symbols.
+periphery scan --quiet --strict --retain-public >"$LINT_TMP/periphery.out" 2>&1 &
 PID_PERIPHERY=$!
 
 wait $PID_FORMAT || { echo "--- SwiftFormat ---"; cat "$LINT_TMP/swiftformat.out"; echo "error: Run './Scripts/format.sh' to auto-fix."; FAIL=1; }
 wait $PID_LINT || { echo "--- SwiftLint ---"; cat "$LINT_TMP/swiftlint.out"; FAIL=1; }
+wait $PID_LINT_INT || { echo "--- SwiftLint (IntegrationTests) ---"; cat "$LINT_TMP/swiftlint-integration.out"; FAIL=1; }
 wait $PID_PERIPHERY || { echo "--- Periphery ---"; cat "$LINT_TMP/periphery.out"; FAIL=1; }
 
 set -e

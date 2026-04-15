@@ -1,7 +1,7 @@
+import DuckoCore
 import DuckoXMPP
 import Foundation
 import Testing
-@testable import DuckoCore
 
 extension DuckoIntegrationTests.ProtocolLayer {
     struct MUCTests {
