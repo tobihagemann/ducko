@@ -112,6 +112,15 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
+        // MARK: - Fixture
+
+        /// Pinned literal guards the cross-account hashing path against regressions:
+        /// the live tests above assert `result.hash == sha1Hex(Array(imageData))`,
+        /// which is self-referential because both sides use the same helper.
+        @Test func `Minimal PNG fixture hashes to pinned SHA-1`() {
+            #expect(sha1Hex(Array(Self.minimalPNGData())) == "6de4acdaec8ea4383383217fac75f48070ad1076")
+        }
+
         // MARK: - Helpers
 
         /// Returns a minimal valid 1x1 PNG. Bytes are deterministic and

@@ -113,6 +113,11 @@ final class TestHarness {
 
     /// Creates an ephemeral MUC room owned by `label` and registers destroy + leave cleanup.
     /// The room JID is randomized so concurrent test runs do not collide.
+    ///
+    /// Routes through `ChatService.joinRoom` so the service-level conversation
+    /// bookkeeping (group conversation row, participant tracking) happens too.
+    /// For protocol-level tests that need direct `MUCModule` access, use
+    /// ``joinRoom`` instead.
     func createEphemeralRoom(using label: String = "alice") async throws -> BareJID {
         let randomLocal = "inttest-\(UUID().uuidString.prefix(8))"
         let roomJID = try #require(BareJID.parse("\(randomLocal)@\(TestCredentials.mucService)"))
@@ -159,6 +164,86 @@ final class TestHarness {
         }
 
         return roomJID
+    }
+
+    /// Builds and connects a standalone `XMPPClient` (one not managed by
+    /// `AccountService`) for raw-module tests, registers a disconnect
+    /// cleanup, and waits for `.connected`.
+    ///
+    /// Use this when a test needs a second resource, custom module stack, or
+    /// direct `client.events` access — the harness-managed clients route
+    /// events through `AccountService` and aren't available standalone.
+    func buildStandaloneClient(
+        for credential: TestCredentials.Credential,
+        resource: String,
+        modules: [any XMPPModule] = [],
+        interceptors: [any StanzaInterceptor] = [],
+        timeout: Duration = TestTimeout.connect
+    ) async throws -> XMPPClient {
+        let jid = try #require(BareJID.parse(credential.jid))
+        let username = try #require(jid.localPart)
+
+        var builder = XMPPClientBuilder(domain: jid.domainPart, username: username, password: credential.password)
+        builder.withPreferredResource(resource)
+        for interceptor in interceptors {
+            builder.withInterceptor(interceptor)
+        }
+        for module in modules {
+            builder.withModule(module)
+        }
+        let client = await builder.build()
+
+        addCleanup { await client.disconnect() }
+        try await client.connect()
+
+        try await Self.waitForRawEvent(in: client.events, timeout: timeout) { event in
+            if case .connected = event { return true }
+            return false
+        }
+
+        return client
+    }
+
+    /// Joins `roomJID` via the MUCModule of the account registered under
+    /// `label`, registers leaveRoom cleanup, and awaits `.roomJoined`.
+    /// Returns the module so callers can chain further direct-module
+    /// operations, and the join event so callers can inspect the join
+    /// snapshot (e.g. existing occupants).
+    ///
+    /// Routes through `MUCModule` directly (no service-level bookkeeping).
+    /// For service-layer tests that need a newly-created room, use
+    /// ``createEphemeralRoom`` instead.
+    @discardableResult
+    func joinRoom(
+        _ roomJID: BareJID,
+        as nickname: String,
+        using label: String,
+        password: String? = nil,
+        timeout: Duration = TestTimeout.event
+    ) async throws -> (module: MUCModule, joinEvent: XMPPEvent) {
+        let account = try #require(accounts[label])
+        guard case .connected = environment.accountService.connectionStates[account.accountID] else {
+            throw TestHarnessError.notConnected(label: label)
+        }
+        guard let client = environment.accountService.client(for: account.accountID),
+              let mucModule = await client.module(ofType: MUCModule.self) else {
+            throw TestHarnessError.notConnected(label: label)
+        }
+
+        try await mucModule.joinRoom(roomJID, nickname: nickname, password: password)
+
+        // Register cleanup before waiting for `.roomJoined` so a wait timeout
+        // or stream error still leaves the room instead of leaking the occupant.
+        addCleanup { try? await mucModule.leaveRoom(roomJID) }
+
+        let joinEvent = try await account.waitForEvent(
+            matching: { event in
+                if case let .roomJoined(joinedRoom, _, _) = event, joinedRoom == roomJID { return true }
+                return false
+            },
+            timeout: timeout
+        )
+        return (mucModule, joinEvent)
     }
 
     // MARK: - Teardown

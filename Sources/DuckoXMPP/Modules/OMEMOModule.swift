@@ -1115,15 +1115,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
     private func pepPublishOptions(
         maxItems: Int? = nil
     ) -> [DataFormField] {
-        // FORM_TYPE per XEP-0004 §3.2 is required on submitted forms; Prosody and
-        // other servers silently drop the entire publish-options form without it,
-        // leaving PEP nodes with default access_model=presence instead of open.
         var fields = [
-            DataFormField(
-                variable: "FORM_TYPE",
-                type: "hidden",
-                values: ["http://jabber.org/protocol/pubsub#publish-options"]
-            ),
+            DataFormField.pubsubPublishOptionsHeader,
             DataFormField(variable: "pubsub#persist_items", values: ["true"]),
             DataFormField(variable: "pubsub#access_model", values: ["open"])
         ]

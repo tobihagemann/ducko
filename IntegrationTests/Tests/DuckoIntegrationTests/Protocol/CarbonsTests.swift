@@ -64,29 +64,14 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
         // MARK: - Helpers
 
-        /// Builds a second alice connection with CarbonsModule enabled, registers cleanup, and waits for connect.
+        /// Builds a second alice connection with CarbonsModule enabled.
         @MainActor
         private static func buildSecondAliceClient(harness: TestHarness) async throws -> XMPPClient {
-            let jid = try #require(BareJID.parse(TestCredentials.alice.jid))
-            let username = try #require(jid.localPart)
-            let domain = jid.domainPart
-
-            var builder = XMPPClientBuilder(domain: domain, username: username, password: TestCredentials.alice.password)
-            builder.withPreferredResource("test2")
-            builder.withModule(CarbonsModule())
-            builder.withModule(PresenceModule())
-            let client = await builder.build()
-
-            harness.addCleanup { await client.disconnect() }
-            try await client.connect()
-
-            // Wait for connected with timeout.
-            try await TestHarness.waitForRawEvent(in: client.events, timeout: TestTimeout.connect) { event in
-                if case .connected = event { return true }
-                return false
-            }
-
-            return client
+            try await harness.buildStandaloneClient(
+                for: TestCredentials.alice,
+                resource: "test2",
+                modules: [CarbonsModule(), PresenceModule()]
+            )
         }
     }
 }

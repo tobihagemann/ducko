@@ -112,34 +112,19 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
         // MARK: - Helpers
 
-        /// Builds a standalone XMPPClient with SM enabled, connects, and waits for SM to become resumable.
+        /// Builds a standalone XMPPClient with SM enabled and waits for SM to become resumable.
         @MainActor
         private static func buildSMClient(
             harness: TestHarness,
             modules: [any XMPPModule]
         ) async throws -> (XMPPClient, StreamManagementModule) {
-            let jid = try #require(BareJID.parse(TestCredentials.alice.jid))
-            let username = try #require(jid.localPart)
-            let domain = jid.domainPart
-
             let sm = StreamManagementModule()
-            var builder = XMPPClientBuilder(domain: domain, username: username, password: TestCredentials.alice.password)
-            builder.withPreferredResource("sm-test")
-            builder.withModule(sm)
-            builder.withInterceptor(sm)
-            for module in modules {
-                builder.withModule(module)
-            }
-            let client = await builder.build()
-
-            harness.addCleanup { await client.disconnect() }
-            try await client.connect()
-
-            // Wait for connected with timeout.
-            try await TestHarness.waitForRawEvent(in: client.events, timeout: TestTimeout.connect) { event in
-                if case .connected = event { return true }
-                return false
-            }
+            let client = try await harness.buildStandaloneClient(
+                for: TestCredentials.alice,
+                resource: "sm-test",
+                modules: [sm] + modules,
+                interceptors: [sm]
+            )
 
             // Wait for SM to become resumable.
             let smDeadline = ContinuousClock.now.advanced(by: TestTimeout.event)

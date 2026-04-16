@@ -19,6 +19,17 @@ public struct DataFormField: Sendable {
         self.values = values
         self.options = options
     }
+
+    /// XEP-0004 §3.2 FORM_TYPE header for a `pubsub#publish-options` submit form.
+    ///
+    /// Prosody and other servers silently drop the entire publish-options form
+    /// when this header is missing, leaving PEP nodes with default access
+    /// instead of the publisher's requested configuration.
+    public static let pubsubPublishOptionsHeader = DataFormField(
+        variable: "FORM_TYPE",
+        type: "hidden",
+        values: [XMPPNamespaces.pubsubPublishOptions]
+    )
 }
 
 /// Parses a `<x xmlns='jabber:x:data'>` element into an array of ``DataFormField``.

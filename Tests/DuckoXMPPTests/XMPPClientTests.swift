@@ -447,6 +447,38 @@ enum XMPPClientTests {
 
     struct Disconnection {
         @Test
+        func `Events stream terminates after disconnect`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            await client.disconnect()
+
+            // Other disconnect tests use `collectEvents`, which breaks on a
+            // predicate match and would still pass if `finish()` were dropped.
+            // Drain the stream to natural completion so this regression is
+            // caught — `cleanUp(reason:)` must finish the event continuation.
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for await _ in client.events {}
+                }
+                group.addTask {
+                    try await Task.sleep(for: .milliseconds(500))
+                    throw XMPPClientError.timeout
+                }
+                try await group.next()
+                group.cancelAll()
+            }
+        }
+
+        @Test
         func `Stream close emits disconnected event`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(

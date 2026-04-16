@@ -42,10 +42,10 @@ public final class AccountService {
 
     public enum AccountServiceError: Error, LocalizedError {
         case invalidJID(String)
-        case accountNotFound(String)
+        case accountNotFound(UUID)
         case noStoredPassword(String)
-        case notConnected(String)
-        case moduleNotAvailable(String)
+        case notConnected(UUID)
+        case moduleNotAvailable(UUID)
 
         public var errorDescription: String? {
             switch self {
@@ -81,7 +81,7 @@ public final class AccountService {
 
     public func connect(accountID: UUID) async throws {
         guard let account = accounts.first(where: { $0.id == accountID }) else {
-            throw AccountServiceError.accountNotFound(accountID.uuidString)
+            throw AccountServiceError.accountNotFound(accountID)
         }
         let jid = account.jid.description
         guard let password = credentialStore.loadPassword(for: jid) else {
@@ -203,7 +203,7 @@ public final class AccountService {
     /// Fetches XEP-0157 server contact addresses via disco#info.
     public func fetchServerInfo(accountID: UUID) async throws -> ServerInfo {
         guard let client = clients[accountID] else {
-            throw AccountServiceError.notConnected(accountID.uuidString)
+            throw AccountServiceError.notConnected(accountID)
         }
         guard let disco = await client.module(ofType: ServiceDiscoveryModule.self) else {
             return ServerInfo(contactAddresses: [])
@@ -351,10 +351,10 @@ public final class AccountService {
 
     private func registrationModule(for accountID: UUID) async throws -> RegistrationModule {
         guard let client = clients[accountID] else {
-            throw AccountServiceError.notConnected(accountID.uuidString)
+            throw AccountServiceError.notConnected(accountID)
         }
         guard let module = await client.module(ofType: RegistrationModule.self) else {
-            throw AccountServiceError.moduleNotAvailable(accountID.uuidString)
+            throw AccountServiceError.moduleNotAvailable(accountID)
         }
         return module
     }

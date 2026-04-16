@@ -42,6 +42,7 @@ public enum XMPPNamespaces {
     public static let blocking = "urn:xmpp:blocking"
     public static let pubsub = "http://jabber.org/protocol/pubsub"
     public static let pubsubEvent = "http://jabber.org/protocol/pubsub#event"
+    public static let pubsubPublishOptions = "http://jabber.org/protocol/pubsub#publish-options"
     public static let bookmarks2 = "urn:xmpp:bookmarks:1"
     public static let avatarData = "urn:xmpp:avatar:data"
     public static let avatarMetadata = "urn:xmpp:avatar:metadata"

@@ -78,11 +78,7 @@ public struct Bookmark: Sendable {
 
     /// Publish options for persistent, private PEP storage (XEP-0223).
     public static let publishOptions: [DataFormField] = [
-        DataFormField(
-            variable: "FORM_TYPE",
-            type: "hidden",
-            values: ["http://jabber.org/protocol/pubsub#publish-options"]
-        ),
+        DataFormField.pubsubPublishOptionsHeader,
         DataFormField(variable: "pubsub#persist_items", values: ["true"]),
         DataFormField(variable: "pubsub#access_model", values: ["whitelist"]),
         DataFormField(variable: "pubsub#max_items", values: ["max"])

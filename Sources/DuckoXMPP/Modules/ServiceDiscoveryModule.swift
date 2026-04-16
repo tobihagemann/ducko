@@ -83,11 +83,17 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
         guard let context = state.withLock({ $0.context }),
               let stanzaID = iq.id else { return }
 
+        // XEP-0115 §6.2 / XEP-0390 §4.2: echo the queried `node` so caps
+        // verifiers (Prosody mod_caps etc.) that strict-match on it accept
+        // the response and register +notify subscriptions.
+        let requestedNode = iq.childElement?.attribute("node")
+
         Task {
             var result = XMPPIQ(type: .result, id: stanzaID)
             if let from = iq.from { result.to = from }
 
             var query = XMLElement(name: "query", namespace: XMPPNamespaces.discoInfo)
+            if let requestedNode { query.setAttribute("node", value: requestedNode) }
 
             // Add identity
             var identityElement = XMLElement(name: "identity")

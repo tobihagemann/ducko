@@ -18,6 +18,21 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
     return client
 }
 
+/// Clears the mock's sent buffer, injects an incoming stanza, waits for the
+/// fire-and-forget response Task to flush, then returns the first reply that
+/// contains both `id` and `result`. Returns `nil` on timeout.
+private func awaitDiscoResponse(
+    for requestID: String,
+    request stanza: String,
+    mock: MockTransport
+) async -> String? {
+    await mock.clearSentBytes()
+    await mock.simulateReceive(stanza)
+    try? await Task.sleep(for: .milliseconds(200))
+    let sentStrings = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+    return sentStrings.first { $0.contains(requestID) && $0.contains("result") }
+}
+
 // MARK: - Tests
 
 enum ServiceDiscoveryModuleTests {
@@ -27,23 +42,53 @@ enum ServiceDiscoveryModuleTests {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
-            await mock.clearSentBytes()
-
-            // Send a disco#info GET from another entity
-            await mock.simulateReceive(
-                "<iq type='get' from='other@example.com/res' id='disco-1'><query xmlns='http://jabber.org/protocol/disco#info'/></iq>"
+            let response = await awaitDiscoResponse(
+                for: "disco-1",
+                request: "<iq type='get' from='other@example.com/res' id='disco-1'><query xmlns='http://jabber.org/protocol/disco#info'/></iq>",
+                mock: mock
             )
-
-            // Wait for the fire-and-forget Task to process
-            try? await Task.sleep(for: .milliseconds(200))
-
-            let sentData = await mock.sentBytes
-            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-            let response = sentStrings.first { $0.contains("disco-1") && $0.contains("result") }
             #expect(response != nil)
             #expect(response?.contains("category=\"client\"") == true)
             #expect(response?.contains("type=\"pc\"") == true)
             #expect(response?.contains("name=\"Ducko\"") == true)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Response echoes queried node attribute`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // XEP-0115 §6.2 / XEP-0390 §4.2: strict-match caps verifiers
+            // (e.g. Prosody mod_caps) expect the response to echo the exact
+            // node attribute from the request.
+            let capsNode = "http://jabber.org/protocol/caps#abc123"
+            let response = await awaitDiscoResponse(
+                for: "disco-2",
+                request: "<iq type='get' from='other@example.com/res' id='disco-2'><query xmlns='http://jabber.org/protocol/disco#info' node='\(capsNode)'/></iq>",
+                mock: mock
+            )
+            #expect(response != nil)
+            #expect(response?.contains("node=\"\(capsNode)\"") == true)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Response omits node attribute when query has none`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // Negative case for the XEP-0115 echo: adding a node attribute
+            // asymmetrically would also break strict-match verifiers.
+            let response = await awaitDiscoResponse(
+                for: "disco-3",
+                request: "<iq type='get' from='other@example.com/res' id='disco-3'><query xmlns='http://jabber.org/protocol/disco#info'/></iq>",
+                mock: mock
+            )
+            #expect(response != nil)
+            #expect(response?.contains("node=") == false)
 
             await client.disconnect()
         }
