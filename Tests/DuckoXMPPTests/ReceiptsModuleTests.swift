@@ -27,24 +27,19 @@ enum ReceiptsModuleTests {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
-            await mock.clearSentBytes()
-
-            await mock.simulateReceive("""
-            <message from='contact@example.com/res' to='user@example.com/ducko' type='chat' id='msg-1'>\
-            <body>Hello</body>\
-            <request xmlns='urn:xmpp:receipts'/>\
-            </message>
-            """)
-
-            try? await Task.sleep(for: .milliseconds(200))
-
-            let sentData = await mock.sentBytes
-            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-            let receiptReply = sentStrings.first { $0.contains("urn:xmpp:receipts") && $0.contains("<received") }
+            let receiptReply = await awaitSentResponse(
+                on: mock,
+                afterReceiving: """
+                <message from='contact@example.com/res' to='user@example.com/ducko' type='chat' id='msg-1'>\
+                <body>Hello</body>\
+                <request xmlns='urn:xmpp:receipts'/>\
+                </message>
+                """,
+                matching: {
+                    $0.contains("urn:xmpp:receipts") && $0.contains("<received") && $0.contains("id=\"msg-1\"")
+                }
+            )
             #expect(receiptReply != nil)
-            if let reply = receiptReply {
-                #expect(reply.contains("id=\"msg-1\""))
-            }
 
             await client.disconnect()
         }
@@ -54,20 +49,22 @@ enum ReceiptsModuleTests {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
-            await mock.clearSentBytes()
-
-            await mock.simulateReceive("""
-            <message from='room@example.com/nick' to='user@example.com/ducko' type='groupchat' id='msg-2'>\
-            <body>Hello room</body>\
-            <request xmlns='urn:xmpp:receipts'/>\
-            </message>
-            """)
-
-            try? await Task.sleep(for: .milliseconds(200))
-
-            let sentData = await mock.sentBytes
-            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-            let receiptReply = sentStrings.first { $0.contains("urn:xmpp:receipts") && $0.contains("<received") }
+            // Short observation budget: negative cases only need enough time to
+            // rule out the fire-and-forget response; a 2 s default would add
+            // seconds of slack to every run.
+            let receiptReply = await awaitSentResponse(
+                on: mock,
+                afterReceiving: """
+                <message from='room@example.com/nick' to='user@example.com/ducko' type='groupchat' id='msg-2'>\
+                <body>Hello room</body>\
+                <request xmlns='urn:xmpp:receipts'/>\
+                </message>
+                """,
+                matching: {
+                    $0.contains("urn:xmpp:receipts") && $0.contains("<received") && $0.contains("id=\"msg-2\"")
+                },
+                timeout: .milliseconds(200)
+            )
             #expect(receiptReply == nil)
 
             await client.disconnect()
@@ -78,19 +75,18 @@ enum ReceiptsModuleTests {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
-            await mock.clearSentBytes()
-
-            await mock.simulateReceive("""
-            <message from='contact@example.com/res' to='user@example.com/ducko' type='chat' id='msg-3'>\
-            <request xmlns='urn:xmpp:receipts'/>\
-            </message>
-            """)
-
-            try? await Task.sleep(for: .milliseconds(200))
-
-            let sentData = await mock.sentBytes
-            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-            let receiptReply = sentStrings.first { $0.contains("urn:xmpp:receipts") && $0.contains("<received") }
+            let receiptReply = await awaitSentResponse(
+                on: mock,
+                afterReceiving: """
+                <message from='contact@example.com/res' to='user@example.com/ducko' type='chat' id='msg-3'>\
+                <request xmlns='urn:xmpp:receipts'/>\
+                </message>
+                """,
+                matching: {
+                    $0.contains("urn:xmpp:receipts") && $0.contains("<received") && $0.contains("id=\"msg-3\"")
+                },
+                timeout: .milliseconds(200)
+            )
             #expect(receiptReply == nil)
 
             await client.disconnect()

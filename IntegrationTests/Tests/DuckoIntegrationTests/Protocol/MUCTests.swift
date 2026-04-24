@@ -28,7 +28,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 // Bob's join snapshot should include Alice as an existing occupant.
                 let (_, bobJoinEvent) = try await harness.joinRoom(roomJID, as: "bob", using: "bob")
                 guard case let .roomJoined(_, occupancy, _) = bobJoinEvent else {
-                    throw TestHarnessError.streamClosed
+                    Issue.record("Expected .roomJoined event from joinRoom")
+                    return
                 }
                 #expect(occupancy.occupants.contains { $0.nickname == "alice" })
 
@@ -55,8 +56,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-                let bobMUC = try #require(await bobClient.module(ofType: MUCModule.self))
+                let bobMUC = try await harness.module(MUCModule.self, for: "bob")
 
                 harness.addCleanup { try? await bobMUC.leaveRoom(roomJID) }
                 try await bobMUC.joinRoom(roomJID, nickname: "bob")
@@ -89,9 +89,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 _ = try await harness.joinRoom(roomJID, as: "bob", using: "bob")
 
-                let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 try await aliceMUC.sendMessage(to: roomJID, body: body)
@@ -110,8 +108,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
 
                 let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 let subject = "topic-\(UUID().uuidString.prefix(8))"
                 try await aliceMUC.setSubject(in: roomJID, subject: subject)
@@ -133,8 +130,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
 
                 let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 let newNick = "alice-\(UUID().uuidString.prefix(8))"
                 try await aliceMUC.changeNickname(in: roomJID, to: newNick)
@@ -158,10 +154,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
 
-                let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 try await aliceMUC.inviteUser(bobJID, to: roomJID, reason: "Join us!")
 
@@ -180,8 +174,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
 
                 let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 try await aliceMUC.destroyRoom(roomJID)
 
@@ -203,9 +196,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 _ = try await harness.joinRoom(roomJID, as: "bob", using: "bob")
 
-                let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 try await aliceMUC.sendPrivateMessage(to: roomJID, nickname: "bob", body: body)
@@ -274,19 +265,14 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     accountID: alice.accountID
                 )
 
-                let event = try await bob.waitForEvent { event in
-                    if case let .roomOccupantLeft(room, occupant, _) = event,
-                       room == roomJID, occupant.nickname == "bob" {
-                        return true
+                let kickReason = try await bob.waitForEvent(extracting: { event -> String? in
+                    if case let .roomOccupantLeft(room, occupant, reason) = event,
+                       room == roomJID, occupant.nickname == "bob",
+                       case let .kicked(extractedReason?) = reason {
+                        return extractedReason
                     }
-                    return false
-                }
-                guard case let .roomOccupantLeft(_, _, reason) = event else {
-                    throw TestHarnessError.streamClosed
-                }
-                guard case let .kicked(kickReason) = reason else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 #expect(kickReason == "test kick")
             }
         }
@@ -300,7 +286,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
                 _ = try await harness.joinRoom(roomJID, as: "bob", using: "bob")
 
                 let alice = try #require(harness.accounts["alice"])
@@ -311,19 +297,14 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     accountID: alice.accountID
                 )
 
-                let event = try await bob.waitForEvent { event in
-                    if case let .roomOccupantLeft(room, occupant, _) = event,
-                       room == roomJID, occupant.nickname == "bob" {
-                        return true
+                let banReason = try await bob.waitForEvent(extracting: { event -> String? in
+                    if case let .roomOccupantLeft(room, occupant, reason) = event,
+                       room == roomJID, occupant.nickname == "bob",
+                       case let .banned(extractedReason?) = reason {
+                        return extractedReason
                     }
-                    return false
-                }
-                guard case let .roomOccupantLeft(_, _, reason) = event else {
-                    throw TestHarnessError.streamClosed
-                }
-                guard case let .banned(banReason) = reason else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 #expect(banReason == "test ban")
             }
         }
@@ -374,7 +355,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 // Alice invites bob.
                 try await harness.environment.chatService.inviteUser(

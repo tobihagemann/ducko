@@ -12,8 +12,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
-                let blocking = try #require(await Self.blockingModule(for: alice, harness: harness))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
+                let blocking = try await harness.module(BlockingModule.self, for: "alice")
                 try await Self.ensureBobUnblocked(alice: alice, blocking: blocking, bobJID: bobJID)
 
                 Self.registerUnblockCleanup(blocking: blocking, bobJID: bobJID, harness: harness)
@@ -31,8 +31,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
-                let blocking = try #require(await Self.blockingModule(for: alice, harness: harness))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
+                let blocking = try await harness.module(BlockingModule.self, for: "alice")
                 try await Self.ensureBobUnblocked(alice: alice, blocking: blocking, bobJID: bobJID)
 
                 // This test reconnects alice, which creates a new BlockingModule.
@@ -72,8 +72,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
-                let blocking = try #require(await Self.blockingModule(for: alice, harness: harness))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
+                let blocking = try await harness.module(BlockingModule.self, for: "alice")
                 try await Self.ensureBobUnblocked(alice: alice, blocking: blocking, bobJID: bobJID)
 
                 Self.registerUnblockCleanup(blocking: blocking, bobJID: bobJID, harness: harness)
@@ -98,8 +98,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
-                let blocking = try #require(await Self.blockingModule(for: alice, harness: harness))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
+                let blocking = try await harness.module(BlockingModule.self, for: "alice")
                 try await Self.ensureBobUnblocked(alice: alice, blocking: blocking, bobJID: bobJID)
 
                 Self.registerUnblockCleanup(blocking: blocking, bobJID: bobJID, harness: harness)
@@ -112,12 +112,6 @@ extension DuckoIntegrationTests.ProtocolLayer {
         }
 
         // MARK: - Helpers
-
-        @MainActor
-        private static func blockingModule(for account: ConnectedAccount, harness: TestHarness) async -> BlockingModule? {
-            guard let client = harness.environment.accountService.client(for: account.accountID) else { return nil }
-            return await client.module(ofType: BlockingModule.self)
-        }
 
         /// If `.blockListLoaded` placed bob in the block list, unblock him
         /// before the test mutates state so each test starts from a clean

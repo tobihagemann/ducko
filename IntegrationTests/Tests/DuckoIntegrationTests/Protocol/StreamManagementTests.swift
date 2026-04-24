@@ -17,7 +17,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let counterBefore = stateBefore.outgoingCounter
 
                 // Send 2 messages.
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
                 let chat = try #require(await client.module(ofType: ChatModule.self))
                 try await chat.sendMessage(to: .bare(bobJID), body: "msg-\(UUID().uuidString.prefix(8))")
                 try await chat.sendMessage(to: .bare(bobJID), body: "msg-\(UUID().uuidString.prefix(8))")
@@ -60,7 +60,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let counterBefore = try #require(sm.resumeState).outgoingCounter
 
                 // Send a message.
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
                 let chat = try #require(await client.module(ofType: ChatModule.self))
                 try await chat.sendMessage(to: .bare(bobJID), body: "msg-\(UUID().uuidString.prefix(8))")
 
@@ -80,7 +80,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let client = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let sm = try #require(await client.module(ofType: StreamManagementModule.self))
+                let sm = try await harness.module(StreamManagementModule.self, for: "alice")
 
                 // Wait for SM to be resumable.
                 try await alice.waitForCondition(
@@ -92,8 +92,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let resumptionId = resumeState.resumptionId
 
                 // Verify SM state structure is valid.
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
                 #expect(!resumptionId.isEmpty)
-                #expect(resumeState.connectedJID.bareJID == BareJID.parse(TestCredentials.alice.jid))
+                #expect(resumeState.connectedJID.bareJID == aliceJID)
 
                 // Force a non-requested disconnect by calling the raw XMPPClient's
                 // disconnect directly. This triggers .disconnected(.requested) through

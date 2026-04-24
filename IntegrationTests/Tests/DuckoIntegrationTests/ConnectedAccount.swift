@@ -32,6 +32,27 @@ final class ConnectedAccount {
         }
     }
 
+    /// Waits for the first event for which `extract` returns non-nil, returning
+    /// the extracted payload. Lets tests destructure event payloads in one step
+    /// instead of matching then re-`guard case let`-ing outside the closure.
+    ///
+    /// The explicit `extracting:` label disambiguates this overload from
+    /// `waitForEvent(matching:)` at trailing-closure call sites where closure
+    /// return type alone would leave the resolution fragile.
+    func waitForEvent<T: Sendable>(
+        extracting extract: @Sendable @escaping (XMPPEvent) -> T?,
+        timeout: Duration = TestTimeout.event
+    ) async throws -> T {
+        try await race(timeout: timeout) { stream in
+            for await event in stream {
+                if let extracted = extract(event) {
+                    return extracted
+                }
+            }
+            throw TestHarnessError.streamClosed
+        }
+    }
+
     // periphery:ignore - reserved for multi-event protocol tests
     /// Collects every event up to and including the one that satisfies `predicate`.
     func collectEvents(
@@ -54,16 +75,16 @@ final class ConnectedAccount {
     /// internal service handlers (which run in their own `Task { @MainActor in ... }`),
     /// so a raw event wait does not guarantee the service has processed the event.
     func waitForCondition(
-        _ condition: @MainActor @escaping () -> Bool,
+        _ condition: @MainActor @escaping () async -> Bool,
         timeout: Duration = TestTimeout.event,
         pollInterval: Duration = .milliseconds(100)
     ) async throws {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
-            if condition() { return }
+            if await condition() { return }
             try await Task.sleep(for: pollInterval)
         }
-        if condition() { return }
+        if await condition() { return }
         throw TestHarnessError.timeout
     }
 

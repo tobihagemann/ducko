@@ -22,13 +22,11 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
             let alice = try #require(harness.accounts["alice"])
             let bob = try #require(harness.accounts["bob"])
-            let aliceBareJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-            let bobBareJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+            let aliceBareJID = try harness.jid(for: TestCredentials.alice)
+            let bobBareJID = try harness.jid(for: TestCredentials.bob)
 
-            let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-            let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-            let aliceRoster = try #require(await aliceClient.module(ofType: RosterModule.self))
-            let bobRoster = try #require(await bobClient.module(ofType: RosterModule.self))
+            let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
+            let bobRoster = try await harness.module(RosterModule.self, for: "bob")
 
             // Register cleanup before any roster mutation.
             harness.addCleanup { try? await bobRoster.removeContact(jid: aliceBareJID) }
@@ -64,11 +62,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
             try await TestHarness.withHarness { harness in
                 try await Self.setUpBobSubscribedToAlice(harness)
 
-                let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-
-                let alicePresence = try #require(await aliceClient.module(ofType: PresenceModule.self))
+                let alicePresence = try await harness.module(PresenceModule.self, for: "alice")
                 let status = "available-\(UUID().uuidString.prefix(8))"
                 try await alicePresence.broadcastPresence(show: nil, status: status)
 
@@ -87,11 +82,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
             try await TestHarness.withHarness { harness in
                 try await Self.setUpBobSubscribedToAlice(harness)
 
-                let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-
-                let alicePresence = try #require(await aliceClient.module(ofType: PresenceModule.self))
+                let alicePresence = try await harness.module(PresenceModule.self, for: "alice")
                 let status = "my-status-\(UUID().uuidString.prefix(8))"
                 try await alicePresence.broadcastPresence(show: nil, status: status)
 
@@ -110,11 +102,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
             try await TestHarness.withHarness { harness in
                 try await Self.setUpBobSubscribedToAlice(harness)
 
-                let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-
-                let alicePresence = try #require(await aliceClient.module(ofType: PresenceModule.self))
+                let alicePresence = try await harness.module(PresenceModule.self, for: "alice")
                 try await alicePresence.broadcastPresence(show: show)
 
                 _ = try await bob.waitForEvent { event in

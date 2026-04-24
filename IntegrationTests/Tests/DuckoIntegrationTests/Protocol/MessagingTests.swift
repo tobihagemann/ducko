@@ -15,11 +15,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 ])
 
                 let bob = try #require(harness.accounts["bob"])
-                let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let chat = try await harness.module(ChatModule.self, for: "alice")
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 try await chat.sendMessage(to: .bare(bobJID), body: body)
 
@@ -42,9 +40,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 let alice = try #require(harness.accounts["alice"])
                 let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
+                let chat = try await harness.module(ChatModule.self, for: "alice")
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 let id = aliceClient.generateID()
                 try await chat.sendMessage(to: .bare(bobJID), body: body, id: id)
@@ -67,9 +65,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
+                let chat = try await harness.module(ChatModule.self, for: "alice")
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 let stanzaID = aliceClient.generateID()
                 try await chat.sendMessage(
@@ -102,11 +100,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
                 let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-                let aliceJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let aliceChat = try #require(await aliceClient.module(ofType: ChatModule.self))
+                let aliceChat = try await harness.module(ChatModule.self, for: "alice")
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 let stanzaID = aliceClient.generateID()
                 try await aliceChat.sendMessage(to: .bare(bobJID), body: body, id: stanzaID, markable: true)
@@ -120,7 +117,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 }
 
                 // Bob sends a displayed marker.
-                let bobReceipts = try #require(await bobClient.module(ofType: ReceiptsModule.self))
+                let bobReceipts = try await harness.module(ReceiptsModule.self, for: "bob")
                 try await bobReceipts.sendDisplayedMarker(to: .bare(aliceJID), messageID: stanzaID)
 
                 // Alice sees the chat marker.
@@ -141,13 +138,11 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     "bob": TestCredentials.bob
                 ])
 
-                let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
                 let bob = try #require(harness.accounts["bob"])
-                let aliceBareJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let aliceBareJID = try harness.jid(for: TestCredentials.alice)
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let states = try #require(await aliceClient.module(ofType: ChatStatesModule.self))
+                let states = try await harness.module(ChatStatesModule.self, for: "alice")
                 try await states.sendChatState(chatState, to: .bare(bobJID))
 
                 _ = try await bob.waitForEvent { event in
@@ -170,9 +165,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 let alice = try #require(harness.accounts["alice"])
                 let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
+                let chat = try await harness.module(ChatModule.self, for: "alice")
                 let originalBody = "msg-\(UUID().uuidString.prefix(8))"
                 let originalID = aliceClient.generateID()
                 try await chat.sendMessage(to: .bare(bobJID), body: originalBody, id: originalID)
@@ -210,9 +205,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 let alice = try #require(harness.accounts["alice"])
                 let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
+                let chat = try await harness.module(ChatModule.self, for: "alice")
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 let stanzaID = aliceClient.generateID()
                 try await chat.sendMessage(to: .bare(bobJID), body: body, id: stanzaID)
@@ -249,7 +244,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 try await harness.environment.chatService.sendMessage(
@@ -276,7 +271,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let initialBody = "msg-\(UUID().uuidString.prefix(8))"
                 try await harness.environment.chatService.sendMessage(
@@ -286,15 +281,12 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 )
 
                 // Bob receives the original and captures its id.
-                let received = try await bob.waitForEvent { event in
+                let receivedMessage = try await bob.waitForEvent(extracting: { event in
                     if case let .messageReceived(m) = event, m.body == initialBody {
-                        return true
+                        return m
                     }
-                    return false
-                }
-                guard case let .messageReceived(receivedMessage) = received else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 let capturedID = try #require(receivedMessage.id)
 
                 // Alice sends a correction via service (looks up transcript store).
@@ -334,7 +326,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 try await harness.environment.chatService.sendMessage(
@@ -344,15 +336,12 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 )
 
                 // Bob receives and captures the id.
-                let received = try await bob.waitForEvent { event in
+                let receivedMessage = try await bob.waitForEvent(extracting: { event in
                     if case let .messageReceived(m) = event, m.body == body {
-                        return true
+                        return m
                     }
-                    return false
-                }
-                guard case let .messageReceived(receivedMessage) = received else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 let capturedID = try #require(receivedMessage.id)
 
                 // Alice retracts via service.
@@ -388,7 +377,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let initialBody = "msg-\(UUID().uuidString.prefix(8))"
                 try await harness.environment.chatService.sendMessage(
@@ -398,15 +387,12 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 )
 
                 // Bob receives and captures the id.
-                let received = try await bob.waitForEvent { event in
+                let receivedMessage = try await bob.waitForEvent(extracting: { event in
                     if case let .messageReceived(m) = event, m.body == initialBody {
-                        return true
+                        return m
                     }
-                    return false
-                }
-                guard case let .messageReceived(receivedMessage) = received else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 let originalID = try #require(receivedMessage.id)
 
                 // Alice sends a reply via service.
@@ -419,15 +405,12 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 )
 
                 // Bob receives the reply with the <reply/> marker.
-                let replyEvent = try await bob.waitForEvent { event in
+                let replyMessage = try await bob.waitForEvent(extracting: { event in
                     if case let .messageReceived(m) = event, m.body == replyBody {
-                        return true
+                        return m
                     }
-                    return false
-                }
-                guard case let .messageReceived(replyMessage) = replyEvent else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 #expect(replyMessage.element.child(named: "reply", namespace: XMPPNamespaces.messageReply) != nil)
             }
         }
@@ -441,8 +424,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 // Alice sends a message via service.
                 let body = "msg-\(UUID().uuidString.prefix(8))"
@@ -453,15 +436,12 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 )
 
                 // Bob receives and captures the id.
-                let received = try await bob.waitForEvent { event in
+                let receivedMessage = try await bob.waitForEvent(extracting: { event in
                     if case let .messageReceived(m) = event, m.body == body {
-                        return true
+                        return m
                     }
-                    return false
-                }
-                guard case let .messageReceived(receivedMessage) = received else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 let stanzaID = try #require(receivedMessage.id)
 
                 // Bob sends a displayed marker via service.

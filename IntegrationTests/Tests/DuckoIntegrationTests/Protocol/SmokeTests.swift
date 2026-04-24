@@ -21,7 +21,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
 
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
                 let messageBody = "smoke test \(UUID().uuidString.prefix(8))"
                 try await harness.environment.chatService.sendMessage(
                     to: bobJID,

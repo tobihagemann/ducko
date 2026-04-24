@@ -232,3 +232,52 @@ func extractIQID(from xmlString: String) -> String? {
     }
     return String(xmlString[idRange.upperBound ..< endRange])
 }
+
+// MARK: - Sent-Response Waiting
+
+/// Clears the mock's sent buffer, injects `stanza`, then polls `mock.sentBytes`
+/// until one of the outgoing strings satisfies `predicate` or the deadline
+/// elapses. Returns the matching string, or `nil` on timeout / no match.
+///
+/// Call sites must not chain a second `simulateReceive` into the same
+/// `awaitSentResponse` invocation without first awaiting the previous response
+/// to completion — a pending fire-and-forget reply from an earlier stimulus
+/// could otherwise satisfy the new predicate and mask a missing response.
+func awaitSentResponse(
+    on mock: MockTransport,
+    afterReceiving stanza: String,
+    matching predicate: @escaping @Sendable (String) -> Bool,
+    timeout: Duration = .seconds(2)
+) async -> String? {
+    await mock.clearSentBytes()
+    await mock.simulateReceive(stanza)
+
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    var scanned = 0
+    while ContinuousClock.now < deadline {
+        if Task.isCancelled { return nil }
+        if let match = await scan(mock: mock, from: &scanned, predicate: predicate) {
+            return match
+        }
+        try? await Task.sleep(for: .milliseconds(25))
+    }
+    // Final scan after the deadline to cover stanzas appended between the
+    // last in-loop scan and the deadline elapsing.
+    return await scan(mock: mock, from: &scanned, predicate: predicate)
+}
+
+private func scan(
+    mock: MockTransport,
+    from scanned: inout Int,
+    predicate: (String) -> Bool
+) async -> String? {
+    let sent = await mock.sentBytes
+    if sent.count > scanned {
+        for i in scanned ..< sent.count {
+            let candidate = String(decoding: sent[i], as: UTF8.self)
+            if predicate(candidate) { return candidate }
+        }
+        scanned = sent.count
+    }
+    return nil
+}

@@ -65,12 +65,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
-                let alice = try #require(harness.accounts["alice"])
-                let client = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceBareJID = try #require(BareJID.parse(TestCredentials.alice.jid))
+                let aliceBareJID = try harness.jid(for: TestCredentials.alice)
                 let serverJID = try #require(BareJID.parse(aliceBareJID.domainPart))
 
-                let disco = try #require(await client.module(ofType: ServiceDiscoveryModule.self))
+                let disco = try await harness.module(ServiceDiscoveryModule.self, for: "alice")
                 let info = try await disco.queryInfo(for: .bare(serverJID))
 
                 #expect(info.features.contains("http://jabber.org/protocol/disco#info"))
@@ -82,8 +80,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 let alice = try #require(harness.accounts["alice"])
-                let client = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let sm = try #require(await client.module(ofType: StreamManagementModule.self))
+                let sm = try await harness.module(StreamManagementModule.self, for: "alice")
 
                 try await alice.waitForCondition(
                     { @MainActor in sm.isResumable },

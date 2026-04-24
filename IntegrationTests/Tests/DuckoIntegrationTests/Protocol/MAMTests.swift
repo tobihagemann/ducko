@@ -12,12 +12,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     "bob": TestCredentials.bob
                 ])
 
-                let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
-                let aliceChat = try #require(await aliceClient.module(ofType: ChatModule.self))
+                let aliceChat = try await harness.module(ChatModule.self, for: "alice")
 
                 // Send 3 messages with UUID bodies.
                 var sentBodies: [String] = []
@@ -36,7 +34,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 // Query the last page of alice's archive filtered by bob.
                 // The archive is shared across test runs, so we fetch the tail
                 // to find our just-sent messages.
-                let aliceMAM = try #require(await aliceClient.module(ofType: MAMModule.self))
+                let aliceMAM = try await harness.module(MAMModule.self, for: "alice")
                 let (messages, _) = try await aliceMAM.queryMessages(
                     MAMModule.Query(with: bobJID, before: .lastPage)
                 )
@@ -62,9 +60,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 _ = try await harness.joinRoom(roomJID, as: "bob", using: "bob")
 
-                let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 // Send 5 messages.
                 var sentBodies: [String] = []
@@ -79,7 +75,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     }
                 }
 
-                let aliceMAM = try #require(await aliceClient.module(ofType: MAMModule.self))
+                let aliceMAM = try await harness.module(MAMModule.self, for: "alice")
 
                 // Page 1: max 2.
                 let (page1Messages, page1Fin) = try await aliceMAM.queryMessages(MAMModule.Query(to: roomJID, max: 2))

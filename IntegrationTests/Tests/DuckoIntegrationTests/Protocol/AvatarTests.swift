@@ -18,7 +18,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceJID = try #require(BareJID.parse(TestCredentials.alice.jid))
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
 
                 // Fetch Alice's current avatar directly rather than reading
                 // ownAvatarHash — the service has a single shared ownAvatarHash
@@ -84,7 +84,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let priorBobAvatar = await harness.environment.avatarService.fetchAvatar(for: bobJID, accountID: bob.accountID)
 

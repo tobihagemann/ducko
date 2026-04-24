@@ -74,8 +74,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
                 let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let mucModule = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let mucModule = try await harness.module(MUCModule.self, for: "alice")
 
                 // Do NOT use harness.createEphemeralRoom — it auto-registers a
                 // destroy-cleanup that would fire at phase 1 teardown and

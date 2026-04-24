@@ -23,10 +23,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 let alice = try #require(harness.accounts["alice"])
-                let client = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let roster = try #require(await client.module(ofType: RosterModule.self))
+                let roster = try await harness.module(RosterModule.self, for: "alice")
 
-                let bobBareJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobBareJID = try harness.jid(for: TestCredentials.bob)
                 let tempJID = try #require(BareJID.parse("inttest-\(UUID().uuidString.prefix(8))@\(bobBareJID.domainPart)"))
 
                 // Register cleanup before any roster mutation.
@@ -54,44 +53,48 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
-        @Test @MainActor func `Presence subscription is approved`() async throws {
+        @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials not set"))
+        @MainActor func `Presence subscription is approved`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: [
                     "alice": TestCredentials.alice,
-                    "bob": TestCredentials.bob
+                    "dave": TestCredentials.dave
                 ])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bob = try #require(harness.accounts["bob"])
-                let aliceBareJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let bobBareJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let dave = try #require(harness.accounts["dave"])
+                let aliceBareJID = try harness.jid(for: TestCredentials.alice)
+                let daveBareJID = try harness.jid(for: TestCredentials.dave)
 
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-                let aliceRoster = try #require(await aliceClient.module(ofType: RosterModule.self))
-                let bobRoster = try #require(await bobClient.module(ofType: RosterModule.self))
+                let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
+                let daveRoster = try await harness.module(RosterModule.self, for: "dave")
+
+                try await Self.assertNoBaselineSubscription(
+                    harness: harness, alice: alice, dave: dave,
+                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                )
 
                 // Register cleanup before any roster mutation.
-                harness.addCleanup { try? await bobRoster.removeContact(jid: aliceBareJID) }
-                harness.addCleanup { try? await aliceRoster.removeContact(jid: bobBareJID) }
+                harness.addCleanup { try? await daveRoster.removeContact(jid: aliceBareJID) }
+                harness.addCleanup { try? await aliceRoster.removeContact(jid: daveBareJID) }
 
-                // Alice subscribes to Bob.
-                try await aliceRoster.subscribe(to: bobBareJID)
+                // Alice subscribes to Dave.
+                try await aliceRoster.subscribe(to: daveBareJID)
 
-                // Bob sees the subscription request.
-                _ = try await bob.waitForEvent { event in
+                // Dave sees the subscription request.
+                _ = try await dave.waitForEvent { event in
                     if case let .presenceSubscriptionRequest(from) = event, from == aliceBareJID {
                         return true
                     }
                     return false
                 }
 
-                // Bob approves.
-                try await bobRoster.approveSubscription(from: aliceBareJID)
+                // Dave approves.
+                try await daveRoster.approveSubscription(from: aliceBareJID)
 
                 // Alice sees the approval.
                 _ = try await alice.waitForEvent { event in
-                    if case let .presenceSubscriptionApproved(from) = event, from == bobBareJID {
+                    if case let .presenceSubscriptionApproved(from) = event, from == daveBareJID {
                         return true
                     }
                     return false
@@ -99,44 +102,48 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
-        @Test @MainActor func `Presence subscription is denied`() async throws {
+        @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials not set"))
+        @MainActor func `Presence subscription is denied`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: [
                     "alice": TestCredentials.alice,
-                    "bob": TestCredentials.bob
+                    "dave": TestCredentials.dave
                 ])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bob = try #require(harness.accounts["bob"])
-                let aliceBareJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let bobBareJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let dave = try #require(harness.accounts["dave"])
+                let aliceBareJID = try harness.jid(for: TestCredentials.alice)
+                let daveBareJID = try harness.jid(for: TestCredentials.dave)
 
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-                let aliceRoster = try #require(await aliceClient.module(ofType: RosterModule.self))
-                let bobRoster = try #require(await bobClient.module(ofType: RosterModule.self))
+                let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
+                let daveRoster = try await harness.module(RosterModule.self, for: "dave")
+
+                try await Self.assertNoBaselineSubscription(
+                    harness: harness, alice: alice, dave: dave,
+                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                )
 
                 // Register cleanup before any roster mutation.
-                harness.addCleanup { try? await bobRoster.removeContact(jid: aliceBareJID) }
-                harness.addCleanup { try? await aliceRoster.removeContact(jid: bobBareJID) }
+                harness.addCleanup { try? await daveRoster.removeContact(jid: aliceBareJID) }
+                harness.addCleanup { try? await aliceRoster.removeContact(jid: daveBareJID) }
 
-                // Alice subscribes to Bob.
-                try await aliceRoster.subscribe(to: bobBareJID)
+                // Alice subscribes to Dave.
+                try await aliceRoster.subscribe(to: daveBareJID)
 
-                // Bob sees the subscription request.
-                _ = try await bob.waitForEvent { event in
+                // Dave sees the subscription request.
+                _ = try await dave.waitForEvent { event in
                     if case let .presenceSubscriptionRequest(from) = event, from == aliceBareJID {
                         return true
                     }
                     return false
                 }
 
-                // Bob denies.
-                try await bobRoster.denySubscription(from: aliceBareJID)
+                // Dave denies.
+                try await daveRoster.denySubscription(from: aliceBareJID)
 
                 // Alice sees the revocation.
                 _ = try await alice.waitForEvent { event in
-                    if case let .presenceSubscriptionRevoked(from) = event, from == bobBareJID {
+                    if case let .presenceSubscriptionRevoked(from) = event, from == daveBareJID {
                         return true
                     }
                     return false
@@ -160,7 +167,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bobBareJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobBareJID = try harness.jid(for: TestCredentials.bob)
                 let tempJID = try #require(BareJID.parse("inttest-\(UUID().uuidString.prefix(8))@\(bobBareJID.domainPart)"))
 
                 // Register cleanup before roster mutation.
@@ -201,87 +208,114 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
-        @Test @MainActor func `Service approveSubscription clears pending request`() async throws {
+        /// Precondition guard for the Dave-based subscription tests. Fails
+        /// loudly if Dave's roster carries any lingering alice entry (stale
+        /// state from an interrupted prior run, or baseline misconfiguration)
+        /// so the test's subscription-mutation logic starts from a clean slate
+        /// and cleanup doesn't remove real baseline state.
+        @MainActor
+        private static func assertNoBaselineSubscription(
+            harness: TestHarness, alice: ConnectedAccount, dave: ConnectedAccount,
+            aliceJID: BareJID, daveJID: BareJID
+        ) async throws {
+            try await harness.environment.rosterService.loadContacts(for: alice.accountID)
+            try await harness.environment.rosterService.loadContacts(for: dave.accountID)
+            let contacts = harness.environment.rosterService.groups.flatMap(\.contacts)
+            let aliceHasDave = contacts.contains { $0.accountID == alice.accountID && $0.jid == daveJID }
+            let daveHasAlice = contacts.contains { $0.accountID == dave.accountID && $0.jid == aliceJID }
+            try #require(!aliceHasDave, "Alice must not have Dave in roster before subscription test; provision dave with an empty roster or clean up prior state")
+            try #require(!daveHasAlice, "Dave must not have Alice in roster before subscription test; provision dave with an empty roster or clean up prior state")
+        }
+
+        @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials not set"))
+        @MainActor func `Service approveSubscription clears pending request`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: [
                     "alice": TestCredentials.alice,
-                    "bob": TestCredentials.bob
+                    "dave": TestCredentials.dave
                 ])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bob = try #require(harness.accounts["bob"])
-                let aliceBareJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let bobBareJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let dave = try #require(harness.accounts["dave"])
+                let aliceBareJID = try harness.jid(for: TestCredentials.alice)
+                let daveBareJID = try harness.jid(for: TestCredentials.dave)
 
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-                let aliceRoster = try #require(await aliceClient.module(ofType: RosterModule.self))
-                let bobRoster = try #require(await bobClient.module(ofType: RosterModule.self))
+                let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
+                let daveRoster = try await harness.module(RosterModule.self, for: "dave")
+
+                try await Self.assertNoBaselineSubscription(
+                    harness: harness, alice: alice, dave: dave,
+                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                )
 
                 // Register cleanup before any roster mutation.
-                harness.addCleanup { try? await bobRoster.removeContact(jid: aliceBareJID) }
-                harness.addCleanup { try? await aliceRoster.removeContact(jid: bobBareJID) }
+                harness.addCleanup { try? await daveRoster.removeContact(jid: aliceBareJID) }
+                harness.addCleanup { try? await aliceRoster.removeContact(jid: daveBareJID) }
 
-                // Alice adds Bob via service (which also subscribes).
+                // Alice adds Dave via service (which also subscribes).
                 try await harness.environment.rosterService.addContact(
-                    jid: bobBareJID,
+                    jid: daveBareJID,
                     name: nil,
                     groups: [],
                     accountID: alice.accountID
                 )
 
-                // Bob waits for the subscription request.
-                _ = try await bob.waitForEvent { event in
+                // Dave waits for the subscription request.
+                _ = try await dave.waitForEvent { event in
                     if case let .presenceSubscriptionRequest(from) = event, from == aliceBareJID {
                         return true
                     }
                     return false
                 }
 
-                // Bob approves via service.
+                // Dave approves via service.
                 try await harness.environment.rosterService.approveSubscription(
                     jidString: aliceBareJID.description,
-                    accountID: bob.accountID
+                    accountID: dave.accountID
                 )
 
-                // Verify pending request is cleared on Bob's side.
-                try await bob.waitForCondition({ @MainActor in
+                // Verify pending request is cleared on Dave's side.
+                try await dave.waitForCondition({ @MainActor in
                     !harness.environment.presenceService.pendingSubscriptionRequests.contains(aliceBareJID)
                 }, timeout: TestTimeout.event)
             }
         }
 
-        @Test @MainActor func `Service denySubscription clears pending request`() async throws {
+        @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials not set"))
+        @MainActor func `Service denySubscription clears pending request`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: [
                     "alice": TestCredentials.alice,
-                    "bob": TestCredentials.bob
+                    "dave": TestCredentials.dave
                 ])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bob = try #require(harness.accounts["bob"])
-                let aliceBareJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let bobBareJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let dave = try #require(harness.accounts["dave"])
+                let aliceBareJID = try harness.jid(for: TestCredentials.alice)
+                let daveBareJID = try harness.jid(for: TestCredentials.dave)
 
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-                let aliceRoster = try #require(await aliceClient.module(ofType: RosterModule.self))
-                let bobRoster = try #require(await bobClient.module(ofType: RosterModule.self))
+                let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
+                let daveRoster = try await harness.module(RosterModule.self, for: "dave")
+
+                try await Self.assertNoBaselineSubscription(
+                    harness: harness, alice: alice, dave: dave,
+                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                )
 
                 // Register cleanup before any roster mutation.
-                harness.addCleanup { try? await bobRoster.removeContact(jid: aliceBareJID) }
-                harness.addCleanup { try? await aliceRoster.removeContact(jid: bobBareJID) }
+                harness.addCleanup { try? await daveRoster.removeContact(jid: aliceBareJID) }
+                harness.addCleanup { try? await aliceRoster.removeContact(jid: daveBareJID) }
 
-                // Alice adds Bob via service (which also subscribes).
+                // Alice adds Dave via service (which also subscribes).
                 try await harness.environment.rosterService.addContact(
-                    jid: bobBareJID,
+                    jid: daveBareJID,
                     name: nil,
                     groups: [],
                     accountID: alice.accountID
                 )
 
-                // Bob waits for the subscription request.
-                _ = try await bob.waitForEvent { event in
+                // Dave waits for the subscription request.
+                _ = try await dave.waitForEvent { event in
                     if case let .presenceSubscriptionRequest(from) = event, from == aliceBareJID {
                         return true
                     }
@@ -289,24 +323,24 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 }
 
                 // Wait for service state to register the pending request.
-                try await bob.waitForCondition({ @MainActor in
+                try await dave.waitForCondition({ @MainActor in
                     harness.environment.presenceService.pendingSubscriptionRequests.contains(aliceBareJID)
                 }, timeout: TestTimeout.event)
 
-                // Bob denies via service.
+                // Dave denies via service.
                 try await harness.environment.rosterService.denySubscription(
                     jidString: aliceBareJID.description,
-                    accountID: bob.accountID
+                    accountID: dave.accountID
                 )
 
-                // Verify pending request is cleared on Bob's side.
-                try await bob.waitForCondition({ @MainActor in
+                // Verify pending request is cleared on Dave's side.
+                try await dave.waitForCondition({ @MainActor in
                     !harness.environment.presenceService.pendingSubscriptionRequests.contains(aliceBareJID)
                 }, timeout: TestTimeout.event)
 
                 // Alice sees the revocation.
                 _ = try await alice.waitForEvent { event in
-                    if case let .presenceSubscriptionRevoked(from) = event, from == bobBareJID {
+                    if case let .presenceSubscriptionRevoked(from) = event, from == daveBareJID {
                         return true
                     }
                     return false

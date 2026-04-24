@@ -16,9 +16,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 _ = try await harness.joinRoom(roomJID, as: "bob", using: "bob")
 
-                let alice = try #require(harness.accounts["alice"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 // Send 3 messages with UUID bodies.
                 var sentBodies: [String] = []
@@ -35,7 +33,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 }
 
                 // Query the room archive.
-                let aliceMAM = try #require(await aliceClient.module(ofType: MAMModule.self))
+                let aliceMAM = try await harness.module(MAMModule.self, for: "alice")
                 let (messages, _) = try await aliceMAM.queryMessages(MAMModule.Query(to: roomJID))
 
                 // Filter by UUID bodies (archive may contain join/subject notifications).

@@ -9,13 +9,11 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
         @Test(.timeLimit(.minutes(1))) @MainActor func `OMEMO bundle publish lists Alice's own device`() async throws {
             try await TestHarness.withHarness { harness in
-                try await harness.setUp(accounts: ["alice": TestCredentials.alice])
+                try await harness.setUp(accounts: ["alice": TestCredentials.alice], loadOMEMOFixtures: true)
                 Self.enableTOFU(harness: harness)
 
-                let alice = try #require(harness.accounts["alice"])
-                let aliceJID = try #require(BareJID.parse(TestCredentials.alice.jid))
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceOMEMO = try #require(await aliceClient.module(ofType: OMEMOModule.self))
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
+                let aliceOMEMO = try await harness.module(OMEMOModule.self, for: "alice")
 
                 // OMEMOModule.handleConnect ran synchronously inside the
                 // connect chain before setUp returned, so the module-level
@@ -69,19 +67,16 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let body = "omemo-msg-\(UUID().uuidString.prefix(8))"
                 try await harness.environment.chatService.sendMessage(to: ctx.bobJID, body: body, accountID: ctx.alice.accountID)
 
-                let received = try await ctx.bob.waitForEvent(
-                    matching: { event in
-                        if case let .omemoEncryptedMessageReceived(_, decrypted, _, _) = event,
+                let decryptedBody = try await ctx.bob.waitForEvent(
+                    extracting: { event in
+                        if case let .omemoEncryptedMessageReceived(_, decrypted?, _, _) = event,
                            decrypted == body {
-                            return true
+                            return decrypted
                         }
-                        return false
+                        return nil
                     },
                     timeout: TestTimeout.omemoSession
                 )
-                guard case let .omemoEncryptedMessageReceived(_, decryptedBody, _, _) = received else {
-                    throw TestHarnessError.streamClosed
-                }
                 #expect(decryptedBody == body)
             }
         }
@@ -92,16 +87,15 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     "alice": TestCredentials.alice,
                     "bob": TestCredentials.bob,
                     "carol": TestCredentials.carol
-                ])
+                ], loadOMEMOFixtures: true)
                 Self.enableTOFU(harness: harness)
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
                 let carol = try #require(harness.accounts["carol"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceOMEMO = try #require(await aliceClient.module(ofType: OMEMOModule.self))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
-                let carolJID = try #require(BareJID.parse(TestCredentials.carol.jid))
+                let aliceOMEMO = try await harness.module(OMEMOModule.self, for: "alice")
+                let bobJID = try harness.jid(for: TestCredentials.bob)
+                let carolJID = try harness.jid(for: TestCredentials.carol)
 
                 try await Self.primePeerForEncryption(harness: harness, aliceOMEMO: aliceOMEMO, aliceID: alice.accountID, peerLabel: "bob", peerJID: bobJID)
                 try await Self.primePeerForEncryption(harness: harness, aliceOMEMO: aliceOMEMO, aliceID: alice.accountID, peerLabel: "carol", peerJID: carolJID)
@@ -140,7 +134,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
             try await TestHarness.withHarness { harness in
                 try await Self.setUpAliceBobWithTOFU(harness: harness)
                 let ctx = try await Self.primeBobForEncryption(harness: harness)
-                let aliceJID = try #require(BareJID.parse(TestCredentials.alice.jid))
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
 
                 let body = "omemo-service-\(UUID().uuidString.prefix(8))"
                 try await harness.environment.chatService.sendMessage(toJIDString: TestCredentials.bob.jid, body: body, accountID: ctx.alice.accountID)
@@ -156,18 +150,14 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bobConversation = try await harness.environment.chatService.openConversation(for: aliceJID, accountID: ctx.bob.accountID)
 
                 // OMEMOService persists via a detached Task after the event
-                // fires, so a short async-aware retry loop is needed —
-                // waitForCondition's closure is sync and cannot await loadMessages.
-                var encryptedMessage: ChatMessage?
-                for _ in 0 ..< 10 {
+                // fires, so wait for the transcript to catch up before asserting.
+                try await ctx.bob.waitForCondition {
                     let messages = await harness.environment.chatService.loadMessages(for: bobConversation.id)
-                    if let last = messages.last, last.isEncrypted, last.body == body {
-                        encryptedMessage = last
-                        break
-                    }
-                    try await Task.sleep(for: .milliseconds(100))
+                    guard let last = messages.last else { return false }
+                    return last.isEncrypted && last.body == body
                 }
-                let persisted = try #require(encryptedMessage)
+                let messages = await harness.environment.chatService.loadMessages(for: bobConversation.id)
+                let persisted = try #require(messages.last)
                 #expect(persisted.isEncrypted)
                 #expect(persisted.body == body)
             }
@@ -234,22 +224,17 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
         @Test @MainActor func `Service ownFingerprint returns a stable hex string`() async throws {
             try await TestHarness.withHarness { harness in
-                try await harness.setUp(accounts: ["alice": TestCredentials.alice])
+                try await harness.setUp(accounts: ["alice": TestCredentials.alice], loadOMEMOFixtures: true)
 
                 let alice = try #require(harness.accounts["alice"])
 
                 // OMEMOService.handleConnected persists the identity on a
                 // detached Task that outlives setUp's .rosterLoaded wait, so
-                // poll briefly until the store is populated.
-                var firstCall: String?
-                for _ in 0 ..< 50 {
-                    if let fp = await harness.environment.omemoService.ownFingerprint(accountID: alice.accountID) {
-                        firstCall = fp
-                        break
-                    }
-                    try await Task.sleep(for: .milliseconds(100))
+                // wait until the store is populated.
+                try await alice.waitForCondition {
+                    await harness.environment.omemoService.ownFingerprint(accountID: alice.accountID) != nil
                 }
-                let firstFingerprint = try #require(firstCall)
+                let firstFingerprint = try #require(await harness.environment.omemoService.ownFingerprint(accountID: alice.accountID))
                 let secondFingerprint = try #require(await harness.environment.omemoService.ownFingerprint(accountID: alice.accountID))
                 #expect(!firstFingerprint.isEmpty)
                 #expect(firstFingerprint == secondFingerprint)
@@ -265,7 +250,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
             try await harness.setUp(accounts: [
                 "alice": TestCredentials.alice,
                 "bob": TestCredentials.bob
-            ])
+            ], loadOMEMOFixtures: true)
             enableTOFU(harness: harness)
         }
 
@@ -285,9 +270,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
         private static func primeBobForEncryption(harness: TestHarness) async throws -> EncryptionContext {
             let alice = try #require(harness.accounts["alice"])
             let bob = try #require(harness.accounts["bob"])
-            let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-            let aliceOMEMO = try #require(await aliceClient.module(ofType: OMEMOModule.self))
-            let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+            let aliceOMEMO = try await harness.module(OMEMOModule.self, for: "alice")
+            let bobJID = try harness.jid(for: TestCredentials.bob)
 
             try await primePeerForEncryption(
                 harness: harness, aliceOMEMO: aliceOMEMO,
@@ -329,19 +313,15 @@ extension DuckoIntegrationTests.ProtocolLayer {
             timeout: Duration = TestTimeout.omemoSession
         ) async throws {
             let peer = try #require(harness.accounts[peerLabel])
-            let peerClient = try #require(harness.environment.accountService.client(for: peer.accountID))
-            let peerOMEMO = try #require(await peerClient.module(ofType: OMEMOModule.self))
+            let peerOMEMO = try await harness.module(OMEMOModule.self, for: peerLabel)
             let peerDeviceID = try #require(peerOMEMO.ownIdentityData?.deviceID)
 
-            let deadline = ContinuousClock.now.advanced(by: timeout)
-            while ContinuousClock.now < deadline {
+            try await peer.waitForCondition({
                 let infos = await harness.environment.omemoService.deviceInfoList(
                     for: peerJID.description, accountID: accountID
                 )
-                if infos.contains(where: { $0.deviceID == peerDeviceID }) { return }
-                try await Task.sleep(for: .milliseconds(100))
-            }
-            throw TestHarnessError.timeout
+                return infos.contains(where: { $0.deviceID == peerDeviceID })
+            }, timeout: timeout)
         }
 
         /// Enables trust-on-first-use for the current harness scope and restores

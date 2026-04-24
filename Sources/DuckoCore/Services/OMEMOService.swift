@@ -392,13 +392,21 @@ public final class OMEMOService {
             // `.connected` is yielded before `OMEMOModule.handleConnect` runs,
             // so `ownIdentityData` may still be `nil` on first-time generation.
             // Poll up to ~5s (two IQ round-trips: publish device list + bundle).
-            var readyIdentity = omemoModule.ownIdentityData
-            for _ in 0 ..< 100 where readyIdentity == nil {
-                if Task.isCancelled { return }
-                try? await Task.sleep(for: .milliseconds(50))
-                readyIdentity = omemoModule.ownIdentityData
-            }
-            if let identityData = readyIdentity {
+            // Capture the identity inside the closure to avoid a re-read race
+            // with `handleDisconnect` nil'ing `ownIdentity`.
+            var captured: OMEMOModule.OMEMOIdentityData?
+            _ = await pollUntil(
+                {
+                    if let data = omemoModule.ownIdentityData {
+                        captured = data
+                        return true
+                    }
+                    return false
+                },
+                timeout: .seconds(5),
+                interval: .milliseconds(50)
+            )
+            if let identityData = captured {
                 let stored = OMEMOStoredIdentity(
                     accountJID: accountJID,
                     deviceID: identityData.deviceID,

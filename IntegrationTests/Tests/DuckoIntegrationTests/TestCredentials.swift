@@ -24,14 +24,21 @@ import Foundation
 ///   API, so a "synthesize then restore" path would leak vCard state
 ///   server-side. `AvatarTests` publishes and restores each account's avatar
 ///   within the test body, so no avatar baseline is required.
+/// - **Dave has no baseline subscription with any other account.** Required by
+///   `RosterTests` subscription/denial mutation tests so alice↔bob and
+///   alice↔carol baselines are never mutated.
 enum TestCredentials {
     struct Credential {
         let jid: String
         let password: String
+        let label: String
     }
 
     static let mucService = "conference.xmpp.tobiha.de"
 
+    /// Baseline gate for the root integration suite — requires Alice, Bob, Carol.
+    /// Dave is a newer addition; requiring him here would skip every existing
+    /// integration test in environments that have only the three-account baseline.
     static var isAvailable: Bool {
         env("DUCKO_TEST_ALICE_JID") != nil
             && env("DUCKO_TEST_ALICE_PASSWORD") != nil
@@ -41,20 +48,31 @@ enum TestCredentials {
             && env("DUCKO_TEST_CAROL_PASSWORD") != nil
     }
 
+    /// Narrower gate applied only to roster subscription/denial tests that
+    /// depend on Dave's clean-roster baseline.
+    static var isDaveAvailable: Bool {
+        env("DUCKO_TEST_DAVE_JID") != nil
+            && env("DUCKO_TEST_DAVE_PASSWORD") != nil
+    }
+
     static var alice: Credential {
-        credential(jidVar: "DUCKO_TEST_ALICE_JID", passwordVar: "DUCKO_TEST_ALICE_PASSWORD")
+        credential(jidVar: "DUCKO_TEST_ALICE_JID", passwordVar: "DUCKO_TEST_ALICE_PASSWORD", label: "alice")
     }
 
     static var bob: Credential {
-        credential(jidVar: "DUCKO_TEST_BOB_JID", passwordVar: "DUCKO_TEST_BOB_PASSWORD")
+        credential(jidVar: "DUCKO_TEST_BOB_JID", passwordVar: "DUCKO_TEST_BOB_PASSWORD", label: "bob")
     }
 
     static var carol: Credential {
-        credential(jidVar: "DUCKO_TEST_CAROL_JID", passwordVar: "DUCKO_TEST_CAROL_PASSWORD")
+        credential(jidVar: "DUCKO_TEST_CAROL_JID", passwordVar: "DUCKO_TEST_CAROL_PASSWORD", label: "carol")
     }
 
-    private static func credential(jidVar: String, passwordVar: String) -> Credential {
-        Credential(jid: env(jidVar) ?? "", password: env(passwordVar) ?? "")
+    static var dave: Credential {
+        credential(jidVar: "DUCKO_TEST_DAVE_JID", passwordVar: "DUCKO_TEST_DAVE_PASSWORD", label: "dave")
+    }
+
+    private static func credential(jidVar: String, passwordVar: String, label: String) -> Credential {
+        Credential(jid: env(jidVar) ?? "", password: env(passwordVar) ?? "", label: label)
     }
 
     private static func env(_ key: String) -> String? {

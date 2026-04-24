@@ -17,12 +17,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     "bob": TestCredentials.bob
                 ])
 
-                let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let csi = try #require(await aliceClient.module(ofType: CSIModule.self))
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let csi = try await harness.module(CSIModule.self, for: "alice")
+                let chat = try await harness.module(ChatModule.self, for: "alice")
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 try await csi.sendActive()
 
@@ -42,12 +40,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     "bob": TestCredentials.bob
                 ])
 
-                let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let csi = try #require(await aliceClient.module(ofType: CSIModule.self))
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let csi = try await harness.module(CSIModule.self, for: "alice")
+                let chat = try await harness.module(ChatModule.self, for: "alice")
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 try await csi.sendInactive()
                 // Restore active before the harness exits — the server may queue
@@ -75,7 +71,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 // isAppActive is private on AccountService, so assert indirectly
                 // by confirming a probe message still delivers after each state

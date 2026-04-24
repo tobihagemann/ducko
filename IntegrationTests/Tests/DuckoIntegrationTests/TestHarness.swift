@@ -18,12 +18,14 @@ final class TestHarness {
 
     private let router: EventRouter
     private let tempDir: URL
+    private let omemoStore: any OMEMOStore
     private var cleanupActions: [@Sendable () async -> Void] = []
 
-    private init(environment: AppEnvironment, router: EventRouter, tempDir: URL) {
+    private init(environment: AppEnvironment, router: EventRouter, tempDir: URL, omemoStore: any OMEMOStore) {
         self.environment = environment
         self.router = router
         self.tempDir = tempDir
+        self.omemoStore = omemoStore
     }
 
     // MARK: - Lifecycle
@@ -31,16 +33,21 @@ final class TestHarness {
     /// Runs `body` with a fresh harness, awaiting teardown on both success and failure paths.
     static func withHarness(_ body: (TestHarness) async throws -> Void) async throws {
         let router = EventRouter()
-        let (environment, tempDir) = try TestEnvironmentFactory.makeEnvironment { event, accountID in
+        let bundle = try TestEnvironmentFactory.makeEnvironment { event, accountID in
             MainActor.assumeIsolated {
                 router.dispatch(event, accountID: accountID)
             }
         }
         // Bookmarks auto-join would re-enter every test account's stored rooms on
         // connect, polluting the smoke tests' event streams with unrelated joins.
-        environment.bookmarksService.autoJoinEnabled = false
+        bundle.environment.bookmarksService.autoJoinEnabled = false
 
-        let harness = TestHarness(environment: environment, router: router, tempDir: tempDir)
+        let harness = TestHarness(
+            environment: bundle.environment,
+            router: router,
+            tempDir: bundle.tempDirectory,
+            omemoStore: bundle.omemoStore
+        )
         do {
             try await body(harness)
         } catch {
@@ -52,7 +59,16 @@ final class TestHarness {
 
     /// Creates and connects every account in `labels`, waiting for `.rosterLoaded`
     /// before returning. Cleanup for each successful account is registered immediately.
-    func setUp(accounts labels: [String: TestCredentials.Credential]) async throws {
+    ///
+    /// `loadOMEMOFixtures` gates the OMEMO identity fixture seed + capture path.
+    /// OMEMO test suites pass `true` so each run reuses a stable identity (avoids
+    /// piling up `urn:xmpp:omemo:2:bundles:*` PEP nodes server-side); other
+    /// suites leave it `false` so they don't pay `captureOMEMOFixture`'s up-to-10s
+    /// poll on first run when they never exercise OMEMO.
+    func setUp(
+        accounts labels: [String: TestCredentials.Credential],
+        loadOMEMOFixtures: Bool = false
+    ) async throws {
         // Sort by label so connect order is deterministic across runs.
         for (label, credential) in labels.sorted(by: { $0.key < $1.key }) {
             let accountID = try await environment.accountService.createAccount(jidString: credential.jid)
@@ -61,6 +77,13 @@ final class TestHarness {
             // AvatarService, OMEMOService, ChatService) can find the account when their
             // events fire — without this, `.connected`/`.rosterLoaded` are silently dropped.
             try await environment.accountService.loadAccounts()
+
+            // Seed a previously-captured OMEMO identity, if one exists, before
+            // the client is built — `OMEMOService.buildModule` only sees identity
+            // data that is already present in the store at connect time.
+            if loadOMEMOFixtures {
+                _ = try? await loadOMEMOFixture(for: credential)
+            }
 
             let (stream, continuation) = AsyncStream<XMPPEvent>.makeStream()
             router.register(accountID: accountID, continuation: continuation)
@@ -92,6 +115,13 @@ final class TestHarness {
                 },
                 timeout: TestTimeout.connect
             )
+
+            // Capture the freshly-generated OMEMO identity to disk for reuse by
+            // subsequent test runs. No-op when a well-formed fixture is already
+            // present; overwrites a malformed one.
+            if loadOMEMOFixtures {
+                try? await captureOMEMOFixture(for: credential)
+            }
         }
     }
 
@@ -156,10 +186,7 @@ final class TestHarness {
         // other occupants. Without this, the room stays in a "locked" state (MUC
         // status 201) and rejects join attempts from non-owners.
         if case let .roomJoined(_, _, isNewlyCreated) = joinEvent, isNewlyCreated {
-            guard let client = environment.accountService.client(for: account.accountID),
-                  let mucModule = await client.module(ofType: MUCModule.self) else {
-                throw TestHarnessError.notConnected(label: label)
-            }
+            let mucModule = try await module(MUCModule.self, for: label)
             try await mucModule.acceptDefaultConfig(roomJID)
         }
 
@@ -225,10 +252,7 @@ final class TestHarness {
         guard case .connected = environment.accountService.connectionStates[account.accountID] else {
             throw TestHarnessError.notConnected(label: label)
         }
-        guard let client = environment.accountService.client(for: account.accountID),
-              let mucModule = await client.module(ofType: MUCModule.self) else {
-            throw TestHarnessError.notConnected(label: label)
-        }
+        let mucModule = try await module(MUCModule.self, for: label)
 
         try await mucModule.joinRoom(roomJID, nickname: nickname, password: password)
 
@@ -244,6 +268,217 @@ final class TestHarness {
             timeout: timeout
         )
         return (mucModule, joinEvent)
+    }
+
+    // MARK: - Module/JID Lookup
+
+    /// Returns the registered XMPP module of type `M` on the account registered
+    /// under `label`, or throws if the account is not connected or the module
+    /// is not installed on its client.
+    ///
+    /// Mirrors the `guard let account = try #require(accounts[label]); guard ...
+    /// else { throw .notConnected }` pattern used by `joinRoom` and
+    /// `waitUntilDisconnected` in this file so all three harness lookups fail
+    /// through `TestHarnessError` rather than splitting between `#require` and
+    /// thrown errors for different misconfiguration modes.
+    func module<M: XMPPModule>(_ type: M.Type, for label: String) async throws -> M {
+        guard let account = accounts[label] else {
+            throw TestHarnessError.notConnected(label: label)
+        }
+        guard let client = environment.accountService.client(for: account.accountID) else {
+            throw TestHarnessError.notConnected(label: label)
+        }
+        guard let module = await client.module(ofType: type) else {
+            throw TestHarnessError.moduleUnavailable(label: label, type: String(describing: type))
+        }
+        return module
+    }
+
+    /// Parses a `TestCredentials.Credential`'s JID string into a `BareJID`,
+    /// using `#require` to fail fast on a malformed credential.
+    func jid(for credential: TestCredentials.Credential) throws -> BareJID {
+        try #require(BareJID.parse(credential.jid))
+    }
+
+    // MARK: - OMEMO Fixtures
+
+    /// Seeds the harness's in-memory OMEMO store from a previously-captured
+    /// identity fixture resolved via `fixtureURL(for:)`. Returns `true` on a
+    /// successful seed, `false` if the fixture is missing, unreadable,
+    /// malformed, or fails shape invariants (production code then generates a
+    /// fresh identity on connect).
+    private func loadOMEMOFixture(for credential: TestCredentials.Credential) async throws -> Bool {
+        let fixtureURL = Self.fixtureURL(for: credential.label)
+        guard let data = try? Data(contentsOf: fixtureURL) else { return false }
+        guard let fixture = try? JSONDecoder().decode(FixtureOMEMOIdentity.self, from: data) else {
+            log.warning("OMEMO fixture for \(credential.label) is malformed; ignoring and allowing fresh identity generation")
+            return false
+        }
+        guard fixture.passesShapeInvariants else {
+            log.warning("OMEMO fixture for \(credential.label) is malformed; ignoring and allowing fresh identity generation")
+            return false
+        }
+
+        let identity = OMEMOStoredIdentity(
+            accountJID: credential.jid,
+            deviceID: fixture.deviceID,
+            identityKeyData: Data(fixture.identityKeyRaw),
+            registrationID: 0
+        )
+        try await omemoStore.saveIdentity(identity)
+
+        let preKeys = fixture.preKeys.map {
+            OMEMOStoredPreKey(
+                accountJID: credential.jid, keyID: $0.keyID,
+                keyData: Data($0.keyRaw), isUsed: $0.isUsed
+            )
+        }
+        try await omemoStore.savePreKeys(preKeys)
+
+        let signedPreKey = OMEMOStoredSignedPreKey(
+            accountJID: credential.jid,
+            keyID: fixture.signedPreKeyID,
+            keyData: Data(fixture.signedPreKeyRaw),
+            signature: Data(fixture.signedPreKeySignature),
+            timestamp: Date()
+        )
+        try await omemoStore.saveSignedPreKey(signedPreKey)
+
+        return true
+    }
+
+    /// Captures the freshly-generated OMEMO identity for `credential` to the
+    /// path resolved by `fixtureURL(for:)` so later runs can reuse it via
+    /// `loadOMEMOFixture`. No-ops when a well-formed fixture is already on
+    /// disk; overwrites a malformed one.
+    ///
+    /// `OMEMOService.handleConnected` persists identity, prekeys, and signed
+    /// prekey via a detached task that outlives `.rosterLoaded`, so this method
+    /// polls `loadSignedPreKey` (the last of the three writes) before reading
+    /// the store back. A timeout here logs a warning and returns — the next
+    /// run regenerates.
+    private func captureOMEMOFixture(for credential: TestCredentials.Credential) async throws {
+        let fixtureURL = Self.fixtureURL(for: credential.label)
+
+        if let existing = try? Data(contentsOf: fixtureURL) {
+            if let decoded = try? JSONDecoder().decode(FixtureOMEMOIdentity.self, from: existing),
+               decoded.passesShapeInvariants {
+                return
+            }
+            log.info("Overwriting malformed OMEMO fixture for \(credential.label) at \(fixtureURL.path)")
+        }
+
+        guard await waitForSignedPreKey(for: credential) else {
+            log.warning("OMEMO signed prekey for \(credential.label) did not land in store within 10s; skipping fixture capture")
+            return
+        }
+
+        guard let storedIdentity = try await omemoStore.loadIdentity(for: credential.jid) else {
+            log.warning("OMEMO identity for \(credential.label) missing at capture time; skipping fixture capture")
+            return
+        }
+        let storedPreKeys = try await omemoStore.loadPreKeys(for: credential.jid)
+        guard let storedSignedPreKey = try await omemoStore.loadSignedPreKey(for: credential.jid) else {
+            log.warning("OMEMO signed prekey for \(credential.label) missing at capture time; skipping fixture capture")
+            return
+        }
+
+        let fixture = FixtureOMEMOIdentity(
+            deviceID: storedIdentity.deviceID,
+            identityKeyRaw: Array(storedIdentity.identityKeyData),
+            signedPreKeyID: storedSignedPreKey.keyID,
+            signedPreKeyRaw: Array(storedSignedPreKey.keyData),
+            signedPreKeySignature: Array(storedSignedPreKey.signature),
+            preKeys: storedPreKeys.map {
+                FixtureOMEMOIdentity.PreKey(keyID: $0.keyID, keyRaw: Array($0.keyData), isUsed: $0.isUsed)
+            }
+        )
+
+        // Create the directory with owner-only access (0700) and write the
+        // fixture with owner-only permissions (0600) so the long-term identity
+        // keys don't land at the umask default (0755/0644) on multi-user hosts.
+        // `createDirectory(attributes:)` is a no-op when the directory already
+        // exists, so re-apply 0700 explicitly afterward — otherwise a dir
+        // created by an older harness version at default 0755 stays that way.
+        let directory = fixtureURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+
+        let encoder = JSONEncoder()
+        // Pretty-printed JSON honors `OMEMOFixtureFormat`'s "visible to the
+        // naked eye when inspecting fixture drift" docstring.
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoded = try encoder.encode(fixture)
+        try encoded.write(to: fixtureURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixtureURL.path)
+
+        log.info("Captured generated OMEMO identity for \(credential.label) at \(fixtureURL.path)")
+    }
+
+    /// Polls the OMEMO store for `credential`'s signed-prekey up to 10 s.
+    /// Presence of the signed prekey proves the identity + prekeys writes
+    /// already landed, since `OMEMOService.handleConnected` persists them in
+    /// that order.
+    ///
+    /// Mirrors `DuckoCore.pollUntil`'s contract — cooperatively cancellable
+    /// and does one final probe after the deadline to catch a signed-prekey
+    /// write that landed between the last in-loop probe and the deadline.
+    private func waitForSignedPreKey(for credential: TestCredentials.Credential) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            if Task.isCancelled { return false }
+            if await hasSignedPreKey(for: credential) { return true }
+            do {
+                try await Task.sleep(for: .milliseconds(100))
+            } catch {
+                return false
+            }
+        }
+        if Task.isCancelled { return false }
+        return await hasSignedPreKey(for: credential)
+    }
+
+    private func hasSignedPreKey(for credential: TestCredentials.Credential) async -> Bool {
+        do {
+            return try await omemoStore.loadSignedPreKey(for: credential.jid) != nil
+        } catch {
+            // Keep polling on transient errors. A persistent store error would
+            // timeout the 10s budget; surfacing it at debug helps diagnose
+            // "fixtures never capture" cases without coupling test-harness
+            // logs to every transient read.
+            log.debug("OMEMO signed-prekey probe for \(credential.label) threw: \(error)")
+            return false
+        }
+    }
+
+    /// Resolves `~/Library/Application Support/Ducko-IntegrationTests/omemo/<label>.json`.
+    ///
+    /// Long-term OMEMO identity keys live outside the working tree — a
+    /// `.gitignore` regression, `git clean`, or accidental `git add -f`
+    /// inside the worktree cannot leak fixture contents into the repo.
+    /// The path is process-specific but deterministic across runs on the
+    /// same machine, so the identity-reuse invariant holds without risk
+    /// of checked-in private keys.
+    private static func fixtureURL(for label: String) -> URL {
+        let root: URL = if let support = try? FileManager.default.url(
+            for: .applicationSupportDirectory, in: .userDomainMask,
+            appropriateFor: nil, create: true
+        ) {
+            support
+        } else {
+            // Fall back to the temp directory when Application Support is
+            // unavailable (e.g. sandboxed CI). The fixture still stays out
+            // of the repo.
+            FileManager.default.temporaryDirectory
+        }
+        return root
+            .appendingPathComponent("Ducko-IntegrationTests", isDirectory: true)
+            .appendingPathComponent("omemo", isDirectory: true)
+            .appendingPathComponent("\(label).json")
     }
 
     // MARK: - Teardown

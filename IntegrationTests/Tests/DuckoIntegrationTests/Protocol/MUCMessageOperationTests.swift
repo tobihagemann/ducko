@@ -27,7 +27,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
 
                 let originalBody = "msg-\(UUID().uuidString.prefix(8))"
                 let originalID = aliceClient.generateID()
@@ -68,32 +68,28 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await bobMUC.sendMessage(to: roomJID, body: body)
 
                 // Alice captures the room-assigned stanza-id.
-                let receivedEvent = try await alice.waitForEvent { event in
-                    if case let .roomMessageReceived(m) = event, m.body == body { return true }
-                    return false
-                }
-                guard case let .roomMessageReceived(receivedMessage) = receivedEvent else {
-                    throw TestHarnessError.streamClosed
-                }
+                let receivedMessage = try await alice.waitForEvent(extracting: { event in
+                    if case let .roomMessageReceived(m) = event, m.body == body { return m }
+                    return nil
+                })
 
                 // Extract stanza-id assigned by the room (filter by `by` == room JID).
                 let stanzaID = try #require(Self.roomStanzaID(from: receivedMessage.element, roomJID: roomJID))
 
                 // Alice (moderator/owner) retracts bob's message.
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let aliceMUC = try #require(await aliceClient.module(ofType: MUCModule.self))
+                let aliceMUC = try await harness.module(MUCModule.self, for: "alice")
                 try await aliceMUC.moderateMessage(room: roomJID, stanzaID: stanzaID, reason: "inappropriate")
 
-                let moderationEvent = try await bob.waitForEvent { event in
-                    if case let .messageModerated(origID, _, room, _) = event,
+                // Extract non-nil reasons; a nil moderationReason would fail the
+                // `#expect(reason == "inappropriate")` assertion anyway, so gating
+                // the extract on `reason?` keeps T as plain `String`.
+                let reason = try await bob.waitForEvent(extracting: { event -> String? in
+                    if case let .messageModerated(origID, _, room, moderationReason?) = event,
                        origID == stanzaID, room == roomJID {
-                        return true
+                        return moderationReason
                     }
-                    return false
-                }
-                guard case let .messageModerated(_, _, _, reason) = moderationEvent else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 #expect(reason == "inappropriate")
             }
         }
@@ -117,13 +113,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 try await bobMUC.sendMessage(to: roomJID, body: body)
 
                 // Alice captures the room-assigned stanza-id.
-                let receivedEvent = try await alice.waitForEvent { event in
-                    if case let .roomMessageReceived(m) = event, m.body == body { return true }
-                    return false
-                }
-                guard case let .roomMessageReceived(receivedMessage) = receivedEvent else {
-                    throw TestHarnessError.streamClosed
-                }
+                let receivedMessage = try await alice.waitForEvent(extracting: { event in
+                    if case let .roomMessageReceived(m) = event, m.body == body { return m }
+                    return nil
+                })
 
                 let stanzaID = try #require(Self.roomStanzaID(from: receivedMessage.element, roomJID: roomJID))
 
@@ -135,16 +128,16 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     accountID: alice.accountID
                 )
 
-                let moderationEvent = try await bob.waitForEvent { event in
-                    if case let .messageModerated(origID, _, room, _) = event,
+                // Extract non-nil reasons; a nil moderationReason would fail the
+                // `#expect(reason == "inappropriate")` assertion anyway, so gating
+                // the extract on `reason?` keeps T as plain `String`.
+                let reason = try await bob.waitForEvent(extracting: { event -> String? in
+                    if case let .messageModerated(origID, _, room, moderationReason?) = event,
                        origID == stanzaID, room == roomJID {
-                        return true
+                        return moderationReason
                     }
-                    return false
-                }
-                guard case let .messageModerated(_, _, _, reason) = moderationEvent else {
-                    throw TestHarnessError.streamClosed
-                }
+                    return nil
+                })
                 #expect(reason == "inappropriate")
             }
         }

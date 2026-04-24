@@ -10,11 +10,17 @@ import Foundation
 /// store for a throw-away one so tests never touch developer data.
 @MainActor
 enum TestEnvironmentFactory {
+    struct Environment {
+        let environment: AppEnvironment
+        let tempDirectory: URL
+        let omemoStore: any OMEMOStore
+    }
+
     /// Creates an isolated `AppEnvironment` plus the temp directory it owns.
     /// Callers are responsible for removing the temp directory in teardown.
     static func makeEnvironment(
         onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)? = nil
-    ) throws -> (environment: AppEnvironment, tempDirectory: URL) {
+    ) throws -> Environment {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("ducko-inttest-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
@@ -34,7 +40,7 @@ enum TestEnvironmentFactory {
                 onExternalEvent: onExternalEvent
             )
 
-            return (environment, tempDir)
+            return Environment(environment: environment, tempDirectory: tempDir, omemoStore: omemoStore)
         } catch {
             // Clean up the temp dir we just created — `withHarness` only owns the
             // teardown path once makeEnvironment returns successfully.

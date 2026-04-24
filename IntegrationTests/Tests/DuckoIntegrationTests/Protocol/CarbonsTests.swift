@@ -12,13 +12,11 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     "bob": TestCredentials.bob
                 ])
 
-                let bob = try #require(harness.accounts["bob"])
-                let aliceJID = try #require(BareJID.parse(TestCredentials.alice.jid))
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
                 let client2 = try await Self.buildSecondAliceClient(harness: harness)
 
                 // Bob sends a message to alice's bare JID.
-                let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-                let bobChat = try #require(await bobClient.module(ofType: ChatModule.self))
+                let bobChat = try await harness.module(ChatModule.self, for: "bob")
                 let body = "msg-\(UUID().uuidString.prefix(8))"
                 try await bobChat.sendMessage(to: .bare(aliceJID), body: body)
 
@@ -43,7 +41,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 ])
 
                 let alice = try #require(harness.accounts["alice"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
                 let client2 = try await Self.buildSecondAliceClient(harness: harness)
 
                 // Alice (primary, through harness) sends a message to bob.

@@ -14,12 +14,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     "bob": TestCredentials.bob
                 ])
 
-                let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-                let upload = try #require(await aliceClient.module(ofType: HTTPUploadModule.self))
-                let chat = try #require(await aliceClient.module(ofType: ChatModule.self))
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let upload = try await harness.module(HTTPUploadModule.self, for: "alice")
+                let chat = try await harness.module(ChatModule.self, for: "alice")
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let fixtureURL = try Self.makeFixtureFile(harness: harness)
                 let fileSize = try #require(
@@ -97,7 +95,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let fixtureURL = try Self.makeFixtureFile(harness: harness)
                 // Pinning `.httpUpload` bypasses the `.auto` resolver; `.auto`
@@ -135,7 +133,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let bobFullJID = try Self.fullJID(for: bob, harness: harness)
                 let fixtureURL = try Self.makeFixtureFile(harness: harness)
@@ -182,7 +180,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
                 let bob = try #require(harness.accounts["bob"])
-                let bobJID = try #require(BareJID.parse(TestCredentials.bob.jid))
+                let bobJID = try harness.jid(for: TestCredentials.bob)
 
                 let bobFullJID = try Self.fullJID(for: bob, harness: harness)
                 let fixtureURL = try Self.makeFixtureFile(harness: harness)
@@ -226,12 +224,9 @@ extension DuckoIntegrationTests.ProtocolLayer {
         /// fallback test skips it and asserts only on completion.
         @MainActor
         private static func runJingleRoundTrip(harness: TestHarness, assertBytesMatch: Bool) async throws {
-            let alice = try #require(harness.accounts["alice"])
             let bob = try #require(harness.accounts["bob"])
-            let aliceClient = try #require(harness.environment.accountService.client(for: alice.accountID))
-            let bobClient = try #require(harness.environment.accountService.client(for: bob.accountID))
-            let aliceJingle = try #require(await aliceClient.module(ofType: JingleModule.self))
-            let bobJingle = try #require(await bobClient.module(ofType: JingleModule.self))
+            let aliceJingle = try await harness.module(JingleModule.self, for: "alice")
+            let bobJingle = try await harness.module(JingleModule.self, for: "bob")
 
             let bobFullJID = try Self.fullJID(for: bob, harness: harness)
             let fixtureURL = try Self.makeFixtureFile(harness: harness)
@@ -279,19 +274,16 @@ extension DuckoIntegrationTests.ProtocolLayer {
         /// generates the sid internally.
         @MainActor
         private static func waitForOffer(on account: ConnectedAccount, sid: String? = nil) async throws -> JingleFileOffer {
-            let offerEvent = try await account.waitForEvent(
-                matching: { event in
-                    if case let .jingleFileTransferReceived(offer) = event {
-                        return sid == nil || offer.sid == sid
+            try await account.waitForEvent(
+                extracting: { event in
+                    if case let .jingleFileTransferReceived(offer) = event,
+                       sid == nil || offer.sid == sid {
+                        return offer
                     }
-                    return false
+                    return nil
                 },
                 timeout: TestTimeout.fileTransfer
             )
-            guard case let .jingleFileTransferReceived(offer) = offerEvent else {
-                throw TestHarnessError.streamClosed
-            }
-            return offer
         }
 
         @MainActor
