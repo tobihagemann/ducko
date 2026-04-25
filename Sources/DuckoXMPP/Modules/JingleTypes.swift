@@ -258,6 +258,12 @@ public struct IBBTransport: Sendable, Hashable {
     }
 }
 
+/// Which Jingle transport actually carried the bytes to completion.
+public enum JingleTransportKind: String, Sendable, Hashable {
+    case socks5
+    case ibb
+}
+
 /// Transport description for a Jingle content element.
 public enum JingleTransportDescription: Sendable, Hashable {
     case socks5(SOCKS5Transport)
@@ -369,6 +375,7 @@ struct JingleSession {
     let peer: FullJID
     let role: Role
     var transportState: TransportState
+    var selectedTransport: JingleTransportKind?
     let primaryContentName: String
     var contents: [String: JingleContent]
 
@@ -388,11 +395,13 @@ struct JingleSession {
         peer: FullJID,
         role: Role,
         transportState: TransportState = .pending,
+        selectedTransport: JingleTransportKind? = nil,
         content: JingleContent
     ) {
         self.peer = peer
         self.role = role
         self.transportState = transportState
+        self.selectedTransport = selectedTransport
         self.primaryContentName = content.name
         self.contents = [content.name: content]
     }

@@ -271,4 +271,29 @@ enum FileTransferServiceTests {
             }
         }
     }
+
+    @MainActor
+    struct JingleCompletionTracking {
+        @Test
+        func `handleJingleEvent transitions to completedTransfer on completion`() throws {
+            let service = FileTransferService()
+
+            let peer = try #require(FullJID.parse("sender@example.com/res"))
+            let offer = JingleFileOffer(sid: "complete-sid", from: peer, fileName: "file.bin", fileSize: 1000)
+
+            service.handleJingleEvent(.jingleFileTransferReceived(offer), accountID: UUID())
+            #expect(service.activeTransfers.count == 1)
+            #expect(service.incomingOffers.count == 1)
+
+            service.handleJingleEvent(.jingleFileTransferCompleted(sid: "complete-sid", transport: .socks5), accountID: UUID())
+
+            let transfer = service.activeTransfers.first { $0.sid == "complete-sid" }
+            if case .completedTransfer = transfer?.state {
+                // Expected
+            } else {
+                Issue.record("Expected completedTransfer state, got \(String(describing: transfer?.state))")
+            }
+            #expect(service.incomingOffers.isEmpty)
+        }
+    }
 }

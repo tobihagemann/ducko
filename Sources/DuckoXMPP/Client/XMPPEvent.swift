@@ -40,7 +40,7 @@ public enum XMPPEvent: Sendable {
     // Jingle File Transfer (XEP-0166/0234)
     case jingleFileTransferReceived(JingleFileOffer)
     case jingleFileRequestReceived(JingleFileRequest)
-    case jingleFileTransferCompleted(sid: String)
+    case jingleFileTransferCompleted(sid: String, transport: JingleTransportKind)
     case jingleFileTransferFailed(sid: String, reason: String)
     case jingleFileTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64)
     case jingleChecksumReceived(sid: String, checksum: JingleChecksumInfo)

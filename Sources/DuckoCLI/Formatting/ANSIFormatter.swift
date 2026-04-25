@@ -444,8 +444,8 @@ struct ANSIFormatter: CLIFormatter {
             return formatJingleTransferProgress(
                 fileName: sid, fileSize: totalBytes, progress: progress, state: state
             )
-        case let .jingleFileTransferCompleted(sid):
-            return formatJingleTransferCompleted(sid: sid)
+        case let .jingleFileTransferCompleted(sid, transport):
+            return formatJingleTransferCompleted(sid: sid, transport: transport)
         case let .jingleFileTransferFailed(sid, reason):
             return formatJingleTransferFailed(sid: sid, reason: reason)
         case let .jingleChecksumMismatch(sid, _, _):
@@ -574,12 +574,19 @@ struct ANSIFormatter: CLIFormatter {
         "\r\(Color.cyan)\(fileName)\(Color.reset) (\(formatByteCount(fileSize))) \(progressBar(progress)) \(state) \(Int(progress * 100))%"
     }
 
-    func formatJingleTransferCompleted(sid: String) -> String {
-        "\(Color.green)\u{2705} Transfer completed: \(sid)\(Color.reset)"
+    func formatJingleTransferCompleted(sid: String, transport: JingleTransportKind) -> String {
+        "\(Color.green)\u{2705} Transfer completed: \(sid) \u{2014} \(transportLabel(for: transport))\(Color.reset)"
     }
 
     func formatJingleTransferFailed(sid: String, reason: String) -> String {
         "\(Color.red)Transfer failed: \(sid) \u{2014} \(reason)\(Color.reset)"
+    }
+
+    private func transportLabel(for transport: JingleTransportKind) -> String {
+        switch transport {
+        case .socks5: "SOCKS5"
+        case .ibb: "IBB"
+        }
     }
 
     private func progressBar(_ progress: Double) -> String {

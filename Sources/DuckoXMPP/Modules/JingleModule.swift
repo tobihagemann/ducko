@@ -51,6 +51,15 @@ public final class JingleModule: XMPPModule, Sendable {
         let listener: SOCKS5Listener?
     }
 
+    /// Snapshot of state captured atomically when an IBB close arrives, so the
+    /// session is torn down inside the same critical section that emits completion.
+    private struct IBBCloseSnapshot {
+        let jingleSID: String
+        let session: JingleSession
+        let continuations: SessionContinuations
+        let data: [UInt8]
+    }
+
     /// Sentinel CID for connections accepted by the local listener.
     private static let listenerCID = "direct-listener"
 
@@ -353,14 +362,24 @@ public final class JingleModule: XMPPModule, Sendable {
 
         continuations.cancel(with: JingleError.sessionNotFound)
 
-        guard removed != nil else {
+        guard let removed else {
+            // No session to emit for. On the receiver side this is the dedup
+            // path: handleIBBClose has already torn down the session and
+            // emitted completion, so the follow-up session-terminate is a no-op.
             log.debug("Ignoring session-terminate for unknown sid: \(sid)")
             return
         }
 
         let reason = parseTerminateReason(jingle)
         if reason == .success {
-            context.emitEvent(.jingleFileTransferCompleted(sid: sid))
+            let transport: JingleTransportKind
+            if let selected = removed.selectedTransport {
+                transport = selected
+            } else {
+                log.error("selectedTransport nil on successful Jingle terminate for sid \(sid); defaulting to .socks5")
+                transport = .socks5
+            }
+            context.emitEvent(.jingleFileTransferCompleted(sid: sid, transport: transport))
         } else {
             let reasonText = reason?.rawValue ?? "unknown"
             context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: reasonText))
@@ -488,6 +507,7 @@ public final class JingleModule: XMPPModule, Sendable {
             state.ibbStates[sid] = ibbState
             state.ibbSIDToJingleSID[ibbTransport.sid] = sid
             state.sessions[sid]?.transportState = .pending
+            state.sessions[sid]?.selectedTransport = .ibb
             return state.transportReadyContinuations.removeValue(forKey: sid)
         }
 
@@ -525,6 +545,7 @@ public final class JingleModule: XMPPModule, Sendable {
             )
             state.ibbStates[sid] = ibbState
             state.ibbSIDToJingleSID[ibbSID] = sid
+            state.sessions[sid]?.selectedTransport = .ibb
         }
 
         Task {
@@ -665,19 +686,33 @@ public final class JingleModule: XMPPModule, Sendable {
 
         acknowledgeIQ(iq, context: context)
 
-        let jingleSID = state.withLock { $0.ibbSIDToJingleSID[ibbSID] }
-        guard let jingleSID else { return }
-
-        let (continuation, data) = state.withLock { state -> (CheckedContinuation<[UInt8], Error>?, [UInt8]) in
+        // Tear down the session atomically with the IBB cleanup. A subsequent
+        // session-terminate will hit the existing `removed != nil` guard in
+        // `handleSessionTerminate` and short-circuit without re-emitting.
+        let snapshot: IBBCloseSnapshot? = state.withLock { state in
+            guard let jingleSID = state.ibbSIDToJingleSID[ibbSID] else { return nil }
             let receivedData = state.ibbStates[jingleSID]?.receivedData ?? []
-            let cont = state.receiveDataContinuations.removeValue(forKey: jingleSID)
-            state.ibbStates.removeValue(forKey: jingleSID)
-            state.ibbSIDToJingleSID.removeValue(forKey: ibbSID)
-            return (cont, receivedData)
+            guard let session = state.sessions.removeValue(forKey: jingleSID) else { return nil }
+            let conts = cleanupSessionState(sid: jingleSID, state: &state)
+            return IBBCloseSnapshot(jingleSID: jingleSID, session: session, continuations: conts, data: receivedData)
         }
+        guard let snapshot else { return }
 
-        continuation?.resume(returning: data)
-        context.emitEvent(.jingleFileTransferCompleted(sid: jingleSID))
+        cleanupTransport(sid: snapshot.jingleSID)
+
+        // Receive continuation gets the bytes; transport continuation should be
+        // empty by IBB close, but cancel defensively for symmetry with terminate.
+        snapshot.continuations.receive?.resume(returning: snapshot.data)
+        snapshot.continuations.transport?.resume(throwing: JingleError.sessionNotFound)
+
+        let resolvedTransport: JingleTransportKind
+        if let selected = snapshot.session.selectedTransport {
+            resolvedTransport = selected
+        } else {
+            log.error("selectedTransport nil on IBB close for sid \(snapshot.jingleSID); defaulting to .ibb")
+            resolvedTransport = .ibb
+        }
+        context.emitEvent(.jingleFileTransferCompleted(sid: snapshot.jingleSID, transport: resolvedTransport))
     }
 
     // MARK: - IBB State Cleanup
@@ -1358,6 +1393,7 @@ public final class JingleModule: XMPPModule, Sendable {
             guard state.sessions[sid] != nil else { return (false, nil) }
             state.activeConnections[sid] = result.connection
             state.sessions[sid]?.transportState = .connected(candidateCID: result.cid)
+            state.sessions[sid]?.selectedTransport = .socks5
             let cont = state.transportReadyContinuations.removeValue(forKey: sid)
             return (true, cont)
         }

@@ -163,7 +163,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 // receiver (Bob), not the sender — see `runJingleRoundTrip`.
                 _ = try await bob.waitForEvent(
                     matching: { event in
-                        if case let .jingleFileTransferCompleted(completedSID) = event, completedSID == offer.sid { return true }
+                        if case let .jingleFileTransferCompleted(completedSID, _) = event, completedSID == offer.sid { return true }
                         return false
                     },
                     timeout: TestTimeout.fileTransfer
@@ -208,7 +208,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 // Alice's sender-side entry alone.
                 _ = try await bob.waitForEvent(
                     matching: { event in
-                        if case let .jingleFileTransferCompleted(completedSID) = event, completedSID == offer.sid { return true }
+                        if case let .jingleFileTransferCompleted(completedSID, _) = event, completedSID == offer.sid { return true }
                         return false
                     },
                     timeout: TestTimeout.fileTransfer
@@ -261,7 +261,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
             // without emitting locally, so the event fires on the receiver only.
             _ = try await bob.waitForEvent(
                 matching: { event in
-                    if case let .jingleFileTransferCompleted(completedSID) = event, completedSID == sid { return true }
+                    if case let .jingleFileTransferCompleted(completedSID, _) = event, completedSID == sid { return true }
                     return false
                 },
                 timeout: TestTimeout.fileTransfer

@@ -352,8 +352,13 @@ struct JSONFormatter: CLIFormatter {
                 "totalBytes": "\(totalBytes)",
                 "account": account
             ])
-        case let .jingleFileTransferCompleted(sid):
-            return encode(["type": "jingle_transfer_completed", "sid": sid, "account": account])
+        case let .jingleFileTransferCompleted(sid, transport):
+            return encode([
+                "type": "jingle_transfer_completed",
+                "sid": sid,
+                "transport": transport.rawValue,
+                "account": account
+            ])
         case let .jingleFileTransferFailed(sid, reason):
             return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason, "account": account])
         case let .jingleChecksumMismatch(sid, expected, computed):
@@ -484,10 +489,11 @@ struct JSONFormatter: CLIFormatter {
         ])
     }
 
-    func formatJingleTransferCompleted(sid: String) -> String {
+    func formatJingleTransferCompleted(sid: String, transport: JingleTransportKind) -> String {
         encode([
             "type": "jingle_transfer_completed",
-            "sid": sid
+            "sid": sid,
+            "transport": transport.rawValue
         ])
     }
 

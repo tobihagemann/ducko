@@ -73,6 +73,25 @@ private func sessionInfoChecksumXML(
     """
 }
 
+/// Builds a transport-replace IQ with IBB transport for testing.
+private func transportReplaceXML(
+    id: String = "tr-1",
+    sid: String = "sid-123",
+    from: String = "peer@example.com/res",
+    ibbSID: String = "ibb-fallback",
+    blockSize: Int = 4096
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <jingle xmlns='urn:xmpp:jingle:1' action='transport-replace' sid='\(sid)'>\
+    <content creator='initiator' name='a-file-offer'>\
+    <transport xmlns='urn:xmpp:jingle:transports:ibb:1' sid='\(ibbSID)' block-size='\(blockSize)'/>\
+    </content>\
+    </jingle>\
+    </iq>
+    """
+}
+
 /// Builds a session-terminate IQ XML string for testing.
 private func sessionTerminateXML(
     id: String = "jingle-2",
@@ -197,16 +216,21 @@ enum JingleModuleTests {
             // First send session-initiate to create the session
             await mock.simulateReceive(sessionInitiateXML())
             try? await Task.sleep(for: .milliseconds(100))
+            // transport-replace commits IBB on the responder side — the
+            // transport assertion below is a side-effect of this fixture.
+            await mock.simulateReceive(transportReplaceXML())
+            try? await Task.sleep(for: .milliseconds(100))
             // Then terminate it with success
             await mock.simulateReceive(sessionTerminateXML(reason: "success"))
 
             let events = try await eventsTask.value
-            guard case let .jingleFileTransferCompleted(sid) = events.last else {
+            guard case let .jingleFileTransferCompleted(sid, transport) = events.last else {
                 Issue.record("Expected jingleFileTransferCompleted event")
                 await client.disconnect()
                 return
             }
             #expect(sid == "sid-123")
+            #expect(transport == .ibb)
 
             await client.disconnect()
         }

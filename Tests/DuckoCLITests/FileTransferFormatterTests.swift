@@ -1,3 +1,4 @@
+import DuckoXMPP
 import Foundation
 import Testing
 @testable import DuckoCLI
@@ -63,8 +64,15 @@ struct PlainFileTransferFormatterTests {
     }
 
     @Test func `format jingle transfer completed`() {
-        let output = formatter.formatJingleTransferCompleted(sid: "sid-456")
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456", transport: .socks5)
         #expect(output.contains("sid-456"))
+        #expect(output.contains(" — SOCKS5"))
+    }
+
+    @Test func `format jingle transfer completed with ibb`() {
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456", transport: .ibb)
+        #expect(output.contains("sid-456"))
+        #expect(output.contains(" — IBB"))
     }
 
     @Test func `format jingle transfer failed`() {
@@ -124,9 +132,17 @@ struct ANSIFileTransferFormatterTests {
     }
 
     @Test func `format jingle transfer completed contains green`() {
-        let output = formatter.formatJingleTransferCompleted(sid: "sid-456")
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456", transport: .socks5)
         #expect(output.contains("\u{001B}[32m")) // green
         #expect(output.contains("sid-456"))
+        #expect(output.contains(" \u{2014} SOCKS5"))
+    }
+
+    @Test func `format jingle transfer completed with ibb`() {
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456", transport: .ibb)
+        #expect(output.contains("\u{001B}[32m")) // green
+        #expect(output.contains("sid-456"))
+        #expect(output.contains(" \u{2014} IBB"))
     }
 
     @Test func `format jingle transfer failed contains red`() {
@@ -202,11 +218,21 @@ struct JSONFileTransferFormatterTests {
     }
 
     @Test func `format jingle transfer completed is valid JSON`() throws {
-        let output = formatter.formatJingleTransferCompleted(sid: "sid-456")
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456", transport: .socks5)
         let data = try #require(output.data(using: .utf8))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(json["type"] == "jingle_transfer_completed")
         #expect(json["sid"] == "sid-456")
+        #expect(json["transport"] == "socks5")
+    }
+
+    @Test func `format jingle transfer completed with ibb is valid JSON`() throws {
+        let output = formatter.formatJingleTransferCompleted(sid: "sid-456", transport: .ibb)
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "jingle_transfer_completed")
+        #expect(json["sid"] == "sid-456")
+        #expect(json["transport"] == "ibb")
     }
 
     @Test func `format jingle transfer failed is valid JSON`() throws {

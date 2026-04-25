@@ -268,7 +268,7 @@ public final class FileTransferService {
         case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
             let progress = Double(bytesTransferred) / Double(totalBytes)
             updateTransferState(forSID: sid, state: .transferring(progress: progress))
-        case let .jingleFileTransferCompleted(sid):
+        case let .jingleFileTransferCompleted(sid, _):
             updateTransferState(forSID: sid, state: .completedTransfer)
             updateContentAddTransferStates(forSessionSID: sid, state: .completedTransfer)
             incomingOffers.removeAll { $0.sid == sid }

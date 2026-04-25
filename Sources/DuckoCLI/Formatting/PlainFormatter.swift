@@ -372,8 +372,8 @@ struct PlainFormatter: CLIFormatter {
             return formatJingleTransferProgress(
                 fileName: sid, fileSize: totalBytes, progress: progress, state: state
             )
-        case let .jingleFileTransferCompleted(sid):
-            return formatJingleTransferCompleted(sid: sid)
+        case let .jingleFileTransferCompleted(sid, transport):
+            return formatJingleTransferCompleted(sid: sid, transport: transport)
         case let .jingleFileTransferFailed(sid, reason):
             return formatJingleTransferFailed(sid: sid, reason: reason)
         case let .jingleChecksumMismatch(sid, _, _):
@@ -543,12 +543,19 @@ struct PlainFormatter: CLIFormatter {
         return "\(fileName) (\(formatByteCount(fileSize))): \(state) \(percent)%"
     }
 
-    func formatJingleTransferCompleted(sid: String) -> String {
-        "Transfer completed: \(sid)"
+    func formatJingleTransferCompleted(sid: String, transport: JingleTransportKind) -> String {
+        "Transfer completed: \(sid) — \(transportLabel(for: transport))"
     }
 
     func formatJingleTransferFailed(sid: String, reason: String) -> String {
         "Transfer failed: \(sid) — \(reason)"
+    }
+
+    private func transportLabel(for transport: JingleTransportKind) -> String {
+        switch transport {
+        case .socks5: "SOCKS5"
+        case .ibb: "IBB"
+        }
     }
 
     func formatTypingIndicator(from jid: BareJID, state: ChatState) -> String? {

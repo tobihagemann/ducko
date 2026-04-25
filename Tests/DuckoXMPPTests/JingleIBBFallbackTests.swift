@@ -88,6 +88,35 @@ private func ibbDataXML(
     """
 }
 
+/// Builds an IBB close IQ.
+private func ibbCloseXML(
+    id: String = "ibb-close-1",
+    from: String = "peer@example.com/res",
+    ibbSID: String = "ibb-fallback"
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <close xmlns='http://jabber.org/protocol/ibb' sid='\(ibbSID)'/>\
+    </iq>
+    """
+}
+
+/// Builds a session-terminate IQ.
+private func sessionTerminateXML(
+    id: String = "jingle-terminate-1",
+    sid: String = "sid-ibb-test",
+    from: String = "peer@example.com/res",
+    reason: String = "success"
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <jingle xmlns='urn:xmpp:jingle:1' action='session-terminate' sid='\(sid)'>\
+    <reason><\(reason)/></reason>\
+    </jingle>\
+    </iq>
+    """
+}
+
 // MARK: - Tests
 
 enum JingleIBBFallbackTests {
@@ -178,6 +207,78 @@ enum JingleIBBFallbackTests {
             #expect(ackIQ != nil)
 
             await client.disconnect()
+        }
+    }
+
+    struct IBBCloseEmitsCompletion {
+        @Test
+        func `IBB close emits jingleFileTransferCompleted with .ibb`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferCompleted = event { return true }
+                    return false
+                }
+            }
+
+            // Establish IBB transport via transport-replace, then close
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(transportReplaceXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(ibbCloseXML())
+
+            let events = try await eventsTask.value
+            guard case let .jingleFileTransferCompleted(sid, transport) = events.last else {
+                Issue.record("Expected jingleFileTransferCompleted event")
+                await client.disconnect()
+                return
+            }
+            #expect(sid == "sid-ibb-test")
+            #expect(transport == .ibb)
+
+            await client.disconnect()
+        }
+    }
+
+    struct IBBCloseFollowedByTerminateEmitsOnce {
+        @Test
+        func `IBB close then session-terminate(success) emits exactly one completion`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // Use disconnect as a sentinel to stop event collection — collect
+            // every event up to and including the disconnect event.
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .disconnected = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(transportReplaceXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(ibbCloseXML())
+            try? await Task.sleep(for: .milliseconds(100))
+            await mock.simulateReceive(sessionTerminateXML(reason: "success"))
+            try? await Task.sleep(for: .milliseconds(100))
+
+            await client.disconnect()
+
+            let events = try await eventsTask.value
+            let completions = events.filter {
+                if case .jingleFileTransferCompleted = $0 { return true }
+                return false
+            }
+            #expect(completions.count == 1)
+            if case let .jingleFileTransferCompleted(completedSID, transport) = completions.first {
+                #expect(completedSID == "sid-ibb-test")
+                #expect(transport == .ibb)
+            }
         }
     }
 }
