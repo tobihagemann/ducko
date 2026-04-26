@@ -807,6 +807,125 @@ enum XMPPClientTests {
 
             await client.disconnect()
         }
+
+        @Test
+        func `IQ targeted at own bare matches response with no from (RFC 6120 §8.1.2.1 carve-out)`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            // `to=user@example.com` (== ownBare) makes expectedFrom == ownBare.
+            // Server omits `from` on responses generated on the client's behalf
+            // (e.g. Prosody mod_pep), so the matcher must still resume the IQ.
+            let iqTask = Task {
+                var iq = XMPPIQ(type: .get, id: "test-own-bare-no-from")
+                iq.to = .bare(BareJID(localPart: "user", domainPart: "example.com")!)
+                return try await client.sendIQ(iq, timeout: .seconds(5))
+            }
+
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
+            await mock.simulateReceive(
+                "<iq type='result' id='test-own-bare-no-from'><query xmlns='jabber:iq:roster'/></iq>"
+            )
+
+            let result = try await iqTask.value
+            #expect(result?.name == "query")
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `IQ targeted at peer rejects response with no from`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            // `to=peer@example.com` makes expectedFrom == peer. A response with
+            // no `from` falls through to the same-server carve-out, which
+            // requires expectedFrom == ownBare — the matcher must reject this.
+            let iqTask = Task {
+                var iq = XMPPIQ(type: .get, id: "test-peer-no-from")
+                iq.to = .bare(BareJID(localPart: "peer", domainPart: "example.com")!)
+                return try await client.sendIQ(iq, timeout: .seconds(5))
+            }
+
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
+
+            // First response carries no `from` — must be REJECTED. We confirm
+            // that the pending IQ is still waiting by following with a valid
+            // response from the peer carrying a distinguishable child element.
+            // If the no-`from` response had incorrectly matched, `iqTask` would
+            // already have returned `<reject/>` and the second response would
+            // be dropped.
+            await mock.simulateReceive(
+                "<iq type='result' id='test-peer-no-from'><reject/></iq>"
+            )
+            await mock.simulateReceive(
+                "<iq type='result' id='test-peer-no-from' from='peer@example.com'><accept/></iq>"
+            )
+
+            let result = try await iqTask.value
+            #expect(result?.name == "accept")
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `IQ targeted at peer rejects response spoofed from own bare`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            // `to=peer@example.com` makes expectedFrom == peer. A response with
+            // `from=user@example.com` (== ownBare) must NOT resume — the matcher
+            // only allows ownBare-from when expectedFrom is also ownBare.
+            let iqTask = Task {
+                var iq = XMPPIQ(type: .get, id: "test-peer-spoofed")
+                iq.to = .bare(BareJID(localPart: "peer", domainPart: "example.com")!)
+                return try await client.sendIQ(iq, timeout: .seconds(5))
+            }
+
+            await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
+
+            // First response is spoofed (`from=user@example.com == ownBare`);
+            // matcher must reject it. We confirm by following with a valid
+            // response from the actual peer carrying a distinguishable child
+            // element — if the spoofed response had matched, `iqTask` would
+            // already have returned `<reject/>` and the second response would
+            // be dropped.
+            await mock.simulateReceive(
+                "<iq type='result' id='test-peer-spoofed' from='user@example.com'><reject/></iq>"
+            )
+            await mock.simulateReceive(
+                "<iq type='result' id='test-peer-spoofed' from='peer@example.com'><accept/></iq>"
+            )
+
+            let result = try await iqTask.value
+            #expect(result?.name == "accept")
+
+            await client.disconnect()
+        }
     }
 
     // MARK: - Stanza Interceptor

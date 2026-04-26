@@ -127,5 +127,5 @@ public protocol OMEMOStore: Sendable {
 
     func saveTrust(_ trust: OMEMOTrust) async throws
     func loadTrust(accountJID: String, peerJID: String, deviceID: UInt32) async throws -> OMEMOTrust?
-    func loadAllTrustedDevices(for peerJID: String, accountJID: String) async throws -> [OMEMOTrust]
+    func loadAllDevices(for peerJID: String, accountJID: String) async throws -> [OMEMOTrust]
 }

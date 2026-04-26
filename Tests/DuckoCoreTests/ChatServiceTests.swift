@@ -139,6 +139,42 @@ enum ChatServiceTests {
         }
     }
 
+    struct IsDuplicateStoreFallback {
+        @Test
+        @MainActor
+        func `Duplicate stanza ID with empty openConversations falls back to store`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            // Pre-seed a conversation in the persistence store and a message in
+            // the transcript store, but do NOT call loadConversations — leaves
+            // openConversations empty so conversationID(for:) falls through to
+            // the store-fetch branch.
+            let conversationID = UUID()
+            await store.addConversation(Conversation(
+                id: conversationID, accountID: testAccountID, jid: contactJID,
+                type: .chat, isPinned: false, isMuted: false, unreadCount: 0, createdAt: Date()
+            ))
+            let seeded = ChatMessage(
+                id: UUID(), conversationID: conversationID, stanzaID: "msg-1",
+                fromJID: contactJID.description, body: "Hello!",
+                timestamp: Date(), isOutgoing: false,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+            await transcripts.addMessage(seeded)
+
+            #expect(service.openConversations.isEmpty)
+
+            // Re-deliver the same stanza ID.
+            let duplicate = makeIncomingMessage(from: contactJID, body: "Hello!", id: "msg-1")
+            await service.handleEvent(.messageReceived(duplicate), accountID: testAccountID)
+
+            let messageCount = await transcripts.messages.count
+            #expect(messageCount == 1)
+        }
+    }
+
     struct ConversationMetadata {
         @Test
         @MainActor

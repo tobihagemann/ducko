@@ -67,4 +67,26 @@ enum ChatServiceErrorTests {
             #expect(messageCount == 0)
         }
     }
+
+    struct MessageErrorDrop {
+        @Test
+        @MainActor
+        func `Message error from unknown JID is dropped`() async throws {
+            let store = MockPersistenceStore()
+            let transcripts = MockTranscriptStore()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            let from = try #require(JID.parse("unknown@example.com/res"))
+            let stanzaError = XMPPStanzaError(errorType: .cancel, condition: .serviceUnavailable)
+            await service.handleEvent(
+                .messageError(messageID: "missing-msg", from: from, error: stanzaError),
+                accountID: testAccountID
+            )
+
+            let amendments = await transcripts.amendments
+            #expect(amendments.isEmpty)
+            let messageCount = await transcripts.messages.count
+            #expect(messageCount == 0)
+        }
+    }
 }

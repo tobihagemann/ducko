@@ -1,0 +1,155 @@
+import DuckoCore
+import Foundation
+@testable import DuckoXMPP
+
+/// In-memory mock of `OMEMOStore` for unit tests. The identity / pre-key /
+/// signed-pre-key save methods bump per-surface counters so tests can assert
+/// "no overwrite" / "exactly one write" without inspecting the persisted
+/// bytes; `saveSession` and `saveTrust` deliberately do NOT bump counters —
+/// they perform idempotent upserts (matching `SwiftDataOMEMOStore` semantics)
+/// and tests assert via `loadSessions` / `loadTrust` round-trip instead.
+/// Counter-bypassing seed helpers pre-populate the store without inflating the
+/// counters.
+actor MockOMEMOStore: OMEMOStore {
+    private var identity: [String: OMEMOStoredIdentity] = [:]
+    private var preKeys: [String: [OMEMOStoredPreKey]] = [:]
+    private var signedPreKey: [String: OMEMOStoredSignedPreKey] = [:]
+    private var sessions: [String: [OMEMOStoredSession]] = [:]
+    private var trusts: [String: [OMEMOTrust]] = [:]
+
+    private(set) var saveIdentityCalls = 0
+    private(set) var savePreKeysCalls = 0
+    private(set) var saveSignedPreKeyCalls = 0
+
+    // MARK: - Test Seed Helpers
+
+    func seedIdentity(_ identity: OMEMOStoredIdentity) {
+        self.identity[identity.accountJID] = identity
+    }
+
+    func seedPreKeys(_ keys: [OMEMOStoredPreKey]) {
+        for key in keys {
+            preKeys[key.accountJID, default: []].append(key)
+        }
+    }
+
+    func seedSignedPreKey(_ key: OMEMOStoredSignedPreKey) {
+        signedPreKey[key.accountJID] = key
+    }
+
+    /// Seeds the store with rows derived from `identity` for `accountJID`,
+    /// keeping the persisted bytes in lock-step with what an
+    /// `OMEMOIdentityProviding` stub would advertise.
+    func seedFromIdentityData(_ identity: OMEMOModule.OMEMOIdentityData, accountJID: String) {
+        seedIdentity(OMEMOStoredIdentity(
+            accountJID: accountJID, deviceID: identity.deviceID,
+            identityKeyData: Data(identity.identityKeyRaw),
+            registrationID: 0
+        ))
+        seedPreKeys(identity.preKeys.map {
+            OMEMOStoredPreKey(
+                accountJID: accountJID, keyID: $0.keyID,
+                keyData: Data($0.keyRaw), isUsed: false
+            )
+        })
+        seedSignedPreKey(OMEMOStoredSignedPreKey(
+            accountJID: accountJID,
+            keyID: identity.signedPreKeyID,
+            keyData: Data(identity.signedPreKeyRaw),
+            signature: Data(identity.signedPreKeySignature),
+            timestamp: Date()
+        ))
+    }
+
+    // MARK: - Identity
+
+    func loadIdentity(for accountJID: String) async throws -> OMEMOStoredIdentity? {
+        identity[accountJID]
+    }
+
+    func saveIdentity(_ identity: OMEMOStoredIdentity) async throws {
+        saveIdentityCalls += 1
+        self.identity[identity.accountJID] = identity
+    }
+
+    // MARK: - Pre-Keys
+
+    func loadPreKeys(for accountJID: String) async throws -> [OMEMOStoredPreKey] {
+        preKeys[accountJID] ?? []
+    }
+
+    func savePreKeys(_ preKeys: [OMEMOStoredPreKey]) async throws {
+        savePreKeysCalls += 1
+        for key in preKeys {
+            self.preKeys[key.accountJID, default: []].append(key)
+        }
+    }
+
+    func consumePreKey(id: UInt32, accountJID: String) async throws {
+        guard var keys = preKeys[accountJID] else { return }
+        // Match production `SwiftDataOMEMOStore.consumePreKey` semantics: only
+        // the first row matching `(accountJID, keyID)` is marked used. Both
+        // stores allow duplicate rows via `savePreKeys` append semantics, so a
+        // mock that marked all duplicates would silently diverge.
+        if let index = keys.firstIndex(where: { $0.keyID == id }) {
+            keys[index] = OMEMOStoredPreKey(
+                accountJID: accountJID, keyID: keys[index].keyID,
+                keyData: keys[index].keyData, isUsed: true
+            )
+            preKeys[accountJID] = keys
+        }
+    }
+
+    // MARK: - Signed Pre-Key
+
+    func loadSignedPreKey(for accountJID: String) async throws -> OMEMOStoredSignedPreKey? {
+        signedPreKey[accountJID]
+    }
+
+    func saveSignedPreKey(_ key: OMEMOStoredSignedPreKey) async throws {
+        saveSignedPreKeyCalls += 1
+        signedPreKey[key.accountJID] = key
+    }
+
+    // MARK: - Sessions
+
+    func loadSessions(for accountJID: String) async throws -> [OMEMOStoredSession] {
+        sessions[accountJID] ?? []
+    }
+
+    func saveSession(_ session: OMEMOStoredSession) async throws {
+        var rows = sessions[session.accountJID] ?? []
+        if let index = rows.firstIndex(where: {
+            $0.peerJID == session.peerJID && $0.peerDeviceID == session.peerDeviceID
+        }) {
+            rows[index] = session
+        } else {
+            rows.append(session)
+        }
+        sessions[session.accountJID] = rows
+    }
+
+    // MARK: - Trust
+
+    func saveTrust(_ trust: OMEMOTrust) async throws {
+        var rows = trusts[trust.accountJID] ?? []
+        if let index = rows.firstIndex(where: {
+            $0.peerJID == trust.peerJID && $0.deviceID == trust.deviceID
+        }) {
+            rows[index] = trust
+        } else {
+            rows.append(trust)
+        }
+        trusts[trust.accountJID] = rows
+    }
+
+    func loadTrust(accountJID: String, peerJID: String, deviceID: UInt32) async throws -> OMEMOTrust? {
+        trusts[accountJID]?.first {
+            $0.peerJID == peerJID && $0.deviceID == deviceID
+        }
+    }
+
+    func loadAllDevices(for peerJID: String, accountJID: String) async throws -> [OMEMOTrust] {
+        trusts[accountJID]?.filter { $0.peerJID == peerJID } ?? []
+    }
+}

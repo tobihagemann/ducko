@@ -87,4 +87,44 @@ enum ChatServiceReceiptsTests {
             #expect(messages[0].isDelivered == true)
         }
     }
+
+    struct DeliveryReceiptDrop {
+        @Test
+        @MainActor
+        func `Delivery receipt from unknown JID is dropped`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            let from = try #require(JID.parse("unknown@example.com/res"))
+            await service.handleEvent(
+                .deliveryReceiptReceived(messageID: "msg-1", from: from),
+                accountID: testAccountID
+            )
+
+            let amendments = await transcripts.amendments
+            #expect(amendments.isEmpty)
+            #expect(service.openConversations.isEmpty)
+        }
+    }
+
+    struct ChatMarkerDrop {
+        @Test
+        @MainActor
+        func `Chat marker from unknown JID is dropped`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            let from = try #require(JID.parse("unknown@example.com/res"))
+            await service.handleEvent(
+                .chatMarkerReceived(messageID: "msg-1", type: .displayed, from: from),
+                accountID: testAccountID
+            )
+
+            let amendments = await transcripts.amendments
+            #expect(amendments.isEmpty)
+            #expect(service.openConversations.isEmpty)
+        }
+    }
 }

@@ -8,6 +8,7 @@ actor MockTransport: XMPPTransport {
     private(set) var isConnected = false
 
     private let connectError: (any Error)?
+    private var sendFailure: (any Error)?
     private var sentWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
 
     init(connectError: (any Error)? = nil) {
@@ -37,6 +38,9 @@ actor MockTransport: XMPPTransport {
         guard isConnected else {
             throw XMPPConnectionError.notConnected
         }
+        if let sendFailure {
+            throw sendFailure
+        }
         sentBytes.append(bytes)
         if let waiter = sentWaiters.removeValue(forKey: sentBytes.count) {
             waiter.resume()
@@ -59,6 +63,10 @@ actor MockTransport: XMPPTransport {
 
     func simulateReceive(_ string: String) {
         receivedContinuation.yield(Array(string.utf8))
+    }
+
+    func simulateSendFailure(_ error: (any Error)?) {
+        sendFailure = error
     }
 }
 

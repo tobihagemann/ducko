@@ -1247,6 +1247,19 @@ public extension OMEMOModule {
     }
 }
 
+// MARK: - Identity Provider Protocol
+
+/// Read-only access to an OMEMO identity source. Lets `OMEMOService` consume
+/// the surfaces it needs from `OMEMOModule` (`ownIdentityData`,
+/// `consumedPreKeyIDs()`) without holding a concrete module reference, so the
+/// connect-time first-time-persistence path can be exercised under unit tests.
+package protocol OMEMOIdentityProviding: Sendable {
+    var ownIdentityData: OMEMOModule.OMEMOIdentityData? { get }
+    func consumedPreKeyIDs() -> Set<UInt32>
+}
+
+extension OMEMOModule: OMEMOIdentityProviding {}
+
 // MARK: - Errors
 
 /// Errors from OMEMO protocol operations (distinct from crypto errors).

@@ -28,7 +28,7 @@ struct NoOpOMEMOStore: OMEMOStore {
         nil
     }
 
-    func loadAllTrustedDevices(for _: String, accountJID _: String) async throws -> [OMEMOTrust] {
+    func loadAllDevices(for _: String, accountJID _: String) async throws -> [OMEMOTrust] {
         []
     }
 }

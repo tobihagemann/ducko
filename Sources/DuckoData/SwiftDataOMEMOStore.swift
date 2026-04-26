@@ -223,7 +223,7 @@ public actor SwiftDataOMEMOStore: OMEMOStore {
         )
     }
 
-    public func loadAllTrustedDevices(for peerJID: String, accountJID: String) throws -> [OMEMOTrust] {
+    public func loadAllDevices(for peerJID: String, accountJID: String) throws -> [OMEMOTrust] {
         let descriptor = FetchDescriptor<OMEMOTrustRecord>(
             predicate: #Predicate { $0.accountJID == accountJID && $0.peerJID == peerJID }
         )

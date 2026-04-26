@@ -166,7 +166,7 @@ public final class OMEMOService {
 
     private func trustedDeviceIDs(for jid: BareJID, accountID: UUID) async -> [UInt32] {
         guard let accountJID = accountJIDString(for: accountID) else { return [] }
-        let allDevices = await (try? omemoStore.loadAllTrustedDevices(for: jid.description, accountJID: accountJID)) ?? []
+        let allDevices = await (try? omemoStore.loadAllDevices(for: jid.description, accountJID: accountJID)) ?? []
         let tofu = OMEMOPreferences.shared.trustOnFirstUse
         return allDevices.filter { $0.trustLevel.isTrustedForEncryption(trustOnFirstUse: tofu) }.map(\.deviceID)
     }
@@ -176,7 +176,7 @@ public final class OMEMOService {
         guard let accountJID = accountJIDString(for: accountID) else { return [] }
         // Own devices always use TOFU semantics — refusing to encrypt to your
         // own undecided devices breaks multi-device message sync.
-        let allDevices = await (try? omemoStore.loadAllTrustedDevices(for: ownJID.description, accountJID: accountJID)) ?? []
+        let allDevices = await (try? omemoStore.loadAllDevices(for: ownJID.description, accountJID: accountJID)) ?? []
         return allDevices.filter { $0.trustLevel.isTrustedForEncryption(trustOnFirstUse: true) }.map(\.deviceID)
     }
 
@@ -203,7 +203,7 @@ public final class OMEMOService {
     /// Returns device info for all known devices of a peer, suitable for UI display.
     public func deviceInfoList(for peerJID: String, accountID: UUID) async -> [OMEMODeviceInfo] {
         guard let accountJID = accountJIDString(for: accountID) else { return [] }
-        let devices = await (try? omemoStore.loadAllTrustedDevices(for: peerJID, accountJID: accountJID)) ?? []
+        let devices = await (try? omemoStore.loadAllDevices(for: peerJID, accountJID: accountJID)) ?? []
         return devices.map {
             OMEMODeviceInfo(
                 peerJID: $0.peerJID, deviceID: $0.deviceID,
@@ -281,7 +281,7 @@ public final class OMEMOService {
 
     private func handleDeviceListReceived(jid: BareJID, devices: [UInt32], accountID: UUID) async {
         guard let accountJID = accountJIDString(for: accountID) else { return }
-        let existing = await (try? omemoStore.loadAllTrustedDevices(for: jid.description, accountJID: accountJID)) ?? []
+        let existing = await (try? omemoStore.loadAllDevices(for: jid.description, accountJID: accountJID)) ?? []
         let knownDeviceIDs = Set(existing.map(\.deviceID))
         for deviceID in devices where !knownDeviceIDs.contains(deviceID) {
             let trust = OMEMOTrust(
@@ -384,6 +384,28 @@ public final class OMEMOService {
         else { return }
         guard let accountJID = accountJIDString(for: accountID) else { return }
 
+        await handleConnectedFirstTimePersistence(
+            provider: omemoModule,
+            accountJID: accountJID
+        )
+
+        // Check if pre-key replenishment is needed
+        await replenishPreKeysIfNeeded(accountJID: accountJID, module: omemoModule)
+    }
+
+    /// First-time identity persistence + consumed-pre-key sync.
+    ///
+    /// Split out from ``handleConnected(accountID:)`` so unit tests can drive
+    /// the polling and persistence branches via a stub
+    /// ``OMEMOIdentityProviding`` and a short ``pollTimeout``, bypassing the
+    /// 5 s real-time wait and the 25-pre-key replenishment trigger. Production
+    /// `handleConnected` calls this with the live module and then runs
+    /// replenishment separately.
+    package func handleConnectedFirstTimePersistence(
+        provider: any OMEMOIdentityProviding,
+        accountJID: String,
+        pollTimeout: Duration = .seconds(5)
+    ) async {
         // First-time persistence only: if an identity is already stored, the
         // module will restore it on handleConnect and there's nothing to do
         // here. Skip both the readiness poll and the persistence writes.
@@ -391,19 +413,20 @@ public final class OMEMOService {
         if existingIdentity == nil {
             // `.connected` is yielded before `OMEMOModule.handleConnect` runs,
             // so `ownIdentityData` may still be `nil` on first-time generation.
-            // Poll up to ~5s (two IQ round-trips: publish device list + bundle).
-            // Capture the identity inside the closure to avoid a re-read race
-            // with `handleDisconnect` nil'ing `ownIdentity`.
+            // Poll up to `pollTimeout` (default ~5 s — two IQ round-trips:
+            // publish device list + bundle). Capture the identity inside the
+            // closure to avoid a re-read race with `handleDisconnect` nil'ing
+            // `ownIdentity`.
             var captured: OMEMOModule.OMEMOIdentityData?
             _ = await pollUntil(
                 {
-                    if let data = omemoModule.ownIdentityData {
+                    if let data = provider.ownIdentityData {
                         captured = data
                         return true
                     }
                     return false
                 },
-                timeout: .seconds(5),
+                timeout: pollTimeout,
                 interval: .milliseconds(50)
             )
             if let identityData = captured {
@@ -434,18 +457,15 @@ public final class OMEMOService {
                 )
                 try? await omemoStore.saveSignedPreKey(spk)
             } else {
-                log.warning("OMEMO identity not ready after 5s wait; skipping first-time persistence")
+                log.warning("OMEMO identity not ready after \(pollTimeout) wait; skipping first-time persistence")
             }
         }
 
         // Mark consumed pre-keys
-        let consumed = omemoModule.consumedPreKeyIDs()
+        let consumed = provider.consumedPreKeyIDs()
         for keyID in consumed {
             try? await omemoStore.consumePreKey(id: keyID, accountJID: accountJID)
         }
-
-        // Check if pre-key replenishment is needed
-        await replenishPreKeysIfNeeded(accountJID: accountJID, module: omemoModule)
     }
 
     // MARK: - Private Helpers

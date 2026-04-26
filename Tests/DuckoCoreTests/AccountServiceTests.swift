@@ -7,7 +7,6 @@ import Testing
 
 private struct TestError: Error {}
 
-private let testJIDString = "alice@example.com"
 private let testJID = BareJID(localPart: "alice", domainPart: "example.com")!
 
 private func makeStore() -> MockPersistenceStore {
@@ -16,15 +15,6 @@ private func makeStore() -> MockPersistenceStore {
 
 private func makeCredentials() -> MockCredentialStore {
     MockCredentialStore()
-}
-
-@MainActor
-private func makeAccountService(
-    store: MockPersistenceStore,
-    credentials: MockCredentialStore = makeCredentials(),
-    clientFactory: any XMPPClientFactory = DefaultXMPPClientFactory()
-) -> AccountService {
-    AccountService(store: store, credentialStore: credentials, clientFactory: clientFactory)
 }
 
 private func makeAccount(id: UUID = UUID(), jid: BareJID = testJID) -> Account {
