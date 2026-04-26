@@ -22,11 +22,12 @@ enum TestTimeout {
     /// UI element appearance via accessibility queries.
     static let uiElement: Duration = .seconds(10)
 
-    // periphery:ignore - reserved for CLI integration tests
     /// CLI command completion (one-shot subcommand).
-    static let cliCommand: Duration = .seconds(15)
+    ///
+    /// Each one-shot CLI invocation does a full TLS+SASL+bind+roster sync
+    /// against a live server, which can take 5–10 s on its own.
+    static let cliCommand: Duration = .seconds(30)
 
-    // periphery:ignore - reserved for REPL session tests
     /// REPL output wait after issuing a command.
     static let replOutput: Duration = .seconds(10)
 }
