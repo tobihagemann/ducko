@@ -177,6 +177,12 @@ actor CLIProcess {
     /// Removes the on-disk profile directory under
     /// `~/Library/Application Support/Ducko-Dev-<profile>/`. Idempotent.
     func cleanupProfileDirectory() async {
+        await Self.removeProfileDirectory(profile: profile)
+    }
+
+    /// Profile-directory removal as a free static so other test harnesses
+    /// (e.g. `AppAccessor`) can share the implementation rather than copy it.
+    nonisolated static func removeProfileDirectory(profile: String) async {
         let url = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Ducko-Dev-\(profile)", isDirectory: true)
@@ -250,35 +256,12 @@ actor CLIProcess {
     // MARK: - Teardown
 
     private func tearDown() async {
-        // Mirror `TestHarness.runWithTimeout` (`TestHarness.swift:533-549`):
-        // bound each cleanup so a stuck `REPLSession.terminate` (e.g. reader
+        // Bound each cleanup so a stuck `REPLSession.terminate` (e.g. reader
         // wedged on a POSIX read) cannot hang the suite.
         for action in cleanupActions.reversed() {
-            await Self.runWithTimeout(action, timeout: .seconds(5))
+            await runIntegrationCleanup(action, timeout: .seconds(5), label: "CLI")
         }
         cleanupActions.removeAll()
         await cleanupProfileDirectory()
-    }
-
-    private nonisolated static func runWithTimeout(
-        _ action: @escaping @Sendable () async -> Void,
-        timeout: Duration
-    ) async {
-        let timedOut: Bool = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await action()
-                return false
-            }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-                return true
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
-        if timedOut {
-            log.warning("CLI cleanup action timed out after \(timeout)")
-        }
     }
 }

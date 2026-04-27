@@ -1,0 +1,771 @@
+import AppKit
+import ApplicationServices
+import Carbon.HIToolbox
+import Foundation
+import Logging
+
+private let log = Logger(label: "im.ducko.integrationtests.ui")
+
+/// Drives the packaged `Ducko.app` bundle as a child process and exposes
+/// identifier-keyed accessibility queries to UI integration tests.
+///
+/// Mirrors `CLIProcess`: the actor owns a `Process`, an env dictionary, and
+/// two LIFO cleanup queues (one that runs while the app is still alive, one
+/// that runs after exit). All public methods are identifier-keyed so the
+/// non-Sendable `AXUIElement` handles never cross the actor boundary; each
+/// call walks the AX tree from the application root and reacquires its
+/// element, which also avoids stale handles after a SwiftUI view refresh.
+actor AppAccessor {
+    /// Boot marker the launch helper waits for.
+    enum LaunchTarget {
+        /// Fresh `DUCKO_PROFILE` — the welcome screen renders the
+        /// `setup-mode-picker`.
+        case welcome
+        /// Pre-seeded profile — the contact list auto-connects and renders.
+        case contactList
+    }
+
+    /// Cleanup-action ordering bucket.
+    enum CleanupPhase {
+        /// Runs before `process.terminate()` so the action can drive UI
+        /// (e.g. reset presence, leave a room).
+        case inApp
+        /// Runs after the app exits (e.g. profile-directory removal).
+        case postExit
+    }
+
+    nonisolated let profile: String
+    nonisolated let environment: [String: String]
+
+    private var process: Process?
+    private var inAppCleanupActions: [@Sendable () async -> Void] = []
+    private var postExitCleanupActions: [@Sendable () async -> Void] = []
+
+    init(profile: String) {
+        self.profile = profile
+
+        // Mirror CLIProcess's environment allowlist: only the keys the app
+        // needs to find Foundation bundles, locales, and the user's home
+        // directory. Importantly we never inherit DUCKO_USE_KEYCHAIN, so a
+        // stray "1" in the developer's shell cannot route test passwords
+        // into the real macOS Keychain.
+        let parent = ProcessInfo.processInfo.environment
+        var env: [String: String] = [
+            "DUCKO_PROFILE": profile
+        ]
+        for key in ["HOME", "PATH", "LANG", "LC_ALL"] {
+            if let value = parent[key] {
+                env[key] = value
+            }
+        }
+        self.environment = env
+    }
+
+    // MARK: - Bundle resolution
+
+    /// Path to the packaged `Ducko.app` executable. Resolved relative to
+    /// this file via `#filePath`; mirrors `CLIProcess.binaryPath`.
+    static var appBundlePath: URL {
+        // AppAccessor.swift lives at:
+        //   IntegrationTests/Tests/DuckoIntegrationTests/UI/AppAccessor.swift
+        // The packaged app's executable lives at:
+        //   <repo>/Ducko.app/Contents/MacOS/DuckoApp
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // UI
+            .deletingLastPathComponent() // DuckoIntegrationTests
+            .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // IntegrationTests
+            .deletingLastPathComponent() // repo root
+            .appendingPathComponent("Ducko.app")
+            .appendingPathComponent("Contents")
+            .appendingPathComponent("MacOS")
+            .appendingPathComponent("DuckoApp")
+    }
+
+    /// Per-test skip predicate — UI tests need a packaged `.app` on disk.
+    static var appBundleExists: Bool {
+        FileManager.default.isExecutableFile(atPath: appBundlePath.path)
+    }
+
+    /// Per-test skip predicate — UI tests need Accessibility trust granted.
+    static var isAccessibilityTrusted: Bool {
+        AXIsProcessTrusted()
+    }
+
+    // MARK: - Lifecycle
+
+    /// Runs `body` with a fresh `AppAccessor`, awaiting cleanup on both
+    /// success and failure paths. Mirrors `CLIProcess.withProcess`.
+    static func withAppAccessor<T: Sendable>(
+        profile: String? = nil,
+        target: LaunchTarget = .contactList,
+        _ body: sending (AppAccessor) async throws -> T
+    ) async throws -> T {
+        let resolvedProfile = profile ?? "inttest-ui-\(UUID().uuidString.prefix(8))"
+        let accessor = AppAccessor(profile: resolvedProfile)
+        do {
+            try await accessor.launch(target: target)
+            let result = try await body(accessor)
+            await accessor.terminate()
+            return result
+        } catch {
+            await accessor.terminate()
+            throw error
+        }
+    }
+
+    /// Spawns the packaged app, activates it, and waits for the boot marker
+    /// matching `target`. Throws and rolls back the partial spawn if the
+    /// boot wait fails.
+    func launch(target: LaunchTarget) async throws {
+        // Register the profile-directory reap FIRST so it survives a thrown
+        // precondition check below. `UISeededApp.withSeededApp` writes
+        // plaintext credentials to `Ducko-Dev-<profile>/credentials.json`
+        // before calling launch — if `assertDebugBundle` (or any other
+        // pre-launch guard) throws, those creds would otherwise leak on
+        // disk. `CLIProcess.removeProfileDirectory` is idempotent
+        // (`fileNoSuchFile` is swallowed) so registering early is safe even
+        // when the harness exits before any directory is created.
+        let profileForCleanup = profile
+        postExitCleanupActions.append {
+            await CLIProcess.removeProfileDirectory(profile: profileForCleanup)
+        }
+
+        let bundle = Self.appBundlePath
+        guard FileManager.default.isExecutableFile(atPath: bundle.path) else {
+            throw TestHarnessError.appBundleMissing(path: bundle.path)
+        }
+        guard AXIsProcessTrusted() else {
+            throw TestHarnessError.axTrustMissing
+        }
+
+        // Refuse to launch a release-built bundle. A release build ignores
+        // `DUCKO_PROFILE`, persists creds in the real Keychain, and stores
+        // transcripts under `~/Library/Application Support/Ducko/` — typing
+        // test passwords into it would pollute the developer's production
+        // app data. `Scripts/package_app.sh` writes the build configuration
+        // into Info.plist's `DuckoBuildConfiguration` key (`debug` vs
+        // `release`); we read it pre-launch so the gate fires before any
+        // process spawns or any input is dispatched.
+        try Self.assertDebugBundle(at: bundle)
+
+        let spawned = Process()
+        spawned.executableURL = bundle
+        spawned.environment = environment
+        spawned.arguments = []
+        try spawned.run()
+        process = spawned
+
+        // Activate Ducko so subsequent .cghidEventTap keystrokes route to it
+        // rather than the test runner / Terminal / Xcode.
+        await Self.activateApp(pid: spawned.processIdentifier)
+
+        // Bound every AX read against a hung child. The timeout is per-AX-
+        // object and does not transfer to equal elements created later, so
+        // we set it on the system-wide accessibility object — that establishes
+        // a process-wide default that subsequent `AXUIElementCreateApplication`
+        // calls inherit.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 2.0)
+
+        do {
+            switch target {
+            case .welcome:
+                try await waitForElement(identifier: "setup-mode-picker", timeout: TestTimeout.connect)
+            case .contactList:
+                try await waitForElement(identifier: "contact-list", timeout: TestTimeout.connect)
+            }
+        } catch {
+            await terminate()
+            throw error
+        }
+    }
+
+    /// Appends a cleanup action; actions in each phase queue run in reverse
+    /// order during teardown. **In-app cleanup is best-effort**: the closure
+    /// signature is non-throwing, so callers must wrap UI-driving AX calls
+    /// in `try?` and never propagate errors from the cleanup body — the test
+    /// body's original error is what the suite needs to surface.
+    func addCleanup(_ action: @escaping @Sendable () async -> Void, phase: CleanupPhase = .inApp) {
+        switch phase {
+        case .inApp:
+            inAppCleanupActions.append(action)
+        case .postExit:
+            postExitCleanupActions.append(action)
+        }
+    }
+
+    /// Runs in-app cleanup, terminates the launched app, then runs post-exit
+    /// cleanup. Each cleanup action is bounded by a 5-second soft deadline
+    /// so a hung UI cannot block teardown.
+    func terminate() async {
+        for action in inAppCleanupActions.reversed() {
+            await runIntegrationCleanup(action, timeout: .seconds(5), label: "UI in-app")
+        }
+        inAppCleanupActions.removeAll()
+
+        if let spawned = process, spawned.isRunning {
+            spawned.terminate()
+            let exited = await CLIProcess.waitForProcessExit(spawned, timeout: .seconds(2))
+            if !exited {
+                await CLIProcess.killProcess(spawned)
+            }
+        }
+        process = nil
+
+        for action in postExitCleanupActions.reversed() {
+            await runIntegrationCleanup(action, timeout: .seconds(5), label: "UI post-exit")
+        }
+        postExitCleanupActions.removeAll()
+    }
+
+    // MARK: - AX queries
+
+    /// Polls the AX tree for `identifier` until it appears or the timeout
+    /// elapses. One final probe runs after the deadline (mirrors
+    /// `REPLSession.pollBuffer`).
+    func waitForElement(identifier: String, timeout: Duration = TestTimeout.uiElement) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            do {
+                _ = try resolveElement(identifier: identifier)
+                return
+            } catch TestHarnessError.elementNotFound {
+                // not visible yet — sleep and retry
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        // One final probe after the deadline — ensures a probe that started
+        // just before the deadline (and was still in flight as it crossed)
+        // gets a chance to surface a result before we throw. Catch only
+        // `elementNotFound` so an `axTrustMissing` raised by `resolveElement`
+        // is not silently relabelled as a generic timeout.
+        do {
+            _ = try resolveElement(identifier: identifier)
+            return
+        } catch TestHarnessError.elementNotFound {
+            // fall through to timeout below
+        }
+        // Identifiers may embed JIDs (e.g. `contact-row-bob@…`) and the
+        // project privacy policy bars JIDs at warning/info/notice — log at
+        // debug instead so the diagnostic is available in trace mode without
+        // leaking sensitive data at higher levels.
+        log.debug("waitForElement timeout (\(timeout)) for identifier '\(identifier)'")
+        throw TestHarnessError.timeout
+    }
+
+    /// Polls `containsDescendant(role:withSubstring:underIdentifier:)` until
+    /// it returns `true` or the timeout elapses. Use this when asserting on
+    /// AX state that is updated asynchronously (message bubble after
+    /// `pressReturn`, room participants after a join, etc.).
+    func waitForDescendant(
+        role: String,
+        withSubstring substring: String,
+        underIdentifier identifier: String,
+        timeout: Duration = TestTimeout.uiElement
+    ) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if try await containsDescendant(role: role, withSubstring: substring, underIdentifier: identifier) {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        if try await containsDescendant(role: role, withSubstring: substring, underIdentifier: identifier) {
+            return
+        }
+        log.debug("waitForDescendant timeout (\(timeout)) role '\(role)' substring '\(substring)' under '\(identifier)'")
+        throw TestHarnessError.timeout
+    }
+
+    /// Polls until `identifier` is no longer present or the timeout elapses.
+    /// Use this to assert dismissal of transient UI state like the typing
+    /// indicator without accepting "still visible" as passing.
+    func waitForAbsence(identifier: String, timeout: Duration = TestTimeout.uiElement) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            do {
+                _ = try resolveElement(identifier: identifier)
+            } catch TestHarnessError.elementNotFound {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        do {
+            _ = try resolveElement(identifier: identifier)
+        } catch TestHarnessError.elementNotFound {
+            return
+        }
+        log.debug("waitForAbsence timeout (\(timeout)) for identifier '\(identifier)'")
+        throw TestHarnessError.timeout
+    }
+
+    func click(identifier: String) async throws {
+        let element = try resolveElement(identifier: identifier)
+        try perform(action: kAXPressAction, on: element, identifier: identifier)
+    }
+
+    func rightClick(identifier: String) async throws {
+        let element = try resolveElement(identifier: identifier)
+        try perform(action: kAXShowMenuAction, on: element, identifier: identifier)
+    }
+
+    /// Synthesizes a SwiftUI-style double-click via two `CGEvent` click
+    /// pairs at the element center. Two consecutive `kAXPressAction`s do
+    /// NOT synthesize `.onTapGesture(count: 2)`, so this is the only path
+    /// that wakes up double-tap recognizers like `ContactRow`.
+    func doubleClick(identifier: String) async throws {
+        let element = try resolveElement(identifier: identifier)
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: identifier)
+        }
+        await Self.activateApp(pid: pid)
+
+        guard let center = elementCenter(of: element) else {
+            throw TestHarnessError.elementNotFound(identifier: identifier)
+        }
+        for clickState in [Int64(1), Int64(2)] {
+            postClickPair(at: center, clickState: clickState)
+        }
+    }
+
+    /// Resolves `identifier`, focuses it, and either sets `kAXValueAttribute`
+    /// or falls back to per-character keystrokes. The fallback covers
+    /// SwiftUI `TextField`s that ignore `kAXSetValueAction`.
+    func type(_ text: String, intoIdentifier identifier: String) async throws {
+        let element = try resolveElement(identifier: identifier)
+        Self.setFocused(element, identifier: identifier)
+        let setErr = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString)
+        if setErr == .success {
+            return
+        }
+        if let pid = process?.processIdentifier {
+            await Self.activateApp(pid: pid)
+        }
+        Self.synthesizeKeystrokes(for: text)
+    }
+
+    /// Search-field-aware variant: tries the kebab identifier first, then
+    /// falls back to walking the application's `kAXToolbarRole` for any
+    /// `kAXTextFieldRole` descendant. Ships unconditionally so callers do
+    /// not branch on whether `.searchable` propagated the audit identifier.
+    func type(_ text: String, intoSearchField identifier: String?) async throws {
+        if let identifier {
+            do {
+                try await type(text, intoIdentifier: identifier)
+                return
+            } catch TestHarnessError.elementNotFound {
+                // fall through to role-based traversal
+            }
+        }
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: identifier ?? "search-contacts")
+        }
+        let appElement = AXUIElementCreateApplication(pid)
+        guard let toolbar = findDescendant(in: appElement, role: kAXToolbarRole, where: { _ in true }),
+              let field = findDescendant(in: toolbar, role: kAXTextFieldRole, where: { _ in true }) else {
+            throw TestHarnessError.elementNotFound(identifier: identifier ?? "search-contacts")
+        }
+        Self.setFocused(field, identifier: identifier ?? "search-contacts")
+        let setErr = AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, text as CFString)
+        if setErr == .success {
+            return
+        }
+        await Self.activateApp(pid: pid)
+        Self.synthesizeKeystrokes(for: text)
+    }
+
+    /// Prefers `kAXConfirmAction`, falls back to a synthesized Return key
+    /// for controls that don't expose Confirm.
+    func pressReturn(intoIdentifier identifier: String) async throws {
+        let element = try resolveElement(identifier: identifier)
+        Self.setFocused(element, identifier: identifier)
+        let confirmErr = AXUIElementPerformAction(element, kAXConfirmAction as CFString)
+        if confirmErr == .success {
+            return
+        }
+        try await pressKey(CGKeyCode(kVK_Return), modifiers: [])
+    }
+
+    /// Resolves `identifier` and reads `kAXValueAttribute` (falling back to
+    /// `kAXTitleAttribute`). Retries once after a 50 ms sleep on a transient
+    /// re-render error so callers do not need their own retry wrapper.
+    func value(identifier: String) async throws -> String? {
+        do {
+            return try readValue(identifier: identifier)
+        } catch TestHarnessError.elementNotFound {
+            try await Task.sleep(for: .milliseconds(50))
+            return try readValue(identifier: identifier)
+        }
+    }
+
+    /// Walks `identifier`'s subtree for an element of `role` whose value or
+    /// title contains `substring`. Returns `true` on first match.
+    func containsDescendant(
+        role: String,
+        withSubstring substring: String,
+        underIdentifier identifier: String
+    ) async throws -> Bool {
+        let container = try resolveElement(identifier: identifier)
+        let match = findDescendant(in: container, role: role) { element in
+            var value: AnyObject?
+            var err = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+            if err != .success || (value as? String) == nil {
+                err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+            }
+            guard err == .success, let stringValue = value as? String else { return false }
+            return stringValue.contains(substring)
+        }
+        return match != nil
+    }
+
+    /// Resolves `identifier` as a segmented picker / button group and clicks
+    /// the segment whose `kAXTitleAttribute` matches `title`.
+    func clickSegment(title: String, identifier: String) async throws {
+        let picker = try resolveElement(identifier: identifier)
+        let match = findDescendant(
+            in: picker,
+            roles: [kAXRadioButtonRole, kAXButtonRole],
+            where: { candidate in
+                var value: AnyObject?
+                let err = AXUIElementCopyAttributeValue(candidate, kAXTitleAttribute as CFString, &value)
+                return err == .success && (value as? String) == title
+            }
+        )
+        guard let segment = match else {
+            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/segment[\(title)]")
+        }
+        try perform(action: kAXPressAction, on: segment, identifier: identifier)
+    }
+
+    func clickTab(title: String, underIdentifier identifier: String) async throws {
+        let container = try resolveElement(identifier: identifier)
+        guard let tab = findDescendant(in: container, role: kAXRadioButtonRole, where: { element in
+            var value: AnyObject?
+            let err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+            return err == .success && (value as? String) == title
+        }) else {
+            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
+        }
+        try perform(action: kAXPressAction, on: tab, identifier: identifier)
+    }
+
+    func clickMenuItem(title: String) async throws {
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: "menu-item[\(title)]")
+        }
+        let appElement = AXUIElementCreateApplication(pid)
+        guard let menuItem = findDescendant(in: appElement, role: kAXMenuItemRole, where: { element in
+            var value: AnyObject?
+            let err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+            return err == .success && (value as? String) == title
+        }) else {
+            throw TestHarnessError.elementNotFound(identifier: "menu-item[\(title)]")
+        }
+        try perform(action: kAXPressAction, on: menuItem, identifier: "menu-item[\(title)]")
+    }
+
+    /// Synthesizes a key-down/up event pair via `.cghidEventTap`. Re-
+    /// activates Ducko first so the test runner cannot drift to the front
+    /// between calls.
+    func pressKey(_ key: CGKeyCode, modifiers: CGEventFlags) async throws {
+        if let pid = process?.processIdentifier {
+            await Self.activateApp(pid: pid)
+        }
+        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: true),
+              let up = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: false) else { return }
+        down.flags = modifiers
+        up.flags = modifiers
+        down.post(tap: .cghidEventTap)
+        up.post(tap: .cghidEventTap)
+    }
+
+    /// Convenience for the right-click → menu-item pattern: waits for the
+    /// menu-item identifier to appear, then clicks it.
+    func contextMenuItem(identifier: String) async throws {
+        try await waitForElement(identifier: identifier, timeout: TestTimeout.uiElement)
+        try await click(identifier: identifier)
+    }
+
+    /// Activates Ducko, raises the named window, makes it main, and points
+    /// the application's `kAXFocusedWindowAttribute` at it. Used to bring a
+    /// non-key window forward before clicking buttons on a sheet attached
+    /// to it.
+    func activateWindow(named title: String) async throws {
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
+        }
+        await Self.activateApp(pid: pid)
+        let appElement = AXUIElementCreateApplication(pid)
+        var windowsValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+        guard err == .success, let windows = windowsValue as? [AXUIElement] else {
+            throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
+        }
+        for window in windows {
+            var titleValue: AnyObject?
+            let titleErr = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
+            guard titleErr == .success, let windowTitle = titleValue as? String else { continue }
+            if windowTitle == title || windowTitle.contains(title) {
+                // Translate every non-success result. A silent .cannotComplete /
+                // .invalidUIElement on raise/main/focused-window leaves the
+                // wrong window key, and downstream sheet-button clicks would
+                // fail with a misleading "elementNotFound" rather than a
+                // clear AX-routing diagnostic.
+                let raiseErr = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                try mapWindowError(raiseErr, title: title)
+                let mainErr = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+                try mapWindowError(mainErr, title: title)
+                let focusedErr = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
+                try mapWindowError(focusedErr, title: title)
+                return
+            }
+        }
+        throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
+    }
+
+    /// Walks `identifier`'s subtree post-order DFS and returns the
+    /// last-encountered `kAXIdentifierAttribute` value that starts with
+    /// `prefix`. Used by `testMessageCorrection` to discover the just-sent
+    /// bubble's id without an opaque "deepest descendant" walk.
+    func lastIdentifier(matchingPrefix prefix: String, underIdentifier identifier: String) async throws -> String? {
+        do {
+            return try collectLastIdentifier(matchingPrefix: prefix, under: identifier)
+        } catch TestHarnessError.elementNotFound {
+            try await Task.sleep(for: .milliseconds(50))
+            return try collectLastIdentifier(matchingPrefix: prefix, under: identifier)
+        }
+    }
+
+    // MARK: - Internal AX helpers
+
+    private func readValue(identifier: String) throws -> String? {
+        let element = try resolveElement(identifier: identifier)
+        var value: AnyObject?
+        var err = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+        if err == .attributeUnsupported || err == .noValue {
+            err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+        }
+        if err == .success {
+            return value as? String
+        }
+        if err == .apiDisabled {
+            throw TestHarnessError.axTrustMissing
+        }
+        throw TestHarnessError.elementNotFound(identifier: identifier)
+    }
+
+    private func collectLastIdentifier(matchingPrefix prefix: String, under identifier: String) throws -> String? {
+        let container = try resolveElement(identifier: identifier)
+        var matches: [String] = []
+        collectIdentifiers(in: container, matchingPrefix: prefix, into: &matches)
+        return matches.last
+    }
+
+    private func resolveElement(identifier: String) throws -> AXUIElement {
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: identifier)
+        }
+        let appElement = AXUIElementCreateApplication(pid)
+        if let element = findDescendant(in: appElement, where: { element in
+            var value: AnyObject?
+            let err = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &value)
+            return err == .success && (value as? String) == identifier
+        }) {
+            return element
+        }
+        // Distinguish "AX disabled" from "not found" by re-probing the root.
+        var probeValue: AnyObject?
+        let probe = AXUIElementCopyAttributeValue(appElement, kAXRoleAttribute as CFString, &probeValue)
+        if probe == .apiDisabled {
+            throw TestHarnessError.axTrustMissing
+        }
+        throw TestHarnessError.elementNotFound(identifier: identifier)
+    }
+
+    private func perform(action: String, on element: AXUIElement, identifier: String) throws {
+        let err = AXUIElementPerformAction(element, action as CFString)
+        if err == .success { return }
+        if err == .apiDisabled {
+            throw TestHarnessError.axTrustMissing
+        }
+        throw TestHarnessError.elementNotFound(identifier: identifier)
+    }
+
+    private func mapWindowError(_ err: AXError, title: String) throws {
+        if err == .success { return }
+        if err == .apiDisabled { throw TestHarnessError.axTrustMissing }
+        throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
+    }
+
+    private func findDescendant(
+        in element: AXUIElement,
+        where matches: (AXUIElement) -> Bool
+    ) -> AXUIElement? {
+        if matches(element) { return element }
+        var childrenValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        guard err == .success, let children = childrenValue as? [AXUIElement] else { return nil }
+        for child in children {
+            if let found = findDescendant(in: child, where: matches) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    private func findDescendant(
+        in element: AXUIElement,
+        role: String,
+        where matches: (AXUIElement) -> Bool
+    ) -> AXUIElement? {
+        findDescendant(in: element, where: { candidate in
+            var roleValue: AnyObject?
+            let err = AXUIElementCopyAttributeValue(candidate, kAXRoleAttribute as CFString, &roleValue)
+            guard err == .success, (roleValue as? String) == role else { return false }
+            return matches(candidate)
+        })
+    }
+
+    private func findDescendant(
+        in element: AXUIElement,
+        roles: [String],
+        where matches: (AXUIElement) -> Bool
+    ) -> AXUIElement? {
+        findDescendant(in: element, where: { candidate in
+            var roleValue: AnyObject?
+            let err = AXUIElementCopyAttributeValue(candidate, kAXRoleAttribute as CFString, &roleValue)
+            guard err == .success, let role = roleValue as? String, roles.contains(role) else { return false }
+            return matches(candidate)
+        })
+    }
+
+    private func collectIdentifiers(
+        in element: AXUIElement,
+        matchingPrefix prefix: String,
+        into matches: inout [String]
+    ) {
+        var childrenValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
+        if err == .success, let children = childrenValue as? [AXUIElement] {
+            for child in children {
+                collectIdentifiers(in: child, matchingPrefix: prefix, into: &matches)
+            }
+        }
+        // post-order: visit the element after its children so the last entry
+        // in the resulting array is the deepest match in traversal order.
+        var idValue: AnyObject?
+        let idErr = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &idValue)
+        if idErr == .success, let identifier = idValue as? String, identifier.hasPrefix(prefix) {
+            matches.append(identifier)
+        }
+    }
+
+    private func elementCenter(of element: AXUIElement) -> CGPoint? {
+        var posValue: AnyObject?
+        var sizeValue: AnyObject?
+        let posErr = AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &posValue)
+        let sizeErr = AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue)
+        guard posErr == .success, sizeErr == .success,
+              let posCF = posValue, let sizeCF = sizeValue,
+              CFGetTypeID(posCF) == AXValueGetTypeID(),
+              CFGetTypeID(sizeCF) == AXValueGetTypeID() else {
+            return nil
+        }
+        // CFGetTypeID guards above prove the cast is safe; Swift can't.
+        let posAXValue = unsafeDowncast(posCF, to: AXValue.self)
+        let sizeAXValue = unsafeDowncast(sizeCF, to: AXValue.self)
+        var origin = CGPoint.zero
+        var size = CGSize.zero
+        // AXValueGetValue returns false if the embedded AXValueType differs
+        // from the requested one — guard the return so we don't dispatch a
+        // click at (0, 0) on an unrelated geometry encoding.
+        guard AXValueGetValue(posAXValue, .cgPoint, &origin),
+              AXValueGetValue(sizeAXValue, .cgSize, &size) else {
+            return nil
+        }
+        return CGPoint(x: origin.x + size.width / 2.0, y: origin.y + size.height / 2.0)
+    }
+
+    private func postClickPair(at point: CGPoint, clickState: Int64) {
+        if let down = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseDown,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) {
+            down.setIntegerValueField(.mouseEventClickState, value: clickState)
+            down.post(tap: .cghidEventTap)
+        }
+        if let up = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .leftMouseUp,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) {
+            up.setIntegerValueField(.mouseEventClickState, value: clickState)
+            up.post(tap: .cghidEventTap)
+        }
+    }
+
+    // MARK: - Static helpers
+
+    /// Reads `Contents/Info.plist` and verifies `DuckoBuildConfiguration ==
+    /// "debug"`. Throws `TestHarnessError.appBundleNotDebug` otherwise.
+    private static func assertDebugBundle(at executable: URL) throws {
+        let infoPlist = executable
+            .deletingLastPathComponent() // MacOS
+            .deletingLastPathComponent() // Contents
+            .appendingPathComponent("Info.plist")
+        guard let data = try? Data(contentsOf: infoPlist),
+              let plist = try? PropertyListSerialization.propertyList(
+                  from: data, options: [], format: nil
+              ) as? [String: Any],
+              (plist["DuckoBuildConfiguration"] as? String) == "debug" else {
+            throw TestHarnessError.appBundleNotDebug(path: executable.path)
+        }
+    }
+
+    @MainActor
+    private static func activateAppOnMain(pid: pid_t) {
+        guard let app = NSRunningApplication(processIdentifier: pid) else {
+            log.debug("activateApp: NSRunningApplication(processIdentifier: \(pid)) returned nil")
+            return
+        }
+        if !app.activate() {
+            // `activate()` returns false when the app has quit or cannot be
+            // brought forward. Subsequent CGEvent posts may end up at the
+            // wrong frontmost app — log so timeouts are diagnosable.
+            log.debug("activateApp: NSRunningApplication.activate() returned false for pid \(pid)")
+        }
+    }
+
+    private nonisolated static func activateApp(pid: pid_t) async {
+        await activateAppOnMain(pid: pid)
+    }
+
+    /// Sets `kAXFocusedAttribute = true` on the element and logs at debug
+    /// when the AX error is non-success. Many SwiftUI controls accept value
+    /// or keystroke input without taking AX focus, so failure here is not
+    /// fatal — but if a downstream keystroke fallback misses its target,
+    /// the breadcrumb makes the failure mode legible.
+    private nonisolated static func setFocused(_ element: AXUIElement, identifier: String) {
+        let err = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        if err != .success {
+            log.debug("setFocused: AXError \(err.rawValue) on '\(identifier)'")
+        }
+    }
+
+    private nonisolated static func synthesizeKeystrokes(for text: String) {
+        for scalar in text.unicodeScalars {
+            var character = UniChar(min(UInt32(UInt16.max), scalar.value))
+            if let down = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true) {
+                down.keyboardSetUnicodeString(stringLength: 1, unicodeString: &character)
+                down.post(tap: .cghidEventTap)
+            }
+            if let up = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false) {
+                up.keyboardSetUnicodeString(stringLength: 1, unicodeString: &character)
+                up.post(tap: .cghidEventTap)
+            }
+        }
+    }
+}

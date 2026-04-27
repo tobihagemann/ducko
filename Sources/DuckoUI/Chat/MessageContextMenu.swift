@@ -22,6 +22,7 @@ struct MessageContextMenu: View {
             Button("Edit") {
                 windowState.startEdit(of: message)
             }
+            .accessibilityIdentifier("edit-message-menu-item")
 
             Button("Retract") {
                 Task {

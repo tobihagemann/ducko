@@ -487,7 +487,7 @@ final class TestHarness {
         // Run cleanups first so any action that awaits a server response can still
         // receive its event through the router. Finish continuations only after.
         for action in cleanupActions.reversed() {
-            await runWithTimeout(action, timeout: .seconds(5))
+            await runIntegrationCleanup(action, timeout: .seconds(5), label: "Harness")
         }
         cleanupActions.removeAll()
 
@@ -524,28 +524,6 @@ final class TestHarness {
         }
         if !found {
             throw TestHarnessError.timeout
-        }
-    }
-
-    /// Runs `action` with a soft deadline: once `timeout` elapses the function
-    /// logs a warning, but still waits for `action` to unwind via cooperative
-    /// cancellation before returning. Callers must use cancellation-aware work.
-    private func runWithTimeout(_ action: @escaping @Sendable () async -> Void, timeout: Duration) async {
-        let timedOut: Bool = await withTaskGroup(of: Bool.self) { group in
-            group.addTask {
-                await action()
-                return false
-            }
-            group.addTask {
-                try? await Task.sleep(for: timeout)
-                return true
-            }
-            let first = await group.next() ?? false
-            group.cancelAll()
-            return first
-        }
-        if timedOut {
-            log.warning("Cleanup action timed out after \(timeout)")
         }
     }
 }

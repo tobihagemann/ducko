@@ -73,6 +73,7 @@ struct MessageListView: View {
                     }
                 }
             }
+            .accessibilityIdentifier("message-list")
             .defaultScrollAnchor(.bottom)
             .onChange(of: messages.last?.id) { _, lastID in
                 guard let lastID else { return }

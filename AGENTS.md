@@ -77,6 +77,8 @@ Scripts/release.sh                       # build, sign, notarize, DMG, zip
 
 `Resources/Entitlements.plist` holds app entitlements. `Resources/Assets.car` is the precompiled Liquid Glass icon.
 
+`Scripts/package_app.sh` injects `<key>DuckoBuildConfiguration</key><string>${CONF}</string>` (`debug` or `release`) into the bundle's `Info.plist`. The integration-test UI harness (`AppAccessor.assertDebugBundle`) reads this pre-launch and refuses to spawn a release-built bundle, since release ignores `DUCKO_PROFILE` and would route test credentials into the production Keychain and `~/Library/Application Support/Ducko/`.
+
 ## Logging
 
 Uses `swift-log` as a facade with dual backends:

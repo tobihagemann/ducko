@@ -74,5 +74,6 @@ struct MessageBubbleView: View {
 
             if !message.isOutgoing { Spacer(minLength: 60) }
         }
+        .accessibilityIdentifier("message-bubble-\(message.id)")
     }
 }

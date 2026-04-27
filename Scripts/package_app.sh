@@ -54,6 +54,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>SUPublicEDKey</key><string>SaoWoBwGAvFPeUCkM7sp8mWO3CdwWa/Yw78vZ5xGDHk=</string>
     <key>BuildTimestamp</key><string>${BUILD_TIMESTAMP}</string>
     <key>GitCommit</key><string>${GIT_COMMIT}</string>
+    <key>DuckoBuildConfiguration</key><string>${CONF}</string>
 </dict>
 </plist>
 PLIST

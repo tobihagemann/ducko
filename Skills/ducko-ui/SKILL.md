@@ -99,6 +99,7 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `bookmark-autojoin-toggle` | Auto-join toggle in Add Bookmark sheet | Bookmarks |
 | `add-bookmark-confirm-button` | Add button in Add Bookmark sheet | Bookmarks |
 | `remove-bookmark-button` | Remove bookmark button (per row) | Bookmarks |
+| `preferences-window` | Preferences TabView container | Preferences |
 | `chatStatesToggle` | Chat states (typing indicators) toggle | Preferences (Chat) |
 | `displayedMarkersToggle` | Displayed markers (read receipts) toggle | Preferences (Chat) |
 | `requireTLSToggle` | Require TLS toggle | Account Edit |
@@ -110,6 +111,9 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
 | `retract-button` | Retract context menu button (own msgs) | Chat |
 | `moderate-button` | Moderate context menu button (other users' msgs) | Chat |
+| `edit-message-menu-item` | Edit context menu button (own msgs) | Chat |
+| `message-list` | Scrollable message list container | Chat |
+| `message-bubble-{id}` | Individual message bubble (id is ChatMessage.id) | Chat |
 | `retracted-message` | Retracted message tombstone | Chat |
 | `setup-mode-picker` | Import/Login/Register segmented control | Account Setup |
 | `import-button` | Import & Connect / Import Logs button (Import mode) | Account Setup |

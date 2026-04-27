@@ -24,5 +24,6 @@ public struct PreferencesView: View {
                 .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
         }
         .frame(width: 550, height: 400)
+        .accessibilityIdentifier("preferences-window")
     }
 }
