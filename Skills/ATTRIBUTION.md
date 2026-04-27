@@ -19,7 +19,7 @@ These skills were written for Ducko specifically:
 | Skill | Upstream sources |
 |-------|------------------|
 | `accessibility` | [PasqualeVittoriosi/swift-accessibility-skill](https://github.com/PasqualeVittoriosi/swift-accessibility-skill) + [rgmez/apple-accessibility-skills](https://github.com/rgmez/apple-accessibility-skills) (SwiftUI + AppKit auditor checklists) |
-| `macos-spm-app-packaging` | Ducko-maintained (derived from an earlier local checkpoint; not currently in any upstream catalog) |
+| `macos-spm-app-packaging` | [Dimillian/Skills — macos-spm-app-packaging](https://github.com/Dimillian/Skills/tree/main/macos-spm-app-packaging) |
 | `swift-architecture` | [efremidze/swift-architecture-skill](https://github.com/efremidze/swift-architecture-skill) |
 | `swift-concurrency` | [twostraws/Swift-Concurrency-Agent-Skill](https://github.com/twostraws/Swift-Concurrency-Agent-Skill) (Paul Hudson) + [AvdLee/Swift-Concurrency-Agent-Skill](https://github.com/AvdLee/Swift-Concurrency-Agent-Skill) + [Dimillian/Skills — Swift Concurrency Expert](https://github.com/Dimillian/Skills) |
 | `swift-language` | [Erikote04/Swift-API-Design-Guidelines-Agent-Skill](https://github.com/Erikote04/Swift-API-Design-Guidelines-Agent-Skill) + [n0an/Swift-FormatStyle-Agent-Skill](https://github.com/n0an/Swift-FormatStyle-Agent-Skill) |
@@ -36,7 +36,7 @@ Each of the upstream repositories is released under the MIT License. The notices
 
 - Copyright (c) 2026 Paul Hudson (Hashrocket Ltd / @twostraws) — twostraws/SwiftUI-Agent-Skill, twostraws/SwiftData-Agent-Skill, twostraws/Swift-Concurrency-Agent-Skill, twostraws/Swift-Testing-Agent-Skill.
 - Copyright (c) 2026 Antoine van der Lee (@AvdLee) — AvdLee/Swift-Concurrency-Agent-Skill, AvdLee/Swift-Testing-Agent-Skill.
-- Copyright (c) 2026 Thomas Ricouard (@Dimillian) — Dimillian/Skills (SwiftUI UI Patterns, SwiftUI View Refactor, SwiftUI Liquid Glass, SwiftUI Performance Audit, Swift Concurrency Expert).
+- Copyright (c) 2026 Thomas Ricouard (@Dimillian) — Dimillian/Skills (SwiftUI UI Patterns, SwiftUI View Refactor, SwiftUI Liquid Glass, SwiftUI Performance Audit, Swift Concurrency Expert, macOS SPM App Packaging).
 - Copyright (c) 2026 arjitj2 — arjitj2/swiftui-design-principles.
 - Copyright (c) 2026 Kudrin Dmitry (@vanab) — vanab/swiftdata-agent-skill.
 - Copyright (c) 2026 Eduardo Bocato (@bocato) — bocato/swift-testing-agent-skill.
