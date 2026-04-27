@@ -4,14 +4,14 @@ import Logging
 
 enum BookmarksError: Error, LocalizedError {
     case invalidJID(String)
-    case notConnected
+    case notConnected(UUID)
 
     var errorDescription: String? {
         switch self {
         case let .invalidJID(jid):
             return "Invalid JID: \(jid)"
-        case .notConnected:
-            return "Not connected to XMPP server"
+        case let .notConnected(id):
+            return "Not connected: \(id)"
         }
     }
 }
@@ -60,10 +60,10 @@ public final class BookmarksService {
 
     public func addBookmark(_ bookmark: RoomBookmark, accountID: UUID) async throws {
         guard let client = accountService?.client(for: accountID) else {
-            throw BookmarksError.notConnected
+            throw BookmarksError.notConnected(accountID)
         }
         guard let pepModule = await client.module(ofType: PEPModule.self) else {
-            throw BookmarksError.notConnected
+            throw BookmarksError.notConnected(accountID)
         }
 
         guard let jid = BareJID.parse(bookmark.jidString) else {

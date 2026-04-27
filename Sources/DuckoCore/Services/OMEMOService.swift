@@ -146,7 +146,7 @@ public final class OMEMOService {
             throw OMEMOServiceError.noTrustedRecipients
         }
         guard let client = accountService?.client(for: accountID) else {
-            throw OMEMOServiceError.notConnected
+            throw OMEMOServiceError.notConnected(accountID)
         }
         guard let omemoModule = await client.module(ofType: OMEMOModule.self) else {
             throw OMEMOServiceError.omemoNotAvailable
@@ -236,7 +236,7 @@ public final class OMEMOService {
         accountID: UUID
     ) async throws -> OMEMOModule.EncryptedMessageElements {
         guard let client = accountService?.client(for: accountID) else {
-            throw OMEMOServiceError.notConnected
+            throw OMEMOServiceError.notConnected(accountID)
         }
         guard let omemoModule = await client.module(ofType: OMEMOModule.self) else {
             throw OMEMOServiceError.omemoNotAvailable
@@ -561,10 +561,20 @@ public final class OMEMOService {
 
 // MARK: - Errors
 
-enum OMEMOServiceError: Error {
-    case notConnected
+enum OMEMOServiceError: Error, LocalizedError {
+    case notConnected(UUID)
     case omemoNotAvailable
     case noTrustedRecipients
     case identityKeyMismatch
     case identityKeyUntrusted
+
+    var errorDescription: String? {
+        switch self {
+        case let .notConnected(id): "Not connected: \(id)"
+        case .omemoNotAvailable: "OMEMO module not available"
+        case .noTrustedRecipients: "No trusted OMEMO recipients"
+        case .identityKeyMismatch: "OMEMO identity key mismatch"
+        case .identityKeyUntrusted: "OMEMO identity key not trusted"
+        }
+    }
 }

@@ -5,7 +5,7 @@ import Testing
 
 extension DuckoIntegrationTests.CLILayer {
     struct CLIRoomTests {
-        @Test(.enabled(if: CLIProcess.binaryExists, "DuckoCLI binary missing"))
+        @Test
         @MainActor func `REPL /join enters a MUC room`() async throws {
             try await CLIProcess.withProcess { aliceCLI in
                 let alice = TestCredentials.alice
@@ -31,14 +31,15 @@ extension DuckoIntegrationTests.CLILayer {
             }
         }
 
-        @Test(.enabled(if: CLIProcess.binaryExists, "DuckoCLI binary missing"))
+        @Test
         @MainActor func `ducko room send delivers a group message via the CLI`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
-                // Harness creates and unlocks the room (`acceptDefaultConfig`
-                // runs on `isNewlyCreated`, `TestHarness.swift:188-191`) so
-                // bob's REPL and alice's CLI process can both join it.
+                // Harness creates and unlocks the room
+                // (`createEphemeralRoom` calls `acceptDefaultConfig` on a
+                // newly-created room) so bob's REPL and alice's CLI
+                // process can both join it.
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
 
                 try await CLIProcess.withProcess { aliceCLI in
@@ -57,11 +58,11 @@ extension DuckoIntegrationTests.CLILayer {
                             timeout: TestTimeout.event
                         )
 
-                        // Drive the actual `DuckoCLI.Room.Send` surface
-                        // (`DuckoCLI.swift:651-697`): it joins → sends → leaves.
-                        // Use a distinct nickname so this second alice session
-                        // does not collide with the harness alice already in
-                        // the room as "alice" (`TestHarness.swift:162`).
+                        // Drive the actual `DuckoCLI.Room.Send` surface:
+                        // it joins → sends → leaves. Use a distinct
+                        // nickname so this second alice session does not
+                        // collide with the harness alice already in the
+                        // room as "alice".
                         let body = "msg-\(UUID().uuidString.prefix(8))"
                         let sent = try await aliceCLI.run([
                             "room", "send", roomJID.description, body,
@@ -79,16 +80,17 @@ extension DuckoIntegrationTests.CLILayer {
             }
         }
 
-        @Test(.enabled(if: CLIProcess.binaryExists, "DuckoCLI binary missing"))
+        @Test
         @MainActor func `REPL room send delivers a group message`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
-                // `createEphemeralRoom` calls `mucModule.acceptDefaultConfig` after a
-                // newly-created room (`TestHarness.swift:188-191`), so subsequent joins
-                // by non-owners succeed. The CLI REPL has no `/config submit-default`
-                // surface, so this hybrid setup is the only way to exercise two-actor
-                // room flows from the CLI layer today.
+                // `createEphemeralRoom` calls `mucModule.acceptDefaultConfig`
+                // after a newly-created room, so subsequent joins by
+                // non-owners succeed. The CLI REPL has no
+                // `/config submit-default` surface, so this hybrid
+                // setup is the only way to exercise two-actor room
+                // flows from the CLI layer today.
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
                 let aliceAccount = try #require(harness.accounts["alice"])
 
@@ -103,10 +105,11 @@ extension DuckoIntegrationTests.CLILayer {
                         timeout: TestTimeout.event
                     )
 
-                    // Drive alice's send through the in-process service: the regular-REPL
-                    // `send <jid> <body>` form (`DuckoCLI.swift:2384-2390`) only routes to
-                    // `sendGroupMessage` when that REPL's own `roomParticipants[jidString]`
-                    // is non-empty, which requires the sending REPL to have /join'd. Alice
+                    // Drive alice's send through the in-process service:
+                    // the regular-REPL `send <jid> <body>` form only
+                    // routes to `sendGroupMessage` when that REPL's own
+                    // `roomParticipants[jidString]` is non-empty, which
+                    // requires the sending REPL to have `/join`'d. Alice
                     // has no REPL counterpart in this hybrid setup.
                     let body = "msg-\(UUID().uuidString.prefix(8))"
                     try await harness.environment.chatService.sendGroupMessage(
@@ -123,7 +126,7 @@ extension DuckoIntegrationTests.CLILayer {
             }
         }
 
-        @Test(.enabled(if: CLIProcess.binaryExists, "DuckoCLI binary missing"))
+        @Test
         @MainActor func `REPL /leave exits the room`() async throws {
             try await CLIProcess.withProcess { aliceCLI in
                 let alice = TestCredentials.alice
@@ -162,7 +165,7 @@ extension DuckoIntegrationTests.CLILayer {
             }
         }
 
-        @Test(.enabled(if: CLIProcess.binaryExists, "DuckoCLI binary missing"))
+        @Test
         @MainActor func `REPL /members lists occupants`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
@@ -183,8 +186,8 @@ extension DuckoIntegrationTests.CLILayer {
                     )
 
                     try await bobREPL.send("/members")
-                    // Alice's nickname in the harness is "alice"
-                    // (`TestHarness.swift:162`'s `nickname: label`).
+                    // Alice's nickname in the harness is the account's
+                    // label, which is "alice" here.
                     _ = try await bobREPL.waitForOutput(
                         containing: "alice",
                         timeout: TestTimeout.event
@@ -198,15 +201,50 @@ extension DuckoIntegrationTests.CLILayer {
             // Implementation deferred until /kick or chatService.kickOccupant exposure lands.
         }
 
+        @Test
+        @MainActor func `REPL send to unjoined room on a known MUC domain prints a hint`() async throws {
+            // After joining one ephemeral room, the MUC-service domain is
+            // recorded in `chatService.roomParticipants`. Sending a 1:1
+            // `send` to a sibling JID on the same domain must trip the
+            // unjoined-room heuristic and print the hint before falling
+            // through to a regular bare-JID send. Asserting the hint
+            // pins the new branch in `handleSendCommand`.
+            try await CLIProcess.withProcess { aliceCLI in
+                let alice = TestCredentials.alice
+                let aliceREPL = try await REPLSession.start(cli: aliceCLI, credentials: alice)
+                await aliceCLI.addCleanup { await aliceREPL.terminate() }
+
+                let joinedRoom = Self.makeEphemeralRoomJID()
+                try await aliceREPL.send("/join \(joinedRoom)")
+                await aliceCLI.addCleanup {
+                    try? await aliceREPL.send("/destroy")
+                }
+                _ = try await aliceREPL.waitForOutput(
+                    containing: "Joined ",
+                    timeout: TestTimeout.event
+                )
+
+                let unjoinedRoom = "inttest-\(UUID().uuidString.prefix(8).lowercased())@\(TestCredentials.mucService)"
+                try await aliceREPL.send("send \(unjoinedRoom) hello")
+                // Hint string is unique to this branch, so a buffer-wide
+                // match cannot collide with output from earlier commands.
+                _ = try await aliceREPL.waitForOutput(
+                    containing: "Hint: send <room-jid> requires /join first",
+                    timeout: TestTimeout.replOutput
+                )
+            }
+        }
+
         // MARK: - Helpers
 
         private static func makeEphemeralRoomJID() -> String {
             // Lowercase so the JID matches what the server normalizes
             // localparts to (XMPP nodeprep). The CLI REPL's
-            // `waitForRoomJoined` (`Sources/DuckoCLI/Helpers/RoomHelpers.swift:8`)
-            // looks up `chatService.roomParticipants[roomJID]` by raw string
-            // — passing an uppercase UUID prefix wedges that helper for its
-            // full 15 s timeout, which races the test's `/leave` wait.
+            // `waitForRoomJoined` looks up
+            // `chatService.roomParticipants[roomJID]` by raw string —
+            // passing an uppercase UUID prefix wedges that helper for
+            // its full 15 s timeout, which races the test's `/leave`
+            // wait.
             "inttest-\(UUID().uuidString.prefix(8).lowercased())@\(TestCredentials.mucService)"
         }
     }

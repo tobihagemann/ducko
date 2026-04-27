@@ -3,7 +3,7 @@ import Testing
 
 extension DuckoIntegrationTests.CLILayer {
     struct CLIRosterTests {
-        @Test(.enabled(if: CLIProcess.binaryExists, "DuckoCLI binary missing"))
+        @Test
         @MainActor func `roster list reports current contacts`() async throws {
             try await CLIProcess.withProcess { cli in
                 let alice = TestCredentials.alice
@@ -12,10 +12,11 @@ extension DuckoIntegrationTests.CLILayer {
                 let listed = try await cli.run(["roster", "list", "--output", "json"])
                 #expect(listed.exitCode == 0)
 
-                // Each non-empty line is one flat [String: String] JSON object with a
-                // "type" discriminator (`Tests/DuckoCLITests/JSONFormatterTests.swift:24`).
-                // Don't assert a specific contact: the alice baseline is operator-managed
-                // (see `TestCredentials.swift:18-29`) and may be empty on fresh setups.
+                // Each non-empty line is one flat [String: String] JSON
+                // object with a "type" discriminator (see
+                // `JSONFormatterTests`). Don't assert a specific
+                // contact: the alice baseline is operator-managed (see
+                // `TestCredentials`) and may be empty on fresh setups.
                 let lines = listed.stdout.split(separator: "\n", omittingEmptySubsequences: true)
                 for line in lines {
                     let data = try #require(String(line).data(using: .utf8))
@@ -24,16 +25,17 @@ extension DuckoIntegrationTests.CLILayer {
             }
         }
 
-        @Test(.enabled(if: TestCredentials.isDaveAvailable && CLIProcess.binaryExists, "Dave credentials missing or DuckoCLI binary missing"))
+        @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials missing"))
         @MainActor func `roster add inserts a contact`() async throws {
             try await CLIProcess.withProcess { cli in
                 let alice = TestCredentials.alice
                 let dave = TestCredentials.dave
                 try await cli.seedAccount(alice)
 
-                // Register cleanup before the mutation so a thrown assertion or
-                // a transient server failure can't leave dave in alice's real
-                // roster across runs (mirrors `Protocol/RosterTests.swift:32`).
+                // Register cleanup before the mutation so a thrown
+                // assertion or a transient server failure can't leave
+                // dave in alice's real roster across runs (mirrors
+                // `Protocol/RosterTests`).
                 await cli.addCleanup {
                     _ = try? await cli.run(["roster", "remove", dave.jid])
                 }
@@ -47,7 +49,7 @@ extension DuckoIntegrationTests.CLILayer {
             }
         }
 
-        @Test(.enabled(if: TestCredentials.isDaveAvailable && CLIProcess.binaryExists, "Dave credentials missing or DuckoCLI binary missing"))
+        @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials missing"))
         @MainActor func `roster remove deletes a contact`() async throws {
             try await CLIProcess.withProcess { cli in
                 let alice = TestCredentials.alice

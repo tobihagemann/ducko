@@ -2382,10 +2382,19 @@ private func handleSendCommand(
     }
 
     do {
-        let isRoom = await MainActor.run { !(environment.chatService.roomParticipants[jidString]?.isEmpty ?? true) }
+        let (isRoom, looksLikeUnjoinedRoom) = await MainActor.run {
+            let participants = environment.chatService.roomParticipants
+            let joined = !(participants[jidString]?.isEmpty ?? true)
+            let knownMUCDomains = Set(participants.keys.compactMap { BareJID.parse($0)?.domainPart })
+            let unjoinedRoom = !joined && knownMUCDomains.contains(recipientJID.domainPart)
+            return (joined, unjoinedRoom)
+        }
         if isRoom {
             try await environment.chatService.sendGroupMessage(to: recipientJID, body: messageBody, accountID: accountID)
         } else {
+            if looksLikeUnjoinedRoom {
+                print("Hint: send <room-jid> requires /join first; delivering as 1:1 message.")
+            }
             try await environment.chatService.sendMessage(to: recipientJID, body: messageBody, accountID: accountID)
         }
     } catch {

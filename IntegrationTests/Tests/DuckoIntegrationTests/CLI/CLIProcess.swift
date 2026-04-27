@@ -47,7 +47,7 @@ actor CLIProcess {
 
     /// Path to the debug-built CLI binary. Resolved relative to this file via
     /// `#filePath` so checkout location does not matter; mirrors the walk-up
-    /// pattern in `TestCredentials.swift:90-94`.
+    /// pattern used by `TestCredentials`.
     static var binaryPath: URL {
         // CLIProcess.swift lives at:
         //   IntegrationTests/Tests/DuckoIntegrationTests/CLI/CLIProcess.swift
@@ -73,8 +73,7 @@ actor CLIProcess {
 
     /// Runs `body` with a fresh `CLIProcess`, awaiting profile cleanup and any
     /// registered REPL terminations on both success and failure paths. Mirrors
-    /// `TestHarness.withHarness` (`TestHarness.swift:33-58`) since Swift `defer`
-    /// cannot await.
+    /// `TestHarness.withHarness` since Swift `defer` cannot await.
     static func withProcess<T: Sendable>(
         profile: String? = nil,
         _ body: sending (CLIProcess) async throws -> T
@@ -87,6 +86,33 @@ actor CLIProcess {
             return result
         } catch {
             await cli.tearDown()
+            throw error
+        }
+    }
+
+    /// Runs `body` with a pair of fresh `CLIProcess` instances. Profile names
+    /// embed the labels (default `alice`/`bob`) so per-process directories are
+    /// distinguishable in the developer's `Application Support` tree when a
+    /// test crashes mid-flight; the random suffix keeps runs isolated.
+    /// Inlines the teardown loop instead of nesting two `withProcess` calls
+    /// because passing a closure that captures a `sending` parameter to
+    /// another `sending` parameter trips Swift 6 strict concurrency
+    /// (`SendingClosureRisksDataRace`).
+    static func withProcessPair<T: Sendable>(
+        aliceLabel: String = "alice",
+        bobLabel: String = "bob",
+        _ body: sending (CLIProcess, CLIProcess) async throws -> T
+    ) async throws -> T {
+        let aliceCLI = CLIProcess(profile: "inttest-\(aliceLabel)-\(UUID().uuidString.prefix(8))")
+        let bobCLI = CLIProcess(profile: "inttest-\(bobLabel)-\(UUID().uuidString.prefix(8))")
+        do {
+            let result = try await body(aliceCLI, bobCLI)
+            await bobCLI.tearDown()
+            await aliceCLI.tearDown()
+            return result
+        } catch {
+            await bobCLI.tearDown()
+            await aliceCLI.tearDown()
             throw error
         }
     }

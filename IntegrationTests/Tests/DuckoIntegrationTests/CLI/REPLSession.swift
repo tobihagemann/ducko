@@ -5,11 +5,12 @@ import Logging
 private let replLog = Logger(label: "im.ducko.integrationtests.cli.repl")
 
 /// Drives an interactive `ducko` REPL over a PTY pair so the CLI's
-/// `isatty(STDIN_FILENO) == true` and `isatty(STDOUT_FILENO) == true` checks
-/// (`OutputFormat.swift:14-15`, `CredentialHelper.swift:12`) succeed. Without
-/// the PTY, the spawned process would treat the test runner as non-interactive
-/// and either prompt for a password (no TTY to read from) or silently default
-/// to `plain` output.
+/// `isatty(STDIN_FILENO) == true` and `isatty(STDOUT_FILENO) == true`
+/// checks (used by `OutputFormat.defaultForTerminal` and
+/// `CredentialHelper`'s prompt fallback) succeed. Without the PTY, the
+/// spawned process would treat the test runner as non-interactive and
+/// either prompt for a password (no TTY to read from) or silently
+/// default to `plain` output.
 ///
 /// State on the actor is the spawned `Process`, the controller-end
 /// (`/dev/ptmx`) PTY file descriptor, and the reader `Task`; the actor
@@ -53,8 +54,8 @@ actor REPLSession {
 
         let session = try await spawn(cli: cli, arguments: arguments)
         do {
-            // The REPL prints "Connected. Type 'help' for commands, 'quit' to exit."
-            // (`DuckoCLI.swift:151`) once the bind+roster sync finishes.
+            // The REPL prints "Connected. Type 'help' for commands,
+            // 'quit' to exit." once the bind+roster sync finishes.
             _ = try await session.waitForOutput(
                 containing: "Connected. Type 'help' for commands",
                 timeout: TestTimeout.connect

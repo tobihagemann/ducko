@@ -475,6 +475,10 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.leaveRoom(jid)
+        // Drop the per-room occupancy snapshot so callers that introspect
+        // `roomParticipants` (e.g. REPL `send` heuristics) don't treat a
+        // left room's domain as still-joined. Mirrors `handleRoomDestroyed`.
+        roomParticipants.removeValue(forKey: jid.description)
     }
 
     public func sendGroupMessage(to room: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {

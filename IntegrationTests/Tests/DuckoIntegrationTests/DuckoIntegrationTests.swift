@@ -13,6 +13,7 @@ enum DuckoIntegrationTests {
 
     // periphery:ignore - reserved for CLI integration tests
     /// CLI integration tests that exercise the `ducko` binary.
+    @Suite(.enabled(if: CLIProcess.binaryExists, "DuckoCLI binary missing"))
     enum CLILayer {}
 
     // periphery:ignore - reserved for UI integration tests

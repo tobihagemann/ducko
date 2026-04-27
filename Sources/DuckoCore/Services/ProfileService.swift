@@ -7,11 +7,11 @@ private let log = Logger(label: "im.ducko.core.profile")
 @MainActor @Observable
 public final class ProfileService {
     public enum ProfileServiceError: Error, LocalizedError {
-        case notConnected
+        case notConnected(UUID)
 
         public var errorDescription: String? {
             switch self {
-            case .notConnected: "Not connected to account"
+            case let .notConnected(id): "Not connected: \(id)"
             }
         }
     }
@@ -48,10 +48,10 @@ public final class ProfileService {
 
     public func publishProfile(_ profile: ProfileInfo, accountID: UUID) async throws {
         guard let client = accountService?.client(for: accountID) else {
-            throw ProfileServiceError.notConnected
+            throw ProfileServiceError.notConnected(accountID)
         }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else {
-            throw ProfileServiceError.notConnected
+            throw ProfileServiceError.notConnected(accountID)
         }
 
         var vcard = mapProfileInfoToVCard(profile)
