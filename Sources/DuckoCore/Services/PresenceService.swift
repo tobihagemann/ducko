@@ -63,6 +63,9 @@ public final class PresenceService {
 
     // MARK: - Public API
 
+    /// Sets the local presence and broadcasts on an already-connected
+    /// account. Use ``applyPresence(_:message:accountID:connect:disconnect:)``
+    /// when the account may be offline and a reconnect is required.
     public func setPresence(_ status: PresenceStatus, message: String?, accountID: UUID) async {
         myPresence = status
         myStatusMessage = message
@@ -78,6 +81,12 @@ public final class PresenceService {
         try await presenceModule.sendDirectedPresence(to: jid, show: currentShow, status: myStatusMessage)
     }
 
+    /// Updates `myPresence` and `myStatusMessage` before any awaits so views
+    /// observing them reflect the new state immediately. `connect` runs only
+    /// when the account is actually disconnected — read from
+    /// `AccountService.connectionStates` rather than from `myPresence`,
+    /// because callers may have already mutated `myPresence` synchronously
+    /// (e.g. through a `Picker` selection binding) before this method runs.
     public func applyPresence(
         _ status: PresenceStatus,
         message: String?,
@@ -85,27 +94,32 @@ public final class PresenceService {
         connect: @escaping (UUID) async throws -> Void,
         disconnect: @escaping (UUID) async -> Void
     ) async {
-        let wasOffline = myPresence == .offline
         if status == .offline {
             goOffline(accountID: accountID)
             await disconnect(accountID)
         } else {
-            if wasOffline {
+            let isDisconnected = isAccountDisconnected(accountID: accountID)
+            myPresence = status
+            myStatusMessage = message
+            if isDisconnected {
                 try? await connect(accountID)
             }
-            await setPresence(status, message: message, accountID: accountID)
+            await sendPresence(accountID: accountID)
         }
     }
 
+    /// Drops the pending subscription request from `jid` after the user has
+    /// acted on it (approved, denied, or dismissed).
     public func removeSubscriptionRequest(_ jid: BareJID, accountID: UUID) {
         pendingRequestsByAccount[accountID]?.removeAll { $0 == jid }
     }
 
+    /// Marks the local presence as offline. Does NOT disconnect the
+    /// transport — the caller is responsible for `AccountService.disconnect`
+    /// so the server emits the unavailable presence stanza.
     public func goOffline(accountID _: UUID) {
         myPresence = .offline
         myStatusMessage = nil
-        // Unavailable presence is sent by the server on disconnect.
-        // The caller should use AccountService.disconnect to fully go offline.
     }
 
     // MARK: - Event Handling
@@ -180,6 +194,25 @@ public final class PresenceService {
     }
 
     // MARK: - Private
+
+    private func isAccountDisconnected(accountID: UUID) -> Bool {
+        Self.isDisconnected(state: accountService?.connectionStates[accountID])
+    }
+
+    /// Pure classification of a connection state into "needs reconnect"
+    /// vs "already up". `nil` (no service wired) is treated as
+    /// disconnected so a test harness without `AccountService` still
+    /// exercises the connect path, and `.error` is treated as
+    /// disconnected so a re-pick of an online status retries the
+    /// connection. Internal so it is reachable from tests via
+    /// `@testable import`.
+    nonisolated static func isDisconnected(state: AccountService.ConnectionState?) -> Bool {
+        guard let state else { return true }
+        return switch state {
+        case .disconnected, .error: true
+        case .connecting, .connected: false
+        }
+    }
 
     private func handlePresenceUpdated(from: JID, presence: XMPPPresence, accountID: UUID) {
         let bareJID = from.bareJID

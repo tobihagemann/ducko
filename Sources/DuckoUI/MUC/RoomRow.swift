@@ -47,6 +47,8 @@ struct RoomRow: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("room-row-\(conversation.jid)")
     }
 }

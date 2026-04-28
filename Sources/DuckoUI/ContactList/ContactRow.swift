@@ -46,6 +46,8 @@ struct ContactRow: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("contact-row-\(contact.jid)")
     }
 }

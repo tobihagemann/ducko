@@ -13,17 +13,21 @@ struct StatusBarView: View {
         HStack(spacing: 8) {
             PresenceIndicator(status: environment.presenceService.myPresence)
 
-            Menu {
+            // Manual `Binding(get:set:)` — the setter only fires on user
+            // selection, so direct mutations of `myPresence` (e.g. by the
+            // idle monitor) do not trigger an extra broadcast through this
+            // view. The getter still reflects external mutations so the
+            // visible label and AX `kAXValueAttribute` follow the model.
+            Picker("Presence", selection: Binding(
+                get: { environment.presenceService.myPresence },
+                set: { newStatus in setPresence(newStatus) }
+            )) {
                 ForEach(statusOptions, id: \.self) { status in
-                    Button(status.displayName) {
-                        setPresence(status)
-                    }
+                    Text(status.displayName).tag(status)
                 }
-            } label: {
-                Text(environment.presenceService.myPresence.displayName)
-                    .font(.callout)
             }
-            .menuStyle(.borderlessButton)
+            .pickerStyle(.menu)
+            .labelsHidden()
             .fixedSize()
             .accessibilityIdentifier("status-picker")
 

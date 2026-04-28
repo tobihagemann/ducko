@@ -436,14 +436,32 @@ actor AppAccessor {
         try perform(action: kAXPressAction, on: segment, identifier: identifier)
     }
 
-    func clickTab(title: String, underIdentifier identifier: String) async throws {
-        let container = try resolveElement(identifier: identifier)
-        guard let tab = findDescendant(in: container, role: kAXRadioButtonRole, where: { element in
-            segmentLabel(of: element) == title
-        }) else {
+    /// Resolves `identifier`, normalizes to the nearest `kAXTabGroupRole`
+    /// element, and presses the tab whose label matches `title`. NSTabView
+    /// exposes its tab buttons via the dedicated `kAXTabsAttribute` rather
+    /// than `kAXChildrenAttribute`, so the tabs are not reachable via the
+    /// recursive descendant walker that powers the rest of the harness.
+    /// SwiftUI's `.accessibilityIdentifier` on a `TabView` may also attach
+    /// to the focused content pane rather than the kAXTabGroupRole parent;
+    /// the ancestor walk handles that case.
+    func clickTab(title: String, identifier: String) async throws {
+        let resolved = try resolveElement(identifier: identifier)
+        let tabGroup = elementRole(of: resolved) == kAXTabGroupRole
+            ? resolved
+            : findDescendant(in: resolved, role: kAXTabGroupRole, where: { _ in true })
+            ?? findAncestor(from: resolved, role: kAXTabGroupRole)
+        guard let tabGroup else {
+            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tabGroup")
+        }
+        var tabsValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(tabGroup, kAXTabsAttribute as CFString, &tabsValue)
+        guard err == .success, let tabs = tabsValue as? [AXUIElement] else {
             throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
         }
-        try perform(action: kAXPressAction, on: tab, identifier: identifier)
+        guard let tab = tabs.first(where: { segmentLabel(of: $0) == title }) else {
+            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
+        }
+        try perform(action: kAXPressAction, on: tab, identifier: "\(identifier)/tab[\(title)]")
     }
 
     /// Reads the human-visible label of a segmented-picker / tab segment.
@@ -648,6 +666,33 @@ actor AppAccessor {
             guard err == .success, let role = roleValue as? String, roles.contains(role) else { return false }
             return matches(candidate)
         })
+    }
+
+    private func findAncestor(from element: AXUIElement, role: String) -> AXUIElement? {
+        var current: AXUIElement = element
+        while true {
+            var parentValue: AnyObject?
+            let err = AXUIElementCopyAttributeValue(current, kAXParentAttribute as CFString, &parentValue)
+            guard err == .success,
+                  let parent = parentValue,
+                  CFGetTypeID(parent) == AXUIElementGetTypeID()
+            else {
+                return nil
+            }
+            // CFGetTypeID guard above proves the cast is safe; Swift can't.
+            let parentElement = unsafeDowncast(parent, to: AXUIElement.self)
+            if elementRole(of: parentElement) == role {
+                return parentElement
+            }
+            current = parentElement
+        }
+    }
+
+    private func elementRole(of element: AXUIElement) -> String? {
+        var roleValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
+        guard err == .success else { return nil }
+        return roleValue as? String
     }
 
     private func collectIdentifiers(

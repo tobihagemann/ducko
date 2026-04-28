@@ -64,6 +64,14 @@ swift test --package-path IntegrationTests --filter "Alice connects to server"
 
 Sourcing the file in the shell still works and overrides any value from the file.
 
+When the live test server has drifted (OMEMO devicelist past `pruneProbeCap = 64`, or the seeded `subscription=both` baseline lost), run the env-gated reset suite to retract devicelists and reseed roster subscriptions:
+
+```
+DUCKO_RESET_FIXTURES=1 swift test --package-path IntegrationTests --filter ResetTestServerState
+```
+
+It is skipped by default and requires all four `DUCKO_TEST_*` credential pairs.
+
 ## Packaging
 
 `version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.

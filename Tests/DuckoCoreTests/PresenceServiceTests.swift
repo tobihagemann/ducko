@@ -227,5 +227,89 @@ enum PresenceServiceTests {
             service.goOffline(accountID: testAccountID)
             #expect(service.myPresence == .offline)
         }
+
+        /// Locks in the optimistic-update contract: `applyPresence` must
+        /// mutate `myPresence` and `myStatusMessage` BEFORE its first
+        /// suspension point. SwiftUI views (and AX-driven consumers reading
+        /// `kAXValueAttribute` on a `Picker.menu`) rely on this so the new
+        /// state is visible without waiting for a network round-trip.
+        @Test
+        @MainActor
+        func `applyPresence updates myPresence before awaiting connect`() async {
+            let service = makePresenceService()
+            service.goOffline(accountID: testAccountID)
+            #expect(service.myPresence == .offline)
+
+            let connectStarted = AsyncSemaphore()
+            let releaseConnect = AsyncSemaphore()
+
+            let task = Task { @MainActor in
+                await service.applyPresence(
+                    .available,
+                    message: "back",
+                    accountID: testAccountID,
+                    connect: { _ in
+                        await connectStarted.signal()
+                        await releaseConnect.wait()
+                    },
+                    disconnect: { _ in }
+                )
+            }
+
+            // Wait for connect to be entered — by then myPresence and
+            // myStatusMessage must already reflect the new values.
+            await connectStarted.wait()
+            #expect(service.myPresence == .available)
+            #expect(service.myStatusMessage == "back")
+
+            await releaseConnect.signal()
+            await task.value
+        }
+    }
+
+    struct ConnectionStateClassification {
+        @Test(arguments: [
+            (AccountService.ConnectionState?.none, true),
+            (.some(.disconnected), true),
+            (.some(.error("oops")), true),
+            (.some(.connecting), false),
+            (.some(.connected(FullJID(bareJID: contactJID, resourcePart: "res")!)), false)
+        ] as [(AccountService.ConnectionState?, Bool)])
+        func `isDisconnected classifies every ConnectionState case`(
+            state: AccountService.ConnectionState?,
+            expected: Bool
+        ) {
+            #expect(PresenceService.isDisconnected(state: state) == expected)
+        }
+    }
+}
+
+// MARK: - Test Helpers
+
+/// Counting permit-based async semaphore used to gate test progress at a
+/// specific suspension point inside the system under test. `signal` before
+/// any `wait` increments a permit so the next `wait` returns immediately —
+/// signals are never dropped.
+private actor AsyncSemaphore {
+    private var pending: [CheckedContinuation<Void, Never>] = []
+    private var permits = 0
+
+    func signal() {
+        if let next = pending.first {
+            pending.removeFirst()
+            next.resume()
+        } else {
+            permits += 1
+        }
+    }
+
+    func wait() async {
+        if permits > 0 {
+            permits -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            pending.append(continuation)
+        }
     }
 }

@@ -11,8 +11,16 @@ extension DuckoIntegrationTests.UILayer {
             try await UISeededApp.withSeededApp { app in
                 let bob = TestCredentials.bob
                 try await app.waitForElement(identifier: "contact-row-\(bob.jid)")
+                // Single combined AX element should advertise something
+                // identifying the contact (display name or JID local-part).
+                // Locks in the `.accessibilityElement(children: .combine)`
+                // contract on `ContactRow` — without it the identifier would
+                // resolve to a leaf with no readable label.
                 let value = try await app.value(identifier: "contact-row-\(bob.jid)")
-                #expect(value != nil)
+                let label = value ?? ""
+                let localPart = bob.jid.split(separator: "@").first.map(String.init) ?? ""
+                #expect(!label.isEmpty)
+                #expect(label.localizedCaseInsensitiveContains(localPart))
             }
         }
 

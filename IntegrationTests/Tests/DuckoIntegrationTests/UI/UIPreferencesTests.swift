@@ -33,7 +33,7 @@ extension DuckoIntegrationTests.UILayer {
                     timeout: TestTimeout.uiElement
                 )
 
-                try await app.clickTab(title: "Accounts", underIdentifier: "preferences-window")
+                try await app.clickTab(title: "Accounts", identifier: "preferences-window")
 
                 let alice = TestCredentials.alice
                 let aliceVisible = try await app.containsDescendant(
