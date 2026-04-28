@@ -24,6 +24,15 @@ public final class OMEMOModule: XMPPModule, Sendable {
         var sessions: [SessionKey: SessionEntry] = [:]
         var usedPreKeyIDs: Set<UInt32> = []
         var identityKeyValidator: (@Sendable (BareJID, UInt32, [UInt8]) async throws -> Void)?
+        /// Provider of the per-account previously-seen-device-IDs set used by
+        /// `pruneStaleBundles` to gate auto-retract on a prior observation.
+        /// Stored on the service rather than the module so the set survives
+        /// reconnects (modules are rebuilt per reconnect; the service is held
+        /// by `AppEnvironment` and outlives them). Identifier is an opaque
+        /// String (the service's `UUID.uuidString` in production) so this
+        /// file does not need to import Foundation.
+        var previouslySeenDeviceIDsProvider: (any PreviouslySeenDeviceIDsProviding)?
+        var previouslySeenAccountID: String?
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -60,6 +69,18 @@ public final class OMEMOModule: XMPPModule, Sendable {
         try await publishOwnBundle(identity)
         let deviceID = identity.deviceID.value
         log.info("OMEMO setup complete, device ID: \(deviceID)")
+
+        // Best-effort defense-in-depth pass against PEP entries whose bundles
+        // are missing — never aborts the connect chain.
+        let ownList = state.withLock { $0.deviceLists[identity.connectedJID.bareJID] ?? [deviceID] }
+        do {
+            _ = try await pruneStaleBundles(ownDeviceID: deviceID, ownDeviceList: ownList)
+        } catch let stanzaError as XMPPStanzaError {
+            log.warning("OMEMO stale-bundle pruning failed: \(stanzaError.condition.rawValue)")
+        } catch {
+            log.warning("OMEMO stale-bundle pruning failed")
+            log.debug("OMEMO stale-bundle pruning failed: \(error)")
+        }
     }
 
     public func handleDisconnect() async {
@@ -69,6 +90,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
             $0.sessions.removeAll()
             $0.usedPreKeyIDs.removeAll()
             $0.identityKeyValidator = nil
+            $0.previouslySeenDeviceIDsProvider = nil
+            $0.previouslySeenAccountID = nil
         }
     }
 
@@ -109,6 +132,20 @@ public final class OMEMOModule: XMPPModule, Sendable {
         _ validator: (@Sendable (BareJID, UInt32, [UInt8]) async throws -> Void)?
     ) {
         state.withLock { $0.identityKeyValidator = validator }
+    }
+
+    /// Wires the previously-seen-device-IDs provider used by
+    /// ``pruneStaleBundles(ownDeviceID:ownDeviceList:)`` to gate auto-retract
+    /// on a prior observation. The provider is shared per-account by
+    /// `OMEMOService`, which holds the set across reconnects.
+    package func configurePreviouslySeenDeviceIDsProvider(
+        _ provider: any PreviouslySeenDeviceIDsProviding,
+        accountID: String
+    ) {
+        state.withLock {
+            $0.previouslySeenDeviceIDsProvider = provider
+            $0.previouslySeenAccountID = accountID
+        }
     }
 
     /// Returns the set of pre-key IDs consumed during this session.
@@ -192,35 +229,16 @@ public final class OMEMOModule: XMPPModule, Sendable {
         recipientDeviceIDs: [UInt32]? = nil,
         ownDeviceIDs: [UInt32]? = nil
     ) async throws -> EncryptedMessageElements {
-        let identity = try requireOwnIdentity()
-        let contentKey = randomBytes(32)
-        let sceBytes = buildSCEEnvelope(body: plaintext)
-        let payload = try encryptPayload(sceBytes, contentKey: contentKey)
         let recipientDevices: [UInt32] = if let recipientDeviceIDs {
             recipientDeviceIDs
         } else {
             try await fetchDeviceList(for: recipientJID)
         }
-        var results = try await encryptKeysInParallel(
-            contentKey: contentKey, identity: identity,
-            devices: recipientDevices.map { (jid: recipientJID, deviceID: $0) }
-        )
-        // No usable recipient device — refuse to send a sender-only OMEMO
-        // envelope. Covers both the "PEP list empty" case and the "every
-        // listed device returned item-not-found" case, which are otherwise
-        // indistinguishable from a lost message to the recipient.
-        if results.isEmpty {
-            throw OMEMOModuleError.noUsableRecipientDevices
-        }
-        results += try await encryptKeyForOwnDevices(
-            contentKey: contentKey, identity: identity,
-            ownDeviceIDs: ownDeviceIDs
-        )
-        // Commit session updates atomically
-        applySessionUpdates(results)
-        let keys = results.map(\.keyElement)
-        return buildEncryptedElements(
-            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
+        return try await encryptForDevices(
+            plaintext: plaintext,
+            peerDevices: recipientDevices.map { (jid: recipientJID, deviceID: $0) },
+            ownDeviceIDs: ownDeviceIDs,
+            conversation: recipientJID
         )
     }
 
@@ -228,34 +246,69 @@ public final class OMEMOModule: XMPPModule, Sendable {
     ///
     /// - Parameters:
     ///   - plaintext: Message body to encrypt.
+    ///   - roomJID: The MUC bare JID; used to label `omemoRecipientsPartial`
+    ///     events for downstream correlation.
     ///   - recipients: Per-recipient JID and device IDs.
     ///   - ownDeviceIDs: Specific own device IDs to encrypt for, or `nil` to encrypt for all own devices.
     public func encryptGroupMessage(
         plaintext: String,
+        roomJID: BareJID,
         recipients: [(jid: BareJID, deviceIDs: [UInt32])],
         ownDeviceIDs: [UInt32]? = nil
+    ) async throws -> EncryptedMessageElements {
+        let peerDevices = recipients.flatMap { r in r.deviceIDs.map { (jid: r.jid, deviceID: $0) } }
+        return try await encryptForDevices(
+            plaintext: plaintext,
+            peerDevices: peerDevices,
+            ownDeviceIDs: ownDeviceIDs,
+            conversation: roomJID
+        )
+    }
+
+    /// Shared encrypt pipeline for 1:1 and group OMEMO sends. Throws
+    /// `noUsableRecipientDevices` when every peer device's bundle was
+    /// missing — covers both the "PEP list empty" case and the "every
+    /// listed device returned item-not-found" case, which are otherwise
+    /// indistinguishable from a lost message to the recipient. `conversation`
+    /// labels the emitted `omemoRecipientsPartial` event (peer JID for 1:1,
+    /// room JID for group).
+    private func encryptForDevices(
+        plaintext: String,
+        peerDevices: [(jid: BareJID, deviceID: UInt32)],
+        ownDeviceIDs: [UInt32]?,
+        conversation: BareJID
     ) async throws -> EncryptedMessageElements {
         let identity = try requireOwnIdentity()
         let contentKey = randomBytes(32)
         let sceBytes = buildSCEEnvelope(body: plaintext)
         let payload = try encryptPayload(sceBytes, contentKey: contentKey)
-        let devices = recipients.flatMap { r in r.deviceIDs.map { (jid: r.jid, deviceID: $0) } }
-        var results = try await encryptKeysInParallel(
-            contentKey: contentKey, identity: identity, devices: devices
+        let peerEncryption = try await encryptKeysInParallel(
+            contentKey: contentKey, identity: identity, devices: peerDevices
         )
+        var results = peerEncryption.results
         if results.isEmpty {
+            // Surface the dropped peer devices before throwing so operators
+            // see the same diagnostic in the worst case (every recipient
+            // device unfetchable) as in partial-coverage cases. The throw
+            // would otherwise hide the dropped set entirely.
+            emitDroppedRecipientsEventIfNeeded(
+                conversation: conversation, dropped: peerEncryption.dropped
+            )
             throw OMEMOModuleError.noUsableRecipientDevices
         }
-        results += try await encryptKeyForOwnDevices(
-            contentKey: contentKey, identity: identity,
-            ownDeviceIDs: ownDeviceIDs
+        let ownEncryption = try await encryptKeyForOwnDevices(
+            contentKey: contentKey, identity: identity, ownDeviceIDs: ownDeviceIDs
         )
-        // Commit session updates atomically
+        results += ownEncryption.results
         applySessionUpdates(results)
         let keys = results.map(\.keyElement)
-        return buildEncryptedElements(
-            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value
+        let droppedRecipients = peerEncryption.dropped + ownEncryption.dropped
+        let elements = buildEncryptedElements(
+            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value,
+            droppedRecipients: droppedRecipients
         )
+        emitDroppedRecipientsEventIfNeeded(conversation: conversation, dropped: droppedRecipients)
+        return elements
     }
 
     private struct EncryptionResult {
@@ -264,10 +317,19 @@ public final class OMEMOModule: XMPPModule, Sendable {
         let updatedEntry: SessionEntry
     }
 
+    /// Bulk result of encrypting a content key for many devices: successful
+    /// per-device key elements plus the subset that was skipped because no
+    /// bundle could be fetched. The dropped subset is what `encryptMessage` /
+    /// `encryptGroupMessage` need to surface via `omemoRecipientsPartial`.
+    private struct EncryptionBatch {
+        var results: [EncryptionResult]
+        var dropped: [DroppedOMEMORecipient]
+    }
+
     private func encryptKeysInParallel(
         contentKey: [UInt8], identity: OwnIdentity,
         devices: [(jid: BareJID, deviceID: UInt32)]
-    ) async throws -> [EncryptionResult] {
+    ) async throws -> EncryptionBatch {
         assert(
             Set(devices.map { SessionKey(jid: $0.jid, deviceID: $0.deviceID) }).count == devices.count,
             "Duplicate devices would corrupt Double Ratchet sessions"
@@ -276,40 +338,50 @@ public final class OMEMOModule: XMPPModule, Sendable {
         // error state — skip it instead of aborting the whole send. Guards the
         // sender against stale PEP device-list entries whose bundle was never
         // (or no longer) published.
-        return try await withThrowingTaskGroup(of: EncryptionResult?.self) { group in
+        enum Outcome: Sendable {
+            case encrypted(EncryptionResult)
+            case dropped(DroppedOMEMORecipient)
+        }
+        return try await withThrowingTaskGroup(of: Outcome.self) { group in
             for device in devices {
                 group.addTask {
                     do {
-                        return try await self.encryptKeyForDevice(
+                        let result = try await self.encryptKeyForDevice(
                             contentKey: contentKey, jid: device.jid,
                             deviceID: device.deviceID, identity: identity
                         )
+                        return .encrypted(result)
                     } catch OMEMOModuleError.bundleNotFound {
                         log.debug(
                             "OMEMO: skipping \(device.jid)/\(device.deviceID) — bundle not found"
                         )
-                        return nil
+                        return .dropped(DroppedOMEMORecipient(jid: device.jid, deviceID: device.deviceID))
                     } catch let stanzaError as XMPPStanzaError
                         where stanzaError.condition == .itemNotFound {
                         log.debug(
                             "OMEMO: skipping \(device.jid)/\(device.deviceID) — item-not-found"
                         )
-                        return nil
+                        return .dropped(DroppedOMEMORecipient(jid: device.jid, deviceID: device.deviceID))
                     }
                 }
             }
-            var results: [EncryptionResult] = []
-            for try await result in group {
-                if let result { results.append(result) }
+            var batch = EncryptionBatch(results: [], dropped: [])
+            for try await outcome in group {
+                switch outcome {
+                case let .encrypted(result):
+                    batch.results.append(result)
+                case let .dropped(drop):
+                    batch.dropped.append(drop)
+                }
             }
-            return results
+            return batch
         }
     }
 
     private func encryptKeyForOwnDevices(
         contentKey: [UInt8], identity: OwnIdentity,
         ownDeviceIDs: [UInt32]?
-    ) async throws -> [EncryptionResult] {
+    ) async throws -> EncryptionBatch {
         let ownJID = identity.connectedJID.bareJID
         let ownDevices: [UInt32] = if let ownDeviceIDs {
             ownDeviceIDs
@@ -323,6 +395,14 @@ public final class OMEMOModule: XMPPModule, Sendable {
         )
     }
 
+    private func emitDroppedRecipientsEventIfNeeded(
+        conversation: BareJID, dropped: [DroppedOMEMORecipient]
+    ) {
+        guard !dropped.isEmpty else { return }
+        let context = state.withLock { $0.context }
+        context?.emitEvent(.omemoRecipientsPartial(conversation: conversation, droppedDevices: dropped))
+    }
+
     private func applySessionUpdates(_ results: [EncryptionResult]) {
         let updates = results.map { ($0.sessionKey, $0.updatedEntry) }
         state.withLock { state in
@@ -334,7 +414,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     private func buildEncryptedElements(
         keys: [XMLElement], payload: String,
-        senderDeviceID: UInt32
+        senderDeviceID: UInt32,
+        droppedRecipients: [DroppedOMEMORecipient]
     ) -> EncryptedMessageElements {
         let encrypted = buildEncryptedElement(
             keys: keys, payload: payload, senderDeviceID: senderDeviceID
@@ -347,7 +428,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return EncryptedMessageElements(
             encrypted: encrypted,
             encryption: encryption,
-            fallbackBody: "This message is OMEMO encrypted"
+            fallbackBody: "This message is OMEMO encrypted",
+            droppedRecipients: droppedRecipients
         )
     }
 
@@ -452,6 +534,11 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Bundle Management
 
+    /// Item ID used for both publishing and retracting OMEMO bundles. Single
+    /// constant so the publish and retract sites cannot drift to different
+    /// IDs (a wrong itemID is a silent no-op on most PEP servers).
+    private static let bundleItemID = "current"
+
     private func publishOwnBundle(
         _ identity: OwnIdentity
     ) async throws {
@@ -464,9 +551,210 @@ public final class OMEMOModule: XMPPModule, Sendable {
         let payload = buildBundleElement(bundle)
         let node = bundleNodeName(identity.deviceID.value)
         try await pepModule.publishItem(
-            node: node, itemID: "current",
+            node: node, itemID: Self.bundleItemID,
             payload: payload, options: pepPublishOptions()
         )
+    }
+
+    // MARK: - Stale Bundle Pruning
+
+    private enum BundleClassification {
+        case stale
+        case healthy
+        case transient
+    }
+
+    /// Maximum number of peer deviceIDs to probe in a single prune cycle.
+    /// A malicious or compromised PEP server can return an arbitrarily large
+    /// own-device list; without a cap, every reconnect would issue thousands
+    /// of bundle-probe IQs, blocking connect and saturating logs/network.
+    /// 64 is generous for any realistic legitimate user (own devices on one
+    /// account) and small enough to bound the worst case.
+    private static let pruneProbeCap = 64
+
+    /// Probes each peer device's bundle on the published own-device list and
+    /// (when a prior observation is recorded for that device) auto-retracts
+    /// orphan bundle nodes so siblings cannot be addressed via dead deviceIDs.
+    ///
+    /// - Parameters:
+    ///   - ownDeviceID: This client's device ID; never probed/retracted.
+    ///   - ownDeviceList: The current device-list contents at PEP.
+    /// - Returns: The (possibly trimmed) device list. The list is only
+    ///   trimmed for IDs that classified as `.stale` AND were
+    ///   previously-observed; first-connect-after-launch finds an empty
+    ///   seen-set and warn-only logs every stale device.
+    /// - Throws: Only when the post-pruning `publishDeviceList(_:)` re-publish
+    ///   fails. Per-device probe failures are swallowed (logged at
+    ///   `.warning`) so a transient PEP error never aborts the connect chain.
+    private func pruneStaleBundles(
+        ownDeviceID: UInt32, ownDeviceList: [UInt32]
+    ) async throws -> [UInt32] {
+        let peerDeviceIDs = ownDeviceList.filter { $0 != ownDeviceID }
+        let (provider, accountID) = state.withLock {
+            ($0.previouslySeenDeviceIDsProvider, $0.previouslySeenAccountID)
+        }
+        // Always anchor the seen-set to whatever PEP currently lists, even
+        // when there's nothing to probe — otherwise a list that shrinks then
+        // re-grows with the same orphan ID would auto-retract on the very
+        // first observation in the new epoch, violating the prior-observation
+        // gate's invariant.
+        guard !peerDeviceIDs.isEmpty else {
+            if let provider, let accountID {
+                await provider.updatePreviouslySeenDeviceIDs(Set(ownDeviceList), accountID: accountID)
+            }
+            return ownDeviceList
+        }
+
+        // Resource-exhaustion guard against a hostile server: skip pruning
+        // when the list is implausibly large rather than firing thousands of
+        // probes. The seen-set still anchors to the full list so a future
+        // shrink-then-regrow doesn't bypass the prior-observation gate.
+        if peerDeviceIDs.count > Self.pruneProbeCap {
+            log.warning("OMEMO device list has \(peerDeviceIDs.count) peer devices, exceeding probe cap; skipping prune")
+            if let provider, let accountID {
+                await provider.updatePreviouslySeenDeviceIDs(Set(ownDeviceList), accountID: accountID)
+            }
+            return ownDeviceList
+        }
+
+        let classifications = await classifyBundleProbes(deviceIDs: peerDeviceIDs)
+        let staleIDs = classifications.filter { $0.classification == .stale }.map(\.id)
+
+        // Concurrent-publish race guard: only retract when we have evidence
+        // that the orphan was already on the list at a prior observation.
+        // Without this gate, two clients connecting simultaneously could
+        // mis-classify each other's freshly-listed deviceID as stale and
+        // retract a sibling. First connect after `OMEMOService` is built has
+        // an empty seen-set; auto-retract kicks in on subsequent reconnects
+        // within the service's lifetime.
+        let previouslySeen: Set<UInt32> = if let provider, let accountID {
+            await provider.previouslySeenDeviceIDs(accountID: accountID)
+        } else {
+            []
+        }
+        let retractIDs = staleIDs.filter { previouslySeen.contains($0) }
+
+        // Always log first-observation orphans, even when the retract path
+        // also fires for sibling IDs in the same prune cycle. Without this,
+        // mixed `staleIDs = {previouslySeen, unseen}` cases would silently
+        // drop the operator-visible "first observed" log line for the unseen
+        // half (they'd be retracted on the next reconnect, but the audit
+        // trail for this reconnect would be incomplete).
+        for id in staleIDs where !previouslySeen.contains(id) {
+            log.warning("OMEMO stale bundle observed for device \(id) — will auto-retract on next reconnect if still missing")
+        }
+
+        if !retractIDs.isEmpty {
+            return try await retractAndRePublish(
+                retractIDs: retractIDs, ownDeviceList: ownDeviceList,
+                provider: provider, accountID: accountID
+            )
+        }
+
+        if let provider, let accountID {
+            await provider.updatePreviouslySeenDeviceIDs(Set(ownDeviceList), accountID: accountID)
+        }
+        return ownDeviceList
+    }
+
+    /// Probes each peer device's bundle node and classifies the response.
+    /// Caps concurrency at 4 by chunking — `withTaskGroup` does not have a
+    /// built-in concurrency limiter but slicing into windows of 4 achieves
+    /// the same effect with no extra primitives.
+    private func classifyBundleProbes(
+        deviceIDs: [UInt32]
+    ) async -> [(id: UInt32, classification: BundleClassification)] {
+        let chunkSize = 4
+        var classifications: [(id: UInt32, classification: BundleClassification)] = []
+        classifications.reserveCapacity(deviceIDs.count)
+        for chunkStart in stride(from: 0, to: deviceIDs.count, by: chunkSize) {
+            let chunkEnd = min(chunkStart + chunkSize, deviceIDs.count)
+            let chunk = deviceIDs[chunkStart ..< chunkEnd]
+            let chunkResults = await withTaskGroup(
+                of: (id: UInt32, classification: BundleClassification).self
+            ) { group in
+                for id in chunk {
+                    group.addTask {
+                        await self.probeBundle(deviceID: id)
+                    }
+                }
+                var collected: [(id: UInt32, classification: BundleClassification)] = []
+                for await pair in group {
+                    collected.append(pair)
+                }
+                return collected
+            }
+            classifications.append(contentsOf: chunkResults)
+        }
+        return classifications
+    }
+
+    /// Classifies a peer device's bundle. Only `item-not-found` and
+    /// successfully-parsed-as-empty responses count as `.stale`; an empty
+    /// `<items/>` list is ambiguous (e.g. a hostile or replicating server
+    /// answering empty for a live bundle), so it falls into `.transient`. A
+    /// listed bundle item whose payload fails `parseBundleElement` would be
+    /// `bundleNotFound` to the encrypt path, so we classify it as `.stale`
+    /// here for symmetry.
+    private func probeBundle(
+        deviceID: UInt32
+    ) async -> (id: UInt32, classification: BundleClassification) {
+        do {
+            let items = try await pepModule.retrieveItems(
+                node: bundleNodeName(deviceID), from: nil, maxItems: 1
+            )
+            guard let item = items.first else {
+                return (id: deviceID, classification: .transient)
+            }
+            if parseBundleElement(item.payload, deviceID: deviceID) == nil {
+                return (id: deviceID, classification: .stale)
+            }
+            return (id: deviceID, classification: .healthy)
+        } catch let stanzaError as XMPPStanzaError where stanzaError.condition == .itemNotFound {
+            return (id: deviceID, classification: .stale)
+        } catch let stanzaError as XMPPStanzaError {
+            log.warning("OMEMO bundle probe failed for device \(deviceID): \(stanzaError.condition.rawValue)")
+            return (id: deviceID, classification: .transient)
+        } catch {
+            log.warning("OMEMO bundle probe failed for device \(deviceID)")
+            log.debug("OMEMO bundle probe failed for device \(deviceID): \(error)")
+            return (id: deviceID, classification: .transient)
+        }
+    }
+
+    /// Re-publishes the trimmed device list FIRST so a subsequent retract
+    /// failure leaves PEP no worse off — a future `fetchBundle` on a
+    /// still-orphan bundle is harmless because the device list no longer
+    /// names it. After re-publish, retracts each orphan bundle, then updates
+    /// in-memory cache and the seen-set.
+    private func retractAndRePublish(
+        retractIDs: [UInt32], ownDeviceList: [UInt32],
+        provider: (any PreviouslySeenDeviceIDsProviding)?,
+        accountID: String?
+    ) async throws -> [UInt32] {
+        let trimmedList = ownDeviceList.filter { !retractIDs.contains($0) }
+        try await publishDeviceList(trimmedList)
+        for id in retractIDs {
+            do {
+                try await pepModule.retractItem(
+                    node: bundleNodeName(id), itemID: Self.bundleItemID
+                )
+            } catch let stanzaError as XMPPStanzaError {
+                log.warning("OMEMO bundle retract failed for device \(id): \(stanzaError.condition.rawValue)")
+            } catch {
+                log.warning("OMEMO bundle retract failed for device \(id)")
+                log.debug("OMEMO bundle retract failed for device \(id): \(error)")
+            }
+        }
+        let connectedJID = state.withLock { $0.context?.connectedJID()?.bareJID }
+        if let connectedJID {
+            state.withLock { $0.deviceLists[connectedJID] = trimmedList }
+        }
+        if let provider, let accountID {
+            await provider.updatePreviouslySeenDeviceIDs(Set(trimmedList), accountID: accountID)
+        }
+        log.info("OMEMO pruned \(retractIDs.count) stale bundle(s)")
+        return trimmedList
     }
 
     private func fetchBundle(
@@ -1187,6 +1475,23 @@ public extension OMEMOModule {
         public let encryption: XMLElement
         /// Fallback body for non-OMEMO clients.
         public let fallbackBody: String
+        /// Recipient devices that were skipped because no bundle could be
+        /// fetched (`item-not-found` / `bundleNotFound`). Empty in the common
+        /// path; non-empty signals partial recipient coverage. Defaulted on
+        /// the explicit init so existing call sites keep working.
+        public let droppedRecipients: [DroppedOMEMORecipient]
+
+        public init(
+            encrypted: XMLElement,
+            encryption: XMLElement,
+            fallbackBody: String,
+            droppedRecipients: [DroppedOMEMORecipient] = []
+        ) {
+            self.encrypted = encrypted
+            self.encryption = encryption
+            self.fallbackBody = fallbackBody
+            self.droppedRecipients = droppedRecipients
+        }
     }
 
     /// Serializable identity data for persistent storage.
@@ -1259,6 +1564,22 @@ package protocol OMEMOIdentityProviding: Sendable {
 }
 
 extension OMEMOModule: OMEMOIdentityProviding {}
+
+// MARK: - Previously-Seen Device IDs Provider
+
+/// Read/write access to a per-account "device IDs we've seen on a prior
+/// connect" set. `OMEMOService` (which outlives reconnects) stores the set
+/// and conforms; `OMEMOModule.pruneStaleBundles` reads it to gate
+/// auto-retract on prior observation, then writes the post-trim list back.
+///
+/// `accountID` is an opaque String — DuckoXMPP cannot import Foundation
+/// (because `XMLElement` would clash with `NSXMLElement`), so the token is
+/// passed through as a plain String. In production it is the consumer's
+/// `UUID.uuidString`; tests can use any unique string.
+package protocol PreviouslySeenDeviceIDsProviding: Sendable {
+    func previouslySeenDeviceIDs(accountID: String) async -> Set<UInt32>
+    func updatePreviouslySeenDeviceIDs(_ ids: Set<UInt32>, accountID: String) async
+}
 
 // MARK: - Errors
 

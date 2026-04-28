@@ -155,4 +155,142 @@ enum ChatServiceMUCTests {
             #expect(messages.count == 1)
         }
     }
+
+    /// Locks `clearRoomState`'s contract that all three per-room snapshots
+    /// (`roomParticipants`, `roomFlags`, `newlyCreatedRoomJIDs`) drop together
+    /// for one JID. Direct call covers the contract; `roomDestroyed` covers
+    /// the wiring through `handleRoomDestroyed`. `leaveRoom`'s wiring is
+    /// exercised transitively by `IntegrationTests` (it calls into
+    /// `MUCModule.leaveRoom` which is not stubbed in unit tests).
+    struct ClearRoomStateTests {
+        @Test
+        @MainActor
+        func `clearRoomState drops all three room maps`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let key = testRoomJID.description
+
+            let occupancy = RoomOccupancy(
+                nickname: "me",
+                occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                subject: nil,
+                flags: [.nonAnonymous, .logged]
+            )
+            await service.handleEvent(
+                .roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: true),
+                accountID: testAccountID
+            )
+
+            #expect(service.roomParticipants[key] != nil)
+            #expect(service.roomFlags[key] != nil)
+            #expect(service.newlyCreatedRoomJIDs.contains(key))
+
+            service.clearRoomState(for: testRoomJID)
+
+            #expect(service.roomParticipants[key] == nil)
+            #expect(service.roomFlags[key] == nil)
+            #expect(!service.newlyCreatedRoomJIDs.contains(key))
+        }
+
+        @Test
+        @MainActor
+        func `roomDestroyed clears all three room maps`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let key = testRoomJID.description
+
+            let occupancy = RoomOccupancy(
+                nickname: "me",
+                occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                subject: nil,
+                flags: [.nonAnonymous]
+            )
+            await service.handleEvent(
+                .roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: true),
+                accountID: testAccountID
+            )
+
+            await service.handleEvent(
+                .roomDestroyed(room: testRoomJID, reason: nil, alternateVenue: nil),
+                accountID: testAccountID
+            )
+
+            #expect(service.roomParticipants[key] == nil)
+            #expect(service.roomFlags[key] == nil)
+            #expect(!service.newlyCreatedRoomJIDs.contains(key))
+        }
+
+        @Test
+        @MainActor
+        func `disconnect clears all three room maps`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let key = testRoomJID.description
+
+            let occupancy = RoomOccupancy(
+                nickname: "me",
+                occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                subject: nil,
+                flags: [.logged]
+            )
+            await service.handleEvent(
+                .roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: true),
+                accountID: testAccountID
+            )
+
+            await service.handleEvent(.disconnected(.requested), accountID: testAccountID)
+
+            #expect(service.roomParticipants[key] == nil)
+            #expect(service.roomFlags[key] == nil)
+            #expect(!service.newlyCreatedRoomJIDs.contains(key))
+        }
+
+        /// Locks the per-account scope of the disconnect-time clear: when
+        /// account A disconnects, only A's rooms drop from the in-memory
+        /// maps; account B's rooms stay intact so the still-connected
+        /// session keeps working. A regression that reintroduced the
+        /// global `removeAll()` would silently erase B's state.
+        @Test
+        @MainActor
+        func `disconnect clears only the disconnecting account's rooms`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let accountA = UUID()
+            let accountB = UUID()
+            let roomA = try #require(BareJID.parse("alpha@conference.example.com"))
+            let roomB = try #require(BareJID.parse("beta@conference.example.com"))
+
+            let occupancy = RoomOccupancy(
+                nickname: "me",
+                occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                subject: nil,
+                flags: [.logged]
+            )
+            await service.handleEvent(
+                .roomJoined(room: roomA, occupancy: occupancy, isNewlyCreated: true),
+                accountID: accountA
+            )
+            await service.handleEvent(
+                .roomJoined(room: roomB, occupancy: occupancy, isNewlyCreated: true),
+                accountID: accountB
+            )
+
+            // Disconnect only account A.
+            await service.handleEvent(.disconnected(.requested), accountID: accountA)
+
+            // A's room state is gone.
+            #expect(service.roomParticipants[roomA.description] == nil)
+            #expect(service.roomFlags[roomA.description] == nil)
+            #expect(!service.newlyCreatedRoomJIDs.contains(roomA.description))
+
+            // B's room state is preserved.
+            #expect(service.roomParticipants[roomB.description] != nil)
+            #expect(service.roomFlags[roomB.description] != nil)
+            #expect(service.newlyCreatedRoomJIDs.contains(roomB.description))
+        }
+    }
 }

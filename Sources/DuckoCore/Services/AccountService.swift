@@ -52,7 +52,7 @@ public final class AccountService {
             case let .invalidJID(string): "Invalid JID: \(string)"
             case let .accountNotFound(id): "Account not found: \(id)"
             case let .noStoredPassword(jid): "No stored password for \(jid)"
-            case let .notConnected(id): "Not connected: \(id)"
+            case let .notConnected(id): notConnectedDescription(id)
             case let .moduleNotAvailable(id): "Module not available: \(id)"
             }
         }
@@ -195,6 +195,8 @@ public final class AccountService {
     public func deleteAccount(_ id: UUID) async throws {
         try await store.deleteAccount(id)
         deletePassword(accountID: id)
+        // Drop in-memory per-account caches that outlive the account row.
+        omemoService?.purgePreviouslySeenDeviceIDs(accountID: id)
         try await loadAccounts()
     }
 
@@ -516,7 +518,7 @@ public final class AccountService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived:
             break
         }

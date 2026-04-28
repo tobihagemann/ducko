@@ -476,4 +476,21 @@ struct PlainFormatterTests {
         #expect(output.contains("Username: alice"))
         #expect(!output.contains("FORM_TYPE"))
     }
+
+    /// Locks the user-visible wording for `omemoRecipientsPartial`. The line
+    /// must include the dropped count, the conversation JID, and the
+    /// "bundles missing" reason so operators can correlate to peer state.
+    @Test func `omemoRecipientsPartial event renders count, conversation, reason`() throws {
+        let conversation = try #require(BareJID.parse("alice@example.com"))
+        let dropped: [DroppedOMEMORecipient] = [
+            .init(jid: conversation, deviceID: 1234),
+            .init(jid: conversation, deviceID: 5678)
+        ]
+        let event = XMPPEvent.omemoRecipientsPartial(conversation: conversation, droppedDevices: dropped)
+        let output = try #require(formatter.formatEvent(event, accountID: UUID()))
+        #expect(output.contains("OMEMO"))
+        #expect(output.contains("2 device"))
+        #expect(output.contains("alice@example.com"))
+        #expect(output.contains("bundles missing"))
+    }
 }

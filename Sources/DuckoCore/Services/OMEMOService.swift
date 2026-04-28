@@ -14,6 +14,13 @@ public final class OMEMOService {
     private let omemoStore: any OMEMOStore
     private weak var accountService: AccountService?
     private weak var chatService: ChatService?
+    /// Per-account previously-seen-device-IDs set surfaced to `OMEMOModule`
+    /// via `PreviouslySeenDeviceIDsProviding`. Lives on the service so it
+    /// outlives module reconnects (each reconnect builds a fresh module);
+    /// without that, the prior-observation gate in `pruneStaleBundles` would
+    /// always find an empty set and never auto-retract. Keyed by
+    /// `UUID.uuidString` because the protocol takes opaque `String`.
+    private var previouslySeenDeviceIDsByAccount: [String: Set<UInt32>] = [:]
 
     public init(omemoStore: any OMEMOStore) {
         self.omemoStore = omemoStore
@@ -29,14 +36,26 @@ public final class OMEMOService {
         chatService = service
     }
 
+    /// Drops the previously-seen-device-IDs entry for `accountID` so it does
+    /// not survive into a future re-creation of the account. Called by
+    /// `AccountService.deleteAccount` to keep the in-memory map bounded.
+    func purgePreviouslySeenDeviceIDs(accountID: UUID) {
+        previouslySeenDeviceIDsByAccount.removeValue(forKey: accountID.uuidString)
+    }
+
     // MARK: - Module Building
 
     /// Creates a pre-configured OMEMOModule with persisted identity and sessions.
-    func buildModule(for accountJID: BareJID, pepModule: PEPModule) async -> OMEMOModule {
+    func buildModule(for accountJID: BareJID, accountID: UUID, pepModule: PEPModule) async -> OMEMOModule {
         let module = OMEMOModule(pepModule: pepModule)
         let jidString = accountJID.description
 
         wireIdentityKeyValidator(on: module, accountJID: jidString)
+        // `pruneStaleBundles` uses this to gate auto-retract on a prior
+        // observation. The set lives on the service so it survives reconnects
+        // (modules are rebuilt per reconnect; the service is held by
+        // `AppEnvironment` and outlives them).
+        module.configurePreviouslySeenDeviceIDsProvider(self, accountID: accountID.uuidString)
 
         // Restore persisted identity
         if let stored = try? await omemoStore.loadIdentity(for: jidString) {
@@ -121,6 +140,7 @@ public final class OMEMOService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
+             .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
@@ -231,7 +251,7 @@ public final class OMEMOService {
     /// Encrypts a message for all members of a group chat room.
     func encryptGroupMessage(
         body: String,
-        roomJID _: BareJID,
+        roomJID: BareJID,
         memberJIDs: [BareJID],
         accountID: UUID
     ) async throws -> OMEMOModule.EncryptedMessageElements {
@@ -249,7 +269,8 @@ public final class OMEMOService {
 
         let ownDeviceIDs = await trustedOwnDeviceIDs(accountID: accountID)
         let elements = try await omemoModule.encryptGroupMessage(
-            plaintext: body, recipients: recipients, ownDeviceIDs: ownDeviceIDs
+            plaintext: body, roomJID: roomJID,
+            recipients: recipients, ownDeviceIDs: ownDeviceIDs
         )
         await saveModuleSessions(module: omemoModule, accountID: accountID)
         return elements
@@ -559,6 +580,18 @@ public final class OMEMOService {
     }
 }
 
+// MARK: - PreviouslySeenDeviceIDsProviding
+
+extension OMEMOService: PreviouslySeenDeviceIDsProviding {
+    package func previouslySeenDeviceIDs(accountID: String) async -> Set<UInt32> {
+        previouslySeenDeviceIDsByAccount[accountID] ?? []
+    }
+
+    package func updatePreviouslySeenDeviceIDs(_ ids: Set<UInt32>, accountID: String) async {
+        previouslySeenDeviceIDsByAccount[accountID] = ids
+    }
+}
+
 // MARK: - Errors
 
 enum OMEMOServiceError: Error, LocalizedError {
@@ -570,7 +603,7 @@ enum OMEMOServiceError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case let .notConnected(id): "Not connected: \(id)"
+        case let .notConnected(id): notConnectedDescription(id)
         case .omemoNotAvailable: "OMEMO module not available"
         case .noTrustedRecipients: "No trusted OMEMO recipients"
         case .identityKeyMismatch: "OMEMO identity key mismatch"

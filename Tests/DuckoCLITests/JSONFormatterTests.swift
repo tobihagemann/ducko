@@ -314,4 +314,31 @@ struct JSONFormatterTests {
         #expect(json["is_registered"] == "true")
         #expect(json["field_nick"] == "bob")
     }
+
+    /// Locks the structured envelope shape for `omemoRecipientsPartial` —
+    /// it diverges from the file's flat-dict pattern intentionally so JSON
+    /// consumers can read `dropped` as an array of `{jid, deviceID}` objects.
+    /// A regression that flattens the envelope or renames a field would
+    /// silently break downstream consumers.
+    @Test func `omemo_recipients_partial event emits structured dropped array`() throws {
+        let conversation = try #require(BareJID.parse("alice@example.com"))
+        let dropped: [DroppedOMEMORecipient] = [
+            .init(jid: conversation, deviceID: 1234),
+            .init(jid: conversation, deviceID: 5678)
+        ]
+        let accountID = UUID()
+        let event = XMPPEvent.omemoRecipientsPartial(conversation: conversation, droppedDevices: dropped)
+        let output = try #require(formatter.formatEvent(event, accountID: accountID))
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["type"] as? String == "omemo_recipients_partial")
+        #expect(json["conversation"] as? String == "alice@example.com")
+        #expect(json["account"] as? String == accountID.uuidString)
+        #expect(json["droppedCount"] as? Int == 2)
+        let droppedArray = try #require(json["dropped"] as? [[String: Any]])
+        #expect(droppedArray.count == 2)
+        #expect(droppedArray[0]["jid"] as? String == "alice@example.com")
+        #expect(droppedArray[0]["deviceID"] as? Int == 1234)
+        #expect(droppedArray[1]["deviceID"] as? Int == 5678)
+    }
 }

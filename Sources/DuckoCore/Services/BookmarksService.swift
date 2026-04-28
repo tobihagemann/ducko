@@ -11,7 +11,7 @@ enum BookmarksError: Error, LocalizedError {
         case let .invalidJID(jid):
             return "Invalid JID: \(jid)"
         case let .notConnected(id):
-            return "Not connected: \(id)"
+            return notConnectedDescription(id)
         }
     }
 }
@@ -130,7 +130,7 @@ public final class BookmarksService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }

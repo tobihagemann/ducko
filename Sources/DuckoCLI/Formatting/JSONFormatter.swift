@@ -137,7 +137,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
             return nil
-        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced:
+        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial:
             return formatOMEMOEvent(event, account: account)
         }
     }
@@ -160,6 +160,8 @@ struct JSONFormatter: CLIFormatter {
                 "fingerprint": fingerprint,
                 "account": account
             ])
+        case let .omemoRecipientsPartial(conversation, dropped):
+            return formatOMEMORecipientsPartial(conversation: conversation, dropped: dropped, account: account)
         case .omemoEncryptedMessageReceived, .omemoSessionAdvanced:
             return nil
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
@@ -185,6 +187,25 @@ struct JSONFormatter: CLIFormatter {
              .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
+    }
+
+    /// Structured per-device drops so JSON consumers can parse without
+    /// splitting on a custom `<jid>/<deviceID>` mini-format. The envelope
+    /// shape diverges from this file's flat-dict pattern intentionally —
+    /// dropped recipients are the only event payload with a real list.
+    private func formatOMEMORecipientsPartial(
+        conversation: BareJID, dropped: [DroppedOMEMORecipient], account: String
+    ) -> String {
+        let envelope = OMEMORecipientsPartialJSON(
+            type: "omemo_recipients_partial",
+            conversation: conversation.description,
+            dropped: dropped.map {
+                OMEMORecipientsPartialJSON.DroppedDevice(jid: $0.jid.description, deviceID: $0.deviceID)
+            },
+            droppedCount: dropped.count,
+            account: account
+        )
+        return encode(envelope)
     }
 
     private func formatConnectionEvent(_ event: XMPPEvent, account: String) -> String? {
@@ -216,7 +237,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
@@ -290,7 +311,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
@@ -396,7 +417,7 @@ struct JSONFormatter: CLIFormatter {
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .serviceOutageReceived:
             return nil
         }
@@ -613,7 +634,7 @@ struct JSONFormatter: CLIFormatter {
              .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             return nil
         }
@@ -814,6 +835,32 @@ struct JSONFormatter: CLIFormatter {
         json.birthday = profile.birthday
         json.note = profile.note
         return encode(json)
+    }
+
+    /// Synthesized `Encodable` references each stored property in
+    /// `encode(to:)`, but Periphery's analyzer still flags them as
+    /// assign-only. Suppress per-property; the alternative — a manual
+    /// `encode(to:)` matching `ProfileJSON` — would re-introduce the
+    /// stringly-typed `CodingKeys` boilerplate the structured envelope was
+    /// meant to avoid.
+    private struct OMEMORecipientsPartialJSON: Encodable {
+        // periphery:ignore
+        let type: String
+        // periphery:ignore
+        let conversation: String
+        // periphery:ignore
+        let dropped: [DroppedDevice]
+        // periphery:ignore
+        let droppedCount: Int
+        // periphery:ignore
+        let account: String
+
+        struct DroppedDevice: Encodable {
+            // periphery:ignore
+            let jid: String
+            // periphery:ignore
+            let deviceID: UInt32
+        }
     }
 
     private struct ProfileJSON: Encodable {

@@ -475,10 +475,7 @@ public final class ChatService {
         guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.leaveRoom(jid)
-        // Drop the per-room occupancy snapshot so callers that introspect
-        // `roomParticipants` (e.g. REPL `send` heuristics) don't treat a
-        // left room's domain as still-joined. Mirrors `handleRoomDestroyed`.
-        roomParticipants.removeValue(forKey: jid.description)
+        clearRoomState(for: jid)
     }
 
     public func sendGroupMessage(to room: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {
@@ -846,7 +843,7 @@ public final class ChatService {
         public var errorDescription: String? {
             switch self {
             case let .invalidJID(string): "Invalid JID: \(string)"
-            case let .notConnected(id): "Not connected: \(id)"
+            case let .notConnected(id): notConnectedDescription(id)
             case let .encryptionFailed(reason): "Encryption failed: \(reason)"
             case .notOutgoingMessage: "Cannot correct a message that was not sent by you"
             }
@@ -894,7 +891,7 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
@@ -915,12 +912,14 @@ public final class ChatService {
         case let .roomInviteReceived(invite):
             handleRoomInviteReceived(invite)
         case let .roomDestroyed(room, _, _):
-            handleRoomDestroyed(room: room)
+            clearRoomState(for: room)
         case let .mucSelfPingFailed(room, reason):
             await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
         case .disconnected:
-            newlyCreatedRoomJIDs.removeAll()
-            roomFlags.removeAll()
+            // Drop room state owned by the disconnecting account only — a
+            // global `removeAll` would erase rooms belonging to other still-
+            // connected accounts in a multi-account session.
+            await clearRoomState(forAccount: accountID)
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -938,7 +937,7 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
@@ -972,7 +971,7 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
@@ -1020,7 +1019,7 @@ public final class ChatService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
@@ -1168,7 +1167,7 @@ public final class ChatService {
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             return
         }
@@ -1407,8 +1406,31 @@ public final class ChatService {
         }
     }
 
-    private func handleRoomDestroyed(room: BareJID) {
-        roomParticipants.removeValue(forKey: room.description)
+    /// Drops every per-room snapshot (`roomParticipants`, `roomFlags`,
+    /// `newlyCreatedRoomJIDs`) for `jid` so room-lifecycle exits leave a
+    /// consistent view. Called from `leaveRoom`, the `.roomDestroyed` switch
+    /// arm, and the per-account disconnect path so all three maps clear
+    /// together; clearing only one of the three is what motivated the
+    /// helper in the first place.
+    package func clearRoomState(for jid: BareJID) {
+        let key = jid.description
+        roomParticipants.removeValue(forKey: key)
+        roomFlags.removeValue(forKey: key)
+        newlyCreatedRoomJIDs.remove(key)
+    }
+
+    /// Disconnect-time clear scoped to one account's groupchat conversations
+    /// so a multi-account session that disconnects one account does not erase
+    /// rooms belonging to still-connected accounts. The room-state maps
+    /// (`roomParticipants`, `roomFlags`, `newlyCreatedRoomJIDs`) are keyed by
+    /// `String` JID, with no per-account partitioning, so we re-derive the
+    /// disconnecting account's room set from the persisted conversations
+    /// (the only authoritative cross-room mapping).
+    private func clearRoomState(forAccount accountID: UUID) async {
+        let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
+        for conversation in conversations where conversation.type == .groupchat {
+            clearRoomState(for: conversation.jid)
+        }
     }
 
     // MARK: - Private: Group OMEMO

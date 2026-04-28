@@ -318,6 +318,13 @@ final class TestHarness {
             log.warning("OMEMO fixture for \(credential.label) is malformed; ignoring and allowing fresh identity generation")
             return false
         }
+        // Refuse to seed identity material that was captured for a different
+        // JID — silent reuse across accounts would mask a renamed/recycled
+        // fixture file.
+        if !Self.fixtureJIDMatchesCredential(fixture.accountJID, credentialJID: credential.jid) {
+            log.warning("OMEMO fixture for \(credential.label) was captured for a different JID; ignoring and allowing fresh identity generation")
+            return false
+        }
 
         let identity = OMEMOStoredIdentity(
             accountJID: credential.jid,
@@ -349,8 +356,11 @@ final class TestHarness {
 
     /// Captures the freshly-generated OMEMO identity for `credential` to the
     /// path resolved by `fixtureURL(for:)` so later runs can reuse it via
-    /// `loadOMEMOFixture`. No-ops when a well-formed fixture is already on
-    /// disk; overwrites a malformed one.
+    /// `loadOMEMOFixture`. Writes only when the encoded bytes differ from
+    /// the on-disk file: idempotent runs stay byte-stable (no spurious git
+    /// diffs in CI), but a test that consumes prekeys flips an `isUsed`
+    /// flag, the encoded bytes diverge from disk, and the fixture is
+    /// rewritten. A malformed fixture is also overwritten and logged.
     ///
     /// `OMEMOService.handleConnected` persists identity, prekeys, and signed
     /// prekey via a detached task that outlives `.rosterLoaded`, so this method
@@ -359,47 +369,94 @@ final class TestHarness {
     /// run regenerates.
     private func captureOMEMOFixture(for credential: TestCredentials.Credential) async throws {
         let fixtureURL = Self.fixtureURL(for: credential.label)
-
-        if let existing = try? Data(contentsOf: fixtureURL) {
-            if let decoded = try? JSONDecoder().decode(FixtureOMEMOIdentity.self, from: existing),
-               decoded.passesShapeInvariants {
+        // Distinguish "file not present" (continue and write fresh) from
+        // "file present but unreadable" (bail rather than clobber). A
+        // transient I/O error reading a well-formed fixture must not result
+        // in silently overwriting it on disk.
+        let fileExists = FileManager.default.fileExists(atPath: fixtureURL.path)
+        let existing: Data?
+        if fileExists {
+            do {
+                existing = try Data(contentsOf: fixtureURL)
+            } catch {
+                log.warning("OMEMO fixture for \(credential.label) at \(fixtureURL.path) is present but unreadable (\(error.localizedDescription)); skipping capture to avoid clobbering it")
                 return
             }
-            log.info("Overwriting malformed OMEMO fixture for \(credential.label) at \(fixtureURL.path)")
+        } else {
+            existing = nil
+        }
+        let existingDecoded = existing.flatMap { try? JSONDecoder().decode(FixtureOMEMOIdentity.self, from: $0) }
+        let existingIsMalformed = existing != nil && existingDecoded?.passesShapeInvariants != true
+        // Refuse to overwrite a well-formed fixture whose accountJID disagrees
+        // with the credential — `loadOMEMOFixture` already rejected it as a
+        // mismatch and let connect generate fresh material; silently writing
+        // the new identity over the existing file would permanently destroy
+        // the original-account fixture without warning.
+        if let existingDecoded,
+           existingDecoded.passesShapeInvariants,
+           !Self.fixtureJIDMatchesCredential(existingDecoded.accountJID, credentialJID: credential.jid) {
+            log.warning("OMEMO fixture for \(credential.label) at \(fixtureURL.path) was captured for a different JID; preserving existing file. Move or delete it manually if you intend to reuse the path for \(credential.jid).")
+            return
         }
 
+        guard let fixture = try await buildFixture(for: credential) else { return }
+        let encoded = try Self.encodeFixture(fixture)
+
+        // Idempotency guard: if the on-disk bytes already match the fixture we
+        // would write, skip the write. Idempotent test runs stay byte-stable
+        // (no spurious git diffs in CI), but a test that consumes prekeys —
+        // flipping their `isUsed` flags in memory — will diff against the
+        // on-disk copy and trigger a rewrite.
+        if existing == encoded {
+            log.debug("OMEMO fixture for \(credential.label) unchanged; skipping write at \(fixtureURL.path)")
+            return
+        }
+
+        try writeFixture(encoded, to: fixtureURL)
+        if existingIsMalformed {
+            log.info("Overwrote malformed OMEMO fixture for \(credential.label) at \(fixtureURL.path)")
+        } else {
+            log.debug("OMEMO fixture for \(credential.label) changed; wrote at \(fixtureURL.path)")
+        }
+    }
+
+    /// Builds a `FixtureOMEMOIdentity` from the OMEMO store after polling the
+    /// detached persistence task. Returns `nil` when the store has not
+    /// finished writing within 10s — the next run will regenerate.
+    private func buildFixture(
+        for credential: TestCredentials.Credential
+    ) async throws -> FixtureOMEMOIdentity? {
         guard await waitForSignedPreKey(for: credential) else {
             log.warning("OMEMO signed prekey for \(credential.label) did not land in store within 10s; skipping fixture capture")
-            return
+            return nil
         }
-
         guard let storedIdentity = try await omemoStore.loadIdentity(for: credential.jid) else {
             log.warning("OMEMO identity for \(credential.label) missing at capture time; skipping fixture capture")
-            return
+            return nil
         }
         let storedPreKeys = try await omemoStore.loadPreKeys(for: credential.jid)
         guard let storedSignedPreKey = try await omemoStore.loadSignedPreKey(for: credential.jid) else {
             log.warning("OMEMO signed prekey for \(credential.label) missing at capture time; skipping fixture capture")
-            return
+            return nil
         }
-
-        let fixture = FixtureOMEMOIdentity(
+        return FixtureOMEMOIdentity(
             deviceID: storedIdentity.deviceID,
             identityKeyRaw: Array(storedIdentity.identityKeyData),
             signedPreKeyID: storedSignedPreKey.keyID,
             signedPreKeyRaw: Array(storedSignedPreKey.keyData),
             signedPreKeySignature: Array(storedSignedPreKey.signature),
-            preKeys: storedPreKeys.map {
-                FixtureOMEMOIdentity.PreKey(keyID: $0.keyID, keyRaw: Array($0.keyData), isUsed: $0.isUsed)
-            }
+            preKeys: Self.sortedFixturePreKeys(storedPreKeys),
+            accountJID: credential.jid
         )
+    }
 
-        // Create the directory with owner-only access (0700) and write the
-        // fixture with owner-only permissions (0600) so the long-term identity
-        // keys don't land at the umask default (0755/0644) on multi-user hosts.
-        // `createDirectory(attributes:)` is a no-op when the directory already
-        // exists, so re-apply 0700 explicitly afterward — otherwise a dir
-        // created by an older harness version at default 0755 stays that way.
+    /// Writes the encoded fixture to disk with owner-only directory and
+    /// file permissions so the long-term identity keys don't land at the
+    /// umask default (0755/0644) on multi-user hosts.
+    /// `createDirectory(attributes:)` is a no-op when the directory already
+    /// exists, so re-apply 0700 explicitly afterward — otherwise a dir
+    /// created by an older harness version at default 0755 stays that way.
+    private func writeFixture(_ encoded: Data, to fixtureURL: URL) throws {
         let directory = fixtureURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
             at: directory,
@@ -407,16 +464,40 @@ final class TestHarness {
             attributes: [.posixPermissions: 0o700]
         )
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-
-        let encoder = JSONEncoder()
-        // Pretty-printed JSON honors `OMEMOFixtureFormat`'s "visible to the
-        // naked eye when inspecting fixture drift" docstring.
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let encoded = try encoder.encode(fixture)
         try encoded.write(to: fixtureURL, options: .atomic)
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixtureURL.path)
+    }
 
-        log.info("Captured generated OMEMO identity for \(credential.label) at \(fixtureURL.path)")
+    /// Deterministic JSON encoding for `FixtureOMEMOIdentity`. Used both for
+    /// writing the fixture and for the on-disk-vs-in-memory diff in
+    /// `captureOMEMOFixture` — both sides must agree on key ordering and
+    /// formatting, otherwise a byte-stable run would false-positive the diff.
+    /// Pretty-printed JSON honors `OMEMOFixtureFormat`'s "visible to the
+    /// naked eye when inspecting fixture drift" docstring.
+    nonisolated static func encodeFixture(_ fixture: FixtureOMEMOIdentity) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(fixture)
+    }
+
+    /// Per-keyID-sorted serialization of stored prekeys, matching
+    /// `captureOMEMOFixture`'s in-memory-side serialization. Exposed so unit
+    /// tests can assert byte-stability without driving the whole capture flow.
+    nonisolated static func sortedFixturePreKeys(
+        _ storedPreKeys: [OMEMOStoredPreKey]
+    ) -> [FixtureOMEMOIdentity.PreKey] {
+        storedPreKeys
+            .sorted { $0.keyID < $1.keyID }
+            .map { FixtureOMEMOIdentity.PreKey(keyID: $0.keyID, keyRaw: Array($0.keyData), isUsed: $0.isUsed) }
+    }
+
+    /// Treats a missing (legacy) `captured` as a match (legacy fixtures
+    /// pre-date the field and load until rewritten). When present, compares
+    /// as parsed `BareJID` so localpart/domainpart case normalization doesn't
+    /// trigger a spurious mismatch.
+    nonisolated static func fixtureJIDMatchesCredential(_ captured: String?, credentialJID: String) -> Bool {
+        guard let captured else { return true }
+        return BareJID.parse(captured) == BareJID.parse(credentialJID)
     }
 
     /// Polls the OMEMO store for `credential`'s signed-prekey up to 10 s.

@@ -16,6 +16,44 @@ struct FixtureOMEMOIdentity: Codable {
     /// Ed25519 signature over the signed pre-key (64 bytes).
     let signedPreKeySignature: [UInt8]
     let preKeys: [PreKey]
+    /// Bare JID this fixture was captured for. Optional with `decodeIfPresent`
+    /// so legacy fixtures (written before this field existed) keep loading;
+    /// `loadOMEMOFixture` refuses a fixture whose JID disagrees with the
+    /// credential at load time so identity material cannot be silently reused
+    /// across accounts.
+    let accountJID: String?
+
+    init(
+        deviceID: UInt32,
+        identityKeyRaw: [UInt8],
+        signedPreKeyID: UInt32,
+        signedPreKeyRaw: [UInt8],
+        signedPreKeySignature: [UInt8],
+        preKeys: [PreKey],
+        accountJID: String? = nil
+    ) {
+        self.deviceID = deviceID
+        self.identityKeyRaw = identityKeyRaw
+        self.signedPreKeyID = signedPreKeyID
+        self.signedPreKeyRaw = signedPreKeyRaw
+        self.signedPreKeySignature = signedPreKeySignature
+        self.preKeys = preKeys
+        self.accountJID = accountJID
+    }
+
+    /// Custom decode so legacy fixtures — written before `accountJID` existed —
+    /// deserialize cleanly with `accountJID = nil` rather than throwing
+    /// `keyNotFound`. Mirrors `PreKey.init(from:)` for the same reason.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.deviceID = try container.decode(UInt32.self, forKey: .deviceID)
+        self.identityKeyRaw = try container.decode([UInt8].self, forKey: .identityKeyRaw)
+        self.signedPreKeyID = try container.decode(UInt32.self, forKey: .signedPreKeyID)
+        self.signedPreKeyRaw = try container.decode([UInt8].self, forKey: .signedPreKeyRaw)
+        self.signedPreKeySignature = try container.decode([UInt8].self, forKey: .signedPreKeySignature)
+        self.preKeys = try container.decode([PreKey].self, forKey: .preKeys)
+        self.accountJID = try container.decodeIfPresent(String.self, forKey: .accountJID)
+    }
 
     struct PreKey: Codable {
         let keyID: UInt32

@@ -81,7 +81,7 @@ public final class AvatarService {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
@@ -92,7 +92,7 @@ public final class AvatarService {
 
         public var errorDescription: String? {
             switch self {
-            case let .notConnected(id): "Not connected: \(id)"
+            case let .notConnected(id): notConnectedDescription(id)
             }
         }
     }

@@ -177,6 +177,35 @@ enum AccountServiceTests {
             #expect(storedAccounts.isEmpty)
             #expect(credentials.loadPassword(for: account.jid.description) == nil)
         }
+
+        /// Locks the wiring from `AccountService.deleteAccount` to
+        /// `OMEMOService.purgePreviouslySeenDeviceIDs`. A regression that
+        /// drops the purge call would silently leak the per-account map
+        /// across recreated accounts.
+        @Test
+        @MainActor
+        func `deleteAccount purges OMEMOService previously-seen-device-IDs`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let account = makeAccount()
+            await store.addAccount(account)
+            credentials.savePassword("secret", for: account.jid.description)
+
+            let omemoStore = MockOMEMOStore()
+            let omemoService = OMEMOService(omemoStore: omemoStore)
+            let accountService = makeAccountService(store: store, credentials: credentials)
+            accountService.setOMEMOService(omemoService)
+            try await accountService.loadAccounts()
+
+            // Seed the per-account seen-set, then delete the account.
+            await omemoService.updatePreviouslySeenDeviceIDs([1, 2, 3], accountID: account.id.uuidString)
+            #expect(await omemoService.previouslySeenDeviceIDs(accountID: account.id.uuidString) == [1, 2, 3])
+
+            try await accountService.deleteAccount(account.id)
+
+            // Purge wiring must drop the entry.
+            #expect(await omemoService.previouslySeenDeviceIDs(accountID: account.id.uuidString) == [])
+        }
     }
 
     struct CredentialManagement {

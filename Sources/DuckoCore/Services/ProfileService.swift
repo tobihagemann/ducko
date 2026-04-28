@@ -11,7 +11,7 @@ public final class ProfileService {
 
         public var errorDescription: String? {
             switch self {
-            case let .notConnected(id): "Not connected: \(id)"
+            case let .notConnected(id): notConnectedDescription(id)
             }
         }
     }

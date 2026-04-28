@@ -160,6 +160,60 @@ enum OMEMOServiceTests {
         }
     }
 
+    /// Locks the production `OMEMOService` conformance to
+    /// `PreviouslySeenDeviceIDsProviding` — the seen-set must persist across
+    /// reads and stay isolated per account. The pruning unit tests in
+    /// DuckoXMPP use a stub provider; these tests prove the real production
+    /// wiring keeps its data correctly.
+    struct PreviouslySeenDeviceIDsProvider {
+        @Test
+        @MainActor
+        func `empty by default; round-trips set per account`() async {
+            let store = MockOMEMOStore()
+            let service = makeOMEMOService(store: store)
+            let acctA = UUID().uuidString
+
+            // Empty by default.
+            let empty = await service.previouslySeenDeviceIDs(accountID: acctA)
+            #expect(empty == [])
+
+            // Round-trips written values.
+            await service.updatePreviouslySeenDeviceIDs([1, 2, 3], accountID: acctA)
+            let read = await service.previouslySeenDeviceIDs(accountID: acctA)
+            #expect(read == [1, 2, 3])
+        }
+
+        @Test
+        @MainActor
+        func `per-account isolation`() async {
+            let store = MockOMEMOStore()
+            let service = makeOMEMOService(store: store)
+            let acctA = UUID().uuidString
+            let acctB = UUID().uuidString
+
+            await service.updatePreviouslySeenDeviceIDs([1, 2], accountID: acctA)
+            await service.updatePreviouslySeenDeviceIDs([3, 4], accountID: acctB)
+
+            #expect(await service.previouslySeenDeviceIDs(accountID: acctA) == [1, 2])
+            #expect(await service.previouslySeenDeviceIDs(accountID: acctB) == [3, 4])
+        }
+
+        @Test
+        @MainActor
+        func `purge drops the per-account entry`() async {
+            let store = MockOMEMOStore()
+            let service = makeOMEMOService(store: store)
+            let id = UUID()
+            let key = id.uuidString
+
+            await service.updatePreviouslySeenDeviceIDs([1, 2], accountID: key)
+            #expect(await service.previouslySeenDeviceIDs(accountID: key) == [1, 2])
+
+            service.purgePreviouslySeenDeviceIDs(accountID: id)
+            #expect(await service.previouslySeenDeviceIDs(accountID: key) == [])
+        }
+    }
+
     /// Pins `MockOMEMOStore`'s upsert behavior so future mock-only edits can't
     /// silently drift back to append-on-write.
     struct MockStoreSemantics {

@@ -33,7 +33,7 @@ public final class RosterService {
 
         public var errorDescription: String? {
             switch self {
-            case let .notConnected(id): "Not connected: \(id)"
+            case let .notConnected(id): notConnectedDescription(id)
             case let .invalidJID(string): "Invalid JID: \(string)"
             }
         }
@@ -164,7 +164,7 @@ public final class RosterService {
              .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced,
+             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }

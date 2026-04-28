@@ -498,6 +498,623 @@ enum OMEMOModuleTests {
 
             await client.disconnect()
         }
+
+        /// Locks the emit-before-throw contract: `omemoRecipientsPartial`
+        /// fires with the dropped peer devices BEFORE
+        /// `noUsableRecipientDevices` is thrown, so operators get the same
+        /// diagnostic in the worst case as in partial-coverage cases. A
+        /// regression that flipped the order would silently hide the
+        /// dropped set in the most-needed scenario.
+        @Test func `omemoRecipientsPartial fires before noUsableRecipientDevices throw`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let (client, _) = try await makeConnectedClient(mock: mock, omemoModule: omemoModule, pepModule: pepModule)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .omemoRecipientsPartial = event { return true }
+                    return false
+                }
+            }
+
+            let task = Task {
+                try await omemoModule.encryptMessage(
+                    plaintext: "hello", to: peerJID,
+                    recipientDeviceIDs: [10, 11], ownDeviceIDs: []
+                )
+            }
+
+            await mock.waitForSent(count: 2)
+            let sent = await mock.sentBytes
+            let id1 = try #require(extractIQID(from: sent[0]))
+            let id2 = try #require(extractIQID(from: sent[1]))
+            await mock.simulateReceive(makeItemNotFoundIQ(iqID: id1, fromJID: peerJID))
+            await mock.simulateReceive(makeItemNotFoundIQ(iqID: id2, fromJID: peerJID))
+
+            await #expect(throws: OMEMOModuleError.noUsableRecipientDevices) {
+                _ = try await task.value
+            }
+
+            // The throw must NOT have suppressed the event.
+            let collected = try await eventsTask.value
+            guard case let .omemoRecipientsPartial(conversation, dropped) = try #require(collected.last) else {
+                Issue.record("Expected omemoRecipientsPartial event")
+                return
+            }
+            #expect(conversation == peerJID)
+            #expect(dropped.count == 2)
+
+            await client.disconnect()
+        }
+    }
+
+    struct PruneStaleBundlesTests {
+        actor StubPreviouslySeenProvider: PreviouslySeenDeviceIDsProviding {
+            private var seen: Set<UInt32>
+            private(set) var updates: [Set<UInt32>] = []
+
+            init(initial: Set<UInt32> = []) {
+                self.seen = initial
+            }
+
+            func previouslySeenDeviceIDs(accountID _: String) async -> Set<UInt32> {
+                seen
+            }
+
+            func updatePreviouslySeenDeviceIDs(_ ids: Set<UInt32>, accountID _: String) async {
+                seen = ids
+                updates.append(ids)
+            }
+
+            var lastUpdate: Set<UInt32>? {
+                updates.last
+            }
+        }
+
+        /// Empty seen-set on first prune: orphan devices are warn-only logged
+        /// and recorded for next reconnect — no retract IQ, no re-publish.
+        @Test
+        func `Empty seen-set warn-only on stale device — no retract, no re-publish`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .itemNotFound]
+            )
+
+            // Seen-set should have been recorded with the full device list
+            // (own + 99). No retract IQ was issued — only the bundle probe.
+            let last = await stub.lastUpdate
+            #expect(last?.contains(99) == true)
+
+            let postProbeSent = await mock.sentBytes
+            for bytes in postProbeSent {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+
+            await client.disconnect()
+        }
+
+        /// Previously-seen orphan: device-list re-published trimmed first, then
+        /// the bundle is retracted. This is the steady-state auto-cleanup path.
+        @Test
+        func `Previously-seen stale device is retracted and re-published`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .itemNotFound],
+                expectedRetracts: [99]
+            )
+
+            // Final seen-set update should reflect the trimmed list (just own).
+            let last = await stub.lastUpdate
+            #expect(last == Set([ownDeviceID]))
+
+            await client.disconnect()
+        }
+
+        /// Previously-seen but healthy device must NOT be retracted — the
+        /// `.healthy` classification path is the most common and most
+        /// dangerous to break (would cause spurious retractions of live
+        /// sibling bundles).
+        @Test
+        func `Previously-seen healthy device is not trimmed`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .healthy]
+            )
+
+            // Seen-set should be the full list (own + 99) — neither retracted
+            // nor trimmed.
+            let last = await stub.lastUpdate
+            #expect(last == Set([ownDeviceID, 99]))
+
+            let postProbeSent = await mock.sentBytes
+            for bytes in postProbeSent {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+
+            await client.disconnect()
+        }
+
+        /// Previously-seen device returning a non-itemNotFound stanza error
+        /// classifies as `.transient` — must not retract. Guards against a
+        /// "drop everything that isn't a perfect success" regression.
+        @Test
+        func `Transient stanza error does not retract previously-seen device`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .serviceUnavailable]
+            )
+
+            let postProbeSent = await mock.sentBytes
+            for bytes in postProbeSent {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+
+            await client.disconnect()
+        }
+
+        /// Empty `<items/>` response classifies as `.transient`, NOT `.stale`
+        /// — defends against a malicious own-server selectively returning
+        /// empty for a sibling's live bundle.
+        @Test
+        func `Empty items response is transient, not stale`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .empty]
+            )
+
+            // Empty items would have triggered retract if treated as stale;
+            // the new classification keeps the bundle (and the device list)
+            // intact.
+            let postProbeSent = await mock.sentBytes
+            for bytes in postProbeSent {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+
+            await client.disconnect()
+        }
+
+        /// Mixed seen+unseen stale IDs: when one orphan was previously seen
+        /// (so it retracts) and another is brand-new-stale (warn-only), the
+        /// warn-only loop must still run. The retract path trims only the
+        /// previously-seen orphan; the brand-new orphan stays on the list
+        /// and the seen-set anchors so the next reconnect can retract it.
+        /// Locks the iter-2 reordering of the warn-only loop above the
+        /// retract branch.
+        @Test
+        func `Mixed seen and unseen stale IDs preserves the unseen one until next reconnect`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99, 100],
+                bundleProbeOutcomes: [99: .itemNotFound, 100: .itemNotFound],
+                expectedRetracts: [99]
+            )
+
+            // Final seen-set update from the retract path: trimmedList is
+            // [own, 100] — 99 was retracted, 100 is unseen-stale and stays.
+            let last = await stub.lastUpdate
+            #expect(last == Set([ownDeviceID, 100]))
+
+            // The retract IQ went out for 99 only; 100 was warn-only logged
+            // and not retracted.
+            let retractIDs = await mock.sentBytes.compactMap { bytes -> UInt32? in
+                let xml = String(decoding: bytes, as: UTF8.self)
+                guard xml.contains("<retract") else { return nil }
+                return extractBundleDeviceID(from: bytes)
+            }
+            #expect(retractIDs == [99])
+
+            await client.disconnect()
+        }
+
+        /// Empty peer device list (single-client account): pruneStaleBundles
+        /// does nothing but still anchors the seen-set to the published list,
+        /// so a future shrink-then-regrow with the same orphan ID can't
+        /// bypass the prior-observation gate. This is the load-bearing
+        /// reason for the empty-peer-list early return.
+        @Test
+        func `Empty peer device list still anchors the seen-set`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: []
+            )
+
+            // Seen-set must contain the published list (just own).
+            let last = await stub.lastUpdate
+            #expect(last == Set([ownDeviceID]))
+
+            await client.disconnect()
+        }
+
+        /// Malformed bundle payload (well-formed PEP item containing payload
+        /// that fails `parseBundleElement`) classifies as `.stale`, matching
+        /// `fetchBundle`'s `bundleNotFound` semantics. Without this branch a
+        /// corrupt bundle node would stay listed forever.
+        @Test
+        func `Malformed bundle payload classifies as stale`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .malformedPayload],
+                expectedRetracts: [99]
+            )
+
+            // Malformed payload classified stale + previously seen → retract
+            // path fires, trimmed list re-published.
+            let postProbeSent = await mock.sentBytes
+            let retractFound = postProbeSent.contains { bytes in
+                let xml = String(decoding: bytes, as: UTF8.self)
+                return xml.contains("<retract")
+            }
+            #expect(retractFound)
+
+            await client.disconnect()
+        }
+
+        /// Probe cap: an attacker-shaped huge device list causes prune to
+        /// skip entirely — no probe IQs, no retract, but the seen-set still
+        /// anchors so the gate stays correct on the next reconnect.
+        @Test
+        func `Huge device list exceeds probe cap and prune skips`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            // Build a list larger than `pruneProbeCap` (64). Use 100.
+            // Drive connect manually instead of via the standard helper,
+            // because the helper assumes one probe IQ per listed device,
+            // and the cap path issues zero probes.
+            let attackerList: [UInt32] = (1 ... 100).map(UInt32.init)
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(pepModule)
+            await client.register(omemoModule)
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+
+            await mock.waitForSent(count: 5)
+            let id5 = try await #require(extractIQID(from: mock.sentBytes[4]))
+            await mock.simulateReceive(makeOwnDeviceListResultIQ(iqID: id5, devices: attackerList))
+            await mock.waitForSent(count: 6)
+            let id6 = try await #require(extractIQID(from: mock.sentBytes[5]))
+            await mock.simulateReceive("<iq type=\"result\" id=\"\(id6)\"/>")
+            await mock.waitForSent(count: 7)
+            let id7 = try await #require(extractIQID(from: mock.sentBytes[6]))
+            let ownDeviceID = try await #require(extractBundleDeviceID(from: mock.sentBytes[6]))
+            await mock.simulateReceive("<iq type=\"result\" id=\"\(id7)\"/>")
+            try await connectTask.value
+
+            // Probe cap fires: zero probe IQs sent. Total stanzas == 7.
+            let total = await mock.sentBytes.count
+            #expect(total == 7)
+
+            // Seen-set still anchored to the full attacker list + own ID,
+            // so a future shrink-then-regrow cannot bypass the gate.
+            let last = await stub.lastUpdate
+            #expect(last?.count == attackerList.count + 1)
+            #expect(last?.contains(ownDeviceID) == true)
+
+            await client.disconnect()
+        }
+
+        /// Retract IQs use itemID `"current"` so the publish and retract
+        /// sites cannot drift. A wrong itemID would be a silent no-op on
+        /// most PEP servers.
+        @Test
+        func `Retract IQ uses itemID current`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .itemNotFound],
+                expectedRetracts: [99]
+            )
+
+            let allBytes = await mock.sentBytes
+            let retractIQ = allBytes.first { bytes in
+                let xml = String(decoding: bytes, as: UTF8.self)
+                return xml.contains("<retract")
+            }
+            let xml = try #require(retractIQ.map { String(decoding: $0, as: UTF8.self) })
+            #expect(xml.contains("<item id=\"current\"/>"))
+
+            await client.disconnect()
+        }
+
+        /// Re-publish failure: when `publishDeviceList` throws during the
+        /// retract path, `pruneStaleBundles` rethrows. The connect chain
+        /// catches and warn-only logs — but no retract is issued (because
+        /// the trim was never published) and the seen-set is NOT updated to
+        /// the trimmed list. Locks the rollback semantics documented in
+        /// `retractAndRePublish`'s docstring ("publish FIRST so a subsequent
+        /// retract failure leaves PEP no worse off").
+        @Test
+        func `Republish failure rethrows and skips retract`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let stub = StubPreviouslySeenProvider(initial: [99])
+            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(pepModule)
+            await client.register(omemoModule)
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+
+            // Standard OMEMO connect: device-list retrieve, publish, bundle publish.
+            await mock.waitForSent(count: 5)
+            let id5 = try await #require(extractIQID(from: mock.sentBytes[4]))
+            await mock.simulateReceive(makeOwnDeviceListResultIQ(iqID: id5, devices: [99]))
+            await mock.waitForSent(count: 6)
+            let id6 = try await #require(extractIQID(from: mock.sentBytes[5]))
+            await mock.simulateReceive("<iq type=\"result\" id=\"\(id6)\"/>")
+            await mock.waitForSent(count: 7)
+            let id7 = try await #require(extractIQID(from: mock.sentBytes[6]))
+            await mock.simulateReceive("<iq type=\"result\" id=\"\(id7)\"/>")
+
+            // Bundle probe: classify deviceID 99 as stale.
+            await mock.waitForSent(count: 8)
+            let probeID = try await #require(extractIQID(from: mock.sentBytes[7]))
+            await mock.simulateReceive(makeItemNotFoundIQ(iqID: probeID, fromJID: pruneTestUserJID))
+
+            // Re-publish trimmed device list FAILS with service-unavailable.
+            await mock.waitForSent(count: 9)
+            let republishID = try await #require(extractIQID(from: mock.sentBytes[8]))
+            await mock.simulateReceive(makeServiceUnavailableIQ(iqID: republishID, fromJID: pruneTestUserJID))
+
+            // Connect must still complete — the rethrow is caught by handleConnect.
+            try await connectTask.value
+
+            // Critically, no retract IQ must have been sent — the trim was
+            // never confirmed at PEP, so retracting orphan bundles would
+            // leave the device list and bundles inconsistent.
+            let total = await mock.sentBytes.count
+            #expect(total == 9)
+            let allBytes = await mock.sentBytes
+            for bytes in allBytes {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+            // Seen-set must NOT be updated to the trimmed list — the retract
+            // path bailed before that write, so no update was ever issued.
+            let last = await stub.lastUpdate
+            #expect(last == nil)
+
+            await client.disconnect()
+        }
+    }
+
+    struct OMEMORecipientsPartialEventTests {
+        @Test
+        func `Event fires when peer device's bundle is missing during encrypt`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let (client, _) = try await makeConnectedClient(mock: mock, omemoModule: omemoModule, pepModule: pepModule)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .omemoRecipientsPartial = event { return true }
+                    return false
+                }
+            }
+
+            let task = Task {
+                try await omemoModule.encryptMessage(
+                    plaintext: "hello", to: peerJID,
+                    recipientDeviceIDs: [10, 11], ownDeviceIDs: []
+                )
+            }
+
+            await mock.waitForSent(count: 2)
+            let sent = await mock.sentBytes
+            let id1 = try #require(extractIQID(from: sent[0]))
+            let id2 = try #require(extractIQID(from: sent[1]))
+            let dev2 = try #require(extractBundleDeviceID(from: sent[1]))
+            // First fetch fails with item-not-found; second returns a valid bundle.
+            await mock.simulateReceive(makeItemNotFoundIQ(iqID: id1, fromJID: peerJID))
+            let validBundleIQ = try makeValidBundleResultIQ(
+                iqID: id2, deviceID: dev2, fromJID: peerJID, module: omemoModule
+            )
+            await mock.simulateReceive(validBundleIQ)
+
+            let elements = try await task.value
+            #expect(elements.droppedRecipients.count == 1)
+            let collected = try await eventsTask.value
+            guard case let .omemoRecipientsPartial(conversation, dropped) = try #require(collected.last) else {
+                Issue.record("Expected omemoRecipientsPartial event")
+                return
+            }
+            #expect(conversation == peerJID)
+            #expect(dropped.count == 1)
+            // The dropped device is whichever the loop classified — not dev2 (which succeeded).
+            #expect(dropped[0].jid == peerJID)
+            #expect(dropped[0].deviceID != dev2)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Event fires for encryptGroupMessage with conversation == roomJID`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let (client, _) = try await makeConnectedClient(mock: mock, omemoModule: omemoModule, pepModule: pepModule)
+            let roomJID = try #require(BareJID(localPart: "room", domainPart: "muc.example.com"))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .omemoRecipientsPartial = event { return true }
+                    return false
+                }
+            }
+
+            let task = Task {
+                try await omemoModule.encryptGroupMessage(
+                    plaintext: "hi room", roomJID: roomJID,
+                    recipients: [(jid: peerJID, deviceIDs: [10, 11])], ownDeviceIDs: []
+                )
+            }
+
+            await mock.waitForSent(count: 2)
+            let sent = await mock.sentBytes
+            let id1 = try #require(extractIQID(from: sent[0]))
+            let id2 = try #require(extractIQID(from: sent[1]))
+            let dev2 = try #require(extractBundleDeviceID(from: sent[1]))
+            await mock.simulateReceive(makeItemNotFoundIQ(iqID: id1, fromJID: peerJID))
+            let validBundleIQ = try makeValidBundleResultIQ(
+                iqID: id2, deviceID: dev2, fromJID: peerJID, module: omemoModule
+            )
+            await mock.simulateReceive(validBundleIQ)
+
+            let elements = try await task.value
+            #expect(elements.droppedRecipients.count == 1)
+            let collected = try await eventsTask.value
+            guard case let .omemoRecipientsPartial(conversation, dropped) = try #require(collected.last) else {
+                Issue.record("Expected omemoRecipientsPartial event")
+                return
+            }
+            // The conversation field labels the MUC room, not the peer JID
+            // — that's the diagnostic point of the new roomJID parameter.
+            #expect(conversation == roomJID)
+            #expect(dropped.count == 1)
+            #expect(dropped[0].jid == peerJID)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Event fires when an own-device's bundle is missing during encrypt`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let (client, _) = try await makeConnectedClient(mock: mock, omemoModule: omemoModule, pepModule: pepModule)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .omemoRecipientsPartial = event { return true }
+                    return false
+                }
+            }
+
+            // Recipient peer succeeds; the own-device side gets one explicit
+            // own-device ID with no bundle. The dropped union must include
+            // that own-device drop and the event must fire for it. Peer
+            // encryption awaits its response before own encryption starts,
+            // so the IQs are sequential: first peer (42), then own (777).
+            let task = Task {
+                try await omemoModule.encryptMessage(
+                    plaintext: "hello", to: peerJID,
+                    recipientDeviceIDs: [42], ownDeviceIDs: [777]
+                )
+            }
+
+            await mock.waitForSent(count: 1)
+            let peerBytes = await mock.sentBytes[0]
+            let peerID = try #require(extractIQID(from: peerBytes))
+            let peerDeviceID = try #require(extractBundleDeviceID(from: peerBytes))
+            let validBundleIQ = try makeValidBundleResultIQ(
+                iqID: peerID, deviceID: peerDeviceID, fromJID: peerJID, module: omemoModule
+            )
+            await mock.simulateReceive(validBundleIQ)
+
+            await mock.waitForSent(count: 2)
+            let ownBytes = await mock.sentBytes[1]
+            let ownID = try #require(extractIQID(from: ownBytes))
+            // The IQ's `to` was the connected client's own JID
+            // ("user@example.com"); the response's `from` must match for
+            // `sendIQ` to correlate. Wrong `from` would route to the
+            // pendingIQ's expectedFrom-mismatch path (silent drop) and
+            // sendIQ would hang for 30s before throwing timeout.
+            let ownJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
+            await mock.simulateReceive(makeItemNotFoundIQ(iqID: ownID, fromJID: ownJID))
+
+            let elements = try await task.value
+            // Exactly one own-device drop in the union.
+            #expect(elements.droppedRecipients.count == 1)
+            #expect(elements.droppedRecipients[0].deviceID == 777)
+
+            let collected = try await eventsTask.value
+            guard case let .omemoRecipientsPartial(_, dropped) = try #require(collected.last) else {
+                Issue.record("Expected omemoRecipientsPartial event")
+                return
+            }
+            #expect(dropped.contains { $0.deviceID == 777 })
+
+            await client.disconnect()
+        }
     }
 
     struct PublishOptionsTests {
@@ -661,6 +1278,192 @@ private func extractBundleDeviceID(from bytes: [UInt8]) -> UInt32? {
     let after = xml[nodeRange.upperBound...]
     guard let endQuote = after.firstIndex(of: "\"") else { return nil }
     return UInt32(after[after.startIndex ..< endQuote])
+}
+
+/// Possible mock responses to a `pruneStaleBundles` per-device probe.
+private enum BundleProbeOutcome {
+    case itemNotFound
+    case healthy
+    case empty
+    /// A stanza error other than `item-not-found`. Drives the `.transient`
+    /// classification path.
+    case serviceUnavailable
+    /// A successful PEP item whose payload fails `parseBundleElement`.
+    /// Drives the `.stale` classification path through the parse-check.
+    case malformedPayload
+}
+
+/// Drives the standard handshake plus OMEMO connect with a non-empty
+/// device-list response, then drives the pruneStaleBundles probe flow.
+/// Returns the connected client and the module's own device ID.
+///
+/// `otherDeviceIDsOnList` are the deviceIDs the server returns from the
+/// device-list retrieve IQ (the module appends its own afterwards).
+/// `bundleProbeOutcomes` maps each non-own deviceID to the response the test
+/// wants to inject; missing entries default to `.empty` (which classifies as
+/// transient — no retract regardless of seen-set).
+/// `expectedRetracts` lists deviceIDs the test expects to be retracted —
+/// when non-empty, the helper waits for the trimmed device-list re-publish
+/// IQ followed by each retract IQ and acks them all.
+private func makeConnectedClientWithDeviceList(
+    mock: MockTransport,
+    omemoModule: OMEMOModule,
+    pepModule: PEPModule,
+    otherDeviceIDsOnList: [UInt32],
+    bundleProbeOutcomes: [UInt32: BundleProbeOutcome] = [:],
+    expectedRetracts: [UInt32] = []
+) async throws -> (XMPPClient, UInt32) {
+    let client = XMPPClient(
+        domain: "example.com",
+        credentials: .init(username: "user", password: "pass"),
+        transport: mock, requireTLS: false
+    )
+    await client.register(pepModule)
+    await client.register(omemoModule)
+
+    let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+    await simulateNoTLSConnect(mock)
+
+    // Own device-list retrieve — return list with `otherDeviceIDsOnList`.
+    await mock.waitForSent(count: 5)
+    let id5 = try await #require(extractIQID(from: mock.sentBytes[4]))
+    await mock.simulateReceive(makeOwnDeviceListResultIQ(iqID: id5, devices: otherDeviceIDsOnList))
+
+    // Device-list publish (module appended its own ID).
+    await mock.waitForSent(count: 6)
+    let id6 = try await #require(extractIQID(from: mock.sentBytes[5]))
+    await mock.simulateReceive("<iq type=\"result\" id=\"\(id6)\"/>")
+
+    // Bundle publish.
+    await mock.waitForSent(count: 7)
+    let bundlePublishBytes = await mock.sentBytes[6]
+    let id7 = try #require(extractIQID(from: bundlePublishBytes))
+    let ownDeviceID = try #require(extractBundleDeviceID(from: bundlePublishBytes))
+    await mock.simulateReceive("<iq type=\"result\" id=\"\(id7)\"/>")
+
+    // pruneStaleBundles fires per-device probes (parallel within chunks of 4).
+    let probeCount = otherDeviceIDsOnList.count
+    try await respondToBundleProbes(
+        mock: mock, omemoModule: omemoModule,
+        probeCount: probeCount, outcomes: bundleProbeOutcomes
+    )
+
+    // Retract path: re-publish trimmed device list, then retract each orphan.
+    try await respondToRetractFlow(
+        mock: mock, startingSentCount: 7 + probeCount,
+        expectedRetracts: expectedRetracts
+    )
+
+    try await connectTask.value
+    return (client, ownDeviceID)
+}
+
+private let pruneTestUserJID = BareJID(localPart: "user", domainPart: "example.com")!
+
+/// Acks the per-device bundle-probe IQs that `pruneStaleBundles` issues with
+/// the response specified by `outcomes` (defaults to `.empty`).
+private func respondToBundleProbes(
+    mock: MockTransport, omemoModule: OMEMOModule,
+    probeCount: Int, outcomes: [UInt32: BundleProbeOutcome]
+) async throws {
+    guard probeCount > 0 else { return }
+    await mock.waitForSent(count: 7 + probeCount)
+    let probeBytes = await mock.sentBytes
+    for offset in 0 ..< probeCount {
+        let probeIQ = probeBytes[7 + offset]
+        let probeID = try #require(extractIQID(from: probeIQ))
+        let probedDeviceID = try #require(extractBundleDeviceID(from: probeIQ))
+        let outcome = outcomes[probedDeviceID] ?? .empty
+        switch outcome {
+        case .itemNotFound:
+            await mock.simulateReceive(makeItemNotFoundIQ(iqID: probeID, fromJID: pruneTestUserJID))
+        case .empty:
+            await mock.simulateReceive(makeEmptyBundleResultIQ(iqID: probeID, deviceID: probedDeviceID))
+        case .healthy:
+            let bundleIQ = try makeValidBundleResultIQ(
+                iqID: probeID, deviceID: probedDeviceID,
+                fromJID: pruneTestUserJID, module: omemoModule
+            )
+            await mock.simulateReceive(bundleIQ)
+        case .serviceUnavailable:
+            await mock.simulateReceive(makeServiceUnavailableIQ(iqID: probeID, fromJID: pruneTestUserJID))
+        case .malformedPayload:
+            await mock.simulateReceive(makeMalformedBundleResultIQ(iqID: probeID, deviceID: probedDeviceID))
+        }
+    }
+}
+
+/// `<iq type='result'>` carrying a non-empty `<items/>` whose item payload
+/// is missing every required bundle field. `parseBundleElement` returns nil,
+/// so `probeBundle` classifies as `.stale`.
+private func makeMalformedBundleResultIQ(iqID: String, deviceID: UInt32) -> String {
+    """
+    <iq type="result" id="\(iqID)">\
+    <pubsub xmlns="http://jabber.org/protocol/pubsub">\
+    <items node="urn:xmpp:omemo:2:bundles:\(deviceID)">\
+    <item id="current"><bundle xmlns="urn:xmpp:omemo:2"/></item>\
+    </items></pubsub></iq>
+    """
+}
+
+/// Builds a `<iq type='error'>` with `<service-unavailable/>` for the given id.
+private func makeServiceUnavailableIQ(iqID: String, fromJID: BareJID) -> String {
+    """
+    <iq type="error" id="\(iqID)" from="\(fromJID.description)">\
+    <error type="cancel">\
+    <service-unavailable xmlns="urn:ietf:params:xml:ns:xmpp-stanzas"/>\
+    </error></iq>
+    """
+}
+
+/// Acks the post-probe device-list re-publish IQ followed by per-orphan
+/// retract IQs that `pruneStaleBundles` issues when the seen-set says retract.
+private func respondToRetractFlow(
+    mock: MockTransport, startingSentCount: Int, expectedRetracts: [UInt32]
+) async throws {
+    guard !expectedRetracts.isEmpty else { return }
+    var nextSent = startingSentCount
+    await mock.waitForSent(count: nextSent + 1)
+    let republishID = try await #require(extractIQID(from: mock.sentBytes[nextSent]))
+    await mock.simulateReceive("<iq type=\"result\" id=\"\(republishID)\"/>")
+    nextSent += 1
+
+    for _ in expectedRetracts {
+        await mock.waitForSent(count: nextSent + 1)
+        let retractID = try await #require(extractIQID(from: mock.sentBytes[nextSent]))
+        await mock.simulateReceive("<iq type=\"result\" id=\"\(retractID)\"/>")
+        nextSent += 1
+    }
+}
+
+/// `<iq type='result'>` carrying a device-list payload with no `from`
+/// attribute — the module's own device-list retrieve uses the user's own
+/// server, which doesn't typically echo `from`.
+private func makeOwnDeviceListResultIQ(iqID: String, devices: [UInt32]) -> String {
+    var deviceXML = ""
+    for id in devices {
+        deviceXML += "<device id=\"\(id)\"/>"
+    }
+    return """
+    <iq type="result" id="\(iqID)">\
+    <pubsub xmlns="http://jabber.org/protocol/pubsub">\
+    <items node="urn:xmpp:omemo:2:devices">\
+    <item id="current"><list xmlns="urn:xmpp:omemo:2">\(deviceXML)</list></item>\
+    </items></pubsub></iq>
+    """
+}
+
+/// `<iq type='result'>` carrying an empty `<items/>` payload — classified as
+/// `.transient` by `probeBundle` (a hostile or replicating server might
+/// answer empty for a sibling's live bundle, so empty-items is ambiguous and
+/// must not trigger retract).
+private func makeEmptyBundleResultIQ(iqID: String, deviceID: UInt32) -> String {
+    """
+    <iq type="result" id="\(iqID)">\
+    <pubsub xmlns="http://jabber.org/protocol/pubsub">\
+    <items node="urn:xmpp:omemo:2:bundles:\(deviceID)"/>\
+    </pubsub></iq>
+    """
 }
 
 private func makeTestBundle() -> OMEMOBundle {

@@ -44,7 +44,7 @@ actor CLIEventHandler {
              .jingleContentAddReceived, .jingleContentAccepted,
              .jingleContentRejected, .jingleContentRemoved,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoEncryptedMessageReceived,
+             .omemoEncryptedMessageReceived, .omemoRecipientsPartial,
              .serviceOutageReceived:
             break
         }
