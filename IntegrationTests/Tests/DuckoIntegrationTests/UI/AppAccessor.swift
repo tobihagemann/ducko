@@ -419,17 +419,16 @@ actor AppAccessor {
     }
 
     /// Resolves `identifier` as a segmented picker / button group and clicks
-    /// the segment whose `kAXTitleAttribute` matches `title`.
+    /// the segment whose label matches `title`. Reads `kAXTitleAttribute`
+    /// first and falls back to `kAXDescriptionAttribute` — SwiftUI's
+    /// `Picker(.segmented)` on macOS 26 publishes the segment label only via
+    /// the description attribute, with title returning `missing value`.
     func clickSegment(title: String, identifier: String) async throws {
         let picker = try resolveElement(identifier: identifier)
         let match = findDescendant(
             in: picker,
             roles: [kAXRadioButtonRole, kAXButtonRole],
-            where: { candidate in
-                var value: AnyObject?
-                let err = AXUIElementCopyAttributeValue(candidate, kAXTitleAttribute as CFString, &value)
-                return err == .success && (value as? String) == title
-            }
+            where: { candidate in segmentLabel(of: candidate) == title }
         )
         guard let segment = match else {
             throw TestHarnessError.elementNotFound(identifier: "\(identifier)/segment[\(title)]")
@@ -440,13 +439,25 @@ actor AppAccessor {
     func clickTab(title: String, underIdentifier identifier: String) async throws {
         let container = try resolveElement(identifier: identifier)
         guard let tab = findDescendant(in: container, role: kAXRadioButtonRole, where: { element in
-            var value: AnyObject?
-            let err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
-            return err == .success && (value as? String) == title
+            segmentLabel(of: element) == title
         }) else {
             throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
         }
         try perform(action: kAXPressAction, on: tab, identifier: identifier)
+    }
+
+    /// Reads the human-visible label of a segmented-picker / tab segment.
+    /// Tries `kAXTitleAttribute` then `kAXDescriptionAttribute` because
+    /// SwiftUI's segmented `Picker` on macOS 26 publishes the label via
+    /// description while title is `missing value`.
+    private func segmentLabel(of element: AXUIElement) -> String? {
+        var value: AnyObject?
+        var err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+        if err != .success || (value as? String)?.isEmpty ?? true {
+            err = AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &value)
+        }
+        guard err == .success else { return nil }
+        return value as? String
     }
 
     func clickMenuItem(title: String) async throws {

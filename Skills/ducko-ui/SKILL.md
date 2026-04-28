@@ -36,7 +36,6 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `contact-row-{jid}` | Individual contact row | Contacts |
 | `status-picker` | Presence status menu | Contacts |
 | `status-message-field` | Status message text field | Contacts |
-| `search-contacts` | Search field (via .searchable) | Contacts |
 | `message-field` | Message input text field | Chat |
 | `send-button` | Send message button | Chat |
 | `new-chat-jid-field` | JID field in New Chat sheet | Contacts |

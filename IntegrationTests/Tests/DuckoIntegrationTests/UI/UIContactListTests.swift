@@ -28,7 +28,7 @@ extension DuckoIntegrationTests.UILayer {
                 // Negative case first: a query that matches no contact must
                 // hide bob's row. Without this, a no-op `.searchable` would
                 // pass the matching-query check below trivially.
-                try await app.type("zzznomatch", intoSearchField: "search-contacts")
+                try await app.type("zzznomatch", intoSearchField: nil)
                 try await app.waitForAbsence(
                     identifier: "contact-row-\(bob.jid)",
                     timeout: TestTimeout.uiElement
@@ -37,7 +37,7 @@ extension DuckoIntegrationTests.UILayer {
                 // Positive case: typing "bob" surfaces bob's row again.
                 // Replace the search text — the keystroke fallback would
                 // append, so we set the kAXValueAttribute path explicitly.
-                try await app.type("bob", intoSearchField: "search-contacts")
+                try await app.type("bob", intoSearchField: nil)
                 try await app.waitForElement(
                     identifier: "contact-row-\(bob.jid)",
                     timeout: TestTimeout.uiElement

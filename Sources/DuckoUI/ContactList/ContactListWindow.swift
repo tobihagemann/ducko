@@ -29,7 +29,6 @@ struct ContactListWindow: View {
             ContactListView(searchText: searchText, preferences: preferences)
         }
         .searchable(text: $searchText, placement: .toolbar)
-        .accessibilityIdentifier("search-contacts")
         .toolbar {
             ToolbarItem {
                 Menu {
