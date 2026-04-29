@@ -54,6 +54,25 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 }
                 return false
             }
+
+            // RFC 6121 §3.1.5/§3.1.6: after `<presence type="subscribed">` is
+            // delivered, Alice's server still has work to do (roster push, current
+            // presence to Bob). `.presenceSubscriptionApproved` is not a routing
+            // barrier — Alice's next broadcast can race that flow and be silently
+            // dropped because Bob's roster entry isn't yet `from`/`both` server-side.
+            // Drive a unique sentinel broadcast through the live path and wait for
+            // Bob to observe it; only then is the route proven settled for the test.
+            let alicePresence = try await harness.module(PresenceModule.self, for: "alice")
+            let warmup = "warmup-\(UUID().uuidString.prefix(8))"
+            try await alicePresence.broadcastPresence(show: nil, status: warmup)
+            _ = try await bob.waitForEvent { event in
+                if case let .presenceUpdated(from: _, presence) = event,
+                   presence.status == warmup,
+                   presence.presenceType == nil {
+                    return true
+                }
+                return false
+            }
         }
 
         // MARK: - Tests

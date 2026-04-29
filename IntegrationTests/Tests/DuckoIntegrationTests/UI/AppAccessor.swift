@@ -221,36 +221,27 @@ actor AppAccessor {
     // MARK: - AX queries
 
     /// Polls the AX tree for `identifier` until it appears or the timeout
-    /// elapses. One final probe runs after the deadline (mirrors
-    /// `REPLSession.pollBuffer`).
+    /// elapses. Catches only `elementNotFound` inside the predicate so an
+    /// `axTrustMissing` raised by `resolveElement` is not silently relabelled
+    /// as a generic timeout.
     func waitForElement(identifier: String, timeout: Duration = TestTimeout.uiElement) async throws {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            do {
-                _ = try resolveElement(identifier: identifier)
-                return
-            } catch TestHarnessError.elementNotFound {
-                // not visible yet — sleep and retry
-            }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        // One final probe after the deadline — ensures a probe that started
-        // just before the deadline (and was still in flight as it crossed)
-        // gets a chance to surface a result before we throw. Catch only
-        // `elementNotFound` so an `axTrustMissing` raised by `resolveElement`
-        // is not silently relabelled as a generic timeout.
         do {
-            _ = try resolveElement(identifier: identifier)
-            return
-        } catch TestHarnessError.elementNotFound {
-            // fall through to timeout below
+            try await pollUntil(timeout: timeout) {
+                do {
+                    _ = try self.resolveElement(identifier: identifier)
+                    return true
+                } catch TestHarnessError.elementNotFound {
+                    return false
+                }
+            }
+        } catch TestHarnessError.timeout {
+            // Identifiers may embed JIDs (e.g. `contact-row-bob@…`) and the
+            // project privacy policy bars JIDs at warning/info/notice — log at
+            // debug instead so the diagnostic is available in trace mode without
+            // leaking sensitive data at higher levels.
+            log.debug("waitForElement timeout (\(timeout)) for identifier '\(identifier)'")
+            throw TestHarnessError.timeout
         }
-        // Identifiers may embed JIDs (e.g. `contact-row-bob@…`) and the
-        // project privacy policy bars JIDs at warning/info/notice — log at
-        // debug instead so the diagnostic is available in trace mode without
-        // leaking sensitive data at higher levels.
-        log.debug("waitForElement timeout (\(timeout)) for identifier '\(identifier)'")
-        throw TestHarnessError.timeout
     }
 
     /// Polls `containsDescendant(role:withSubstring:underIdentifier:)` until
@@ -263,40 +254,33 @@ actor AppAccessor {
         underIdentifier identifier: String,
         timeout: Duration = TestTimeout.uiElement
     ) async throws {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if try await containsDescendant(role: role, withSubstring: substring, underIdentifier: identifier) {
-                return
+        do {
+            try await pollUntil(timeout: timeout) {
+                try await self.containsDescendant(role: role, withSubstring: substring, underIdentifier: identifier)
             }
-            try await Task.sleep(for: .milliseconds(50))
+        } catch TestHarnessError.timeout {
+            log.debug("waitForDescendant timeout (\(timeout)) role '\(role)' substring '\(substring)' under '\(identifier)'")
+            throw TestHarnessError.timeout
         }
-        if try await containsDescendant(role: role, withSubstring: substring, underIdentifier: identifier) {
-            return
-        }
-        log.debug("waitForDescendant timeout (\(timeout)) role '\(role)' substring '\(substring)' under '\(identifier)'")
-        throw TestHarnessError.timeout
     }
 
     /// Polls until `identifier` is no longer present or the timeout elapses.
     /// Use this to assert dismissal of transient UI state like the typing
     /// indicator without accepting "still visible" as passing.
     func waitForAbsence(identifier: String, timeout: Duration = TestTimeout.uiElement) async throws {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            do {
-                _ = try resolveElement(identifier: identifier)
-            } catch TestHarnessError.elementNotFound {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(50))
-        }
         do {
-            _ = try resolveElement(identifier: identifier)
-        } catch TestHarnessError.elementNotFound {
-            return
+            try await pollUntil(timeout: timeout) {
+                do {
+                    _ = try self.resolveElement(identifier: identifier)
+                    return false
+                } catch TestHarnessError.elementNotFound {
+                    return true
+                }
+            }
+        } catch TestHarnessError.timeout {
+            log.debug("waitForAbsence timeout (\(timeout)) for identifier '\(identifier)'")
+            throw TestHarnessError.timeout
         }
-        log.debug("waitForAbsence timeout (\(timeout)) for identifier '\(identifier)'")
-        throw TestHarnessError.timeout
     }
 
     func click(identifier: String) async throws {
@@ -483,14 +467,92 @@ actor AppAccessor {
             throw TestHarnessError.elementNotFound(identifier: "menu-item[\(title)]")
         }
         let appElement = AXUIElementCreateApplication(pid)
-        guard let menuItem = findDescendant(in: appElement, role: kAXMenuItemRole, where: { element in
-            var value: AnyObject?
-            let err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
-            return err == .success && (value as? String) == title
-        }) else {
+        guard let menuItem = findMenuItem(in: appElement, title: title) else {
             throw TestHarnessError.elementNotFound(identifier: "menu-item[\(title)]")
         }
         try perform(action: kAXPressAction, on: menuItem, identifier: "menu-item[\(title)]")
+    }
+
+    /// Selects a menu item inside an NSPopUpButton-backed control (e.g.
+    /// SwiftUI `Picker(.menu)`) by title and commits the popup's selection.
+    ///
+    /// Distinct from `clickMenuItem(title:)`: that helper is for menu-bar /
+    /// context-menu items reachable from the application AX root and uses
+    /// `kAXPressAction` (press semantics, `NSAccessibility.Action.press`).
+    /// Popup pickers need `kAXPickAction` (pick semantics,
+    /// `NSAccessibility.Action.pick` / `accessibilityPerformPick()`) — pressing
+    /// a menu item inside a popup highlights/expands it without committing the
+    /// popup's value on macOS 26, leaving the SwiftUI `Binding(set:)` setter
+    /// unfired and `kAXValueAttribute` stale.
+    ///
+    /// Per Apple's `AXUIElementPerformAction` docs, `kAXErrorCannotComplete`
+    /// during modal callbacks (which menu tracking is) does NOT necessarily
+    /// indicate failure — the action may have taken effect anyway. So we poll
+    /// for the menu becoming visible after `kAXShowMenuAction`, and for the
+    /// popup value reconciling after `kAXPickAction`, before falling back to
+    /// alternative input synthesis.
+    func pickPopUpItem(title: String, identifier: String) async throws {
+        let popUp = try resolveElement(identifier: identifier)
+        if let pid = process?.processIdentifier {
+            await Self.activateApp(pid: pid)
+        }
+
+        // Open the menu — show-menu first; press fallback only if the menu
+        // doesn't appear (covers controls that don't expose show-menu and the
+        // documented-indeterminate `cannotComplete` case where show-menu may
+        // have actually opened the menu). Use a short poll for the
+        // speculative show-menu probe (in practice menus publish in 100ms or
+        // not at all) so the press fallback isn't held up for the full UI
+        // timeout when show-menu silently no-ops.
+        let showErr = AXUIElementPerformAction(popUp, kAXShowMenuAction as CFString)
+        if showErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
+        do {
+            try await waitForShownMenu(on: popUp, identifier: identifier, timeout: .milliseconds(500))
+        } catch TestHarnessError.timeout {
+            try perform(action: kAXPressAction, on: popUp, identifier: identifier)
+            try await waitForShownMenu(on: popUp, identifier: identifier)
+        }
+
+        // Once the menu is open, an error escaping this function would leave
+        // it open and eating events for subsequent helpers. Track commit state
+        // and post Escape on the failure path. The committed state is
+        // determined by the popup's value matching `title`, not by the AX
+        // action's return code, because `cannotComplete` is indeterminate.
+        var commitAttempted = false
+        do {
+            let menu = try resolveShownMenu(for: popUp, identifier: identifier)
+            guard let item = findMenuItem(in: menu, title: title) else {
+                throw TestHarnessError.elementNotFound(identifier: "\(identifier)/menu-item[\(title)]")
+            }
+
+            // kAXPickAction is the canonical "select this menu item" action.
+            // Always poll the popup value afterward — `cannotComplete` may
+            // have committed the pick anyway; fall back to a synthesized
+            // CGEvent click pair only if the value never reconciles.
+            let pickErr = AXUIElementPerformAction(item, kAXPickAction as CFString)
+            if pickErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
+            do {
+                try await waitForValue(title, identifier: identifier)
+                commitAttempted = true
+            } catch TestHarnessError.timeout {
+                guard let center = elementCenter(of: item) else {
+                    throw TestHarnessError.elementNotFound(identifier: "\(identifier)/menu-item[\(title)]")
+                }
+                postClickPair(at: center, clickState: 1)
+                commitAttempted = true
+                do {
+                    try await waitForValue(title, identifier: identifier)
+                } catch TestHarnessError.timeout {
+                    log.debug("pickPopUpItem timeout (\(TestTimeout.uiElement)) for identifier '\(identifier)' title '\(title)'")
+                    throw TestHarnessError.timeout
+                }
+            }
+        } catch {
+            if !commitAttempted {
+                try? await pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+            }
+            throw error
+        }
     }
 
     /// Synthesizes a key-down/up event pair via `.cghidEventTap`. Re-
@@ -566,6 +628,22 @@ actor AppAccessor {
     }
 
     // MARK: - Internal AX helpers
+
+    /// Loops `check` every 50 ms until it returns `true` or `timeout` elapses.
+    /// One final probe runs after the deadline so a `check` invocation that
+    /// started just before the deadline (and was still in flight as it
+    /// crossed) gets a chance to surface a result before timing out. Callers
+    /// that need a per-call diagnostic on timeout catch
+    /// `TestHarnessError.timeout` and log before re-throwing.
+    private func pollUntil(timeout: Duration, check: () async throws -> Bool) async throws {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if try await check() { return }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        if try await check() { return }
+        throw TestHarnessError.timeout
+    }
 
     private func readValue(identifier: String) throws -> String? {
         let element = try resolveElement(identifier: identifier)
@@ -693,6 +771,65 @@ actor AppAccessor {
         let err = AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &roleValue)
         guard err == .success else { return nil }
         return roleValue as? String
+    }
+
+    /// Polls until `popUp`'s shown menu becomes resolvable. Used by
+    /// `pickPopUpItem` to absorb `cannotComplete` from `kAXShowMenuAction`
+    /// (the menu may have opened anyway) and the asynchronous AX publication
+    /// window after a successful action. Callers pick a short timeout for
+    /// speculative probes and the full UI timeout for confirmation after a
+    /// committed press fallback.
+    private func waitForShownMenu(
+        on popUp: AXUIElement,
+        identifier: String,
+        timeout: Duration = TestTimeout.uiElement
+    ) async throws {
+        try await pollUntil(timeout: timeout) {
+            (try? self.resolveShownMenu(for: popUp, identifier: identifier)) != nil
+        }
+    }
+
+    /// Polls `readValue(identifier:)` until it equals `expected`. Absorbs
+    /// transient `elementNotFound` (SwiftUI re-renders the popup briefly when
+    /// the binding commits).
+    private func waitForValue(_ expected: String, identifier: String) async throws {
+        try await pollUntil(timeout: TestTimeout.uiElement) {
+            do {
+                return try self.readValue(identifier: identifier) == expected
+            } catch TestHarnessError.elementNotFound {
+                return false
+            }
+        }
+    }
+
+    /// Locates the first descendant `kAXMenuItemRole` of `root` whose
+    /// `kAXTitleAttribute` equals `title`. Shared between `clickMenuItem`
+    /// (root = application element) and `pickPopUpItem` (root = popup's
+    /// shown menu).
+    private func findMenuItem(in root: AXUIElement, title: String) -> AXUIElement? {
+        findDescendant(in: root, role: kAXMenuItemRole, where: { element in
+            var value: AnyObject?
+            let err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+            return err == .success && (value as? String) == title
+        })
+    }
+
+    private func resolveShownMenu(for popUp: AXUIElement, identifier: String) throws -> AXUIElement {
+        var shownValue: AnyObject?
+        let shownErr = AXUIElementCopyAttributeValue(
+            popUp,
+            kAXShownMenuUIElementAttribute as CFString,
+            &shownValue
+        )
+        if shownErr == .success,
+           let shownValue,
+           CFGetTypeID(shownValue) == AXUIElementGetTypeID() {
+            return unsafeDowncast(shownValue, to: AXUIElement.self)
+        }
+        if let menu = findDescendant(in: popUp, role: kAXMenuRole, where: { _ in true }) {
+            return menu
+        }
+        throw TestHarnessError.elementNotFound(identifier: "\(identifier)/shown-menu")
     }
 
     private func collectIdentifiers(
