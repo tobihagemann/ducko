@@ -38,6 +38,10 @@ public final class OMEMOModule: XMPPModule, Sendable {
     private let state: OSAllocatedUnfairLock<State>
     private let pepModule: PEPModule
 
+    /// PEP node name prefix for OMEMO bundle nodes (XEP-0384). A device's
+    /// bundle is published at `bundleNodePrefix + "<deviceID>"`.
+    public static let bundleNodePrefix = "\(XMPPNamespaces.omemo):bundles:"
+
     public var features: [String] {
         [XMPPNamespaces.omemo, XMPPNamespaces.eme]
     }
@@ -1421,7 +1425,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
     private func bundleNodeName(
         _ deviceID: UInt32
     ) -> String {
-        "\(XMPPNamespaces.omemo):bundles:\(deviceID)"
+        "\(Self.bundleNodePrefix)\(deviceID)"
     }
 
     private func randomBytes(_ count: Int) -> [UInt8] {

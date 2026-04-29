@@ -301,5 +301,34 @@ enum PEPModuleTests {
             try await retractTask.value
             await client.disconnect()
         }
+
+        @Test
+        func `deleteNode sends correct pubsub#owner IQ structure`() async throws {
+            let mock = MockTransport()
+            let pepModule = makePEPModule()
+            let client = try await makeConnectedClient(mock: mock, pepModule: pepModule)
+
+            await mock.clearSentBytes()
+
+            let deleteTask = Task {
+                try await pepModule.deleteNode(node: testNode)
+            }
+
+            await mock.waitForSent(count: 1)
+
+            let sentData = await mock.sentBytes
+            let sentString = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+            #expect(sentString.contains("type=\"set\"") || sentString.contains("type='set'"))
+            #expect(sentString.contains(XMPPNamespaces.pubsubOwner))
+            #expect(sentString.contains("<delete"))
+            #expect(sentString.contains("node=\"\(testNode)\"") || sentString.contains("node='\(testNode)'"))
+
+            if let iqID = extractIQID(from: sentString) {
+                await mock.simulateReceive("<iq type='result' id='\(iqID)'/>")
+            }
+
+            try await deleteTask.value
+            await client.disconnect()
+        }
     }
 }

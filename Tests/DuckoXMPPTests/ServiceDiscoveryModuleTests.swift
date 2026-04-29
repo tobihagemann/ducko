@@ -145,17 +145,57 @@ enum ServiceDiscoveryModuleTests {
                 <query xmlns='http://jabber.org/protocol/disco#items'>\
                 <item jid='conference.example.com' name='Chat Rooms'/>\
                 <item jid='pubsub.example.com' name='PubSub Service'/>\
+                <item jid='alice@example.com' node='urn:xmpp:omemo:2:bundles:42'/>\
+                <item jid='bob@example.com'/>\
                 </query>\
                 </iq>
                 """)
             }
 
             let result = try await queryTask.value
-            #expect(result.count == 2)
+            #expect(result.count == 4)
             #expect(result[0].jid.description == "conference.example.com")
             #expect(result[0].name == "Chat Rooms")
+            #expect(result[0].node == nil)
             #expect(result[1].jid.description == "pubsub.example.com")
             #expect(result[1].name == "PubSub Service")
+            #expect(result[1].node == nil)
+            #expect(result[2].jid.description == "alice@example.com")
+            #expect(result[2].name == nil)
+            #expect(result[2].node == "urn:xmpp:omemo:2:bundles:42")
+            #expect(result[3].jid.description == "bob@example.com")
+            #expect(result[3].name == nil)
+            #expect(result[3].node == nil)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `queryItems handles empty result`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: ServiceDiscoveryModule.self))
+
+            let queryTask = Task {
+                try await module.queryItems(for: .bare(BareJID.parse("example.com")!))
+            }
+
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let discoIQ = sentStrings.last { $0.contains("disco#items") }
+
+            if let iqStr = discoIQ, let iqID = extractIQID(from: iqStr) {
+                await mock.simulateReceive("""
+                <iq type='result' id='\(iqID)' from='example.com'>\
+                <query xmlns='http://jabber.org/protocol/disco#items'/>\
+                </iq>
+                """)
+            }
+
+            let result = try await queryTask.value
+            #expect(result.isEmpty)
 
             await client.disconnect()
         }

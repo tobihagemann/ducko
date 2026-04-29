@@ -40,6 +40,13 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
     public struct Item: Sendable {
         public let jid: JID
         public let name: String?
+        public let node: String?
+
+        public init(jid: JID, name: String? = nil, node: String? = nil) {
+            self.jid = jid
+            self.name = name
+            self.node = node
+        }
     }
 
     // MARK: - State
@@ -201,7 +208,7 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
                   let jid = JID.parse(jidString) else {
                 return nil
             }
-            return Item(jid: jid, name: element.attribute("name"))
+            return Item(jid: jid, name: element.attribute("name"), node: element.attribute("node"))
         }
     }
 }

@@ -13,11 +13,15 @@ private let log = Logger(label: "im.ducko.integrationtests.reset")
 /// Two server-side drift sources motivate this suite:
 ///
 /// 1. PEP `urn:xmpp:omemo:2:devices` accumulates stale device IDs across
-///    runs. Once the list crosses `OMEMOModule.pruneProbeCap` (64) the
-///    client cannot self-heal; sends race ack overflow and dependent tests
-///    fail. Retracting the node and reconnecting causes
-///    `OMEMOModule.ensureOwnDeviceInList` to publish a fresh singleton list
-///    containing only the live device ID.
+///    runs, and each obsolete device leaves a dangling
+///    `urn:xmpp:omemo:2:bundles:<deviceID>` node behind. Once the list
+///    crosses `OMEMOModule.pruneProbeCap` (64) the client cannot self-heal;
+///    sends race ack overflow and dependent tests fail. Retracting the
+///    devicelist and reconnecting causes `OMEMOModule.ensureOwnDeviceInList`
+///    to publish a fresh singleton list containing only the live device ID.
+///    Then a disco#items sweep deletes every other bundle node so the live
+///    server matches the post-`purge-test-omemo.sql` shape (one devicelist
+///    + one bundle per account).
 ///
 /// 2. Roster baseline subscriptions can be lost (server retention edges,
 ///    per-test side effects). UI tests that expect Bob's contact row on
@@ -57,7 +61,9 @@ extension DuckoIntegrationTests {
         /// Retracts `urn:xmpp:omemo:2:devices` for `credential`, then
         /// disconnects and reconnects so `OMEMOModule.ensureOwnDeviceInList`
         /// republishes a singleton list containing only the live device ID.
-        /// Verifies the post-reconnect list is a singleton.
+        /// Verifies the post-reconnect list is a singleton, then deletes
+        /// every `urn:xmpp:omemo:2:bundles:<deviceID>` node whose deviceID
+        /// is not the live one — matching `purge-test-omemo.sql`.
         @MainActor
         private static func resetOMEMODeviceList(for credential: TestCredentials.Credential) async throws {
             try await TestHarness.withHarness { harness in
@@ -90,10 +96,88 @@ extension DuckoIntegrationTests {
                 // The OMEMO devicelist payload root is `<list xmlns="urn:xmpp:omemo:2">`
                 // with one `<device id="…"/>` child per device, so count children
                 // directly (matches `OMEMOModule.parseDeviceList`'s shape).
+                // Use `try #require` rather than `#expect`: a non-singleton or
+                // missing-id state would leave `liveDeviceID` nil and cause
+                // the bundle sweep below to delete the just-published live
+                // bundle along with the stale ones.
                 let pepAfter = try await harness.module(PEPModule.self, for: credential.label)
                 let items = try await pepAfter.retrieveItems(node: XMPPNamespaces.omemoDevices, from: nil)
-                let deviceCount = items.first?.payload.children(named: "device").count ?? 0
-                #expect(deviceCount == 1, "Expected singleton devicelist for \(credential.label), got \(deviceCount) entries")
+                let devices = items.first?.payload.children(named: "device") ?? []
+                try #require(devices.count == 1, "Expected singleton devicelist for \(credential.label), got \(devices.count) entries")
+                let liveDeviceID = try #require(devices.first?.attribute("id"), "Singleton devicelist for \(credential.label) is missing the `id` attribute")
+
+                try await Self.deleteStaleBundleNodes(
+                    for: credential,
+                    keeping: liveDeviceID,
+                    on: harness
+                )
+            }
+        }
+
+        /// Sweeps every `urn:xmpp:omemo:2:bundles:<deviceID>` PEP node owned
+        /// by `credential` and deletes the ones whose deviceID does not match
+        /// `liveDeviceID`. The post-reconnect bundle for the live device is
+        /// preserved so OMEMO can resume immediately after the reset. Mirrors
+        /// the `prosodyarchive` half of `purge-test-omemo.sql`. Asserts no
+        /// stale bundle nodes remain after the sweep.
+        @MainActor
+        private static func deleteStaleBundleNodes(
+            for credential: TestCredentials.Credential,
+            keeping liveDeviceID: String,
+            on harness: TestHarness
+        ) async throws {
+            let disco = try await harness.module(ServiceDiscoveryModule.self, for: credential.label)
+            let pep = try await harness.module(PEPModule.self, for: credential.label)
+
+            let liveBundleNode = "\(OMEMOModule.bundleNodePrefix)\(liveDeviceID)"
+            let bareJID = try harness.jid(for: credential)
+
+            let stale = try await Self.staleBundleNodes(
+                in: disco.queryItems(for: .bare(bareJID)),
+                ownedBy: bareJID,
+                keeping: liveBundleNode
+            )
+
+            var deleted = 0
+            for node in stale {
+                do {
+                    try await pep.deleteNode(node: node)
+                    deleted += 1
+                } catch {
+                    // Best-effort per node: a server-side race or an
+                    // already-gone node shouldn't abort the loop. Real
+                    // failures (forbidden, feature-not-implemented, repeated
+                    // timeouts) are caught by the postcondition re-query
+                    // below — they would leave stale nodes visible.
+                    log.debug("Bundle node delete \(node) for \(credential.label) returned \(error) — continuing")
+                }
+            }
+            log.info("Deleted \(deleted) stale OMEMO bundle node(s) for \(credential.label)")
+
+            let remaining = try await Self.staleBundleNodes(
+                in: disco.queryItems(for: .bare(bareJID)),
+                ownedBy: bareJID,
+                keeping: liveBundleNode
+            )
+            #expect(remaining.isEmpty, "Stale OMEMO bundle nodes still present for \(credential.label) after sweep: \(remaining)")
+        }
+
+        /// Filters disco#items results to the OMEMO bundle node names
+        /// (`urn:xmpp:omemo:2:bundles:<deviceID>`) owned by `bareJID` that
+        /// are not the live bundle. Shared by the sweep loop and its
+        /// postcondition re-query so the two definitions of "stale"
+        /// cannot drift.
+        static func staleBundleNodes(
+            in items: [ServiceDiscoveryModule.Item],
+            ownedBy bareJID: BareJID,
+            keeping liveBundleNode: String
+        ) -> [String] {
+            items.compactMap { item in
+                guard item.jid.bareJID == bareJID,
+                      let node = item.node,
+                      node.hasPrefix(OMEMOModule.bundleNodePrefix),
+                      node != liveBundleNode else { return nil }
+                return node
             }
         }
 

@@ -111,6 +111,20 @@ public final class PEPModule: XMPPModule, Sendable {
         _ = try await context.sendIQ(iq)
     }
 
+    /// Deletes a whole PEP node via XEP-0060 §8.4 (`pubsub#owner`).
+    public func deleteNode(node: String) async throws {
+        guard let context = state.withLock({ $0.context }) else { return }
+
+        var iq = XMPPIQ(type: .set, id: context.generateID())
+        var pubsub = XMLElement(name: "pubsub", namespace: XMPPNamespaces.pubsubOwner)
+
+        let delete = XMLElement(name: "delete", attributes: ["node": node])
+        pubsub.addChild(delete)
+        iq.element.addChild(pubsub)
+
+        _ = try await context.sendIQ(iq)
+    }
+
     // MARK: - Message Handling
 
     public func handleMessage(_ message: XMPPMessage) throws {
