@@ -9,12 +9,13 @@ private let log = Logger(label: "im.ducko.integrationtests.ui")
 /// Drives the packaged `Ducko.app` bundle as a child process and exposes
 /// identifier-keyed accessibility queries to UI integration tests.
 ///
-/// Mirrors `CLIProcess`: the actor owns a `Process`, an env dictionary, and
-/// two LIFO cleanup queues (one that runs while the app is still alive, one
-/// that runs after exit). All public methods are identifier-keyed so the
-/// non-Sendable `AXUIElement` handles never cross the actor boundary; each
-/// call walks the AX tree from the application root and reacquires its
-/// element, which also avoids stale handles after a SwiftUI view refresh.
+/// Mirrors `CLIProcess`: the actor owns the launched-app handle, an env
+/// dictionary, and two LIFO cleanup queues (one that runs while the app is
+/// still alive, one that runs after exit). All public methods are
+/// identifier-keyed so the non-Sendable `AXUIElement` handles never cross the
+/// actor boundary; each call walks the AX tree from the application root and
+/// reacquires its element, which also avoids stale handles after a SwiftUI
+/// view refresh.
 actor AppAccessor {
     /// Boot marker the launch helper waits for.
     enum LaunchTarget {
@@ -37,7 +38,16 @@ actor AppAccessor {
     nonisolated let profile: String
     nonisolated let environment: [String: String]
 
-    private var process: Process?
+    /// `NSRunningApplication` instead of Foundation `Process` so the spawn
+    /// goes through LaunchServices (`NSWorkspace.openApplication`). Direct
+    /// `Process.run()` on `Ducko.app/Contents/MacOS/DuckoApp` produces a
+    /// process that authenticates and loads the roster but never registers
+    /// any visible NSWindow with the WindowServer — `CGWindowList` returns
+    /// zero windows for the PID, the AX walker never finds `contact-list`,
+    /// and every UI test times out at the launch barrier. LaunchServices
+    /// performs the missing GUI registration so `kAXIdentifierAttribute`
+    /// lookups succeed.
+    private var process: NSRunningApplication?
     private var inAppCleanupActions: [@Sendable () async -> Void] = []
     private var postExitCleanupActions: [@Sendable () async -> Void] = []
 
@@ -63,13 +73,15 @@ actor AppAccessor {
 
     // MARK: - Bundle resolution
 
-    /// Path to the packaged `Ducko.app` executable. Resolved relative to
-    /// this file via `#filePath`; mirrors `CLIProcess.binaryPath`.
-    static var appBundlePath: URL {
+    /// Path to the packaged `Ducko.app` bundle. Resolved relative to this
+    /// file via `#filePath`; mirrors `CLIProcess.binaryPath`'s walk-up.
+    /// Canonical input to `NSWorkspace.openApplication` and to
+    /// `assertDebugBundle`'s `Info.plist` lookup.
+    static var appBundleURL: URL {
         // AppAccessor.swift lives at:
         //   IntegrationTests/Tests/DuckoIntegrationTests/UI/AppAccessor.swift
-        // The packaged app's executable lives at:
-        //   <repo>/Ducko.app/Contents/MacOS/DuckoApp
+        // The packaged app bundle lives at:
+        //   <repo>/Ducko.app/
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // UI
             .deletingLastPathComponent() // DuckoIntegrationTests
@@ -77,6 +89,13 @@ actor AppAccessor {
             .deletingLastPathComponent() // IntegrationTests
             .deletingLastPathComponent() // repo root
             .appendingPathComponent("Ducko.app")
+    }
+
+    /// Path to the inner executable inside `appBundleURL`. Used only for the
+    /// existence-on-disk skip predicate; `NSWorkspace.openApplication` takes
+    /// the bundle URL directly.
+    static var executableURL: URL {
+        appBundleURL
             .appendingPathComponent("Contents")
             .appendingPathComponent("MacOS")
             .appendingPathComponent("DuckoApp")
@@ -84,7 +103,7 @@ actor AppAccessor {
 
     /// Per-test skip predicate — UI tests need a packaged `.app` on disk.
     static var appBundleExists: Bool {
-        FileManager.default.isExecutableFile(atPath: appBundlePath.path)
+        FileManager.default.isExecutableFile(atPath: executableURL.path)
     }
 
     /// Per-test skip predicate — UI tests need Accessibility trust granted.
@@ -131,9 +150,9 @@ actor AppAccessor {
             await CLIProcess.removeProfileDirectory(profile: profileForCleanup)
         }
 
-        let bundle = Self.appBundlePath
-        guard FileManager.default.isExecutableFile(atPath: bundle.path) else {
-            throw TestHarnessError.appBundleMissing(path: bundle.path)
+        let bundleURL = Self.appBundleURL
+        guard FileManager.default.isExecutableFile(atPath: Self.executableURL.path) else {
+            throw TestHarnessError.appBundleMissing(path: Self.executableURL.path)
         }
         guard AXIsProcessTrusted() else {
             throw TestHarnessError.axTrustMissing
@@ -147,18 +166,36 @@ actor AppAccessor {
         // into Info.plist's `DuckoBuildConfiguration` key (`debug` vs
         // `release`); we read it pre-launch so the gate fires before any
         // process spawns or any input is dispatched.
-        try Self.assertDebugBundle(at: bundle)
+        try Self.assertDebugBundle(at: bundleURL)
 
-        let spawned = Process()
-        spawned.executableURL = bundle
-        spawned.environment = environment
-        spawned.arguments = []
-        try spawned.run()
-        process = spawned
+        // Argument-domain UserDefaults override: `NSUserDefaults` reads
+        // `-key value` pairs from process arguments and treats them as the
+        // highest-priority domain on read. NSWindow's `setFrameAutosaveName`
+        // consults `standardUserDefaults`, so this override wins over the
+        // persisted frame in `~/Library/Preferences/im.ducko.plist` for this
+        // launch only — the developer's saved Contacts position is never
+        // read or written.
+        //
+        // The Contacts window's `.defaultSize(width: 280, height: 600)` is
+        // too narrow for all six toolbar items + `.searchable` field to lay
+        // out without AppKit collapsing one into the `>>` overflow popup,
+        // where `kAXIdentifierAttribute` lookups (e.g. `join-room-toolbar-
+        // button`) miss. 720pt gives every item room to render.
+        //
+        // Each pair is two argv elements (`"-<key>"`, `"<value>"`); a
+        // contributor adding a second pair must keep that one-element-per-
+        // token shape, otherwise the next `-` token is consumed as the
+        // previous value and silently swallowed.
+        let runningApp = try await Self.openApp(
+            at: bundleURL,
+            environment: environment,
+            arguments: ["-NSWindow Frame contacts", "0 100 720 600 0 0 2560 1410"]
+        )
+        process = runningApp
 
         // Activate Ducko so subsequent .cghidEventTap keystrokes route to it
         // rather than the test runner / Terminal / Xcode.
-        await Self.activateApp(pid: spawned.processIdentifier)
+        await Self.activateApp(pid: runningApp.processIdentifier)
 
         // Bound every AX read against a hung child. The timeout is per-AX-
         // object and does not transfer to equal elements created later, so
@@ -203,11 +240,12 @@ actor AppAccessor {
         }
         inAppCleanupActions.removeAll()
 
-        if let spawned = process, spawned.isRunning {
-            spawned.terminate()
-            let exited = await CLIProcess.waitForProcessExit(spawned, timeout: .seconds(2))
+        if let app = process, !app.isTerminated {
+            app.terminate()
+            let exited = await Self.waitForRunningAppExit(app, timeout: .seconds(2))
             if !exited {
-                await CLIProcess.killProcess(spawned)
+                app.forceTerminate()
+                _ = await Self.waitForRunningAppExit(app, timeout: .seconds(2))
             }
         }
         process = nil
@@ -902,19 +940,57 @@ actor AppAccessor {
 
     // MARK: - Static helpers
 
-    /// Reads `Contents/Info.plist` and verifies `DuckoBuildConfiguration ==
-    /// "debug"`. Throws `TestHarnessError.appBundleNotDebug` otherwise.
-    private static func assertDebugBundle(at executable: URL) throws {
-        let infoPlist = executable
-            .deletingLastPathComponent() // MacOS
-            .deletingLastPathComponent() // Contents
-            .appendingPathComponent("Info.plist")
-        guard let data = try? Data(contentsOf: infoPlist),
-              let plist = try? PropertyListSerialization.propertyList(
-                  from: data, options: [], format: nil
-              ) as? [String: Any],
-              (plist["DuckoBuildConfiguration"] as? String) == "debug" else {
-            throw TestHarnessError.appBundleNotDebug(path: executable.path)
+    /// Spawns `Ducko.app` through LaunchServices via
+    /// `NSWorkspace.openApplication(at:configuration:)`. Returns the new
+    /// `NSRunningApplication` so the caller can drive AX queries against
+    /// its PID and terminate it on teardown. `createsNewApplicationInstance`
+    /// is set so each test gets its own process even when a developer's
+    /// dev-build Ducko is already running.
+    ///
+    /// Note: `OpenConfiguration.environment` *replaces* the inherited
+    /// environment for the spawned process — it does not augment it. The
+    /// init's allowlist (`HOME`, `PATH`, `LANG`, `LC_ALL`, plus
+    /// `DUCKO_PROFILE`) intentionally re-adds anything the app needs.
+    @MainActor
+    private static func openApp(
+        at bundleURL: URL,
+        environment: [String: String],
+        arguments: [String]
+    ) async throws -> NSRunningApplication {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.environment = environment
+        configuration.arguments = arguments
+        configuration.createsNewApplicationInstance = true
+        return try await NSWorkspace.shared.openApplication(at: bundleURL, configuration: configuration)
+    }
+
+    /// Polls `app.isTerminated` until the app exits or `timeout` elapses.
+    /// `NSRunningApplication`'s analogue of `CLIProcess.waitForProcessExit`.
+    private nonisolated static func waitForRunningAppExit(
+        _ app: NSRunningApplication,
+        timeout: Duration,
+        pollInterval: Duration = .milliseconds(50)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if app.isTerminated { return true }
+            do {
+                try await Task.sleep(for: pollInterval)
+            } catch {
+                return app.isTerminated
+            }
+        }
+        return app.isTerminated
+    }
+
+    /// Reads the bundle's Info dictionary and verifies
+    /// `DuckoBuildConfiguration == "debug"`. Throws
+    /// `TestHarnessError.appBundleNotDebug` otherwise.
+    private static func assertDebugBundle(at bundleURL: URL) throws {
+        guard let bundle = Bundle(url: bundleURL),
+              let configuration = bundle.object(forInfoDictionaryKey: "DuckoBuildConfiguration") as? String,
+              configuration == "debug" else {
+            throw TestHarnessError.appBundleNotDebug(path: bundleURL.path)
         }
     }
 
