@@ -30,4 +30,10 @@ enum TestTimeout {
 
     /// REPL output wait after issuing a command.
     static let replOutput: Duration = .seconds(10)
+
+    /// Probe window for the inbound `presenceSubscriptionRequest` in
+    /// `SubscriptionDance`. A timeout here is the signal that the server
+    /// suppressed the re-subscribe (subscription='both' already holds), so
+    /// this is intentionally shorter than `event`.
+    static let subscriptionRequestProbe: Duration = .seconds(3)
 }

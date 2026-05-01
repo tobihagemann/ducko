@@ -69,9 +69,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
                 let daveRoster = try await harness.module(RosterModule.self, for: "dave")
 
-                try await Self.assertNoBaselineSubscription(
-                    harness: harness, alice: alice, dave: dave,
-                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                try await SubscriptionDance.assertNoSubscription(
+                    harness: harness,
+                    first: TestCredentials.alice,
+                    second: TestCredentials.dave
                 )
 
                 // Register cleanup before any roster mutation.
@@ -118,9 +119,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
                 let daveRoster = try await harness.module(RosterModule.self, for: "dave")
 
-                try await Self.assertNoBaselineSubscription(
-                    harness: harness, alice: alice, dave: dave,
-                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                try await SubscriptionDance.assertNoSubscription(
+                    harness: harness,
+                    first: TestCredentials.alice,
+                    second: TestCredentials.dave
                 )
 
                 // Register cleanup before any roster mutation.
@@ -208,25 +210,6 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
-        /// Precondition guard for the Dave-based subscription tests. Fails
-        /// loudly if Dave's roster carries any lingering alice entry (stale
-        /// state from an interrupted prior run, or baseline misconfiguration)
-        /// so the test's subscription-mutation logic starts from a clean slate
-        /// and cleanup doesn't remove real baseline state.
-        @MainActor
-        private static func assertNoBaselineSubscription(
-            harness: TestHarness, alice: ConnectedAccount, dave: ConnectedAccount,
-            aliceJID: BareJID, daveJID: BareJID
-        ) async throws {
-            try await harness.environment.rosterService.loadContacts(for: alice.accountID)
-            try await harness.environment.rosterService.loadContacts(for: dave.accountID)
-            let contacts = harness.environment.rosterService.groups.flatMap(\.contacts)
-            let aliceHasDave = contacts.contains { $0.accountID == alice.accountID && $0.jid == daveJID }
-            let daveHasAlice = contacts.contains { $0.accountID == dave.accountID && $0.jid == aliceJID }
-            try #require(!aliceHasDave, "Alice must not have Dave in roster before subscription test; provision dave with an empty roster or clean up prior state")
-            try #require(!daveHasAlice, "Dave must not have Alice in roster before subscription test; provision dave with an empty roster or clean up prior state")
-        }
-
         @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials not set"))
         @MainActor func `Service approveSubscription clears pending request`() async throws {
             try await TestHarness.withHarness { harness in
@@ -243,9 +226,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
                 let daveRoster = try await harness.module(RosterModule.self, for: "dave")
 
-                try await Self.assertNoBaselineSubscription(
-                    harness: harness, alice: alice, dave: dave,
-                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                try await SubscriptionDance.assertNoSubscription(
+                    harness: harness,
+                    first: TestCredentials.alice,
+                    second: TestCredentials.dave
                 )
 
                 // Register cleanup before any roster mutation.
@@ -297,9 +281,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
                 let daveRoster = try await harness.module(RosterModule.self, for: "dave")
 
-                try await Self.assertNoBaselineSubscription(
-                    harness: harness, alice: alice, dave: dave,
-                    aliceJID: aliceBareJID, daveJID: daveBareJID
+                try await SubscriptionDance.assertNoSubscription(
+                    harness: harness,
+                    first: TestCredentials.alice,
+                    second: TestCredentials.dave
                 )
 
                 // Register cleanup before any roster mutation.

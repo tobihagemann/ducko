@@ -322,31 +322,40 @@ actor AppAccessor {
     }
 
     func click(identifier: String) async throws {
-        let element = try resolveElement(identifier: identifier)
-        try perform(action: kAXPressAction, on: element, identifier: identifier)
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.resolveElement(identifier: identifier)
+            try self.perform(action: kAXPressAction, on: element, identifier: identifier)
+        }
     }
 
     func rightClick(identifier: String) async throws {
-        let element = try resolveElement(identifier: identifier)
-        try perform(action: kAXShowMenuAction, on: element, identifier: identifier)
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.resolveElement(identifier: identifier)
+            try self.perform(action: kAXShowMenuAction, on: element, identifier: identifier)
+        }
     }
 
     /// Synthesizes a SwiftUI-style double-click via two `CGEvent` click
     /// pairs at the element center. Two consecutive `kAXPressAction`s do
     /// NOT synthesize `.onTapGesture(count: 2)`, so this is the only path
-    /// that wakes up double-tap recognizers like `ContactRow`.
+    /// that wakes up double-tap recognizers like `ContactRow`. Retries on
+    /// transient `elementNotFound` for the same reason as `click` and
+    /// `rightClick` — the row's AX hierarchy can re-mount when presence
+    /// updates land between `waitForElement` and the action.
     func doubleClick(identifier: String) async throws {
-        let element = try resolveElement(identifier: identifier)
-        guard let pid = process?.processIdentifier else {
-            throw TestHarnessError.elementNotFound(identifier: identifier)
-        }
-        await Self.activateApp(pid: pid)
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.resolveElement(identifier: identifier)
+            guard let pid = self.process?.processIdentifier else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+            await Self.activateApp(pid: pid)
 
-        guard let center = elementCenter(of: element) else {
-            throw TestHarnessError.elementNotFound(identifier: identifier)
-        }
-        for clickState in [Int64(1), Int64(2)] {
-            postClickPair(at: center, clickState: clickState)
+            guard let center = self.elementCenter(of: element) else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+            for clickState in [Int64(1), Int64(2)] {
+                self.postClickPair(at: center, clickState: clickState)
+            }
         }
     }
 
@@ -396,27 +405,23 @@ actor AppAccessor {
         Self.synthesizeKeystrokes(for: text)
     }
 
-    /// Prefers `kAXConfirmAction`, falls back to a synthesized Return key
-    /// for controls that don't expose Confirm.
+    /// Focuses `identifier` and synthesizes a hardware Return keystroke.
+    /// `kAXConfirmAction` is not used because SwiftUI's `.onKeyPress(.return)`
+    /// handlers only fire on real keystroke events.
     func pressReturn(intoIdentifier identifier: String) async throws {
         let element = try resolveElement(identifier: identifier)
         Self.setFocused(element, identifier: identifier)
-        let confirmErr = AXUIElementPerformAction(element, kAXConfirmAction as CFString)
-        if confirmErr == .success {
-            return
-        }
         try await pressKey(CGKeyCode(kVK_Return), modifiers: [])
     }
 
     /// Resolves `identifier` and reads `kAXValueAttribute` (falling back to
-    /// `kAXTitleAttribute`). Retries once after a 50 ms sleep on a transient
-    /// re-render error so callers do not need their own retry wrapper.
+    /// `kAXTitleAttribute`). Retries via `retryOnStaleElement` so a SwiftUI
+    /// re-render between `waitForElement` and the read does not surface as a
+    /// test failure — the underlying `AXUIElement` reference becomes stale
+    /// across the re-render and only a fresh `resolveElement` recovers it.
     func value(identifier: String) async throws -> String? {
-        do {
-            return try readValue(identifier: identifier)
-        } catch TestHarnessError.elementNotFound {
-            try await Task.sleep(for: .milliseconds(50))
-            return try readValue(identifier: identifier)
+        try await retryOnStaleElement(identifier: identifier) {
+            try self.readValue(identifier: identifier)
         }
     }
 

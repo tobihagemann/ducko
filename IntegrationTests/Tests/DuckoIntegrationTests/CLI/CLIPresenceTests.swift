@@ -5,6 +5,35 @@ import Testing
 
 extension DuckoIntegrationTests.CLILayer {
     struct CLIPresenceTests {
+        // MARK: - Shared Helper
+
+        /// Wires `SubscriptionDance.subscribeAndApprove` to Alice's REPL
+        /// surface (stdout for the request observation, `/approve` for the
+        /// approve action). Extracted because inlining pushes the test body
+        /// past SwiftLint's `function_body_length` cap.
+        @MainActor
+        private static func subscribeViaREPL(
+            requester: SubscriptionEndpoint,
+            approver: SubscriptionApprover,
+            aliceREPL: REPLSession,
+            onMutationDetected: @MainActor () async throws -> Void
+        ) async throws {
+            try await SubscriptionDance.subscribeAndApprove(
+                requester: requester,
+                approver: approver,
+                waitForRequest: {
+                    _ = try await aliceREPL.waitForOutput(
+                        containing: "Subscription request from \(requester.jid)",
+                        timeout: TestTimeout.subscriptionRequestProbe
+                    )
+                },
+                approve: {
+                    try await aliceREPL.send("/approve \(requester.jid)")
+                },
+                onMutationDetected: onMutationDetected
+            )
+        }
+
         @Test
         @MainActor func `ducko presence away echoes formatted presence locally`() async throws {
             try await CLIProcess.withProcess { cli in
@@ -43,35 +72,27 @@ extension DuckoIntegrationTests.CLILayer {
                 let bob = try #require(harness.accounts["bob"])
                 let aliceJID = try harness.jid(for: TestCredentials.alice)
                 let bobJID = try harness.jid(for: TestCredentials.bob)
-                let bobRoster = try await harness.module(RosterModule.self, for: "bob")
-                harness.addCleanup { try? await bobRoster.removeContact(jid: aliceJID) }
+                let bobEndpoint = try await SubscriptionEndpoint.resolve(credential: TestCredentials.bob, on: harness)
 
                 try await CLIProcess.withProcess { aliceCLI in
                     let aliceREPL = try await REPLSession.start(cli: aliceCLI, credentials: TestCredentials.alice)
                     await aliceCLI.addCleanup { await aliceREPL.terminate() }
 
-                    // Bob asks to see alice's presence; alice's REPL surfaces the request.
-                    try await bobRoster.subscribe(to: aliceJID)
-                    _ = try await aliceREPL.waitForOutput(
-                        containing: "Subscription request from \(bobJID)",
-                        timeout: TestTimeout.event
-                    )
-
-                    // RFC 6121 §3.1.5: alice's `subscribed` push installs a
-                    // roster item on alice's side, so the approval flow does
-                    // mutate alice's roster. Register the cleanup before the
-                    // mutation, mirroring `harness.addCleanup` ordering above.
-                    await aliceCLI.addCleanup {
-                        try? await aliceREPL.send("/remove \(bobJID)")
-                    }
-                    try await aliceREPL.send("/approve \(bobJID)")
-
-                    _ = try await bob.waitForEvent { event in
-                        if case let .presenceSubscriptionApproved(from) = event, from == aliceJID {
-                            return true
+                    // Conditional cleanup registered via `onMutationDetected`
+                    // so a failure during `/approve` or the fatal approval-push
+                    // wait still tears down the just-mutated subscription. See
+                    // `SubscriptionDance.subscribeAndApprove`.
+                    try await Self.subscribeViaREPL(
+                        requester: bobEndpoint,
+                        approver: SubscriptionApprover(label: TestCredentials.alice.label, jid: aliceJID),
+                        aliceREPL: aliceREPL,
+                        onMutationDetected: {
+                            harness.addCleanup { try? await bobEndpoint.roster.removeContact(jid: aliceJID) }
+                            await aliceCLI.addCleanup {
+                                try? await aliceREPL.send("/remove \(bobJID)")
+                            }
                         }
-                        return false
-                    }
+                    )
 
                     // Routing-confirmation barrier: §3.1.5/§3.1.6 leave alice's
                     // server still pushing roster + current presence after the

@@ -26,8 +26,12 @@ private let log = Logger(label: "im.ducko.integrationtests.reset")
 /// 2. Roster baseline subscriptions can be lost (server retention edges,
 ///    per-test side effects). UI tests that expect Bob's contact row on
 ///    Alice fail silently. The reset reseeds `subscription=both` for the
-///    canonical pairs (alice ↔ bob, alice ↔ carol, alice ↔ dave) and
-///    persists the result by NOT registering removal cleanups.
+///    canonical pairs (alice ↔ bob, alice ↔ carol) and persists the result
+///    by NOT registering removal cleanups. Per `TestCredentials.swift`,
+///    Dave must have NO baseline subscription with any other account
+///    (`SubscriptionDance.assertNoSubscription` enforces this), so the
+///    reset actively scrubs every dave-paired subscription (alice ↔ dave,
+///    bob ↔ dave, carol ↔ dave) instead of seeding any of them.
 ///
 /// Invoke with:
 ///
@@ -184,45 +188,60 @@ extension DuckoIntegrationTests {
         // MARK: - Roster Baseline Reseed
 
         /// Seeds `subscription='both'` for the canonical pairs (alice ↔ bob,
-        /// alice ↔ carol, alice ↔ dave). Subscriptions persist after teardown
-        /// because no removal cleanup is registered.
+        /// alice ↔ carol) and scrubs every dave-paired subscription so dave
+        /// stays empty per `TestCredentials.alice` documentation; both outcomes
+        /// persist after teardown because no removal cleanup is registered.
+        /// `SubscriptionDance.assertNoSubscription` enforces the dave-empty
+        /// invariant at test time; an interrupted prior run can leave a stale
+        /// alice/bob/carol entry on dave, so the scrubs run unconditionally
+        /// and tolerate "already absent".
         @MainActor
         private static func reseedRosterBaseline(accounts: [TestCredentials.Credential]) async throws {
             try await TestHarness.withHarness { harness in
                 let labelled = Dictionary(uniqueKeysWithValues: accounts.map { ($0.label, $0) })
                 try await harness.setUp(accounts: labelled)
 
-                for peer in [TestCredentials.bob, TestCredentials.carol, TestCredentials.dave] {
+                for peer in [TestCredentials.bob, TestCredentials.carol] {
                     try await Self.setUpMutualSubscription(
                         first: TestCredentials.alice,
                         second: peer,
                         on: harness
                     )
                 }
+
+                for other in [TestCredentials.alice, TestCredentials.bob, TestCredentials.carol] {
+                    try await Self.scrubSubscription(
+                        first: other,
+                        second: TestCredentials.dave,
+                        on: harness
+                    )
+                }
             }
         }
 
-        /// One side of the subscription dance. Bundles together the four
-        /// pieces (account, roster module, label, JID) keyed by credential
-        /// so the helper signature stays under SwiftLint's parameter cap.
-        private struct SubscriptionEndpoint {
-            let credential: TestCredentials.Credential
-            let account: ConnectedAccount
-            let roster: RosterModule
-            let jid: BareJID
+        /// Idempotently removes any roster subscription between `first` and
+        /// `second` from both sides, then asserts both rosters are clean via
+        /// `SubscriptionDance.assertNoSubscription`. The per-side `try?`
+        /// swallows the `item-not-found` IQ the server returns when an entry
+        /// is already absent; the post-scrub assertion catches the case where
+        /// `removeContact` swallowed a non-`item-not-found` error and left a
+        /// stale entry — without it the reset would report success while
+        /// leaving the baseline inconsistent.
+        @MainActor
+        private static func scrubSubscription(
+            first: TestCredentials.Credential,
+            second: TestCredentials.Credential,
+            on harness: TestHarness
+        ) async throws {
+            let firstEndpoint = try await SubscriptionEndpoint.resolve(credential: first, on: harness)
+            let secondEndpoint = try await SubscriptionEndpoint.resolve(credential: second, on: harness)
 
-            @MainActor
-            static func resolve(
-                credential: TestCredentials.Credential,
-                on harness: TestHarness
-            ) async throws -> SubscriptionEndpoint {
-                try await SubscriptionEndpoint(
-                    credential: credential,
-                    account: #require(harness.accounts[credential.label]),
-                    roster: harness.module(RosterModule.self, for: credential.label),
-                    jid: harness.jid(for: credential)
-                )
-            }
+            try? await firstEndpoint.roster.removeContact(jid: secondEndpoint.jid)
+            try? await secondEndpoint.roster.removeContact(jid: firstEndpoint.jid)
+
+            try await SubscriptionDance.assertNoSubscription(harness: harness, first: first, second: second)
+
+            log.info("Scrubbed any subscription between \(first.label) and \(second.label)")
         }
 
         /// Runs a bidirectional subscription dance so both endpoints end up
@@ -239,62 +258,16 @@ extension DuckoIntegrationTests {
             let firstEndpoint = try await SubscriptionEndpoint.resolve(credential: first, on: harness)
             let secondEndpoint = try await SubscriptionEndpoint.resolve(credential: second, on: harness)
 
-            try await Self.subscribeAndApprove(requester: secondEndpoint, approver: firstEndpoint)
-            try await Self.subscribeAndApprove(requester: firstEndpoint, approver: secondEndpoint)
+            try await SubscriptionDance.subscribeAndApproveInHarness(
+                requester: secondEndpoint,
+                approver: firstEndpoint
+            )
+            try await SubscriptionDance.subscribeAndApproveInHarness(
+                requester: firstEndpoint,
+                approver: secondEndpoint
+            )
 
             log.info("Reseeded subscription=both between \(first.label) and \(second.label)")
-        }
-
-        /// Tolerant subscribe-and-approve: if the requester already has the
-        /// approver in roster with `subscription='both'`, the server skips
-        /// the subscription-request push and `waitForEvent` throws
-        /// `.timeout`. Catching only that case keeps the suite idempotent
-        /// across reruns without masking other harness failures (stream
-        /// closure, unexpected event-stream errors).
-        @MainActor
-        private static func subscribeAndApprove(
-            requester: SubscriptionEndpoint,
-            approver: SubscriptionEndpoint
-        ) async throws {
-            try await requester.roster.subscribe(to: approver.jid)
-
-            let receivedRequest: Bool
-            do {
-                _ = try await approver.account.waitForEvent(
-                    matching: { event in
-                        if case let .presenceSubscriptionRequest(from) = event, from == requester.jid {
-                            return true
-                        }
-                        return false
-                    },
-                    timeout: .seconds(3)
-                )
-                receivedRequest = true
-            } catch TestHarnessError.timeout {
-                receivedRequest = false
-            }
-
-            guard receivedRequest else {
-                log.debug("Subscription \(requester.credential.label) → \(approver.credential.label) already in place; skipping approve")
-                return
-            }
-
-            try await approver.roster.approveSubscription(from: requester.jid)
-
-            // Tolerate timeout on the approval push: the subscription is
-            // committed server-side once `approveSubscription` returns,
-            // even if the round-trip notification doesn't reach the
-            // requester within the wait window. Other errors propagate.
-            do {
-                _ = try await requester.account.waitForEvent(matching: { event in
-                    if case let .presenceSubscriptionApproved(from) = event, from == approver.jid {
-                        return true
-                    }
-                    return false
-                }, timeout: .seconds(3))
-            } catch TestHarnessError.timeout {
-                // Subscription is committed; missing push is benign here.
-            }
         }
     }
 }

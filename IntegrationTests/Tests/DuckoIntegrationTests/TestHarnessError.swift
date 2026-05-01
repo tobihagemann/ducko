@@ -1,7 +1,7 @@
 import Foundation
 
 /// Errors thrown by `TestHarness` and `ConnectedAccount` helpers.
-enum TestHarnessError: Error, CustomStringConvertible {
+enum TestHarnessError: Error, Equatable, CustomStringConvertible {
     case timeout
     case streamClosed
     case notConnected(label: String)

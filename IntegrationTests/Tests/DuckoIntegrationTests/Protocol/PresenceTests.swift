@@ -20,40 +20,22 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 "bob": TestCredentials.bob
             ])
 
-            let alice = try #require(harness.accounts["alice"])
             let bob = try #require(harness.accounts["bob"])
-            let aliceBareJID = try harness.jid(for: TestCredentials.alice)
-            let bobBareJID = try harness.jid(for: TestCredentials.bob)
+            let aliceEndpoint = try await SubscriptionEndpoint.resolve(credential: TestCredentials.alice, on: harness)
+            let bobEndpoint = try await SubscriptionEndpoint.resolve(credential: TestCredentials.bob, on: harness)
 
-            let aliceRoster = try await harness.module(RosterModule.self, for: "alice")
-            let bobRoster = try await harness.module(RosterModule.self, for: "bob")
-
-            // Register cleanup before any roster mutation.
-            harness.addCleanup { try? await bobRoster.removeContact(jid: aliceBareJID) }
-            harness.addCleanup { try? await aliceRoster.removeContact(jid: bobBareJID) }
-
-            // Bob requests to see Alice's presence.
-            try await bobRoster.subscribe(to: aliceBareJID)
-
-            // Alice sees the request.
-            _ = try await alice.waitForEvent { event in
-                if case let .presenceSubscriptionRequest(from) = event, from == bobBareJID {
-                    return true
+            // Conditional cleanup registered via `onMutationDetected` so a
+            // failure during `approve` or the fatal approval-push wait still
+            // tears down the just-mutated subscription. See
+            // `SubscriptionDance.subscribeAndApprove`.
+            try await SubscriptionDance.subscribeAndApproveInHarness(
+                requester: bobEndpoint,
+                approver: aliceEndpoint,
+                onMutationDetected: {
+                    harness.addCleanup { try? await bobEndpoint.roster.removeContact(jid: aliceEndpoint.jid) }
+                    harness.addCleanup { try? await aliceEndpoint.roster.removeContact(jid: bobEndpoint.jid) }
                 }
-                return false
-            }
-
-            // Alice approves — creates subscription='from' for Bob on Alice's side.
-            try await aliceRoster.approveSubscription(from: bobBareJID)
-
-            // Bob sees the approval — confirms the round-trip so subsequent assertions
-            // don't race the push.
-            _ = try await bob.waitForEvent { event in
-                if case let .presenceSubscriptionApproved(from) = event, from == aliceBareJID {
-                    return true
-                }
-                return false
-            }
+            )
 
             // RFC 6121 §3.1.5/§3.1.6: after `<presence type="subscribed">` is
             // delivered, Alice's server still has work to do (roster push, current
