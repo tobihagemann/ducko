@@ -209,6 +209,27 @@ enum StreamManagementModuleTests {
 
             await client.disconnect()
         }
+
+        @Test
+        func `disconnect routes unavailable presence through SM interceptor`() async throws {
+            let mock = MockTransport()
+            let (client, sm) = try await makeConnectedClient(mock: mock)
+
+            // Baseline counter snapshot before disconnect — `makeConnectedClient`
+            // already sent the SM <enable> + handshake stanzas; capture the
+            // counter once SM is enabled so the assertion isolates the
+            // disconnect-side delta.
+            let baseline = sm.resumeState?.outgoingCounter ?? 0
+
+            await client.disconnect()
+
+            // The unavailable presence in `disconnect()` MUST go through
+            // `send()` (not `connection.send` directly) so the SM interceptor
+            // counts it. Bypassing the interceptor leaves the counter one
+            // short of the server's view, producing phantom "Invalid ack"
+            // warnings on the next ack.
+            #expect(sm.resumeState?.outgoingCounter == baseline &+ 1)
+        }
     }
 
     struct AckProcessing {

@@ -2,11 +2,15 @@ import AppKit
 import DuckoCore
 import DuckoData
 import DuckoUI
+import Logging
 import SwiftData
 import SwiftUI
 
+private let log = Logger(label: "im.ducko.app.lifecycle")
+
 @main
 struct DuckoApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var environment: AppEnvironment
     @State private var themeEngine = ThemeEngine()
     @State private var updateManager = UpdateManager()
@@ -26,6 +30,7 @@ struct DuckoApp: App {
             let env = AppEnvironment(store: store, transcripts: transcripts, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
             self.environment = env
             AppStateObserver(accountService: env.accountService)
+            AppDelegate.accountService = env.accountService
         } catch {
             fatalError("Failed to create model container: \(error)")
         }
@@ -187,5 +192,39 @@ private final class AppStateObserver {
             forName: NSApplication.didResignActiveNotification,
             object: nil, queue: .main
         ) { _ in Task { @MainActor in await accountService.setAppActive(false) } }
+    }
+}
+
+// MARK: - App Delegate
+
+/// Sends unavailable presence and `</stream:stream>` per RFC 6120 §4.4 before
+/// the process exits. Without this, SIGTERM (or `app.terminate()` from the UI
+/// integration test harness) leaves the server holding the resource bound for
+/// 30-90 s, which collides with the next test's bind.
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak static var accountService: AccountService?
+
+    /// Bound on `disconnectAll`. A stuck TCP/TLS write must not be allowed to
+    /// hold AppKit's terminate-later reply forever — the user can already see
+    /// the app refusing to quit, and AppKit's own (~60 s) failsafe is too long.
+    static let disconnectDeadline: Duration = .seconds(3)
+
+    /// Runs the bounded disconnect that `applicationShouldTerminate` issues
+    /// before replying to AppKit. Extracted so unit tests can exercise the
+    /// disconnect path without standing up an `NSApplication` host.
+    static func performShutdown(_ accountService: AccountService) async {
+        log.info("applicationShouldTerminate fired; awaiting disconnectAll")
+        await accountService.disconnectAll(within: disconnectDeadline)
+        log.info("disconnectAll completed (or timed out); replying terminate")
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let accountService = Self.accountService else { return .terminateNow }
+        Task { @MainActor in
+            await Self.performShutdown(accountService)
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }

@@ -68,12 +68,13 @@ struct MessageBubbleView: View {
                     }
                 }
             )
-            .contextMenu {
-                MessageContextMenu(message: message, windowState: windowState)
-            }
 
             if !message.isOutgoing { Spacer(minLength: 60) }
         }
+        .accessibilityElement(children: .combine)
         .accessibilityIdentifier("message-bubble-\(message.id)")
+        .contextMenu {
+            MessageContextMenu(message: message, windowState: windowState)
+        }
     }
 }

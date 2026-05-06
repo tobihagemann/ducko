@@ -121,6 +121,53 @@ public final class AccountService {
         connectionStates[accountID] = .disconnected
     }
 
+    public func disconnectAll() async {
+        // Iterate the union of connected clients AND scheduled reconnect
+        // tasks: an account between reconnect attempts has no `clients` entry
+        // but a delayed `reconnectTasks[accountID]` that would re-establish a
+        // connection after a caller asked for full shutdown.
+        let ids = Set(clients.keys).union(reconnectTasks.keys)
+        for id in ids {
+            await disconnect(accountID: id)
+        }
+    }
+
+    /// Calls `disconnectAll()` with a hard upper bound. When the deadline
+    /// expires before disconnect finishes, the in-flight work is abandoned
+    /// — `XMPPClient.disconnect()` does not honor cancellation, so a stuck
+    /// transport write cannot be preempted, but it is also not awaited past
+    /// the deadline. Use at process-exit so AppKit's terminate-later reply
+    /// fires within a bounded budget; the abandoned task dies with the
+    /// process. Not safe for callers that must observe all teardown side
+    /// effects before continuing.
+    public func disconnectAll(within deadline: Duration) async {
+        let work = Task { [weak self] in
+            await self?.disconnectAll()
+        }
+        let timeout = Task<Void, Never> {
+            try? await Task.sleep(for: deadline)
+        }
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        Task {
+            _ = await work.value
+            continuation.yield()
+            continuation.finish()
+        }
+        Task {
+            _ = await timeout.value
+            continuation.yield()
+            continuation.finish()
+        }
+        for await _ in stream {
+            break
+        }
+        timeout.cancel()
+        // `work` is intentionally NOT awaited — abandoning it is the whole
+        // point of the deadline. `cancel()` requests cooperative cancellation
+        // for any sleep/await paths inside the disconnect chain.
+        work.cancel()
+    }
+
     public func createAccount(
         jidString: String,
         displayName: String? = nil,

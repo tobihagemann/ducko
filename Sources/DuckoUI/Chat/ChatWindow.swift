@@ -12,6 +12,11 @@ public struct ChatWindow: View {
             .lastMessageDate
     }
 
+    private var observedMessagesRevision: Int? {
+        guard let id = windowState?.conversation?.id else { return nil }
+        return environment.chatService.messagesRevisions[id]
+    }
+
     public init(jidString: Binding<String?>) {
         _jidString = jidString
     }
@@ -37,6 +42,11 @@ public struct ChatWindow: View {
                 await windowState?.load()
             }
             .onChange(of: observedLastMessageDate) {
+                Task {
+                    await windowState?.refreshMessages()
+                }
+            }
+            .onChange(of: observedMessagesRevision) {
                 Task {
                     await windowState?.refreshMessages()
                 }

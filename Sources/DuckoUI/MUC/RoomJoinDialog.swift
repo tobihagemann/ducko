@@ -210,29 +210,37 @@ struct RoomJoinDialog: View {
 
         let pw = password.isEmpty ? nil : password
         Task {
-            do {
-                let resolvedJID: String
-                if trimmedInput.contains("@") {
-                    resolvedJID = trimmedInput
-                } else {
-                    let normalized = trimmedInput.lowercased().replacingOccurrences(of: " ", with: "-")
-                    guard !normalized.contains("/") else {
-                        errorMessage = "Room name cannot contain / characters"
-                        return
-                    }
-                    await ensureMUCService(accountID: accountID)
-                    guard let service = mucService else {
-                        errorMessage = "No MUC service found on server"
-                        return
-                    }
-                    resolvedJID = "\(normalized)@\(service)"
+            let resolvedJID: String
+            if trimmedInput.contains("@") {
+                resolvedJID = trimmedInput
+            } else {
+                let normalized = trimmedInput.lowercased().replacingOccurrences(of: " ", with: "-")
+                guard !normalized.contains("/") else {
+                    errorMessage = "Room name cannot contain / characters"
+                    return
                 }
-                try await environment.chatService.joinRoom(jidString: resolvedJID, nickname: trimmedNick, password: pw, accountID: accountID)
-                onJoin(resolvedJID)
-                dismiss()
+                // ensureMUCService is a service-discovery IQ; its IQ result
+                // can't be confused for a room join echo, so awaiting before
+                // waiter registration is safe.
+                await ensureMUCService(accountID: accountID)
+                guard let service = mucService else {
+                    errorMessage = "No MUC service found on server"
+                    return
+                }
+                resolvedJID = "\(normalized)@\(service)"
+            }
+
+            do {
+                try await environment.chatService.joinRoomAwaitingEcho(
+                    jidString: resolvedJID, nickname: trimmedNick, password: pw, accountID: accountID
+                )
             } catch {
                 errorMessage = error.localizedDescription
+                return
             }
+
+            onJoin(resolvedJID)
+            dismiss()
         }
     }
 

@@ -331,10 +331,12 @@ public actor XMPPClient {
     // MARK: - Disconnect
 
     public func disconnect() async {
-        // Send unavailable presence before closing
+        // Send unavailable presence through `send` so the SM interceptor counts
+        // it. Going through `connection.send` directly leaves SM's outgoing
+        // counter one short of the server's, producing a phantom "Invalid ack"
+        // warning on the next ack and corrupting any subsequent resume.
         if case .connected = state {
-            let unavailable = XMPPPresence(type: .unavailable)
-            try? await connection.send(XMPPStreamWriter.stanza(unavailable.element))
+            try? await send(XMPPPresence(type: .unavailable))
         }
 
         await connection.sendStreamClose()
@@ -356,8 +358,12 @@ public actor XMPPClient {
 
     /// Sends an IQ and awaits the matching result response.
     /// Returns the result's child element, or `nil` for result IQs with no child.
-    /// Throws ``XMPPStanzaError`` for IQ errors and ``XMPPClientError/timeout`` if no response arrives within `timeout`.
+    /// Throws ``XMPPClientError/notConnected`` if called before the handshake reaches `.connected`,
+    /// ``XMPPStanzaError`` for IQ errors, and ``XMPPClientError/timeout`` if no response arrives within `timeout`.
     public func sendIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
+        guard case .connected = state else {
+            throw XMPPClientError.notConnected
+        }
         var iq = iq
         let stanzaID = iq.id ?? generateID()
         iq.id = stanzaID

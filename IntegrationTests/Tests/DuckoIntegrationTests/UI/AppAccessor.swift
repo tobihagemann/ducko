@@ -128,6 +128,13 @@ actor AppAccessor {
             await accessor.terminate()
             return result
         } catch {
+            // Local-dev diagnostic gate: hold the failed app open for AX
+            // inspection (peekaboo, Accessibility Inspector). `try?` ensures
+            // swift-testing's cancel-on-timeout still reaches `terminate()`.
+            // MUST NOT be set in CI.
+            if ProcessInfo.processInfo.environment["DUCKO_HOLD_ON_FAILURE"] == "1" {
+                try? await Task.sleep(for: .seconds(60))
+            }
             await accessor.terminate()
             throw error
         }
@@ -242,7 +249,9 @@ actor AppAccessor {
 
         if let app = process, !app.isTerminated {
             app.terminate()
-            let exited = await Self.waitForRunningAppExit(app, timeout: .seconds(2))
+            // 5 s gives `AppDelegate.applicationShouldTerminate` time to send
+            // unavailable presence + `</stream:stream>` before forceTerminate.
+            let exited = await Self.waitForRunningAppExit(app, timeout: .seconds(5))
             if !exited {
                 app.forceTerminate()
                 _ = await Self.waitForRunningAppExit(app, timeout: .seconds(2))
@@ -257,6 +266,17 @@ actor AppAccessor {
     }
 
     // MARK: - AX queries
+
+    /// Waits for `contact`'s row to render in the contact list. Use as the
+    /// connectivity gate at the top of a test that needs a freshly-launched
+    /// app to have synced its roster — roster sync only happens after the
+    /// seeded account's stream is connected, so a visible contact row is the
+    /// cheapest cross-suite signal that connect+roster fetched succeeded.
+    /// Uses `TestTimeout.connect` rather than `uiElement` because it is
+    /// gated on a network round-trip, not pure AX rendering.
+    func waitForContactRow(_ contact: TestCredentials.Credential) async throws {
+        try await waitForElement(identifier: "contact-row-\(contact.jid)", timeout: TestTimeout.connect)
+    }
 
     /// Polls the AX tree for `identifier` until it appears or the timeout
     /// elapses. Catches only `elementNotFound` inside the predicate so an
@@ -471,24 +491,39 @@ actor AppAccessor {
     /// SwiftUI's `.accessibilityIdentifier` on a `TabView` may also attach
     /// to the focused content pane rather than the kAXTabGroupRole parent;
     /// the ancestor walk handles that case.
+    ///
+    /// Falls back to a window-toolbar button traversal when no tab group is
+    /// reachable. SwiftUI `Settings { TabView { ... } }` renders tabs into
+    /// the window's `NSToolbar` (siblings of the content `AXGroup`) rather
+    /// than as `NSTabView`, so no `kAXTabGroupRole` exists — the toolbar
+    /// fallback locates the tab button by label there.
     func clickTab(title: String, identifier: String) async throws {
         let resolved = try resolveElement(identifier: identifier)
         let tabGroup = elementRole(of: resolved) == kAXTabGroupRole
             ? resolved
             : findDescendant(in: resolved, role: kAXTabGroupRole, where: { _ in true })
             ?? findAncestor(from: resolved, role: kAXTabGroupRole)
-        guard let tabGroup else {
-            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tabGroup")
+        if let tabGroup {
+            var tabsValue: AnyObject?
+            let err = AXUIElementCopyAttributeValue(tabGroup, kAXTabsAttribute as CFString, &tabsValue)
+            if err == .success,
+               let tabs = tabsValue as? [AXUIElement],
+               let tab = tabs.first(where: { segmentLabel(of: $0) == title }) {
+                try perform(action: kAXPressAction, on: tab, identifier: "\(identifier)/tab[\(title)]")
+                return
+            }
         }
-        var tabsValue: AnyObject?
-        let err = AXUIElementCopyAttributeValue(tabGroup, kAXTabsAttribute as CFString, &tabsValue)
-        guard err == .success, let tabs = tabsValue as? [AXUIElement] else {
-            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
+        if let window = findAncestor(from: resolved, role: kAXWindowRole),
+           let toolbar = findDescendant(in: window, role: kAXToolbarRole, where: { _ in true }),
+           let tabButton = findDescendant(
+               in: toolbar,
+               roles: [kAXRadioButtonRole, kAXButtonRole],
+               where: { segmentLabel(of: $0) == title }
+           ) {
+            try perform(action: kAXPressAction, on: tabButton, identifier: "\(identifier)/tab[\(title)]")
+            return
         }
-        guard let tab = tabs.first(where: { segmentLabel(of: $0) == title }) else {
-            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
-        }
-        try perform(action: kAXPressAction, on: tab, identifier: "\(identifier)/tab[\(title)]")
+        throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
     }
 
     /// Reads the human-visible label of a segmented-picker / tab segment.

@@ -92,6 +92,9 @@ extension DuckoIntegrationTests.UILayer {
         @MainActor private static func joinAndUnlockRoom(_ app: AppAccessor) async throws -> String {
             let roomJID = "inttest-ui-\(UUID().uuidString.prefix(8))@\(TestCredentials.mucService)"
 
+            try await app.waitForContactRow(TestCredentials.bob)
+
+            try await app.waitForElement(identifier: "join-room-toolbar-button")
             try await app.click(identifier: "join-room-toolbar-button")
             try await app.waitForElement(identifier: "room-jid-field", timeout: TestTimeout.uiElement)
             try await app.type(roomJID, intoIdentifier: "room-jid-field")

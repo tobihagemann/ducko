@@ -11,8 +11,8 @@ public struct WelcomeView: View {
 
     public var body: some View {
         AccountSetupView(importInProgress: $importInProgress)
-            .onChange(of: environment.accountService.accounts.isEmpty) { _, isEmpty in
-                if !isEmpty, !importInProgress {
+            .onChange(of: hasConnectedAccount) { _, isConnected in
+                if isConnected, !importInProgress {
                     transitionToContacts()
                 }
             }
@@ -21,6 +21,13 @@ public struct WelcomeView: View {
                     transitionToContacts()
                 }
             }
+    }
+
+    private var hasConnectedAccount: Bool {
+        environment.accountService.connectionStates.values.contains { state in
+            if case .connected = state { return true }
+            return false
+        }
     }
 
     private func transitionToContacts() {

@@ -311,6 +311,64 @@ enum XMPPClientTests {
         }
 
         @Test
+        func `sendIQ on disconnected client throws notConnected`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let iq = XMPPIQ(type: .get, id: "test-iq-pre-connect")
+            do {
+                _ = try await client.sendIQ(iq)
+                Issue.record("Expected XMPPClientError.notConnected to be thrown")
+            } catch let error as XMPPClientError {
+                guard case .notConnected = error else {
+                    Issue.record("Expected .notConnected, got \(error)")
+                    return
+                }
+            }
+        }
+
+        @Test
+        func `sendIQ during a stalled handshake throws notConnected`() async throws {
+            // Pause the mock partway through the connect flow — after stream
+            // opening and features but before STARTTLS proceed — so the client
+            // is stuck in `.negotiatingTLS`. A fire-and-forget sendIQ from a
+            // module reacting to an event must not be allowed to leak an IQ
+            // onto the wire pre-handshake, even though `state != .connected`
+            // is the only state that already had a guard via `send()`.
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await mock.waitForSent(count: 1) // stream opening
+            await mock.simulateReceive(testServerStreamOpen)
+            await mock.simulateReceive(featuresWithTLS)
+            await mock.waitForSent(count: 2) // <starttls/> sent — handshake now suspended waiting for <proceed>
+
+            let iq = XMPPIQ(type: .get, id: "test-iq-mid-handshake")
+            do {
+                _ = try await client.sendIQ(iq)
+                Issue.record("Expected XMPPClientError.notConnected to be thrown mid-handshake")
+            } catch let error as XMPPClientError {
+                guard case .notConnected = error else {
+                    Issue.record("Expected .notConnected, got \(error)")
+                    return
+                }
+            }
+
+            // Tear down: drive STARTTLS to a failure so the connectTask exits.
+            await mock.simulateReceive("<failure xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
+            _ = try? await connectTask.value
+        }
+
+        @Test
         func `Disconnect cancels pending IQs`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(

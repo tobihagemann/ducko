@@ -374,4 +374,49 @@ enum AccountServiceTests {
             #expect(credentials.loadPassword(for: testJIDString) == "secret")
         }
     }
+
+    struct DisconnectAll {
+        @Test
+        @MainActor
+        func `disconnectAll tears down a connected client`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let transport = MockTransport()
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+
+            let connectTask = Task { @MainActor in
+                try await service.createAndConnect(
+                    jidString: testJIDString, password: "secret",
+                    host: "example.com", port: 5222
+                )
+            }
+            await simulateNoTLSConnect(transport)
+            let accountID = try await connectTask.value
+
+            await service.disconnectAll()
+
+            if case .disconnected = service.connectionStates[accountID] {
+                // Expected
+            } else {
+                Issue.record("Expected .disconnected after disconnectAll, got \(String(describing: service.connectionStates[accountID]))")
+            }
+            #expect(service.client(for: accountID) == nil)
+        }
+
+        @Test
+        @MainActor
+        func `disconnectAll within deadline returns even when no clients are connected`() async {
+            // Fast smoke-test: zero-client case must complete promptly so the
+            // deadline path doesn't dominate the latency budget at app exit.
+            let store = makeStore()
+            let service = makeAccountService(store: store)
+
+            let clock = ContinuousClock()
+            let elapsed = await clock.measure {
+                await service.disconnectAll(within: .seconds(1))
+            }
+            #expect(elapsed < .milliseconds(500))
+        }
+    }
 }

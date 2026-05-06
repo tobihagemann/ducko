@@ -145,11 +145,6 @@ public final class ChatWindowState {
         await environment.chatService.userIsTyping(inJIDString: jidString, accountID: accountID)
     }
 
-    /// Whether the chat partner is currently composing.
-    var isPartnerTyping: Bool {
-        environment.chatService.isPartnerTyping(jidString: jidString)
-    }
-
     // MARK: - Reply/Edit
 
     func startReply(to message: ChatMessage) {

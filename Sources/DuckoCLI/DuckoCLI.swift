@@ -589,8 +589,10 @@ extension DuckoCLI {
                 try await waitForConnected(accountID: selectedAccount.id, environment: env)
 
                 let nick = nickname ?? defaultNickname(for: selectedAccount)
-                try await env.chatService.joinRoom(jidString: jid, nickname: nick, accountID: selectedAccount.id)
-                try await waitForRoomJoined(roomJID: jid, environment: env)
+                try await env.chatService.joinRoomAwaitingEcho(
+                    jidString: jid, nickname: nick,
+                    accountID: selectedAccount.id, timeout: .seconds(15)
+                )
 
                 let participantCount = await MainActor.run { env.chatService.participantCount(forRoomJIDString: jid) }
                 print(formatter.formatRoomJoinedConfirmation(room: jid, nickname: nick, participantCount: participantCount, subject: nil))
@@ -638,8 +640,10 @@ extension DuckoCLI {
                 try await waitForConnected(accountID: selectedAccount.id, environment: env)
 
                 let nick = nickname ?? defaultNickname(for: selectedAccount)
-                try await env.chatService.joinRoom(jidString: jid, nickname: nick, accountID: selectedAccount.id)
-                try await waitForRoomJoined(roomJID: jid, environment: env)
+                try await env.chatService.joinRoomAwaitingEcho(
+                    jidString: jid, nickname: nick,
+                    accountID: selectedAccount.id, timeout: .seconds(15)
+                )
 
                 await printRoomMembers(jidString: jid, environment: env, formatter: formatter)
 
@@ -685,8 +689,10 @@ extension DuckoCLI {
                 try await waitForConnected(accountID: selectedAccount.id, environment: env)
 
                 let nick = nickname ?? defaultNickname(for: selectedAccount)
-                try await env.chatService.joinRoom(jidString: jid, nickname: nick, accountID: selectedAccount.id)
-                try await waitForRoomJoined(roomJID: jid, environment: env)
+                try await env.chatService.joinRoomAwaitingEcho(
+                    jidString: jid, nickname: nick,
+                    accountID: selectedAccount.id, timeout: .seconds(15)
+                )
 
                 try await env.chatService.sendGroupMessage(toJIDString: jid, body: body, accountID: selectedAccount.id)
 
@@ -2041,8 +2047,10 @@ private func handleJoinREPLCommand(
     let roomJID = String(roomPart)
     let nick = parts.count > 1 ? String(parts[1]) : context.accountJID.localPart ?? context.accountJID.description
     do {
-        try await context.environment.chatService.joinRoom(jidString: roomJID, nickname: nick, accountID: context.accountID)
-        try await waitForRoomJoined(roomJID: roomJID, environment: context.environment)
+        try await context.environment.chatService.joinRoomAwaitingEcho(
+            jidString: roomJID, nickname: nick,
+            accountID: context.accountID, timeout: .seconds(15)
+        )
         let count = await MainActor.run { context.environment.chatService.participantCount(forRoomJIDString: roomJID) }
         print(context.formatter.formatRoomJoinedConfirmation(room: roomJID, nickname: nick, participantCount: count, subject: nil))
         return REPLDispatchResult(handled: true, updatedCurrentRoom: roomJID)

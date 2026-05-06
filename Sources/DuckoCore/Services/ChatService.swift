@@ -4,6 +4,31 @@ import Logging
 
 private let log = Logger(label: "im.ducko.core.chat")
 
+/// Composite key for the room-join notifier registry. `internal` so unit
+/// tests can verify the registry's `isEmpty` invariant via `@testable import`.
+///
+/// `hash(into:)` is spelled out explicitly so Periphery sees concrete reads
+/// of both fields. Synthesized `Hashable` was flagged non-deterministically
+/// as "assign-only" because the synthesis is opaque to its analyzer.
+struct RoomJoinKey: Hashable {
+    let accountID: UUID
+    let room: BareJID
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(accountID)
+        hasher.combine(room)
+    }
+}
+
+/// Identity-bearing notifier so cleanup-by-key won't drop a slot that has
+/// since been replaced by a newer registration. The `id` is generated per
+/// `registerRoomJoinNotifier` call; cleanup is a no-op when the key now
+/// holds a different id.
+struct RoomJoinNotifier {
+    let id: UUID
+    let continuation: AsyncStream<Void>.Continuation
+}
+
 @MainActor @Observable
 public final class ChatService {
     public private(set) var openConversations: [Conversation] = []
@@ -14,6 +39,12 @@ public final class ChatService {
     public private(set) var pendingInvites: [PendingRoomInvite] = []
     public private(set) var newlyCreatedRoomJIDs: Set<String> = []
     public private(set) var roomFlags: [String: Set<RoomFlag>] = [:]
+    /// Per-conversation tick that ChatWindow observes via `.onChange` to
+    /// refresh `windowState.messages` after every messages-mutation site
+    /// (incoming, outgoing, carbon, correction, retraction, marker reload).
+    /// `lastMessageDate` does not change for amendments (corrections,
+    /// retractions, markers), so a separate signal is required.
+    public private(set) var messagesRevisions: [UUID: Int] = [:]
     public var onIncomingMessage: ((ChatMessage, Conversation) -> Void)?
     public var onHeadlineMessage: (@Sendable (XMPPMessage) -> Void)?
 
@@ -23,6 +54,11 @@ public final class ChatService {
     private weak var accountService: AccountService?
     private weak var omemoService: OMEMOService?
     private var typingDebounce: [BareJID: Task<Void, Never>] = [:]
+    /// Registry of pending room-join waiters keyed by `(accountID, room)`.
+    /// Internal-readable so unit tests can verify no entries leak after
+    /// success/timeout paths. Mutated only by `registerRoomJoinNotifier`,
+    /// `clearRoomJoinNotifier`, and `handleRoomJoined`.
+    private(set) var roomJoinNotifiers: [RoomJoinKey: RoomJoinNotifier] = [:]
 
     public init(store: any PersistenceStore, transcripts: any TranscriptStore, filterPipeline: MessageFilterPipeline) {
         self.store = store
@@ -103,20 +139,25 @@ public final class ChatService {
                 TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
                 conversationID: conversation.id
             )
-            if conversation.id == activeConversationID {
-                messages = await loadMessages(for: conversation.id)
-            }
+            await messagesChanged(in: conversation.id)
             throw error
         }
     }
 
     public func selectConversation(_ id: UUID?, accountID: UUID? = nil) async {
+        let previousID = activeConversationID
         activeConversationID = id
         guard let id else {
             messages = []
             return
         }
         messages = await loadMessages(for: id)
+        // Only bump when the active conversation actually changed: re-selecting
+        // the same conversation is a no-op for observers, and the unconditional
+        // bump triggered a redundant `windowState.refreshMessages()` round-trip.
+        if previousID != id {
+            bumpRevision(for: id)
+        }
         try? await store.markConversationRead(id)
         if let accountID {
             openConversations = await (try? store.fetchConversations(for: accountID)) ?? openConversations
@@ -224,7 +265,7 @@ public final class ChatService {
             TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
             conversationID: conversation.id
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversation.id)
     }
 
     public func sendCorrection(
@@ -260,7 +301,7 @@ public final class ChatService {
             TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
             conversationID: conversation.id
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversation.id)
     }
 
     public func sendGroupCorrection(originalStanzaID: String, newBody: String, inRoomJIDString roomJIDString: String, accountID: UUID) async throws {
@@ -300,7 +341,7 @@ public final class ChatService {
             TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
             conversationID: conversation.id
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversation.id)
     }
 
     public func retractMessage(stanzaID: String, toJIDString jidString: String, accountID: UUID) async throws {
@@ -337,7 +378,7 @@ public final class ChatService {
             TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
             conversationID: conversation.id
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversation.id)
     }
 
     public func moderateMessage(serverID: String, inRoomJIDString roomJIDString: String, reason: String?, accountID: UUID) async throws {
@@ -357,8 +398,8 @@ public final class ChatService {
                 TranscriptAmendment(action: .retract, targetServerID: serverID, timestamp: Date()),
                 conversationID: conversationID
             )
+            await messagesChanged(in: conversationID)
         }
-        await reloadActiveMessages()
     }
 
     // MARK: - Replies
@@ -469,6 +510,106 @@ public final class ChatService {
 
         try await mucModule.joinRoom(jid, nickname: nickname, password: password)
         _ = try await findOrCreateGroupConversation(for: jid, nickname: nickname, accountID: accountID)
+    }
+
+    /// Joins `jid` and awaits the matching `.roomJoined` self-presence echo.
+    ///
+    /// The notifier is registered synchronously BEFORE the join is sent so the
+    /// echo cannot race ahead of registration. Throws `.timeout(jid)` if no
+    /// echo arrives within `timeout`, or rethrows any error from the
+    /// underlying `joinRoom` (in which case the notifier is cleaned up first).
+    public func joinRoomAwaitingEcho(
+        jid: BareJID,
+        nickname: String,
+        password: String? = nil,
+        accountID: UUID,
+        timeout: Duration = .seconds(5)
+    ) async throws {
+        let (notifierID, stream) = registerRoomJoinNotifier(jid: jid, accountID: accountID)
+        // `clearRoomJoinNotifier` is identity-aware and idempotent, so running
+        // it here covers every exit path (joinRoom throws, echo arrives, echo
+        // times out) without duplicating cleanup at each return site.
+        defer { clearRoomJoinNotifier(jid: jid, accountID: accountID, id: notifierID) }
+
+        try await joinRoom(jid: jid, nickname: nickname, password: password, accountID: accountID)
+
+        let yielded = await awaitRoomJoinedEcho(stream: stream, timeout: timeout)
+        if !yielded {
+            throw ChatServiceError.timeout(jid)
+        }
+    }
+
+    /// String-based overload of `joinRoomAwaitingEcho(jid:…)` for callers in
+    /// modules that don't import DuckoXMPP (e.g. DuckoUI). Throws
+    /// `.invalidJID` on parse failure to match the rest of `ChatService`'s
+    /// `jidString:` API surface.
+    public func joinRoomAwaitingEcho(
+        jidString: String,
+        nickname: String,
+        password: String? = nil,
+        accountID: UUID,
+        timeout: Duration = .seconds(5)
+    ) async throws {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ChatServiceError.invalidJID(jidString)
+        }
+        try await joinRoomAwaitingEcho(
+            jid: jid, nickname: nickname, password: password,
+            accountID: accountID, timeout: timeout
+        )
+    }
+
+    /// Atomically registers a one-shot notifier for the next `.roomJoined`
+    /// matching `(accountID, jid)`. Synchronous + MainActor-isolated so the
+    /// continuation lands in the registry BEFORE any await — the self-presence
+    /// echo can never race ahead. Returns the notifier id for identity-aware
+    /// cleanup. `internal` so unit tests can drive the mechanism directly
+    /// without exercising the full `joinRoomAwaitingEcho` flow (which needs a
+    /// live `MUCModule`).
+    func registerRoomJoinNotifier(jid: BareJID, accountID: UUID) -> (id: UUID, stream: AsyncStream<Void>) {
+        let key = RoomJoinKey(accountID: accountID, room: jid)
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        // Replace any prior registration for the same key. The prior
+        // continuation is finished without yield so its consumer's
+        // for-await loop exits and reports failure.
+        if let prior = roomJoinNotifiers.removeValue(forKey: key) {
+            prior.continuation.finish()
+        }
+        roomJoinNotifiers[key] = RoomJoinNotifier(id: id, continuation: continuation)
+        return (id, stream)
+    }
+
+    /// Identity-aware cleanup. Removes the notifier only when the registered
+    /// slot still belongs to `id` — a newer registration's continuation is
+    /// preserved when the older one's cleanup fires after the takeover.
+    /// Idempotent.
+    func clearRoomJoinNotifier(jid: BareJID, accountID: UUID, id: UUID) {
+        let key = RoomJoinKey(accountID: accountID, room: jid)
+        guard roomJoinNotifiers[key]?.id == id else { return }
+        roomJoinNotifiers.removeValue(forKey: key)?.continuation.finish()
+    }
+
+    /// Awaits a yield on `stream` or `timeout`, whichever fires first.
+    /// Returns `true` only on yield — natural completion (timeout / finished
+    /// without yield) returns `false`. `internal` so unit tests can verify
+    /// the timeout/cancel/yield contract independent of `joinRoom`.
+    func awaitRoomJoinedEcho(stream: AsyncStream<Void>, timeout: Duration) async -> Bool {
+        await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
+            group.addTask {
+                for await _ in stream {
+                    return true
+                }
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let firstResult = await group.next() ?? false
+            group.cancelAll()
+            return firstResult
+        }
     }
 
     public func leaveRoom(jid: BareJID, accountID: UUID) async throws {
@@ -792,7 +933,10 @@ public final class ChatService {
     }
 
     public func acceptInvite(_ invite: PendingRoomInvite, nickname: String, accountID: UUID) async throws {
-        try await joinRoom(jidString: invite.roomJIDString, nickname: nickname, password: invite.password, accountID: accountID)
+        try await joinRoomAwaitingEcho(
+            jidString: invite.roomJIDString, nickname: nickname,
+            password: invite.password, accountID: accountID
+        )
         pendingInvites.removeAll { $0.id == invite.id }
     }
 
@@ -839,6 +983,7 @@ public final class ChatService {
         case notConnected(UUID)
         case encryptionFailed(String)
         case notOutgoingMessage
+        case timeout(BareJID)
 
         public var errorDescription: String? {
             switch self {
@@ -846,6 +991,7 @@ public final class ChatService {
             case let .notConnected(id): notConnectedDescription(id)
             case let .encryptionFailed(reason): "Encryption failed: \(reason)"
             case .notOutgoingMessage: "Cannot correct a message that was not sent by you"
+            case let .timeout(jid): "Timed out waiting for room \(jid) join echo"
             }
         }
     }
@@ -1033,7 +1179,7 @@ public final class ChatService {
             TranscriptAmendment(action: .delivery, targetStanzaID: messageID),
             conversationID: conversationID
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversationID)
     }
 
     private func handleChatMarker(messageID: String, type: ChatMarkerType, from: JID, accountID: UUID) async {
@@ -1043,7 +1189,7 @@ public final class ChatService {
             TranscriptAmendment(action: .delivery, targetStanzaID: messageID),
             conversationID: conversationID
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversationID)
     }
 
     /// Returns `true` if the element contained a receipt or chat marker that was handled.
@@ -1077,7 +1223,7 @@ public final class ChatService {
             TranscriptAmendment(action: .edit, targetStanzaID: originalID, timestamp: Date(), body: newBody),
             conversationID: conversationID
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversationID)
     }
 
     private func handleMessageRetracted(originalID: String, from: JID, accountID: UUID) async {
@@ -1090,7 +1236,7 @@ public final class ChatService {
             TranscriptAmendment(action: .retract, targetStanzaID: originalID, timestamp: Date()),
             conversationID: conversationID
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversationID)
     }
 
     private func verifySender(from: JID, original: ChatMessage, action: String, accountID: UUID) async -> Bool {
@@ -1143,10 +1289,10 @@ public final class ChatService {
                     TranscriptAmendment(action: .retract, targetServerID: originalID, timestamp: Date()),
                     conversationID: conversationID
                 )
+                await messagesChanged(in: conversationID)
             }
         case let .messageError(messageID, from, error):
             await handleMessageError(messageID: messageID, errorText: error.displayText, from: from, accountID: accountID)
-            return
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -1171,7 +1317,6 @@ public final class ChatService {
              .oobIQOfferReceived, .serviceOutageReceived:
             return
         }
-        await reloadActiveMessages()
     }
 
     private func handleMessageError(messageID: String?, errorText: String, from: JID, accountID: UUID) async {
@@ -1181,7 +1326,7 @@ public final class ChatService {
             TranscriptAmendment(action: .error, targetStanzaID: messageID, errorText: errorText),
             conversationID: conversationID
         )
-        await reloadActiveMessages()
+        await messagesChanged(in: conversationID)
     }
 
     private func handleRoomJoined(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool, accountID: UUID) async {
@@ -1195,6 +1340,16 @@ public final class ChatService {
             roomFlags.removeValue(forKey: key)
         } else {
             roomFlags[key] = occupancy.flags
+        }
+
+        // Atomic registry-removal-first + yield-then-finish: yield is what
+        // signals success to `awaitRoomJoinedEcho`; finish closes the stream
+        // so the consume task exits. The post-await `clearRoomJoinNotifier`
+        // call is a no-op on the same key after this (the slot is gone).
+        let waiterKey = RoomJoinKey(accountID: accountID, room: room)
+        if let notifier = roomJoinNotifiers.removeValue(forKey: waiterKey) {
+            notifier.continuation.yield()
+            notifier.continuation.finish()
         }
     }
 
@@ -1464,10 +1619,20 @@ public final class ChatService {
 
     // MARK: - Private
 
-    private func reloadActiveMessages() async {
-        if let activeConversationID {
-            messages = await loadMessages(for: activeConversationID)
+    /// Notifies observers that messages in `conversationID` may have changed
+    /// after an amendment. Always bumps the revision (so any open
+    /// `ChatWindow` on that conversation refreshes — even if it is not the
+    /// global active conversation). The local `messages` array is reloaded
+    /// only when `conversationID` matches the active conversation.
+    private func messagesChanged(in conversationID: UUID) async {
+        bumpRevision(for: conversationID)
+        if conversationID == activeConversationID {
+            messages = await loadMessages(for: conversationID)
         }
+    }
+
+    private func bumpRevision(for conversationID: UUID) {
+        messagesRevisions[conversationID, default: 0] &+= 1
     }
 
     private func accountJID(for accountID: UUID, fallback: BareJID) -> BareJID {
@@ -1653,9 +1818,7 @@ public final class ChatService {
 
         openConversations = try await store.fetchConversations(for: accountID)
 
-        if conversation.id == activeConversationID {
-            messages = await loadMessages(for: conversation.id)
-        }
+        await messagesChanged(in: conversation.id)
     }
 
     private func isDuplicate(stanzaID: String?, from jid: BareJID, occupantNickname: String? = nil, accountID: UUID) async -> Bool {

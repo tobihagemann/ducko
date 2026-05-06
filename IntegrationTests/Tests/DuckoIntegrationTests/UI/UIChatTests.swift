@@ -13,7 +13,7 @@ extension DuckoIntegrationTests.UILayer {
         @MainActor func `double-clicking a contact opens the chat window`() async throws {
             try await UISeededApp.withSeededApp { app in
                 let bob = TestCredentials.bob
-                try await app.waitForElement(identifier: "contact-row-\(bob.jid)")
+                try await app.waitForContactRow(bob)
                 try await app.doubleClick(identifier: "contact-row-\(bob.jid)")
                 try await app.waitForElement(identifier: "message-field", timeout: TestTimeout.uiElement)
             }
@@ -26,6 +26,7 @@ extension DuckoIntegrationTests.UILayer {
         @MainActor func `sending a message renders it in the message list`() async throws {
             try await UISeededApp.withSeededApp { app in
                 let bob = TestCredentials.bob
+                try await app.waitForContactRow(bob)
                 try await app.doubleClick(identifier: "contact-row-\(bob.jid)")
                 try await app.waitForElement(identifier: "message-field", timeout: TestTimeout.uiElement)
 
@@ -50,6 +51,7 @@ extension DuckoIntegrationTests.UILayer {
             let bobProfile = "inttest-ui-bob-\(UUID().uuidString.prefix(8))"
             try await UISeededApp.withSeededApp { app in
                 let bob = TestCredentials.bob
+                try await app.waitForContactRow(bob)
                 try await app.doubleClick(identifier: "contact-row-\(bob.jid)")
                 try await app.waitForElement(identifier: "message-field", timeout: TestTimeout.uiElement)
 
@@ -80,6 +82,7 @@ extension DuckoIntegrationTests.UILayer {
                 let bob = TestCredentials.bob
                 let alice = TestCredentials.alice
 
+                try await app.waitForContactRow(bob)
                 try await app.doubleClick(identifier: "contact-row-\(bob.jid)")
                 try await app.waitForElement(identifier: "message-field", timeout: TestTimeout.uiElement)
 
@@ -95,6 +98,7 @@ extension DuckoIntegrationTests.UILayer {
                 builder.withPreferredResource("inttest-ui-typing")
                 builder.withModule(ChatModule())
                 builder.withModule(ChatStatesModule())
+                builder.withModule(PresenceModule())
                 let client = await builder.build()
 
                 // Register disconnect immediately so a thrown connect()
@@ -107,7 +111,11 @@ extension DuckoIntegrationTests.UILayer {
                     return false
                 }
 
+                // Prime the chat-state context with `.active` before
+                // `.composing` per XEP-0085, so a receiver gating on prior
+                // negotiation still surfaces the typing indicator.
                 let chatStates = try #require(await client.module(ofType: ChatStatesModule.self))
+                try await chatStates.sendChatState(.active, to: .bare(aliceJID))
                 try await chatStates.sendChatState(.composing, to: .bare(aliceJID))
 
                 try await app.waitForElement(
@@ -133,6 +141,7 @@ extension DuckoIntegrationTests.UILayer {
         @MainActor func `correcting a sent message updates its body`() async throws {
             try await UISeededApp.withSeededApp { app in
                 let bob = TestCredentials.bob
+                try await app.waitForContactRow(bob)
                 try await app.doubleClick(identifier: "contact-row-\(bob.jid)")
                 try await app.waitForElement(identifier: "message-field", timeout: TestTimeout.uiElement)
 

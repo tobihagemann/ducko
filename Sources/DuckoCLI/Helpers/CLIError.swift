@@ -10,7 +10,6 @@ enum CLIError: Error, LocalizedError {
     case invalidPresenceStatus(String)
     case invalidDate(String)
     case noMUCService
-    case roomJoinTimeout(String)
     case noRoomSpecified
     case fileNotFound(String)
     case noConversationTarget
@@ -38,8 +37,6 @@ enum CLIError: Error, LocalizedError {
             "Invalid ISO 8601 date: \(string)"
         case .noMUCService:
             "No MUC service found on this server."
-        case let .roomJoinTimeout(jid):
-            "Timed out joining room: \(jid)"
         case .noRoomSpecified:
             "No room specified. Join a room with /join or provide a room JID."
         case let .fileNotFound(path):

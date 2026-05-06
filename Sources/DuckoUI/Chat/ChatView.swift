@@ -2,7 +2,12 @@ import DuckoCore
 import SwiftUI
 
 struct ChatView: View {
+    @Environment(AppEnvironment.self) private var environment
     let windowState: ChatWindowState
+
+    private var isPartnerTyping: Bool {
+        environment.chatService.isPartnerTyping(jidString: windowState.jidString)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,7 +35,7 @@ struct ChatView: View {
                 VStack(spacing: 0) {
                     MessageListView(windowState: windowState)
 
-                    if windowState.isPartnerTyping {
+                    if isPartnerTyping {
                         TypingIndicatorView()
                             .padding(.horizontal)
                             .padding(.vertical, 4)
@@ -53,7 +58,7 @@ struct ChatView: View {
             }
         }
         .fileDropTarget(windowState: windowState)
-        .animation(.easeInOut(duration: 0.2), value: windowState.isPartnerTyping)
+        .animation(.easeInOut(duration: 0.2), value: isPartnerTyping)
         .animation(.easeInOut(duration: 0.2), value: windowState.showParticipantSidebar)
     }
 }
