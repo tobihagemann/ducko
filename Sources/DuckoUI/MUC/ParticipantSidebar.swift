@@ -12,7 +12,7 @@ struct ParticipantSidebar: View {
 
     private var myParticipant: RoomParticipant? {
         guard let nickname = roomNickname else { return nil }
-        let participants = environment.chatService.roomParticipants[roomJIDString] ?? []
+        let participants = environment.chatService.participants(forRoomJIDString: roomJIDString)
         return participants.first { $0.nickname == nickname }
     }
 

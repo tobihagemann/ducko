@@ -416,6 +416,34 @@ public final class AccountService {
         clients[accountID]
     }
 
+    /// Returns the account's `XMPPClient` only when its connection state has
+    /// reached `.connected`. `client(for:)` publishes the client into
+    /// `clients[accountID]` before awaiting `client.connect()`, so a caller
+    /// racing the handshake otherwise reaches `XMPPClient.send`'s own
+    /// `.notConnected` guard and surfaces a leaky `XMPPClientError` instead
+    /// of the calling service's `notConnected` error envelope.
+    ///
+    /// The gate narrows the race to the window between this sync check and
+    /// the caller's next `await` on the returned client; if the connection
+    /// drops in that window, `XMPPClient.send`'s own guard can still surface.
+    /// For full coverage the caller would need to repeat the check inside
+    /// `XMPPClient.module(...)` itself.
+    public func connectedClient(for accountID: UUID) -> XMPPClient? {
+        guard case .connected = connectionStates[accountID] else { return nil }
+        return clients[accountID]
+    }
+
+    /// True when at least one account has reached `.connected`. Used by
+    /// `WelcomeView` to gate the contacts-window transition and by
+    /// `ContactListView` to publish a coarse `accessibilityValue` sentinel
+    /// for UI integration tests.
+    public var hasAnyConnectedAccount: Bool {
+        connectionStates.values.contains {
+            if case .connected = $0 { return true }
+            return false
+        }
+    }
+
     /// Returns TLS connection info for a connected account.
     public func tlsInfo(for accountID: UUID) -> TLSInfo? {
         clients[accountID]?.tlsInfo

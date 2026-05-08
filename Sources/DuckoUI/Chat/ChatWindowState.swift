@@ -32,7 +32,7 @@ public final class ChatWindowState {
     var myRoomRole: RoomRole? {
         guard isGroupchat,
               let nickname = conversation?.roomNickname else { return nil }
-        let participants = environment.chatService.roomParticipants[jidString] ?? []
+        let participants = environment.chatService.participants(forRoomJIDString: jidString)
         return participants.first { $0.nickname == nickname }?.role
     }
 

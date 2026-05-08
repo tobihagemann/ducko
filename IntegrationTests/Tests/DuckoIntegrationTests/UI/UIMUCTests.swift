@@ -111,8 +111,14 @@ extension DuckoIntegrationTests.UILayer {
             // key, so kAXPressAction on the sheet may be silently dropped.
             // Bring the contact-list window forward first.
             try await app.activateWindow(named: "Contacts")
-            try await app.waitForElement(identifier: "room-config-save", timeout: TestTimeout.uiElement)
-            try await app.click(identifier: "room-config-save")
+            // SwiftUI's `.accessibilityIdentifier` on a `Button` carrying
+            // `.keyboardShortcut(.defaultAction)` is not reliably bridged to
+            // the AX button on macOS 26, so identifier-based lookup misses
+            // the Save button entirely. Walking the sheet by role + title is
+            // the documented-stable path.
+            try await app.waitForElement(identifier: "room-settings-view", timeout: TestTimeout.uiElement)
+            try await app.clickSheetButton(label: "Save")
+            try await app.waitForSheetDismissed()
 
             // Bring the chat window back to key for the test body.
             try await app.activateWindow(named: roomJID)

@@ -1,6 +1,11 @@
 #!/bin/bash
 # Save room config in the Room Settings sheet.
-# Opens Room Settings first, then clicks the Save button.
+# Opens Room Settings first, then clicks the Save button by its label.
+# (The Save button no longer carries an accessibility identifier — SwiftUI
+# does not reliably propagate `.accessibilityIdentifier` to a `Button` carrying
+# `.keyboardShortcut(.defaultAction)` on macOS 26 — so this script resolves
+# the button by visible label inside the topmost sheet, mirroring
+# `AppAccessor.clickSheetButton(label:)` in the integration tests.)
 # Usage: ducko-room-config-save.sh ROOM_JID
 #   ROOM_JID: The JID of the room (must be visible in the Rooms section)
 set -euo pipefail
@@ -22,19 +27,33 @@ tell application "System Events"
     set frontmost of process "DuckoApp" to true
     delay 0.3
     tell process "DuckoApp"
-        -- Find the save button by accessibility identifier
+        -- Find the Save button inside the topmost sheet by matching its
+        -- visible label against AXDescription / AXTitle. SwiftUI
+        -- `Button("Save") { ... }` publishes the label through
+        -- AXDescription on macOS 26. The button is nested inside the
+        -- sheet's `HStack`, so `entire contents of theSheet` walks the
+        -- subtree — `buttons of theSheet` would only see direct children.
         repeat with win in windows
-            set allElems to entire contents of win
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "room-config-save" then
-                        click elem
-                        return "ok"
-                    end if
-                end try
-            end repeat
+            try
+                set theSheet to sheet 1 of win
+                set sheetButtons to (every button of (entire contents of theSheet))
+                repeat with btn in sheetButtons
+                    try
+                        if description of btn is "Save" then
+                            click btn
+                            return "ok"
+                        end if
+                    end try
+                    try
+                        if name of btn is "Save" then
+                            click btn
+                            return "ok"
+                        end if
+                    end try
+                end repeat
+            end try
         end repeat
-        return "ERROR: room-config-save button not found"
+        return "ERROR: Save button not found in any room settings sheet"
     end tell
 end tell
 APPLESCRIPT

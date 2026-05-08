@@ -24,10 +24,7 @@ public struct WelcomeView: View {
     }
 
     private var hasConnectedAccount: Bool {
-        environment.accountService.connectionStates.values.contains { state in
-            if case .connected = state { return true }
-            return false
-        }
+        environment.accountService.hasAnyConnectedAccount
     }
 
     private func transitionToContacts() {

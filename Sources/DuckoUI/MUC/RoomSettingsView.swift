@@ -46,11 +46,17 @@ struct RoomSettingsView: View {
 
                 Spacer()
 
+                // No `.accessibilityIdentifier` here: SwiftUI does not
+                // reliably propagate the modifier to a `Button` carrying
+                // `.keyboardShortcut(.defaultAction)` on macOS 26. UI tests
+                // resolve this button via `AppAccessor.clickSheetButton(label:)`
+                // which matches the SwiftUI button title against
+                // `kAXDescriptionAttribute` (the attribute SwiftUI publishes
+                // a `Button("Save") { … }` label through).
                 Button("Save") {
                     saveConfigRequested = true
                 }
                 .keyboardShortcut(.defaultAction)
-                .accessibilityIdentifier("room-config-save")
             }
             .padding()
         }

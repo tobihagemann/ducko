@@ -32,7 +32,7 @@ public final class ProfileService {
     // MARK: - Public API
 
     public func fetchOwnProfile(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
 
         do {
@@ -47,7 +47,7 @@ public final class ProfileService {
     }
 
     public func publishProfile(_ profile: ProfileInfo, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw ProfileServiceError.notConnected(accountID)
         }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else {

@@ -10,7 +10,7 @@ struct RoomContextMenu: View {
 
     private var myParticipant: RoomParticipant? {
         guard let nickname = conversation.roomNickname else { return nil }
-        let participants = environment.chatService.roomParticipants[conversation.jid.description] ?? []
+        let participants = environment.chatService.participants(forRoomJIDString: conversation.jid.description)
         return participants.first { $0.nickname == nickname }
     }
 

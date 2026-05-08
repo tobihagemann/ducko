@@ -51,14 +51,14 @@ public final class RosterService {
     }
 
     public func addContact(jid: BareJID, name: String?, groups: [String], accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.addContact(jid: jid, name: name, groups: groups)
         try await rosterModule.subscribe(to: jid)
     }
 
     public func removeContact(_ contact: Contact, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.removeContact(jid: contact.jid)
     }
@@ -70,14 +70,14 @@ public final class RosterService {
 
     public func removeContact(jidString: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else { throw RosterServiceError.invalidJID(jidString) }
-        guard let client = accountService?.client(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.removeContact(jid: jid)
     }
 
     public func approveSubscription(jidString: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else { throw RosterServiceError.invalidJID(jidString) }
-        guard let client = accountService?.client(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.approveSubscription(from: jid)
         presenceService?.removeSubscriptionRequest(jid, accountID: accountID)
@@ -85,7 +85,7 @@ public final class RosterService {
 
     public func denySubscription(jidString: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else { throw RosterServiceError.invalidJID(jidString) }
-        guard let client = accountService?.client(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.denySubscription(from: jid)
         presenceService?.removeSubscriptionRequest(jid, accountID: accountID)
@@ -111,14 +111,14 @@ public final class RosterService {
 
     public func blockContact(jidString: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else { throw RosterServiceError.invalidJID(jidString) }
-        guard let client = accountService?.client(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let blockingModule = await client.module(ofType: BlockingModule.self) else { return }
         try await blockingModule.blockContact(jid: jid)
     }
 
     public func unblockContact(jidString: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else { throw RosterServiceError.invalidJID(jidString) }
-        guard let client = accountService?.client(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let blockingModule = await client.module(ofType: BlockingModule.self) else { return }
         try await blockingModule.unblockContact(jid: jid)
     }

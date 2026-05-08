@@ -69,7 +69,6 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `room-settings-view` | Room settings sheet (tabs + destroy) | Room Settings |
 | `room-settings-destroy` | Destroy Room button | Room Settings |
 | `room-config-view` | Room config form (General tab) | Room Settings |
-| `room-config-save` | Save config button | Room Settings |
 | `affiliation-list-view` | Affiliation list (Members tab) | Room Settings |
 | `affiliation-jid-field` | JID input for adding affiliation | Room Settings |
 | `affiliation-add-button` | Add affiliation button | Room Settings |
@@ -108,9 +107,6 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `certIssuer` | Certificate Issuer label | Connection Info |
 | `certExpiry` | Certificate Expiry label | Connection Info |
 | `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
-| `retract-button` | Retract context menu button (own msgs) | Chat |
-| `moderate-button` | Moderate context menu button (other users' msgs) | Chat |
-| `edit-message-menu-item` | Edit context menu button (own msgs) | Chat |
 | `message-list` | Scrollable message list container | Chat |
 | `message-bubble-{id}` | Individual message bubble (id is ChatMessage.id) | Chat |
 | `retracted-message` | Retracted message tombstone | Chat |

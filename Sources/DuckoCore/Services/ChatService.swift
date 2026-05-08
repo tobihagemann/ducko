@@ -83,7 +83,7 @@ public final class ChatService {
     }
 
     public func sendMessage(to jid: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
         let content = MessageContent(body: body)
@@ -201,7 +201,7 @@ public final class ChatService {
 
     public func userIsTyping(in jid: BareJID, accountID: UUID) async {
         guard ChatPreferences.shared.enableChatStates else { return }
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let module = await client.module(ofType: ChatStatesModule.self) else { return }
 
         // Cancel existing debounce
@@ -242,7 +242,7 @@ public final class ChatService {
               original.isOutgoing else {
             throw ChatServiceError.notOutgoingMessage
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
@@ -288,7 +288,7 @@ public final class ChatService {
               original.isOutgoing else {
             throw ChatServiceError.notOutgoingMessage
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         let replaceElement = DuckoXMPP.XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": originalStanzaID])
@@ -319,7 +319,7 @@ public final class ChatService {
               original.isOutgoing else {
             throw ChatServiceError.notOutgoingMessage
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
         if let omemoService, let trustedDeviceIDs = await omemoService.shouldEncrypt(
@@ -364,7 +364,7 @@ public final class ChatService {
               original.isOutgoing else {
             throw ChatServiceError.notOutgoingMessage
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         let retractElement = DuckoXMPP.XMLElement(name: "retract", namespace: XMPPNamespaces.messageRetract, attributes: ["id": stanzaID])
@@ -389,7 +389,7 @@ public final class ChatService {
     }
 
     public func moderateMessage(serverID: String, in room: BareJID, reason: String?, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         try await mucModule.moderateMessage(room: room, stanzaID: serverID, reason: reason)
@@ -410,7 +410,7 @@ public final class ChatService {
         replyToStanzaID: String,
         accountID: UUID
     ) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
         let content = MessageContent(body: body)
@@ -467,7 +467,7 @@ public final class ChatService {
         messageType: DuckoXMPP.XMPPMessage.MessageType = .chat
     ) async throws {
         guard ChatPreferences.shared.enableDisplayedMarkers else { return }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let module = await client.module(ofType: ReceiptsModule.self) else { return }
         try await module.sendDisplayedMarker(to: .bare(jid), messageID: messageStanzaID, messageType: messageType)
     }
@@ -495,7 +495,7 @@ public final class ChatService {
             }
         case .groupchat:
             guard let serverID = message.serverID,
-                  let client = accountService?.client(for: accountID),
+                  let client = accountService?.connectedClient(for: accountID),
                   let mucModule = await client.module(ofType: MUCModule.self),
                   mucModule.nickname(in: conversation.jid) != nil else { return }
             try? await sendDisplayedMarker(to: conversation.jid, messageStanzaID: serverID, accountID: accountID, messageType: .groupchat)
@@ -505,7 +505,7 @@ public final class ChatService {
     // MARK: - MUC
 
     public func joinRoom(jid: BareJID, nickname: String, password: String? = nil, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         try await mucModule.joinRoom(jid, nickname: nickname, password: password)
@@ -613,14 +613,14 @@ public final class ChatService {
     }
 
     public func leaveRoom(jid: BareJID, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.leaveRoom(jid)
         clearRoomState(for: jid)
     }
 
     public func sendGroupMessage(to room: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
@@ -672,7 +672,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         let content = MessageContent(body: body)
@@ -709,7 +709,7 @@ public final class ChatService {
     }
 
     private func roomMemberJIDs(roomJIDString: String, accountID: UUID) async throws -> [BareJID] {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return [] }
         guard let roomJID = BareJID.parse(roomJIDString) else { return [] }
 
@@ -733,7 +733,7 @@ public final class ChatService {
     // MARK: - MUC Bridge
 
     public func participantGroups(forRoomJIDString jidString: String) -> [RoomParticipantGroup] {
-        let participants = roomParticipants[jidString] ?? []
+        let participants = roomParticipants[normalizedRoomKey(jidString)] ?? []
         let grouped = Dictionary(grouping: participants, by: \.affiliation)
         return grouped
             .map { RoomParticipantGroup(affiliation: $0.key, participants: $0.value.sorted { $0.nickname.localizedStandardCompare($1.nickname) == .orderedAscending }) }
@@ -741,11 +741,35 @@ public final class ChatService {
     }
 
     public func participantCount(forRoomJIDString jidString: String) -> Int {
-        roomParticipants[jidString]?.count ?? 0
+        roomParticipants[normalizedRoomKey(jidString)]?.count ?? 0
+    }
+
+    public func participants(forRoomJIDString jidString: String) -> [RoomParticipant] {
+        roomParticipants[normalizedRoomKey(jidString)] ?? []
+    }
+
+    /// Domain parts of every room currently in `roomParticipants`. Used by
+    /// `DuckoCLI.handleSendCommand` to distinguish "unjoined-room" hints from
+    /// 1:1 sends — keys are already RFC 7622-lowercased per the `roomParticipants`
+    /// write-side contract, so callers do not need to normalize again.
+    public var knownRoomDomains: Set<String> {
+        Set(roomParticipants.keys.compactMap { BareJID.parse($0)?.domainPart })
+    }
+
+    /// `roomParticipants` is written with `room.description` from a `BareJID`,
+    /// which RFC 7622 lowercases. Callers may pass the user-provided
+    /// `windowState.jidString` whose localpart preserves whatever case the
+    /// joining JID had (e.g. `inttest-ui-FCA13B13@…` from the integration
+    /// suite's `UUID.prefix(8)`). Normalize on read so the sidebar's
+    /// `roomJIDString` (raw) matches the title bar's `conversation.jid.description`
+    /// (already lowercase) — without the gate, the title shows "1 participants"
+    /// while the sidebar renders an empty list.
+    private func normalizedRoomKey(_ jidString: String) -> String {
+        BareJID.parse(jidString)?.description ?? jidString
     }
 
     public func discoverMUCService(accountID: UUID) async -> String? {
-        guard let client = accountService?.client(for: accountID) else { return nil }
+        guard let client = accountService?.connectedClient(for: accountID) else { return nil }
         guard let disco = await client.module(ofType: ServiceDiscoveryModule.self) else { return nil }
 
         let account = accountService?.accounts.first { $0.id == accountID }
@@ -763,7 +787,7 @@ public final class ChatService {
     }
 
     public func discoverRooms(on service: String, accountID: UUID) async throws -> [DiscoveredRoom] {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return [] }
 
         let rooms = try await mucModule.discoverRooms(on: service)
@@ -776,7 +800,7 @@ public final class ChatService {
         accountID: UUID,
         after: String? = nil
     ) async throws -> ChannelSearchResult {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let searchModule = await client.module(ofType: ChannelSearchModule.self) else { return ChannelSearchResult(channels: [], hasMore: false, lastCursor: nil) }
 
         let query = ChannelSearchModule.SearchQuery(keyword: keyword, after: after)
@@ -800,7 +824,7 @@ public final class ChatService {
         guard let jid = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.setSubject(in: jid, subject: subject)
     }
@@ -812,7 +836,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.inviteUser(jid, to: roomJID, reason: reason, password: password)
     }
@@ -821,7 +845,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.kickOccupant(nickname: nickname, from: roomJID, reason: reason)
     }
@@ -833,7 +857,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.banUser(jid: jid, from: roomJID, reason: reason)
     }
@@ -842,7 +866,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.grantVoice(nickname: nickname, in: roomJID)
     }
@@ -851,7 +875,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.revokeVoice(nickname: nickname, in: roomJID)
     }
@@ -860,7 +884,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.changeNickname(in: roomJID, to: newNickname)
     }
@@ -869,7 +893,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return [] }
         let fields = try await mucModule.getRoomConfig(roomJID)
         return fields.map { RoomConfigField(from: $0) }
@@ -879,7 +903,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         let dataFormFields = fields.map { $0.toDataFormField() }
         try await mucModule.submitRoomConfig(roomJID, fields: dataFormFields)
@@ -893,7 +917,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return [] }
         let mucAff = MUCAffiliation(rawValue: affiliation.rawValue) ?? .none
         let items = try await mucModule.getAffiliationList(mucAff, in: roomJID)
@@ -913,14 +937,14 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         let mucAff = MUCAffiliation(rawValue: affiliation.rawValue) ?? .none
         try await mucModule.setAffiliation(jid: jid, in: roomJID, to: mucAff, reason: reason)
     }
 
     public func destroyRoom(jid: BareJID, reason: String? = nil, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.destroyRoom(jid, reason: reason)
     }
@@ -946,7 +970,7 @@ public final class ChatService {
            let roomJID = BareJID.parse(invite.roomJIDString),
            let fromString = invite.fromJIDString,
            let inviterJID = JID.parse(fromString),
-           let client = accountService?.client(for: accountID),
+           let client = accountService?.connectedClient(for: accountID),
            let mucModule = await client.module(ofType: MUCModule.self) {
             try await mucModule.declineInvite(room: roomJID, inviter: inviterJID, reason: reason)
         }
@@ -1384,7 +1408,7 @@ public final class ChatService {
 
     private func isOwnRoomMessage(nickname: String?, room: BareJID, accountID: UUID) async -> Bool {
         guard let nickname,
-              let client = accountService?.client(for: accountID),
+              let client = accountService?.connectedClient(for: accountID),
               let mucModule = await client.module(ofType: MUCModule.self) else { return false }
         return nickname == mucModule.nickname(in: room)
     }
@@ -1904,7 +1928,7 @@ public final class ChatService {
         before: Date?,
         limit: Int
     ) async throws -> (messages: [ChatMessage], hasMore: Bool) {
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw ChatServiceError.notConnected(accountID)
         }
         guard let mamModule = await client.module(ofType: MAMModule.self) else {
@@ -1937,7 +1961,7 @@ public final class ChatService {
     }
 
     private func syncRecentHistory(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let mamModule = await client.module(ofType: MAMModule.self) else { return }
         guard let account = accountService?.accounts.first(where: { $0.id == accountID }) else { return }
         let accountJID = account.jid

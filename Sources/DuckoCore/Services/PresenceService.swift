@@ -75,7 +75,7 @@ public final class PresenceService {
     /// Sends directed presence to a specific JID, using the user's current show/status.
     public func sendDirectedPresence(to jidString: String, accountID: UUID) async throws {
         guard let jid = JID.parse(jidString) else { throw PresenceServiceError.invalidJID(jidString) }
-        guard let client = accountService?.client(for: accountID) else { throw PresenceServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw PresenceServiceError.notConnected(accountID) }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
         try await presenceModule.sendDirectedPresence(to: jid, show: currentShow, status: myStatusMessage)
@@ -257,7 +257,7 @@ public final class PresenceService {
 
     private func sendPresence(accountID: UUID) async {
         guard myPresence != .offline else { return }
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
         try? await presenceModule.broadcastPresence(show: currentShow, status: myStatusMessage)

@@ -593,7 +593,7 @@ public final class FileTransferService {
     }
 
     private func peerSupportsJingle(_ peerJID: BareJID, accountID: UUID) async -> Bool {
-        guard let client = accountService?.client(for: accountID) else { return false }
+        guard let client = accountService?.connectedClient(for: accountID) else { return false }
         guard let capsModule = await client.module(ofType: CapsModule.self) else { return false }
         return capsModule.isFeatureSupported(XMPPNamespaces.jingle, by: peerJID)
     }
@@ -684,7 +684,7 @@ public final class FileTransferService {
         mimeType: String,
         accountID: UUID
     ) async throws -> HTTPUploadModule.UploadSlot {
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw FileTransferError.noClient
         }
         guard let uploadModule = await client.module(ofType: HTTPUploadModule.self) else {
@@ -754,7 +754,7 @@ public final class FileTransferService {
     // MARK: - Private: Module Lookup
 
     private func jingleModule(for accountID: UUID) async throws -> JingleModule {
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw FileTransferError.noClient
         }
         guard let module = await client.module(ofType: JingleModule.self) else {
@@ -764,7 +764,7 @@ public final class FileTransferService {
     }
 
     private func oobModule(for accountID: UUID) async throws -> OOBModule {
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw FileTransferError.noClient
         }
         guard let module = await client.module(ofType: OOBModule.self) else {

@@ -267,15 +267,26 @@ actor AppAccessor {
 
     // MARK: - AX queries
 
-    /// Waits for `contact`'s row to render in the contact list. Use as the
-    /// connectivity gate at the top of a test that needs a freshly-launched
-    /// app to have synced its roster — roster sync only happens after the
-    /// seeded account's stream is connected, so a visible contact row is the
-    /// cheapest cross-suite signal that connect+roster fetched succeeded.
-    /// Uses `TestTimeout.connect` rather than `uiElement` because it is
-    /// gated on a network round-trip, not pure AX rendering.
+    /// Waits for `contact`'s row to render AND for at least one account to
+    /// reach `.connected`. Use as the connectivity gate at the top of a test
+    /// that needs a freshly-launched app to be live on the wire.
+    ///
+    /// The row alone is unsafe: `RosterService.loadContacts` reads the
+    /// cached roster via `store.fetchContacts`, so the row can render before
+    /// the new `XMPPClient` finishes binding. The `contact-list` element
+    /// exposes `kAXValueAttribute = "connected"` only when
+    /// `AccountService.connectionStates` flips to `.connected` — closing the
+    /// race where a click on `join-room-toolbar-button` hit `XMPPClient.send`
+    /// while state was still `.connecting`/`.authenticating`.
     func waitForContactRow(_ contact: TestCredentials.Credential) async throws {
         try await waitForElement(identifier: "contact-row-\(contact.jid)", timeout: TestTimeout.connect)
+        try await pollUntil(timeout: TestTimeout.connect) {
+            do {
+                return try self.readValue(identifier: "contact-list") == "connected"
+            } catch TestHarnessError.elementNotFound {
+                return false
+            }
+        }
     }
 
     /// Polls the AX tree for `identifier` until it appears or the timeout
@@ -348,10 +359,22 @@ actor AppAccessor {
         }
     }
 
+    /// Opens the context menu attached to `identifier`. `kAXShowMenuAction`
+    /// is documented-indeterminate when it returns `.cannotComplete`
+    /// (per Apple's `AXUIElementPerformAction` docs), so we never retry on a
+    /// non-success return — the action may have actually opened the menu,
+    /// and a retry posted on top of an open menu either no-ops or closes
+    /// the menu before the caller can pick an item. Instead we poll for
+    /// `kAXMenuRole` to publish under the application; if the menu does
+    /// appear, the action committed regardless of return code.
     func rightClick(identifier: String) async throws {
-        try await retryOnStaleElement(identifier: identifier) {
-            let element = try self.resolveElement(identifier: identifier)
-            try self.perform(action: kAXShowMenuAction, on: element, identifier: identifier)
+        let element = try resolveElement(identifier: identifier)
+        let err = AXUIElementPerformAction(element, kAXShowMenuAction as CFString)
+        if err == .apiDisabled { throw TestHarnessError.axTrustMissing }
+        do {
+            _ = try await waitForShownContextMenu(timeout: TestTimeout.uiElement)
+        } catch TestHarnessError.elementNotFound, TestHarnessError.timeout {
+            throw TestHarnessError.elementNotFound(identifier: identifier)
         }
     }
 
@@ -389,9 +412,7 @@ actor AppAccessor {
         if setErr == .success {
             return
         }
-        if let pid = process?.processIdentifier {
-            await Self.activateApp(pid: pid)
-        }
+        await ensureFrontmost()
         Self.synthesizeKeystrokes(for: text)
     }
 
@@ -421,7 +442,7 @@ actor AppAccessor {
         if setErr == .success {
             return
         }
-        await Self.activateApp(pid: pid)
+        await ensureFrontmost()
         Self.synthesizeKeystrokes(for: text)
     }
 
@@ -432,6 +453,39 @@ actor AppAccessor {
         let element = try resolveElement(identifier: identifier)
         Self.setFocused(element, identifier: identifier)
         try await pressKey(CGKeyCode(kVK_Return), modifiers: [])
+    }
+
+    /// Clears `identifier`'s current contents and types `text`, all via
+    /// hardware-style keystrokes (Cmd+A, Delete, then per-character events).
+    /// Use when the field already holds content that the test must replace
+    /// — e.g. the message-field pre-populated by `editingMessage` after the
+    /// Edit context-menu pick. The plain `type(_:intoIdentifier:)` shortcut
+    /// uses `kAXSetValueAction` first; on a pre-populated SwiftUI
+    /// `TextField` bound to `@State` the AX setter returns success and may
+    /// even repaint the field, but the SwiftUI Binding stays at its prior
+    /// value, so a follow-up `pressReturn` reads stale `text` in
+    /// `.onKeyPress(.return)`. Keystrokes route through the field editor's
+    /// `controlTextDidChange` path which is what SwiftUI observes, so the
+    /// Binding always syncs.
+    ///
+    /// A synthesized mouse click at the field's center is the first step:
+    /// `kAXSetAttributeValue(kAXFocusedAttribute = true)` and
+    /// `kAXFocusedWindowAttribute` set the AX-level focus, but they do not
+    /// update AppKit's first responder, so subsequent keystrokes posted via
+    /// `.cghidEventTap` get dispatched to whatever responder the chat window
+    /// inherited after the context-menu modal session dismissed (typically
+    /// the window itself, which discards them). A real mouse click forces
+    /// the field to become first responder.
+    func clearAndType(_ text: String, intoIdentifier identifier: String) async throws {
+        let element = try resolveElement(identifier: identifier)
+        Self.setFocused(element, identifier: identifier)
+        await ensureFrontmost()
+        if let center = elementCenter(of: element) {
+            postClickPair(at: center, clickState: 1)
+        }
+        try await pressKey(CGKeyCode(kVK_ANSI_A), modifiers: .maskCommand)
+        try await pressKey(CGKeyCode(kVK_Delete), modifiers: [])
+        Self.synthesizeKeystrokes(for: text)
     }
 
     /// Resolves `identifier` and reads `kAXValueAttribute` (falling back to
@@ -633,13 +687,13 @@ actor AppAccessor {
         }
     }
 
-    /// Synthesizes a key-down/up event pair via `.cghidEventTap`. Re-
-    /// activates Ducko first so the test runner cannot drift to the front
-    /// between calls.
+    /// Synthesizes a key-down/up event pair via `.cghidEventTap`. Waits
+    /// for Ducko to actually become frontmost before posting — `.activate()`
+    /// returns before the WindowServer transition completes, and a key
+    /// posted on the same runloop tick lands on whichever app was previously
+    /// frontmost (typically the test runner).
     func pressKey(_ key: CGKeyCode, modifiers: CGEventFlags) async throws {
-        if let pid = process?.processIdentifier {
-            await Self.activateApp(pid: pid)
-        }
+        await ensureFrontmost()
         guard let down = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: true),
               let up = CGEvent(keyboardEventSource: nil, virtualKey: key, keyDown: false) else { return }
         down.flags = modifiers
@@ -648,11 +702,112 @@ actor AppAccessor {
         up.post(tap: .cghidEventTap)
     }
 
-    /// Convenience for the right-click → menu-item pattern: waits for the
-    /// menu-item identifier to appear, then clicks it.
-    func contextMenuItem(identifier: String) async throws {
-        try await waitForElement(identifier: identifier, timeout: TestTimeout.uiElement)
-        try await click(identifier: identifier)
+    /// Selects an item by title in the currently-shown context menu (the
+    /// right-click menu opened by `rightClick(identifier:)`). Polls for the
+    /// menu to publish and to dismiss so a follow-up action does not race
+    /// the menu's open/close animation.
+    ///
+    /// Identifier-based selection (the prior helper) was removed because
+    /// SwiftUI's `.accessibilityIdentifier` modifier on a `Button` inside a
+    /// `.contextMenu` builder does not reliably propagate to the bridged
+    /// `kAXMenuItemRole` element on macOS 26 — the global DFS lookup landed
+    /// on a sibling and `kAXPressAction` fired the wrong action (e.g. asking
+    /// for "edit-message-menu-item" actually invoked Retract). Title is the
+    /// stable AX attribute on menu items; `kAXPressAction` is the canonical
+    /// action (the bridged `NSMenuItem` action handler), with `kAXPickAction`
+    /// as a documented fallback for AX implementations that reject press on
+    /// context-menu items. This is the inverse of `pickPopUpItem`'s pick-only
+    /// shape — `Picker(.menu)` controls answer to pick; context-menu items
+    /// answer to press.
+    func contextMenuItem(title: String) async throws {
+        if let pid = process?.processIdentifier {
+            await Self.activateApp(pid: pid)
+        }
+
+        let menu = try await waitForShownContextMenu()
+        let identifier = "context-menu/menu-item[\(title)]"
+
+        guard let menuItem = findMenuItem(in: menu, title: title) else {
+            try? await pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+            throw TestHarnessError.elementNotFound(identifier: identifier)
+        }
+
+        // SwiftUI `Button` inside `.contextMenu { }` bridges to a
+        // `kAXMenuItemRole` whose action closure is dispatched on
+        // `kAXPressAction` (the canonical NSMenuItem action). `kAXPickAction`
+        // returns `.success` and visually dismisses the menu on macOS 26
+        // *without* invoking the SwiftUI closure — confirmed empirically
+        // (the test rendering observed the original body, not the edited
+        // one, and a held-on-failure session showed the menu still open).
+        // Press is therefore the canonical action here, with pick as the
+        // documented fallback for AX implementations that reject press on
+        // context-menu items. `cannotComplete` during modal menu tracking
+        // is documented-indeterminate, so we poll for menu dismissal
+        // afterward to confirm the action committed.
+        let pressErr = AXUIElementPerformAction(menuItem, kAXPressAction as CFString)
+        if pressErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
+        if pressErr != .success {
+            let pickErr = AXUIElementPerformAction(menuItem, kAXPickAction as CFString)
+            if pickErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
+            if pickErr != .success {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+        }
+
+        try await waitForContextMenuDismissed()
+    }
+
+    /// Clicks a button by visible label inside the application's topmost
+    /// sheet. Use when SwiftUI's `.accessibilityIdentifier` does not
+    /// propagate to a `Button` that also carries `.keyboardShortcut(.defaultAction)`
+    /// or `.keyboardShortcut(.cancelAction)` — the bridged AX button instead
+    /// inherits the *outer* container's identifier (e.g. both Save and
+    /// Destroy under a VStack tagged `room-settings-view` come through with
+    /// `id='room-settings-view'`), so a global identifier-based DFS lands
+    /// on a sibling at best. The button's `kAXTitleAttribute` is also empty
+    /// for SwiftUI `Button("Save") { … }`; the human-readable label is
+    /// published via `kAXDescriptionAttribute`. The same title-then-description
+    /// fallback shape powers `segmentLabel(of:)`.
+    ///
+    /// Sheet scoping is intentional: a `Save` label in the sheet must not
+    /// be confused with an unrelated `Save` label elsewhere in the app, and
+    /// limits the walk to the active modal's surface.
+    func clickSheetButton(label: String) async throws {
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: "sheet-button[\(label)]")
+        }
+        let appElement = AXUIElementCreateApplication(pid)
+        guard let sheet = findDescendant(in: appElement, role: kAXSheetRole, where: { _ in true }) else {
+            throw TestHarnessError.elementNotFound(identifier: "sheet[\(label)]")
+        }
+        guard let button = findDescendant(
+            in: sheet,
+            role: kAXButtonRole,
+            where: { candidate in segmentLabel(of: candidate) == label }
+        ) else {
+            throw TestHarnessError.elementNotFound(identifier: "sheet-button[\(label)]")
+        }
+        try perform(action: kAXPressAction, on: button, identifier: "sheet-button[\(label)]")
+    }
+
+    /// Polls until the application has no `kAXSheetRole` descendant. Use
+    /// after `clickSheetButton` to confirm the sheet actually dismissed
+    /// before issuing follow-up commands against the parent window — the
+    /// press is asynchronous and the sheet's animation can race a follow-up
+    /// `activateWindow`.
+    func waitForSheetDismissed(timeout: Duration = TestTimeout.uiElement) async throws {
+        guard let pid = process?.processIdentifier else { return }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            let app = AXUIElementCreateApplication(pid)
+            if findDescendant(in: app, role: kAXSheetRole, where: { _ in true }) == nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let app = AXUIElementCreateApplication(pid)
+        if findDescendant(in: app, role: kAXSheetRole, where: { _ in true }) == nil { return }
+        throw TestHarnessError.timeout
     }
 
     /// Activates Ducko, raises the named window, makes it main, and points
@@ -675,13 +830,18 @@ actor AppAccessor {
             let titleErr = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
             guard titleErr == .success, let windowTitle = titleValue as? String else { continue }
             if windowTitle == title || windowTitle.contains(title) {
-                // Translate every non-success result. A silent .cannotComplete /
-                // .invalidUIElement on raise/main/focused-window leaves the
-                // wrong window key, and downstream sheet-button clicks would
-                // fail with a misleading "elementNotFound" rather than a
-                // clear AX-routing diagnostic.
-                let raiseErr = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-                try mapWindowError(raiseErr, title: title)
+                // `kAXRaiseAction` returns `kAXErrorAttributeUnsupported`
+                // (-25205) on the Contacts window when a SwiftUI `.sheet`
+                // is attached to it (room-config save sheet) — even though
+                // `AXRaise` is in the action list and the underlying setter
+                // calls below succeed. Treat raise as best-effort and let
+                // the kAXMain / kAXFocusedWindow setters be the
+                // authoritative "make this window key" path. Translate the
+                // setter results so a silent failure on those leaves the
+                // wrong window key and downstream sheet-button clicks
+                // would fail with a misleading "elementNotFound" rather
+                // than a clear AX-routing diagnostic.
+                _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
                 let mainErr = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
                 try mapWindowError(mainErr, title: title)
                 let focusedErr = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
@@ -867,6 +1027,57 @@ actor AppAccessor {
         }
     }
 
+    /// Polls until a context menu (`kAXMenuRole` descendant of the
+    /// application element) appears. Used by `contextMenuItem(title:)`
+    /// because right-click context menus are not anchored to a popUp button —
+    /// `kAXShowMenuAction` opens them as a child of the application root, so
+    /// a popUp-scoped lookup like `resolveShownMenu` doesn't apply.
+    private func waitForShownContextMenu(
+        timeout: Duration = TestTimeout.uiElement
+    ) async throws -> AXUIElement {
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: "context-menu")
+        }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        // Inlined poll: capturing `AXUIElementCreateApplication(pid)` through
+        // a closure for `pollUntil` trips strict-concurrency `sending` checks
+        // (`AXUIElement` is non-Sendable). Each iteration re-creates the
+        // application reference so nothing crosses an isolation boundary.
+        while ContinuousClock.now < deadline {
+            let app = AXUIElementCreateApplication(pid)
+            if let menu = findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) {
+                return menu
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let app = AXUIElementCreateApplication(pid)
+        if let menu = findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) {
+            return menu
+        }
+        throw TestHarnessError.elementNotFound(identifier: "context-menu")
+    }
+
+    /// Polls until no `kAXMenuRole` descendant remains under the application
+    /// element. The pick / press above is documented-indeterminate when AX
+    /// reports `cannotComplete`, so callers wait for the menu's actual close
+    /// to confirm the action committed before issuing follow-up commands.
+    private func waitForContextMenuDismissed(
+        timeout: Duration = TestTimeout.uiElement
+    ) async throws {
+        guard let pid = process?.processIdentifier else { return }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            let app = AXUIElementCreateApplication(pid)
+            if findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) == nil {
+                return
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let app = AXUIElementCreateApplication(pid)
+        if findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) == nil { return }
+        throw TestHarnessError.timeout
+    }
+
     /// Polls `readValue(identifier:)` until it equals `expected`. Absorbs
     /// transient `elementNotFound` (SwiftUI re-renders the popup briefly when
     /// the binding commits).
@@ -1050,6 +1261,25 @@ actor AppAccessor {
 
     private nonisolated static func activateApp(pid: pid_t) async {
         await activateAppOnMain(pid: pid)
+    }
+
+    /// Activates Ducko and waits until `NSRunningApplication.isActive`
+    /// flips to `true` (or the deadline elapses). `NSRunningApplication.activate()`
+    /// returns immediately but the actual frontmost transition happens on a
+    /// subsequent runloop tick — keystrokes posted via `.cghidEventTap`
+    /// before the transition land on whatever app currently owns the
+    /// frontmost window (typically the test runner). Used by helpers that
+    /// dispatch keystroke events into a SwiftUI control whose Binding only
+    /// syncs through the field editor.
+    private func ensureFrontmost(timeout: Duration = .milliseconds(500)) async {
+        guard let pid = process?.processIdentifier else { return }
+        await Self.activateApp(pid: pid)
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if app.isActive { return }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
     }
 
     /// Sets `kAXFocusedAttribute = true` on the element and logs at debug

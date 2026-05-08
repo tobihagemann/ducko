@@ -61,13 +61,17 @@ final class TestHarness {
     /// before returning. Cleanup for each successful account is registered immediately.
     ///
     /// `loadOMEMOFixtures` gates the OMEMO identity fixture seed + capture path.
-    /// OMEMO test suites pass `true` so each run reuses a stable identity (avoids
-    /// piling up `urn:xmpp:omemo:2:bundles:*` PEP nodes server-side); other
-    /// suites leave it `false` so they don't pay `captureOMEMOFixture`'s up-to-10s
-    /// poll on first run when they never exercise OMEMO.
+    /// Default `true`: every connect reuses the captured identity so the
+    /// account's PEP devicelist stays singleton instead of accumulating one
+    /// fresh device per test run. Without this, ~50 protocol-test connects
+    /// per suite run push every account past `OMEMOModule.pruneProbeCap = 64`,
+    /// which then SIGABRTs the encrypt path on the next suite under bundle
+    /// fetch fan-out. The `captureOMEMOFixture` poll is paid only once per
+    /// account on a brand-new dev/CI machine; subsequent runs are a 50 KB
+    /// file read.
     func setUp(
         accounts labels: [String: TestCredentials.Credential],
-        loadOMEMOFixtures: Bool = false
+        loadOMEMOFixtures: Bool = true
     ) async throws {
         // Sort by label so connect order is deterministic across runs.
         for (label, credential) in labels.sorted(by: { $0.key < $1.key }) {
@@ -85,13 +89,9 @@ final class TestHarness {
                 _ = try? await loadOMEMOFixture(for: credential)
             }
 
-            let (stream, continuation) = AsyncStream<XMPPEvent>.makeStream()
-            router.register(accountID: accountID, continuation: continuation)
-
             do {
                 try await environment.accountService.connect(accountID: accountID, password: credential.password)
             } catch {
-                router.unregister(accountID: accountID)
                 await environment.accountService.disconnect(accountID: accountID)
                 try? await environment.accountService.deleteAccount(accountID)
                 throw error
@@ -99,7 +99,7 @@ final class TestHarness {
             // Skip savePassword — writing live credentials to the temp
             // FileCredentialStore would leave plaintext secrets on disk.
 
-            let connected = ConnectedAccount(accountID: accountID, eventStream: stream)
+            let connected = ConnectedAccount(accountID: accountID, router: router)
             accounts[label] = connected
 
             // Register cleanup before waiting for the roster so a hang here still
@@ -572,7 +572,7 @@ final class TestHarness {
         }
         cleanupActions.removeAll()
 
-        router.finishAll()
+        router.cancelAllWaiters()
         accounts.removeAll()
 
         do {

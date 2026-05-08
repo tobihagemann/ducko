@@ -101,7 +101,7 @@ public final class AvatarService {
 
     /// Publishes the user's avatar via XEP-0084 PEP and optionally XEP-0153 vCard.
     public func publishAvatar(imageData: Data, mimeType: String, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw AvatarServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw AvatarServiceError.notConnected(accountID) }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
@@ -138,7 +138,7 @@ public final class AvatarService {
 
     /// Removes the user's avatar.
     public func removeAvatar(accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { throw AvatarServiceError.notConnected(accountID) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw AvatarServiceError.notConnected(accountID) }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
@@ -192,7 +192,7 @@ public final class AvatarService {
     }
 
     private func detectConversionSupport(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let discoModule = await client.module(ofType: ServiceDiscoveryModule.self) else { return }
         guard let account = accountService?.accounts.first(where: { $0.id == accountID }) else { return }
 
@@ -208,7 +208,7 @@ public final class AvatarService {
     }
 
     private func loadOwnAvatarHash(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
@@ -267,7 +267,7 @@ public final class AvatarService {
         if contact.avatarHash == hash { return }
 
         // Fetch vCard to get photo
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
 
         do {
@@ -287,7 +287,7 @@ public final class AvatarService {
     // MARK: - Private: Fetch Helpers
 
     private func fetchAndStoreAvatar(for contact: Contact, hash: String?, accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
 
         do {
@@ -312,7 +312,7 @@ public final class AvatarService {
     }
 
     private func fetchPEPAvatar(for jid: BareJID, accountID: UUID) async -> AvatarData? {
-        guard let client = accountService?.client(for: accountID) else { return nil }
+        guard let client = accountService?.connectedClient(for: accountID) else { return nil }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return nil }
 
         do {
@@ -346,7 +346,7 @@ public final class AvatarService {
     }
 
     private func fetchVCardAvatar(for jid: BareJID, accountID: UUID) async -> AvatarData? {
-        guard let client = accountService?.client(for: accountID) else { return nil }
+        guard let client = accountService?.connectedClient(for: accountID) else { return nil }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return nil }
 
         do {
@@ -371,7 +371,7 @@ public final class AvatarService {
     }
 
     private func updateVCardPhoto(bytes: [UInt8], mimeType: String, accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
 
         do {
@@ -386,7 +386,7 @@ public final class AvatarService {
     }
 
     private func clearVCardPhoto(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
 
         do {

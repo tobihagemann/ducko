@@ -111,7 +111,7 @@ public final class OMEMOService {
                 identityKey: identityKey, accountID: accountID
             )
         case .omemoSessionAdvanced:
-            if let client = accountService?.client(for: accountID),
+            if let client = accountService?.connectedClient(for: accountID),
                let omemoModule = await client.module(ofType: OMEMOModule.self) {
                 await saveModuleSessions(module: omemoModule, accountID: accountID)
             }
@@ -165,7 +165,7 @@ public final class OMEMOService {
         guard !trustedDeviceIDs.isEmpty else {
             throw OMEMOServiceError.noTrustedRecipients
         }
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw OMEMOServiceError.notConnected(accountID)
         }
         guard let omemoModule = await client.module(ofType: OMEMOModule.self) else {
@@ -255,7 +255,7 @@ public final class OMEMOService {
         memberJIDs: [BareJID],
         accountID: UUID
     ) async throws -> OMEMOModule.EncryptedMessageElements {
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw OMEMOServiceError.notConnected(accountID)
         }
         guard let omemoModule = await client.module(ofType: OMEMOModule.self) else {
@@ -348,7 +348,7 @@ public final class OMEMOService {
         await chatService.persistEncryptedMessage(message, in: conversation, accountID: accountID)
 
         // Persist session state after decryption (ratchet may have advanced)
-        if let client = accountService?.client(for: accountID),
+        if let client = accountService?.connectedClient(for: accountID),
            let omemoModule = await client.module(ofType: OMEMOModule.self) {
             await saveModuleSessions(module: omemoModule, accountID: accountID)
         }
@@ -358,7 +358,7 @@ public final class OMEMOService {
         jid: BareJID, deviceID: UInt32,
         identityKey: [UInt8], accountID: UUID
     ) async {
-        guard let client = accountService?.client(for: accountID),
+        guard let client = accountService?.connectedClient(for: accountID),
               let omemoModule = await client.module(ofType: OMEMOModule.self)
         else { return }
 
@@ -400,7 +400,7 @@ public final class OMEMOService {
     }
 
     private func handleConnected(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID),
+        guard let client = accountService?.connectedClient(for: accountID),
               let omemoModule = await client.module(ofType: OMEMOModule.self)
         else { return }
         guard let accountJID = accountJIDString(for: accountID) else { return }

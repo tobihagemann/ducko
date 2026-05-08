@@ -2391,10 +2391,8 @@ private func handleSendCommand(
 
     do {
         let (isRoom, looksLikeUnjoinedRoom) = await MainActor.run {
-            let participants = environment.chatService.roomParticipants
-            let joined = !(participants[jidString]?.isEmpty ?? true)
-            let knownMUCDomains = Set(participants.keys.compactMap { BareJID.parse($0)?.domainPart })
-            let unjoinedRoom = !joined && knownMUCDomains.contains(recipientJID.domainPart)
+            let joined = !environment.chatService.participants(forRoomJIDString: jidString).isEmpty
+            let unjoinedRoom = !joined && environment.chatService.knownRoomDomains.contains(recipientJID.domainPart)
             return (joined, unjoinedRoom)
         }
         if isRoom {

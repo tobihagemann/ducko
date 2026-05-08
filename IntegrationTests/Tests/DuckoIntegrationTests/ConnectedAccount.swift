@@ -3,18 +3,20 @@ import Foundation
 
 /// A connected XMPP account scoped to a `TestHarness`.
 ///
-/// Wraps a single account inside the harness's shared `AppEnvironment` and
-/// owns the per-account event stream that the harness's external-event router
-/// feeds via the `accountID` filter.
+/// Thin facade over `EventRouter`: each `waitForEvent` / `collectEvents` call
+/// allocates a fresh `UUID` and installs a one-shot waiter on the router via
+/// `register`, with `withTaskCancellationHandler` propagating caller
+/// `Task.cancel()` through `cancelWaiter`. The public API matches the prior
+/// stream-based implementation so integration tests do not change.
 @MainActor
 final class ConnectedAccount {
     let accountID: UUID
 
-    private let eventStream: AsyncStream<XMPPEvent>
+    private unowned let router: EventRouter
 
-    init(accountID: UUID, eventStream: AsyncStream<XMPPEvent>) {
+    init(accountID: UUID, router: EventRouter) {
         self.accountID = accountID
-        self.eventStream = eventStream
+        self.router = router
     }
 
     // MARK: - Event Waiting
@@ -24,11 +26,33 @@ final class ConnectedAccount {
         matching predicate: @Sendable @escaping (XMPPEvent) -> Bool,
         timeout: Duration = TestTimeout.event
     ) async throws -> XMPPEvent {
-        try await race(timeout: timeout) { stream in
-            for await event in stream where predicate(event) {
-                return event
+        let waiterID = UUID()
+        let accountID = accountID
+        let router = router
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<XMPPEvent, any Error>) in
+                let deliver: @MainActor (XMPPEvent) -> Bool = { event in
+                    if predicate(event) {
+                        continuation.resume(returning: event)
+                        return true
+                    }
+                    return false
+                }
+                let cancel: @MainActor (TestHarnessError) -> Void = { error in
+                    continuation.resume(throwing: error)
+                }
+                router.register(
+                    accountID: accountID,
+                    id: waiterID,
+                    deliver: deliver,
+                    cancel: cancel,
+                    timeout: timeout
+                )
             }
-            throw TestHarnessError.streamClosed
+        } onCancel: {
+            Task { @MainActor [router] in
+                router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
+            }
         }
     }
 
@@ -43,13 +67,33 @@ final class ConnectedAccount {
         extracting extract: @Sendable @escaping (XMPPEvent) -> T?,
         timeout: Duration = TestTimeout.event
     ) async throws -> T {
-        try await race(timeout: timeout) { stream in
-            for await event in stream {
-                if let extracted = extract(event) {
-                    return extracted
+        let waiterID = UUID()
+        let accountID = accountID
+        let router = router
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+                let deliver: @MainActor (XMPPEvent) -> Bool = { event in
+                    if let extracted = extract(event) {
+                        continuation.resume(returning: extracted)
+                        return true
+                    }
+                    return false
                 }
+                let cancel: @MainActor (TestHarnessError) -> Void = { error in
+                    continuation.resume(throwing: error)
+                }
+                router.register(
+                    accountID: accountID,
+                    id: waiterID,
+                    deliver: deliver,
+                    cancel: cancel,
+                    timeout: timeout
+                )
             }
-            throw TestHarnessError.streamClosed
+        } onCancel: {
+            Task { @MainActor [router] in
+                router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
+            }
         }
     }
 
@@ -59,13 +103,35 @@ final class ConnectedAccount {
         until predicate: @Sendable @escaping (XMPPEvent) -> Bool,
         timeout: Duration = TestTimeout.event
     ) async throws -> [XMPPEvent] {
-        try await race(timeout: timeout) { stream in
-            var collected: [XMPPEvent] = []
-            for await event in stream {
-                collected.append(event)
-                if predicate(event) { return collected }
+        let waiterID = UUID()
+        let accountID = accountID
+        let router = router
+        let box = CollectorBox()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[XMPPEvent], any Error>) in
+                let deliver: @MainActor (XMPPEvent) -> Bool = { event in
+                    box.collected.append(event)
+                    if predicate(event) {
+                        continuation.resume(returning: box.collected)
+                        return true
+                    }
+                    return false
+                }
+                let cancel: @MainActor (TestHarnessError) -> Void = { error in
+                    continuation.resume(throwing: error)
+                }
+                router.register(
+                    accountID: accountID,
+                    id: waiterID,
+                    deliver: deliver,
+                    cancel: cancel,
+                    timeout: timeout
+                )
             }
-            throw TestHarnessError.streamClosed
+        } onCancel: {
+            Task { @MainActor [router] in
+                router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
+            }
         }
     }
 
@@ -87,29 +153,12 @@ final class ConnectedAccount {
         if await condition() { return }
         throw TestHarnessError.timeout
     }
+}
 
-    // MARK: - Private
-
-    /// Races a stream-consumer task against a timeout sleep, returning the first
-    /// successful result or throwing `TestHarnessError.timeout`.
-    private func race<Result: Sendable>(
-        timeout: Duration,
-        consume: @Sendable @escaping (AsyncStream<XMPPEvent>) async throws -> Result
-    ) async throws -> Result {
-        let stream = eventStream
-        return try await withThrowingTaskGroup(of: Result.self) { group in
-            group.addTask {
-                try await consume(stream)
-            }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw TestHarnessError.timeout
-            }
-            defer { group.cancelAll() }
-            guard let result = try await group.next() else {
-                throw TestHarnessError.streamClosed
-            }
-            return result
-        }
-    }
+/// Mutable accumulator captured by `collectEvents`'s `deliver`/`cancel`
+/// closures. Reference type so the two closures share state. Freed when the
+/// router drops the waiter (success, timeout, caller cancel, or teardown).
+@MainActor
+private final class CollectorBox {
+    var collected: [XMPPEvent] = []
 }

@@ -13,6 +13,15 @@ struct ContactListView: View {
         environment.chatService.openConversations.filter { $0.type == .groupchat }
     }
 
+    /// True when at least one enabled account has reached `.connected`.
+    /// UI integration tests poll the matching AX sentinel below to gate on
+    /// the live handshake completing — `contact-row-*` can render from the
+    /// cached roster before the new client finishes binding, so it is not a
+    /// safe connectivity gate by itself.
+    private var hasConnectedAccount: Bool {
+        environment.accountService.hasAnyConnectedAccount
+    }
+
     var body: some View {
         List {
             ForEach(sortedAndFilteredGroups) { group in
@@ -53,6 +62,17 @@ struct ContactListView: View {
         }
         .listStyle(.sidebar)
         .accessibilityIdentifier("contact-list")
+        // AX-only connectivity gate. UI integration tests poll
+        // `kAXValueAttribute` on `contact-list` and wait for "connected" —
+        // `contact-row-*` can render from the cached roster before the new
+        // client finishes binding, so a row by itself is not a safe
+        // connectivity gate. `.accessibilityValue` is the documented modifier
+        // for exposing dynamic state on a SwiftUI accessibility element, and
+        // it propagates reliably to the bridged `kAXValueAttribute` on the
+        // List's AX representation (a Button / overlay sentinel does not —
+        // SwiftUI elides zero-frame / decorative primitives from the AX tree
+        // and drops the identifier with them).
+        .accessibilityValue(hasConnectedAccount ? "connected" : "connecting")
     }
 
     private var sortedAndFilteredGroups: [ContactGroup] {

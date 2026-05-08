@@ -45,7 +45,7 @@ public final class BookmarksService {
     // MARK: - Public API
 
     public func loadBookmarks(accountID: UUID) async {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
 
         do {
@@ -59,7 +59,7 @@ public final class BookmarksService {
     }
 
     public func addBookmark(_ bookmark: RoomBookmark, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else {
+        guard let client = accountService?.connectedClient(for: accountID) else {
             throw BookmarksError.notConnected(accountID)
         }
         guard let pepModule = await client.module(ofType: PEPModule.self) else {
@@ -88,7 +88,7 @@ public final class BookmarksService {
     }
 
     public func removeBookmark(jidString: String, accountID: UUID) async throws {
-        guard let client = accountService?.client(for: accountID) else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
 
         try await pepModule.retractItem(node: XMPPNamespaces.bookmarks2, itemID: jidString)
