@@ -562,6 +562,14 @@ actor AppAccessor {
         try await pressKey(CGKeyCode(kVK_ANSI_A), modifiers: .maskCommand)
         try await pressKey(CGKeyCode(kVK_Delete), modifiers: [])
         Self.synthesizeKeystrokes(for: text)
+        // `synthesizeKeystrokes` posts CGEvents and returns; under suite load
+        // the AppKit field editor's `controlTextDidChange` pipeline can land
+        // the typed replacement into SwiftUI's bound `@State` *after* a
+        // follow-up `pressReturn` reads `.onKeyPress(.return)` from the
+        // stale binding, so the test sends a no-op correction with the
+        // pre-edit body. Polling for AX value equality proves the binding
+        // committed before this helper returns.
+        try await waitForValue(text, identifier: identifier)
     }
 
     /// Resolves `identifier` and reads `kAXValueAttribute` (falling back to
