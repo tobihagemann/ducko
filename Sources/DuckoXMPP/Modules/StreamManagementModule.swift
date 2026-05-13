@@ -52,11 +52,25 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         var outgoingCounter: UInt32 = 0
         var outgoingQueue: [XMLElement] = []
         var enableContinuation: CheckedContinuation<Void, any Error>?
+        var pendingSyncAck: PendingSyncAck?
+        var nextSyncAckWaiterID: UInt64 = 0
         var resumptionId: String?
         var location: String?
         var connectedJID: FullJID?
         var isrToken: String?
         var isrMechanism: String?
+    }
+
+    /// Single in-flight `<r/>` → `<a h='N'/>` waiter. Resumed by exactly one
+    /// of: inbound matching `<a/>`, timeout fire, send error, parent
+    /// cancellation, or stream tear-down. Every resumer claims by `id`
+    /// under the lock so a stale resumer from a previous request cannot
+    /// hijack a fresh slot.
+    private struct PendingSyncAck {
+        let id: UInt64
+        let expectedH: UInt32
+        let continuation: CheckedContinuation<Void, any Error>
+        let timeoutTask: Task<Void, Never>
     }
 
     /// Result of processing a `<resumed>` or `<failed>` response from the server.
@@ -111,6 +125,13 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
     /// Whether this module has state that can be used to attempt stream resumption.
     public nonisolated var isResumable: Bool {
         state.withLock { $0.resumptionId != nil && $0.connectedJID != nil }
+    }
+
+    /// Whether SM is currently enabled on the live stream. Callers gate the
+    /// disconnect-side `<r/>`/`<a/>` handshake on this — non-SM servers
+    /// must skip the handshake entirely.
+    public nonisolated var isEnabled: Bool {
+        state.withLock { $0.enabled }
     }
 
     // MARK: - Lifecycle
@@ -169,14 +190,18 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
     }
 
     public func handleDisconnect() async {
-        let continuation = state.withLock { state -> CheckedContinuation<Void, any Error>? in
+        let (enableContinuation, pendingSyncAck) = state.withLock { (state: inout State) -> (CheckedContinuation<Void, any Error>?, PendingSyncAck?) in
             let cont = state.enableContinuation
             state.enableContinuation = nil
+            let pending = state.pendingSyncAck
+            state.pendingSyncAck = nil
             state.enabled = false
             // Preserve resume-related state across disconnect
-            return cont
+            return (cont, pending)
         }
-        continuation?.resume(throwing: XMPPClientError.notConnected)
+        enableContinuation?.resume(throwing: XMPPClientError.notConnected)
+        pendingSyncAck?.timeoutTask.cancel()
+        pendingSyncAck?.continuation.resume(throwing: XMPPClientError.notConnected)
     }
 
     /// Clears all state including resume fields. Called on explicit disconnect or resume failure.
@@ -264,6 +289,130 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         return .failed
     }
 
+    // MARK: - Sync Ack
+
+    /// Sends `<r/>` and awaits the matching `<a h='N'/>`. Used at disconnect
+    /// time to confirm the server processed every stanza we sent (notably
+    /// the unavailable presence) before we close the stream — without this,
+    /// prosody mod_smacks treats an interrupted disconnect as abnormal and
+    /// queues the session in resumption-pending state for hundreds of
+    /// seconds.
+    ///
+    /// Single-inflight: throws ``XMPPClientError/streamManagementBusy`` if a
+    /// previous request is still pending. Throws ``XMPPClientError/timeout``
+    /// when no `<a/>` arrives within `timeout`. Throws
+    /// ``XMPPClientError/notConnected`` if SM is disabled or the stream
+    /// context is gone. Propagates `CancellationError` on parent task
+    /// cancellation.
+    public func requestSyncAck(timeout: Duration) async throws {
+        let myId = state.withLock { (state: inout State) -> UInt64 in
+            state.nextSyncAckWaiterID &+= 1
+            return state.nextSyncAckWaiterID
+        }
+
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, any Error>) in
+                let timeoutTask = Task<Void, Never> { [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    guard !Task.isCancelled else { return }
+                    self?.expirePendingSyncAck(id: myId)
+                }
+                installSyncAckWaiter(id: myId, continuation: cont, timeoutTask: timeoutTask)
+            }
+        } onCancel: { [weak self] in
+            self?.cancelPendingSyncAck(id: myId)
+        }
+    }
+
+    /// Atomically claims the single sync-ack slot for `id`, then resolves the
+    /// outcome outside the lock — `OSAllocatedUnfairLock` is non-reentrant and
+    /// resuming the continuation can re-enter module state.
+    private func installSyncAckWaiter(
+        id: UInt64,
+        continuation: CheckedContinuation<Void, any Error>,
+        timeoutTask: Task<Void, Never>
+    ) {
+        let outcome = state.withLock { (state: inout State) -> InstallOutcome in
+            if !state.enabled { return .failNotConnected }
+            if state.pendingSyncAck != nil { return .failBusy }
+            if Task.isCancelled { return .failCancelled }
+            guard let context = state.context else { return .failNotConnected }
+            state.pendingSyncAck = PendingSyncAck(
+                id: id,
+                expectedH: state.outgoingCounter,
+                continuation: continuation,
+                timeoutTask: timeoutTask
+            )
+            return .registered(context: context)
+        }
+
+        switch outcome {
+        case .failNotConnected:
+            timeoutTask.cancel()
+            continuation.resume(throwing: XMPPClientError.notConnected)
+        case .failBusy:
+            timeoutTask.cancel()
+            continuation.resume(throwing: XMPPClientError.streamManagementBusy)
+        case .failCancelled:
+            timeoutTask.cancel()
+            continuation.resume(throwing: CancellationError())
+        case let .registered(context):
+            Task { [weak self] in
+                do {
+                    try await context.sendElement(XMLElement(name: "r", namespace: XMPPNamespaces.sm))
+                } catch {
+                    self?.failPendingSyncAck(id: id, error: error)
+                }
+            }
+        }
+    }
+
+    /// Outcome of the atomic install transaction. Encoded so the resume
+    /// happens outside the lock — `OSAllocatedUnfairLock` is non-reentrant
+    /// and continuation resumption can re-enter module state.
+    private enum InstallOutcome {
+        case failNotConnected
+        case failBusy
+        case failCancelled
+        case registered(context: ModuleContext)
+    }
+
+    /// Timeout-task body. The slot's own `timeoutTask` is the caller — we
+    /// must NOT cancel it here (calling cancel on yourself in flight is
+    /// meaningless). The other two helpers DO cancel because they fire
+    /// while the timeout task is still sleeping.
+    private func expirePendingSyncAck(id: UInt64) {
+        let claimed = state.withLock { (state: inout State) -> PendingSyncAck? in
+            guard state.pendingSyncAck?.id == id else { return nil }
+            let pending = state.pendingSyncAck
+            state.pendingSyncAck = nil
+            return pending
+        }
+        claimed?.continuation.resume(throwing: XMPPClientError.timeout)
+    }
+
+    private func failPendingSyncAck(id: UInt64, error: any Error) {
+        let claimed = state.withLock { (state: inout State) -> PendingSyncAck? in
+            guard state.pendingSyncAck?.id == id else { return nil }
+            let pending = state.pendingSyncAck
+            state.pendingSyncAck = nil
+            return pending
+        }
+        claimed?.timeoutTask.cancel()
+        claimed?.continuation.resume(throwing: error)
+    }
+
+    private func cancelPendingSyncAck(id: UInt64) {
+        let claimed = state.withLock { (state: inout State) -> PendingSyncAck? in
+            guard state.pendingSyncAck?.id == id else { return nil }
+            let pending = state.pendingSyncAck
+            state.pendingSyncAck = nil
+            return pending
+        }
+        claimed?.timeoutTask.cancel()
+        claimed?.continuation.resume(throwing: CancellationError())
+    }
+
     // MARK: - StanzaInterceptor
 
     public func processIncoming(_ element: XMLElement) -> Bool {
@@ -344,23 +493,42 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
 
     private func handleAck(_ element: XMLElement) {
         guard let hStr = element.attribute("h"), let h = UInt32(hStr) else { return }
-        state.withLock { state in
-            Self.reconcileAck(h: h, state: &state)
+        let claimed = state.withLock { (state: inout State) -> PendingSyncAck? in
+            let valid = Self.reconcileAck(h: h, state: &state)
+            // Covering-ack semantics: `h >= expectedH` (wrap-safe via &-)
+            // means the server has confirmed AT LEAST through our snapshot.
+            // Other actor-reentrant paths can call `send()` between
+            // registration and the matching `<a/>` (e.g.
+            // `replyServiceUnavailable`), advancing `outgoingCounter` past
+            // `expectedH` — a `valid` ack with `h > expectedH` is still a
+            // correct confirmation. The upper bound is a defensive belt
+            // over the `acked <= queue.count` suspenders inside
+            // `reconcileAck`.
+            guard valid, let pending = state.pendingSyncAck,
+                  (h &- pending.expectedH) <= UInt32(state.outgoingQueue.count) &+ 1 else {
+                return nil
+            }
+            state.pendingSyncAck = nil
+            return pending
         }
+        claimed?.timeoutTask.cancel()
+        claimed?.continuation.resume()
     }
 
-    private static func reconcileAck(h: UInt32, state: inout State) {
+    @discardableResult
+    private static func reconcileAck(h: UInt32, state: inout State) -> Bool {
         let baseCounter = state.outgoingCounter &- UInt32(state.outgoingQueue.count)
         let acked = h &- baseCounter
         guard acked <= UInt32(state.outgoingQueue.count) else {
             let counter = state.outgoingCounter
             log.warning("Invalid ack h=\(h), expected at most \(counter)")
-            return
+            return false
         }
         let toRemove = Int(acked)
         if toRemove > 0 {
             state.outgoingQueue.removeFirst(toRemove)
         }
+        return true
     }
 
     private static func parseISRToken(from element: XMLElement, into state: inout State) {

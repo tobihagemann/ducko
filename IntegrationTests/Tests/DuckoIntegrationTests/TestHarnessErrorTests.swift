@@ -63,12 +63,25 @@ enum TestHarnessErrorTests {
         @Test func `nonZeroExit description redacts JIDs in stdout and stderr`() {
             let err = TestHarnessError.nonZeroExit(
                 code: 1,
+                reason: .exit,
                 stdout: "delivered to bob@example.com",
                 stderr: "from alice@example.org"
             )
             #expect(err.description.contains("<jid>"))
             #expect(!err.description.contains("bob@example.com"))
             #expect(!err.description.contains("alice@example.org"))
+        }
+
+        @Test func `nonZeroExit signal vs exit is disambiguated in description`() {
+            let exitErr = TestHarnessError.nonZeroExit(
+                code: 13, reason: .exit, stdout: "", stderr: ""
+            )
+            let signalErr = TestHarnessError.nonZeroExit(
+                code: 13, reason: .uncaughtSignal, stdout: "", stderr: ""
+            )
+            #expect(exitErr.description.contains("reason: exit"))
+            #expect(signalErr.description.contains("reason: signal"))
+            #expect(exitErr.description != signalErr.description)
         }
     }
 }

@@ -4,10 +4,16 @@ import Logging
 private let log = Logger(label: "im.ducko.integrationtests.cli")
 
 /// Captured stdout, stderr, and exit code from a one-shot `ducko` invocation.
+///
+/// `terminationReason` disambiguates `exitCode`: Foundation's
+/// `Process.terminationStatus` returns the OS exit code on a normal exit but
+/// the *signal number* on an uncaught signal (e.g. `13` could be exit 13 OR
+/// SIGPIPE). Callers that surface this in errors should print both fields.
 struct CLIOutput {
     let stdout: String
     let stderr: String
     let exitCode: Int32
+    let terminationReason: Process.TerminationReason
 }
 
 /// Spawns the debug-built `ducko` binary as a child process and exposes a
@@ -177,10 +183,24 @@ actor CLIProcess {
         let stdoutData = await stdoutTask.value
         let stderrData = await stderrTask.value
 
+        // Capture `terminationReason` alongside `terminationStatus` so a child
+        // killed by SIGPIPE (the bob CLI `account add` flake — R6) is not
+        // indistinguishable from a clean `exit(13)`.
+        let reason = process.terminationReason
+        let status = process.terminationStatus
+        if reason == .uncaughtSignal {
+            log.warning("""
+            CLI child killed by signal \(status): \
+            ducko \(Self.redactArguments(arguments).joined(separator: " ")) \
+            (pid=\(process.processIdentifier))
+            """)
+        }
+
         return CLIOutput(
             stdout: String(decoding: stdoutData, as: UTF8.self),
             stderr: String(decoding: stderrData, as: UTF8.self),
-            exitCode: process.terminationStatus
+            exitCode: status,
+            terminationReason: reason
         )
     }
 
@@ -192,9 +212,12 @@ actor CLIProcess {
         let output = try await run([
             "account", "add", credential.jid, "--password", credential.password
         ])
-        guard output.exitCode == 0 else {
+        guard output.exitCode == 0, output.terminationReason == .exit else {
             throw TestHarnessError.nonZeroExit(
-                code: output.exitCode, stdout: output.stdout, stderr: output.stderr
+                code: output.exitCode,
+                reason: output.terminationReason,
+                stdout: output.stdout,
+                stderr: output.stderr
             )
         }
         return output

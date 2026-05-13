@@ -43,7 +43,7 @@ enum ChatServiceMUCUITests {
             )
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID.description]
+            let participants = service.roomParticipants[testRoomJID]
             #expect(participants?.count == 2)
             #expect(participants?.contains { $0.nickname == "me" } == true)
             #expect(participants?.contains { $0.nickname == "admin" } == true)
@@ -70,7 +70,7 @@ enum ChatServiceMUCUITests {
             let newOccupant = RoomOccupant(nickname: "newcomer", affiliation: .none, role: .participant)
             await service.handleEvent(.roomOccupantJoined(room: testRoomJID, occupant: newOccupant), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID.description]
+            let participants = service.roomParticipants[testRoomJID]
             #expect(participants?.count == 2)
             #expect(participants?.contains { $0.nickname == "newcomer" } == true)
 
@@ -104,7 +104,7 @@ enum ChatServiceMUCUITests {
             let leftOccupant = RoomOccupant(nickname: "other", affiliation: .member, role: .participant)
             await service.handleEvent(.roomOccupantLeft(room: testRoomJID, occupant: leftOccupant, reason: nil), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID.description]
+            let participants = service.roomParticipants[testRoomJID]
             #expect(participants?.count == 1)
             #expect(participants?.contains { $0.nickname == "other" } == false)
         }
@@ -229,7 +229,7 @@ enum ChatServiceMUCUITests {
             let occupancy = RoomOccupancy(nickname: "o", occupants: occupants, subject: nil)
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID.description] ?? []
+            let participants = service.roomParticipants[testRoomJID] ?? []
 
             let owner = participants.first { $0.nickname == "o" }
             #expect(owner?.affiliation == .owner)

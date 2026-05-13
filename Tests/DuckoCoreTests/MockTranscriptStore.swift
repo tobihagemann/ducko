@@ -72,6 +72,17 @@ actor MockTranscriptStore: TranscriptStore {
         messages.contains { $0.serverID == serverID && $0.conversationID == conversationID }
     }
 
+    func messageExists(stanzaID: String, fromJID: String, conversationID: UUID) async throws -> Bool {
+        // Match FileTranscriptStore: outgoing rows store `fromJID` as the
+        // recipient, so an unfiltered match would shadow fresh inbound stanzas.
+        messages.contains {
+            !$0.isOutgoing
+                && $0.stanzaID == stanzaID
+                && $0.fromJID == fromJID
+                && $0.conversationID == conversationID
+        }
+    }
+
     // MARK: - Search
 
     func searchMessages(query: String, conversationID: UUID?, before: Date?, after: Date?, limit: Int) async throws -> [ChatMessage] {

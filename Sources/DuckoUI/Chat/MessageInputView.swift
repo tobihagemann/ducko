@@ -49,6 +49,7 @@ struct MessageInputView: View {
                     .onChange(of: windowState.editingMessage?.id) {
                         if let editing = windowState.editingMessage {
                             text = editing.body
+                            isInputFocused = true
                         }
                     }
                     .onPasteCommand(of: [.image, .fileURL]) { providers in

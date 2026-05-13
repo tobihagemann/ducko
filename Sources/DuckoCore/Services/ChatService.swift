@@ -35,7 +35,7 @@ public final class ChatService {
     public private(set) var activeConversationID: UUID?
     public private(set) var messages: [ChatMessage] = []
     public private(set) var typingStates: [BareJID: ChatState] = [:]
-    public private(set) var roomParticipants: [String: [RoomParticipant]] = [:]
+    public private(set) var roomParticipants: [BareJID: [RoomParticipant]] = [:]
     public private(set) var pendingInvites: [PendingRoomInvite] = []
     public private(set) var newlyCreatedRoomJIDs: Set<String> = []
     public private(set) var roomFlags: [String: Set<RoomFlag>] = [:]
@@ -733,7 +733,7 @@ public final class ChatService {
     // MARK: - MUC Bridge
 
     public func participantGroups(forRoomJIDString jidString: String) -> [RoomParticipantGroup] {
-        let participants = roomParticipants[normalizedRoomKey(jidString)] ?? []
+        let participants = participants(forRoomJIDString: jidString)
         let grouped = Dictionary(grouping: participants, by: \.affiliation)
         return grouped
             .map { RoomParticipantGroup(affiliation: $0.key, participants: $0.value.sorted { $0.nickname.localizedStandardCompare($1.nickname) == .orderedAscending }) }
@@ -741,31 +741,36 @@ public final class ChatService {
     }
 
     public func participantCount(forRoomJIDString jidString: String) -> Int {
-        roomParticipants[normalizedRoomKey(jidString)]?.count ?? 0
+        participants(forRoomJIDString: jidString).count
     }
 
     public func participants(forRoomJIDString jidString: String) -> [RoomParticipant] {
-        roomParticipants[normalizedRoomKey(jidString)] ?? []
+        guard let key = normalizedRoomKey(jidString) else { return [] }
+        return roomParticipants[key] ?? []
     }
 
     /// Domain parts of every room currently in `roomParticipants`. Used by
     /// `DuckoCLI.handleSendCommand` to distinguish "unjoined-room" hints from
-    /// 1:1 sends — keys are already RFC 7622-lowercased per the `roomParticipants`
-    /// write-side contract, so callers do not need to normalize again.
+    /// 1:1 sends.
     public var knownRoomDomains: Set<String> {
-        Set(roomParticipants.keys.compactMap { BareJID.parse($0)?.domainPart })
+        Set(roomParticipants.keys.map(\.domainPart))
     }
 
-    /// `roomParticipants` is written with `room.description` from a `BareJID`,
-    /// which RFC 7622 lowercases. Callers may pass the user-provided
-    /// `windowState.jidString` whose localpart preserves whatever case the
-    /// joining JID had (e.g. `inttest-ui-FCA13B13@…` from the integration
-    /// suite's `UUID.prefix(8)`). Normalize on read so the sidebar's
-    /// `roomJIDString` (raw) matches the title bar's `conversation.jid.description`
-    /// (already lowercase) — without the gate, the title shows "1 participants"
-    /// while the sidebar renders an empty list.
-    private func normalizedRoomKey(_ jidString: String) -> String {
-        BareJID.parse(jidString)?.description ?? jidString
+    /// Bridges a user-input JID string (mixed case, possibly malformed) into
+    /// the canonical `BareJID` key used by `roomParticipants`. Callers may
+    /// pass the user-provided `windowState.jidString` whose localpart
+    /// preserves whatever case the joining JID had (e.g.
+    /// `inttest-ui-FCA13B13@…` from the integration suite's
+    /// `UUID.prefix(8)`). Returns `nil` for malformed input — a malformed
+    /// JID can't legitimately key into a roster of bare-JID-keyed rooms, so
+    /// the read-side accessors fall back to "no entry" rather than the
+    /// previous string-fallback that could spuriously hit a string-keyed
+    /// raw entry. Without this normalization the sidebar's `roomJIDString`
+    /// (raw) wouldn't match the title bar's `conversation.jid.description`
+    /// (already lowercase) — the title would show "1 participants" while the
+    /// sidebar renders an empty list.
+    private func normalizedRoomKey(_ jidString: String) -> BareJID? {
+        BareJID.parse(jidString)
     }
 
     public func discoverMUCService(accountID: UUID) async -> String? {
@@ -1356,7 +1361,7 @@ public final class ChatService {
     private func handleRoomJoined(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool, accountID: UUID) async {
         _ = try? await findOrCreateGroupConversation(for: room, nickname: occupancy.nickname, accountID: accountID)
         let key = room.description
-        roomParticipants[key] = occupancy.occupants.map { mapOccupant($0) }
+        roomParticipants[room] = occupancy.occupants.map { mapOccupant($0) }
         if isNewlyCreated {
             newlyCreatedRoomJIDs.insert(key)
         }
@@ -1378,17 +1383,15 @@ public final class ChatService {
     }
 
     private func handleRoomOccupantJoined(room: BareJID, occupant: RoomOccupant) {
-        let key = room.description
         let participant = mapOccupant(occupant)
-        var list = roomParticipants[key] ?? []
+        var list = roomParticipants[room] ?? []
         list.removeAll { $0.nickname == participant.nickname }
         list.append(participant)
-        roomParticipants[key] = list
+        roomParticipants[room] = list
     }
 
     private func handleRoomOccupantLeft(room: BareJID, occupant: RoomOccupant) {
-        let key = room.description
-        roomParticipants[key]?.removeAll { $0.nickname == occupant.nickname }
+        roomParticipants[room]?.removeAll { $0.nickname == occupant.nickname }
     }
 
     private func handleRoomInviteReceived(_ invite: RoomInvite) {
@@ -1566,12 +1569,11 @@ public final class ChatService {
     }
 
     private func handleRoomOccupantNickChanged(room: BareJID, oldNickname: String, occupant: RoomOccupant, accountID: UUID) {
-        let key = room.description
-        var list = roomParticipants[key] ?? []
+        var list = roomParticipants[room] ?? []
         let participant = mapOccupant(occupant)
         list.removeAll { $0.nickname == oldNickname || $0.nickname == participant.nickname }
         list.append(participant)
-        roomParticipants[key] = list
+        roomParticipants[room] = list
 
         // If self-nick changed, update conversation
         if let conversation = openConversations.first(where: { $0.jid == room && $0.type == .groupchat }),
@@ -1593,7 +1595,7 @@ public final class ChatService {
     /// helper in the first place.
     package func clearRoomState(for jid: BareJID) {
         let key = jid.description
-        roomParticipants.removeValue(forKey: key)
+        roomParticipants.removeValue(forKey: jid)
         roomFlags.removeValue(forKey: key)
         newlyCreatedRoomJIDs.remove(key)
     }
@@ -1601,10 +1603,11 @@ public final class ChatService {
     /// Disconnect-time clear scoped to one account's groupchat conversations
     /// so a multi-account session that disconnects one account does not erase
     /// rooms belonging to still-connected accounts. The room-state maps
-    /// (`roomParticipants`, `roomFlags`, `newlyCreatedRoomJIDs`) are keyed by
-    /// `String` JID, with no per-account partitioning, so we re-derive the
-    /// disconnecting account's room set from the persisted conversations
-    /// (the only authoritative cross-room mapping).
+    /// (`roomParticipants` keyed by `BareJID`; `roomFlags` and
+    /// `newlyCreatedRoomJIDs` keyed by `String`) carry no per-account
+    /// partitioning, so we re-derive the disconnecting account's room set
+    /// from the persisted conversations (the only authoritative cross-room
+    /// mapping).
     private func clearRoomState(forAccount accountID: UUID) async {
         let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
         for conversation in conversations where conversation.type == .groupchat {
@@ -1663,6 +1666,42 @@ public final class ChatService {
         accountService?.accounts.first { $0.id == accountID }?.jid ?? fallback
     }
 
+    /// Returns the XEP-0359 archive-stamped stanza id only when its `by`
+    /// attribute parses to a `BareJID` equal to `trustedBy` (the user's own
+    /// bare JID or, for groupchat, the room's bare JID). Filtering by `by` is
+    /// the §3 trust contract — without it, a remote peer can stamp their own
+    /// `<stanza-id>` element and use the dedup key to silently suppress
+    /// legitimate later messages.
+    ///
+    /// JID-aware comparison (not raw string equality) because a server may
+    /// stamp `by="Alice@Example.COM"` while our canonicalized
+    /// `accountJID.description` is `"alice@example.com"`. `BareJID.init`
+    /// applies the same lowercase normalization to both sides.
+    ///
+    /// Returns nil when `trustedBy` is nil — that is the fail-closed posture
+    /// for cases where the account JID can't be resolved (e.g., the weakly-
+    /// held `accountService` deallocated). The previous behavior fell back to
+    /// the peer JID, which would have let a peer's own `<stanza-id by=...>`
+    /// pass the filter.
+    private func trustedServerID(in element: DuckoXMPP.XMLElement, trustedBy: BareJID?) -> String? {
+        guard let trustedBy else { return nil }
+        return element.children(named: "stanza-id")
+            .first(where: { child in
+                guard child.namespace == XMPPNamespaces.stanzaID,
+                      let by = child.attribute("by"),
+                      let parsed = BareJID.parse(by) else { return false }
+                return parsed == trustedBy
+            })?
+            .attribute("id")
+    }
+
+    /// Strict variant of `accountJID(for:)`: returns nil when the account
+    /// can't be resolved, instead of falling back to a (potentially attacker-
+    /// controlled) peer JID. Use this for trust-filter inputs.
+    private func resolvedAccountJID(for accountID: UUID) -> BareJID? {
+        accountService?.accounts.first { $0.id == accountID }?.jid
+    }
+
     private func handleMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
         if shouldSkipRawMessage(xmppMessage) { return }
 
@@ -1685,7 +1724,17 @@ public final class ChatService {
         guard let body else { return }
 
         let stanzaID = xmppMessage.id
-        if await isDuplicate(stanzaID: stanzaID, from: fromJID, accountID: accountID) {
+        // XEP-0359 stanza-id stamped by the user's archive (mod_mam) — globally
+        // unique within that archive, unlike the per-sender `stanzaID`. Preferred
+        // dedup key because two senders can independently emit the same
+        // `stanzaID` without collision protection at this layer. §3 of the XEP
+        // restricts trust to IDs whose `by` matches the user's bare JID; without
+        // that filter a peer can stamp their own `<stanza-id>` element and
+        // suppress legitimate inbound messages by colliding the dedup key.
+        let serverID = trustedServerID(
+            in: xmppMessage.element, trustedBy: resolvedAccountJID(for: accountID)
+        )
+        if await isDuplicateIncoming(serverID: serverID, stanzaID: stanzaID, from: fromJID, accountID: accountID) {
             return
         }
 
@@ -1707,6 +1756,7 @@ public final class ChatService {
             id: UUID(),
             conversationID: conversation.id,
             stanzaID: stanzaID,
+            serverID: serverID,
             fromJID: fromJID.description,
             body: filtered.body,
             htmlBody: filtered.htmlBody,
@@ -1753,9 +1803,42 @@ public final class ChatService {
             return
         }
 
-        if await isDuplicate(stanzaID: forwarded.message.id, from: jid, accountID: accountID) {
-            return
+        await ingestCarbonBody(
+            forwarded, jid: jid, body: body, accountID: accountID, isOutgoing: isOutgoing
+        )
+    }
+
+    /// Persists a carbon body after the parent guards have classified it. Split
+    /// out of `handleCarbon` to keep the parent under SwiftLint's function-body
+    /// length cap; no behavior change. OOB attachments are re-parsed here to
+    /// keep the parameter count under the project lint cap.
+    private func ingestCarbonBody(
+        _ forwarded: ForwardedMessage,
+        jid: BareJID,
+        body: String,
+        accountID: UUID,
+        isOutgoing: Bool
+    ) async {
+        let attachments = parseOOBAttachments(from: forwarded.message.element)
+        // Extract XEP-0359 stanza-id stamped by the user's own archive. For
+        // inbound carbons this is the globally-unique dedup key — without it,
+        // a carbon insert followed by a MAM replay would double-persist because
+        // MAM ingest keys on `serverID` while the older carbon path keyed only
+        // on `stanzaID`. Outgoing carbons reuse the simpler `(stanzaID, fromJID)`
+        // path because the message was already persisted locally before send.
+        // Trust scope: XEP-0359 §3 — only IDs whose `by` matches our bare JID.
+        let serverID = trustedServerID(
+            in: forwarded.message.element, trustedBy: resolvedAccountJID(for: accountID)
+        )
+
+        let isDup: Bool = if isOutgoing {
+            await isDuplicate(stanzaID: forwarded.message.id, from: jid, accountID: accountID)
+        } else {
+            await isDuplicateIncoming(
+                serverID: serverID, stanzaID: forwarded.message.id, from: jid, accountID: accountID
+            )
         }
+        if isDup { return }
 
         let conversation: Conversation
         do {
@@ -1769,21 +1852,20 @@ public final class ChatService {
         let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
         let filtered = await filterPipeline.process(content, direction: filterDirection, context: filterContext)
 
-        let timestamp = parseISO8601Timestamp(forwarded.timestamp)
-
         let message = ChatMessage(
             id: UUID(),
             conversationID: conversation.id,
             stanzaID: forwarded.message.id,
+            serverID: serverID,
             fromJID: jid.description,
             body: filtered.body,
             htmlBody: filtered.htmlBody,
-            timestamp: timestamp,
+            timestamp: parseISO8601Timestamp(forwarded.timestamp),
             isOutgoing: isOutgoing,
             isDelivered: false,
             isEdited: false,
             type: "chat",
-            attachments: oobAttachments
+            attachments: attachments
         )
         try? await persistMessage(message, in: conversation, accountID: accountID)
     }
@@ -1850,6 +1932,24 @@ public final class ChatService {
               let conversationID = await conversationID(for: .bare(jid), accountID: accountID, occupantNickname: occupantNickname)
         else { return false }
         return await (try? transcripts.messageExists(stanzaID: stanzaID, conversationID: conversationID)) ?? false
+    }
+
+    /// Dedup an inbound 1:1 stanza. When the user's archive (XEP-0359 mod_mam)
+    /// has stamped a `serverID` on the inbound stanza, that ID is globally
+    /// unique and is the *only* key we consult — falling through to
+    /// `(stanzaID, fromJID)` here would mis-dedup a fresh inbound message
+    /// whose `stanzaID` happens to match a stale archive entry from the same
+    /// sender (e.g. a CLI peer whose process restarted and reset its
+    /// sequential id counter back into our archive's id space). The
+    /// `(stanzaID, fromJID)` path is reserved for the legacy case where no
+    /// `serverID` is present at all.
+    private func isDuplicateIncoming(serverID: String?, stanzaID: String?, from jid: BareJID, accountID: UUID) async -> Bool {
+        guard let conversationID = await conversationID(for: .bare(jid), accountID: accountID) else { return false }
+        if let serverID {
+            return await (try? transcripts.messageExists(serverID: serverID, conversationID: conversationID)) ?? false
+        }
+        guard let stanzaID else { return false }
+        return await (try? transcripts.messageExists(stanzaID: stanzaID, fromJID: jid.description, conversationID: conversationID)) ?? false
     }
 
     public func loadMessages(for conversationID: UUID) async -> [ChatMessage] {
@@ -2001,34 +2101,53 @@ public final class ChatService {
     ) async throws -> [ChatMessage] {
         var newMessages: [ChatMessage] = []
 
+        // Trust anchor for XEP-0359 `<stanza-id>`: 1:1 archives are stamped by
+        // the user's bare JID; groupchat archives are stamped by the room.
+        let trustedBy: BareJID = conversation.type == .groupchat ? conversation.jid : accountJID
+
         for entry in archived {
             let forwarded = entry.forwarded
             let oobAttachments = parseOOBAttachments(from: forwarded.message.element)
             let body = forwarded.message.body ?? oobAttachments.first?.url
             guard let body else { continue }
 
-            if let serverID = entry.serverID {
-                if try await transcripts.messageExists(serverID: serverID, conversationID: conversation.id) {
+            let meta = resolveMessageMeta(forwarded: forwarded, conversation: conversation, accountJID: accountJID)
+
+            // Re-derive serverID with the trust filter — `entry.serverID` is
+            // raw, before XEP-0359 §3 `by`-validation.
+            let trustedServerID = trustedServerID(in: forwarded.message.element, trustedBy: trustedBy)
+
+            if let trustedServerID {
+                if try await transcripts.messageExists(serverID: trustedServerID, conversationID: conversation.id) {
                     continue
                 }
             } else if let stanzaID = forwarded.message.id {
-                if try await transcripts.messageExists(stanzaID: stanzaID, conversationID: conversation.id) {
-                    continue
+                // No trusted serverID — fall back to stanza-id-scoped dedup.
+                // Direction matters: outgoing archived rows would compare
+                // against locally-persisted outgoing rows whose `fromJID` is
+                // the recipient (so the inbound-only overload couldn't match
+                // them). Use the stanzaID-only path for outgoing and the
+                // sender-scoped path for inbound.
+                let isDup: Bool = if meta.isOutgoing {
+                    try await transcripts.messageExists(stanzaID: stanzaID, conversationID: conversation.id)
+                } else if let senderJID = forwarded.message.from?.bareJID {
+                    try await transcripts.messageExists(
+                        stanzaID: stanzaID, fromJID: senderJID.description, conversationID: conversation.id
+                    )
+                } else {
+                    try await transcripts.messageExists(stanzaID: stanzaID, conversationID: conversation.id)
                 }
+                if isDup { continue }
             }
-
-            let timestamp = parseISO8601Timestamp(forwarded.timestamp)
-
-            let meta = resolveMessageMeta(forwarded: forwarded, conversation: conversation, accountJID: accountJID)
 
             let message = ChatMessage(
                 id: UUID(),
                 conversationID: conversation.id,
                 stanzaID: forwarded.message.id,
-                serverID: entry.serverID,
+                serverID: trustedServerID,
                 fromJID: meta.fromJID,
                 body: body,
-                timestamp: timestamp,
+                timestamp: parseISO8601Timestamp(forwarded.timestamp),
                 isOutgoing: meta.isOutgoing,
                 isDelivered: false,
                 isEdited: false,

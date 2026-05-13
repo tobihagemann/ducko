@@ -363,6 +363,39 @@ enum FileTranscriptStoreTests {
             let notExists = try await store.messageExists(stanzaID: "nope", conversationID: testConversationID)
             #expect(notExists == false)
         }
+
+        @Test
+        func `(stanzaID, fromJID) dedup ignores outgoing rows whose fromJID is the recipient`() async throws {
+            // Regression: outgoing 1:1 messages persist `fromJID = recipient`
+            // (so server carbon copies dedup via stanzaID), so a fresh inbound
+            // from bob carrying a stanzaID that collides with a prior outgoing
+            // alice→bob row would otherwise be silently dropped. The overload
+            // must scope to `!isOutgoing` to keep the inbound dedup honest.
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            // Outgoing alice→bob, stored as `fromJID="bob@example.com"`.
+            let outgoing = makeMessage(
+                stanzaID: "collide", fromJID: "bob@example.com", body: "out", isOutgoing: true
+            )
+            try await store.appendMessage(outgoing)
+
+            // Fresh inbound from bob with the same stanzaID must NOT be deduped.
+            let exists = try await store.messageExists(
+                stanzaID: "collide", fromJID: "bob@example.com", conversationID: testConversationID
+            )
+            #expect(exists == false, "outgoing row leaked into inbound dedup")
+
+            // Now persist a real inbound match — same key must dedup.
+            let inbound = makeMessage(
+                stanzaID: "collide", fromJID: "bob@example.com", body: "in", isOutgoing: false
+            )
+            try await store.appendMessage(inbound)
+            let existsAfter = try await store.messageExists(
+                stanzaID: "collide", fromJID: "bob@example.com", conversationID: testConversationID
+            )
+            #expect(existsAfter == true)
+        }
     }
 
     struct Search {

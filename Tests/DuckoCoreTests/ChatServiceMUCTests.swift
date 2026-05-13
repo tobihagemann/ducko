@@ -182,13 +182,13 @@ enum ChatServiceMUCTests {
                 accountID: testAccountID
             )
 
-            #expect(service.roomParticipants[key] != nil)
+            #expect(service.roomParticipants[testRoomJID] != nil)
             #expect(service.roomFlags[key] != nil)
             #expect(service.newlyCreatedRoomJIDs.contains(key))
 
             service.clearRoomState(for: testRoomJID)
 
-            #expect(service.roomParticipants[key] == nil)
+            #expect(service.roomParticipants[testRoomJID] == nil)
             #expect(service.roomFlags[key] == nil)
             #expect(!service.newlyCreatedRoomJIDs.contains(key))
         }
@@ -217,7 +217,7 @@ enum ChatServiceMUCTests {
                 accountID: testAccountID
             )
 
-            #expect(service.roomParticipants[key] == nil)
+            #expect(service.roomParticipants[testRoomJID] == nil)
             #expect(service.roomFlags[key] == nil)
             #expect(!service.newlyCreatedRoomJIDs.contains(key))
         }
@@ -243,7 +243,7 @@ enum ChatServiceMUCTests {
 
             await service.handleEvent(.disconnected(.requested), accountID: testAccountID)
 
-            #expect(service.roomParticipants[key] == nil)
+            #expect(service.roomParticipants[testRoomJID] == nil)
             #expect(service.roomFlags[key] == nil)
             #expect(!service.newlyCreatedRoomJIDs.contains(key))
         }
@@ -283,12 +283,12 @@ enum ChatServiceMUCTests {
             await service.handleEvent(.disconnected(.requested), accountID: accountA)
 
             // A's room state is gone.
-            #expect(service.roomParticipants[roomA.description] == nil)
+            #expect(service.roomParticipants[roomA] == nil)
             #expect(service.roomFlags[roomA.description] == nil)
             #expect(!service.newlyCreatedRoomJIDs.contains(roomA.description))
 
             // B's room state is preserved.
-            #expect(service.roomParticipants[roomB.description] != nil)
+            #expect(service.roomParticipants[roomB] != nil)
             #expect(service.roomFlags[roomB.description] != nil)
             #expect(service.newlyCreatedRoomJIDs.contains(roomB.description))
         }

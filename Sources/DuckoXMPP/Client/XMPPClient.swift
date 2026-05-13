@@ -16,6 +16,7 @@ public actor XMPPClient {
     private var modules: [ObjectIdentifier: any XMPPModule] = [:]
     private var interceptors: [any StanzaInterceptor] = []
     private var state: ConnectionState = .disconnected
+    private var disconnectInFlight: Bool = false
     private var readerTask: Task<Void, Never>?
     private var pendingIQs: [String: PendingIQ] = [:]
     private let idCounter = Atomic<UInt64>(0)
@@ -161,24 +162,12 @@ public actor XMPPClient {
         do {
             let resumed = try await performHandshake(reader: reader)
             startReader(reader: reader)
-            if resumed {
-                for module in modules.values {
-                    try await module.handleResume()
-                }
-            } else {
-                // RFC 6121: Roster must be fetched before initial presence is sent.
-                let rosterKey = ObjectIdentifier(RosterModule.self)
-                let presenceKey = ObjectIdentifier(PresenceModule.self)
-
-                if let rosterModule = modules[rosterKey] {
-                    try await rosterModule.handleConnect()
-                }
-                for (key, module) in modules where key != rosterKey && key != presenceKey {
-                    try await module.handleConnect()
-                }
-                if let presenceModule = modules[presenceKey] {
-                    try await presenceModule.handleConnect()
-                }
+            try await runPostHandshakeModules(resumed: resumed)
+            // Resume path: emit `.streamResumed` after the resume handlers
+            // have run. Resumption doesn't trigger a fresh roster fetch, so
+            // there is no `.rosterLoaded` to order against.
+            if resumed, let fullJID = connectedJIDLock.withLock({ $0 }) {
+                eventContinuation.yield(.streamResumed(fullJID))
             }
         } catch {
             log.error("Handshake failed: \(error)")
@@ -186,6 +175,63 @@ public actor XMPPClient {
             state = .disconnected
             await connection.disconnect()
             throw error
+        }
+    }
+
+    /// Drives the module lifecycle after a successful handshake.
+    ///
+    /// Resume path: every module gets `handleResume()` in dictionary order.
+    /// Fresh path: SM `<enable>` first, then `.connected` is yielded, then
+    /// roster, then everything else, then presence last. See the inline
+    /// comments for the ordering invariants — they are observable in
+    /// `connectionStates` and `BookmarksService` PEP fetch.
+    private func runPostHandshakeModules(resumed: Bool) async throws {
+        if resumed {
+            for module in modules.values {
+                try await module.handleResume()
+            }
+            return
+        }
+
+        // RFC 6121: Roster must be fetched before initial presence is sent.
+        let rosterKey = ObjectIdentifier(RosterModule.self)
+        let presenceKey = ObjectIdentifier(PresenceModule.self)
+        let smKey = ObjectIdentifier(StreamManagementModule.self)
+
+        // Drive SM `<enable>` before any other handleConnect so the race
+        // where Dictionary iteration ran a stanza-sending module (carbons
+        // enable, OMEMO publish, etc.) after the server's `<enabled>` but
+        // before the client interceptor saw `enabled=true` is closed. The
+        // Bind 2 inline path sets `enabled` synchronously and is unaffected;
+        // SM no-ops if already inline-enabled or unsupported.
+        if let smModule = modules[smKey] {
+            try await smModule.handleConnect()
+        }
+        // Yield `.connected` immediately after SM is verifiably on
+        // (handleConnect blocks until `<enabled>` round-trips), but BEFORE
+        // the rest of the handleConnect chain (notably roster, which yields
+        // `.rosterLoaded`). Rationale:
+        // - Service-layer handlers that react to `.connected` (e.g.
+        //   `BookmarksService` PEP fetch) need SM enabled first or they
+        //   drift the SM counter by one per session.
+        // - Tests and callers that gate on `connectionStates` being
+        //   `.connected` after observing `.rosterLoaded` rely on the
+        //   ordering `.connected` → `.rosterLoaded`. Yielding `.connected`
+        //   after the entire chain reverses that order and breaks the
+        //   implicit gate (TestHarness.setUp returned from `.rosterLoaded`
+        //   while `connectionStates` was still `.connecting`, surfacing as
+        //   `.notConnected` in downstream `connectedClient(for:)` callers).
+        if let fullJID = connectedJIDLock.withLock({ $0 }) {
+            eventContinuation.yield(.connected(fullJID))
+        }
+        if let rosterModule = modules[rosterKey] {
+            try await rosterModule.handleConnect()
+        }
+        for (key, module) in modules where key != rosterKey && key != presenceKey && key != smKey {
+            try await module.handleConnect()
+        }
+        if let presenceModule = modules[presenceKey] {
+            try await presenceModule.handleConnect()
         }
     }
 
@@ -290,7 +336,6 @@ public actor XMPPClient {
 
         log.notice("Connected as \(fullJID) via SASL2 + Bind 2")
         state = .connected(fullJID)
-        eventContinuation.yield(.connected(fullJID))
         return false
     }
 
@@ -324,19 +369,39 @@ public actor XMPPClient {
         log.notice("Connected as \(fullJID)")
         connectedJIDLock.withLock { $0 = fullJID }
         state = .connected(fullJID)
-        eventContinuation.yield(.connected(fullJID))
         return false
     }
 
     // MARK: - Disconnect
 
     public func disconnect() async {
+        // Reentrancy guard: a module's `handleDisconnect` callback can
+        // recursively call back into `disconnect()`, and `cleanUp` is
+        // reachable from non-disconnect paths (stream errors, redirect,
+        // connection lost) that may also race a caller-issued disconnect.
+        // The flag is one-way: actor isolation makes the check-and-set
+        // atomic before any `await`, and `XMPPClient` is terminal after
+        // cleanUp so no reset is needed.
+        guard !disconnectInFlight else { return }
+        disconnectInFlight = true
+
         // Send unavailable presence through `send` so the SM interceptor counts
         // it. Going through `connection.send` directly leaves SM's outgoing
         // counter one short of the server's, producing a phantom "Invalid ack"
         // warning on the next ack and corrupting any subsequent resume.
         if case .connected = state {
             try? await send(XMPPPresence(type: .unavailable))
+            // XEP-0198 ack handshake: confirm the server processed every
+            // stanza we sent (including the unavailable presence) before
+            // closing the stream. Without this, prosody mod_smacks treats
+            // an interrupted disconnect as abnormal and queues the session
+            // in resumption-pending state for hundreds of seconds. 1.5 s
+            // leaves comfortable headroom under
+            // `AppDelegate.disconnectDeadline`.
+            if let smModule = modules[ObjectIdentifier(StreamManagementModule.self)] as? StreamManagementModule,
+               smModule.isEnabled {
+                try? await smModule.requestSyncAck(timeout: .seconds(1.5))
+            }
         }
 
         await connection.sendStreamClose()
@@ -445,7 +510,6 @@ public actor XMPPClient {
             log.notice("Stream resumed as \(jid)")
             connectedJIDLock.withLock { $0 = jid }
             state = .connected(jid)
-            eventContinuation.yield(.streamResumed(jid))
             return true
         case .failed:
             log.info("Stream resumption failed, falling back to normal bind")
@@ -504,7 +568,6 @@ public actor XMPPClient {
             log.notice("ISR resumed as \(jid)")
             connectedJIDLock.withLock { $0 = jid }
             state = .connected(jid)
-            eventContinuation.yield(.streamResumed(jid))
             return true
         case .failed:
             // processResumeResponse already calls resetResumption() on failure
@@ -691,10 +754,20 @@ public actor XMPPClient {
         case let .stanzaReceived(element):
             dispatchStanza(element)
         case .streamClosed:
-            await cleanUp(reason: .streamError(nil, text: "Stream closed by server"))
+            await cleanUp(reason: mapDisconnectReason(.streamError(nil, text: "Stream closed by server")))
         case let .error(error):
-            await cleanUp(reason: .connectionLost(error.message))
+            await cleanUp(reason: mapDisconnectReason(.connectionLost(error.message)))
         }
+    }
+
+    /// When a user-initiated `disconnect()` is in flight, any concurrent
+    /// stream-end / stream-error / connection-lost event must be reported as
+    /// `.requested` — otherwise `AccountService.handleDisconnect` sees the
+    /// race-emitted `.connectionLost` / `.streamError` first, sets the
+    /// account to `.error(...)`, and `scheduleReconnect`s a session the user
+    /// explicitly asked to close.
+    private func mapDisconnectReason(_ reason: DisconnectReason) -> DisconnectReason {
+        disconnectInFlight ? .requested : reason
     }
 
     private func dispatchStanza(_ element: XMLElement) {
@@ -704,7 +777,10 @@ public actor XMPPClient {
 
             // Handle see-other-host redirect (RFC 6120 §4.9.3.19)
             if condition == .seeOtherHost, let (host, port) = parseSeeOtherHost(from: element) {
-                Task { await cleanUp(reason: .redirect(host: host, port: port)) }
+                Task { [weak self] in
+                    guard let self else { return }
+                    await cleanUp(reason: mapDisconnectReason(.redirect(host: host, port: port)))
+                }
                 return
             }
 
@@ -714,7 +790,10 @@ public actor XMPPClient {
                       child.namespace == XMPPNamespaces.streams else { return nil }
                 return child.textContent
             }).first
-            Task { await cleanUp(reason: .streamError(condition, text: text)) }
+            Task { [weak self] in
+                guard let self else { return }
+                await cleanUp(reason: mapDisconnectReason(.streamError(condition, text: text)))
+            }
             return
         }
 
@@ -828,13 +907,20 @@ public actor XMPPClient {
 
     private func handleStreamEnd() async {
         guard case .connected = state else { return }
-        await cleanUp(reason: .connectionLost("Stream ended"))
+        await cleanUp(reason: mapDisconnectReason(.connectionLost("Stream ended")))
     }
 
     // MARK: - Private: Cleanup
 
     private func cleanUp(reason: DisconnectReason) async {
         if case .disconnected = state { return }
+        // Set the flag here too: `cleanUp` is called from non-disconnect
+        // paths (handleStreamEnd, stream-error/redirect/connection-lost
+        // handlers). A module's `handleDisconnect` callback can recursively
+        // invoke `client.disconnect()`; without this, the recursive call
+        // would re-enter the full disconnect body on a stream that's
+        // already dying.
+        disconnectInFlight = true
         readerTask?.cancel()
         readerTask = nil
 

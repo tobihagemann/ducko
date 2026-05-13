@@ -228,6 +228,30 @@ public actor FileTranscriptStore: TranscriptStore {
         try await findMessage(serverID: serverID, conversationID: conversationID) != nil
     }
 
+    public func messageExists(stanzaID: String, fromJID: String, conversationID: UUID) async throws -> Bool {
+        // Inbound-only dedup. Outgoing 1:1 messages persist `fromJID` as the
+        // RECIPIENT (so server carbon copies can find the row via stanzaID),
+        // so without an `!isOutgoing` filter a fresh inbound from bob whose
+        // `stanzaID` happens to match an outgoing alice→bob row would dedup
+        // against alice's outbound and be silently dropped.
+        //
+        // Fast path: check the stanza index (it's a 1:1 map, so it only
+        // resolves to the most-recently-indexed message for this stanzaID).
+        // Fall through to the per-file scan when the index points at the
+        // wrong sender or an outgoing row.
+        let predicate: (ChatMessage) -> Bool = { msg in
+            !msg.isOutgoing && msg.stanzaID == stanzaID && msg.fromJID == fromJID
+        }
+        if let (indexedConv, dateString) = stanzaIndex[stanzaID], indexedConv == conversationID {
+            let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateString)
+            let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
+            if messages.contains(where: predicate) {
+                return true
+            }
+        }
+        return try findMessage(in: conversationID, where: predicate) != nil
+    }
+
     // MARK: - Search
 
     public func searchMessages(

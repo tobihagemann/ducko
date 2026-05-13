@@ -111,6 +111,70 @@ actor AppAccessor {
         AXIsProcessTrusted()
     }
 
+    /// Terminates any running `Ducko.app` whose bundle URL matches the one
+    /// integration tests launch, then removes any
+    /// `~/Library/Application Support/Ducko-Dev-inttest-ui-*` directories
+    /// (UI test profiles only — CLI test profiles use `Ducko-Dev-inttest-<UUID>`
+    /// and clean themselves up in `CLIProcess.tearDown`) except the one named
+    /// by `keep`. Called from `withAppAccessor` before
+    /// each new harness so a crashed prior run can't leave orphan sessions
+    /// on the test server.
+    ///
+    /// `keep` excludes the active profile from the directory sweep:
+    /// `UISeededApp.withSeededApp` writes credentials to
+    /// `Ducko-Dev-<profile>/credentials.json` BEFORE `withAppAccessor`
+    /// runs, and an unconditional reap would wipe those creds and the app
+    /// would boot to the welcome screen instead of auto-connecting.
+    ///
+    /// Bundle-URL match — not just bundle-identifier match — so a developer's
+    /// installed-from-DMG `Ducko.app` (same `im.ducko` identifier) running
+    /// in the user session is never touched.
+    static func reapOrphanProcessesAndProfileDirs(keep: String? = nil) async {
+        let bundleURL = appBundleURL.standardizedFileURL
+        let reaped = NSRunningApplication
+            .runningApplications(withBundleIdentifier: "im.ducko")
+            .filter { app in
+                guard let appURL = app.bundleURL?.standardizedFileURL else { return false }
+                return appURL == bundleURL
+            }
+        for app in reaped {
+            app.terminate()
+        }
+        // Give each reaped instance its own window to honor the unavailable-
+        // presence + stream-close path before falling back to forceTerminate.
+        // Per-app deadline (not shared) so a slow app #1 doesn't starve app #2
+        // of its budget. The 3 s budget mirrors `AppDelegate.disconnectDeadline`.
+        for app in reaped where !app.isTerminated {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while !app.isTerminated, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            if !app.isTerminated {
+                app.forceTerminate()
+            }
+        }
+
+        let appSupport = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: appSupport, includingPropertiesForKeys: nil
+        )) ?? []
+        let keepName = keep.map { "Ducko-Dev-\($0)" }
+        // Scope to UI orphans only (`inttest-ui-<UUID>`). CLI tests use the
+        // `inttest-<UUID>` prefix without the `ui-` infix and clean up their
+        // own profile directories in `CLIProcess.tearDown` — wiping them from
+        // here would cross harness ownership and delete profiles belonging to
+        // tests that happen to run concurrently in the same Swift Testing
+        // process. The `keep` exception below ensures the active UI profile
+        // (which already had credentials written before this reap runs) is
+        // preserved across the sweep.
+        for entry in entries
+            where entry.lastPathComponent.hasPrefix("Ducko-Dev-inttest-ui-")
+            && entry.lastPathComponent != keepName {
+            try? FileManager.default.removeItem(at: entry)
+        }
+    }
+
     // MARK: - Lifecycle
 
     /// Runs `body` with a fresh `AppAccessor`, awaiting cleanup on both
@@ -121,6 +185,18 @@ actor AppAccessor {
         _ body: sending (AppAccessor) async throws -> T
     ) async throws -> T {
         let resolvedProfile = profile ?? "inttest-ui-\(UUID().uuidString.prefix(8))"
+        // Pre-test reap: when a prior swift-testing process crashed (signal 6
+        // / 10 / 13 — observed under multi-process load), `terminate()`
+        // never ran and the spawned `Ducko.app` keeps running, holding an
+        // XMPP session. After 4-5 sessions the live test server saturates
+        // and subsequent runs cascade into `streamClosed` / `SIGPIPE`. Reap
+        // here so a fresh harness starts from a clean slate. macOS lacks a
+        // PR_SET_PDEATHSIG-equivalent that would let the spawned app
+        // self-terminate when its parent dies, so explicit pre-test reap is
+        // the practical option. The active profile is preserved because
+        // `UISeededApp.withSeededApp` writes credentials before this point.
+        await reapOrphanProcessesAndProfileDirs(keep: resolvedProfile)
+
         let accessor = AppAccessor(profile: resolvedProfile)
         do {
             try await accessor.launch(target: target)
@@ -911,12 +987,47 @@ actor AppAccessor {
             throw TestHarnessError.elementNotFound(identifier: identifier)
         }
         let appElement = AXUIElementCreateApplication(pid)
-        if let element = findDescendant(in: appElement, where: { element in
+        let predicate: (AXUIElement) -> Bool = { element in
             var value: AnyObject?
             let err = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &value)
             return err == .success && (value as? String) == identifier
-        }) {
-            return element
+        }
+        // Scope the walk to the application's windows. SwiftUI accessibility
+        // identifiers we resolve always live inside windows (contacts list,
+        // chat windows, attached sheets); the toolbar / menu bar / status
+        // item subtrees never carry them. Walking the full
+        // `AXUIElementCreateApplication` root took >12 minutes per call on
+        // macOS 26 because each node forces an XPC round-trip and the menu
+        // bar alone exposes thousands of items. Try the focused window
+        // first to short-circuit the common case, then fall back to all
+        // windows for identifiers in a non-key window.
+        var focusedValue: AnyObject?
+        let focusedErr = AXUIElementCopyAttributeValue(
+            appElement,
+            kAXFocusedWindowAttribute as CFString,
+            &focusedValue
+        )
+        var focusedWindow: AXUIElement?
+        if focusedErr == .success, let focused = focusedValue,
+           CFGetTypeID(focused) == AXUIElementGetTypeID() {
+            // CFGetTypeID guard above proves the cast is safe; Swift can't.
+            let window = unsafeDowncast(focused, to: AXUIElement.self)
+            focusedWindow = window
+            if let element = findDescendant(in: window, where: predicate) {
+                return element
+            }
+        }
+        var windowsValue: AnyObject?
+        let winErr = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+        if winErr == .success, let windows = windowsValue as? [AXUIElement] {
+            // Skip the focused window — we already walked it above. Each AX
+            // node visit is an XPC round-trip and the menu bar alone exposes
+            // thousands; walking it twice doubles the latency on a miss.
+            for window in windows where window != focusedWindow {
+                if let element = findDescendant(in: window, where: predicate) {
+                    return element
+                }
+            }
         }
         // Distinguish "AX disabled" from "not found" by re-probing the root.
         var probeValue: AnyObject?
@@ -946,14 +1057,20 @@ actor AppAccessor {
         in element: AXUIElement,
         where matches: (AXUIElement) -> Bool
     ) -> AXUIElement? {
-        if matches(element) { return element }
-        var childrenValue: AnyObject?
-        let err = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenValue)
-        guard err == .success, let children = childrenValue as? [AXUIElement] else { return nil }
-        for child in children {
-            if let found = findDescendant(in: child, where: matches) {
-                return found
-            }
+        // Iterative depth-first walk. The previous recursive form blew the
+        // ~512 KB cooperative-task stack on the SwiftUI-rendered AX tree,
+        // crashing with SIGBUS / KERN_PROTECTION_FAILURE when the walk
+        // depth exceeded ~1200 frames (each SwiftUI modifier nests an AX
+        // wrapper, so the tree gets deep fast). An explicit stack lifts
+        // the bound to the heap.
+        var stack: [AXUIElement] = [element]
+        while let current = stack.popLast() {
+            if matches(current) { return current }
+            var childrenValue: AnyObject?
+            let err = AXUIElementCopyAttributeValue(current, kAXChildrenAttribute as CFString, &childrenValue)
+            guard err == .success, let children = childrenValue as? [AXUIElement] else { continue }
+            // Reverse-append so popLast yields children in declared order.
+            stack.append(contentsOf: children.reversed())
         }
         return nil
     }
@@ -1045,22 +1162,20 @@ actor AppAccessor {
         // application reference so nothing crosses an isolation boundary.
         while ContinuousClock.now < deadline {
             let app = AXUIElementCreateApplication(pid)
-            if let menu = findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) {
-                return menu
-            }
+            if let menu = findContextMenu(in: app) { return menu }
             try await Task.sleep(for: .milliseconds(50))
         }
         let app = AXUIElementCreateApplication(pid)
-        if let menu = findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) {
-            return menu
-        }
+        if let menu = findContextMenu(in: app) { return menu }
         throw TestHarnessError.elementNotFound(identifier: "context-menu")
     }
 
-    /// Polls until no `kAXMenuRole` descendant remains under the application
-    /// element. The pick / press above is documented-indeterminate when AX
-    /// reports `cannotComplete`, so callers wait for the menu's actual close
-    /// to confirm the action committed before issuing follow-up commands.
+    /// Polls until no context-menu `kAXMenuRole` descendant remains under
+    /// the application element. The menu bar's `AXMenuBar > AXMenuBarItem >
+    /// AXMenu` subtree is persistently in the AX hierarchy on macOS 26 (the
+    /// Apple menu's static contents stay queryable even when closed), so we
+    /// skip the menu-bar subtree and look for context menus only — those are
+    /// siblings of `AXWindow`, not descendants of `AXMenuBar`.
     private func waitForContextMenuDismissed(
         timeout: Duration = TestTimeout.uiElement
     ) async throws {
@@ -1068,14 +1183,31 @@ actor AppAccessor {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
             let app = AXUIElementCreateApplication(pid)
-            if findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) == nil {
-                return
-            }
+            if findContextMenu(in: app) == nil { return }
             try await Task.sleep(for: .milliseconds(50))
         }
         let app = AXUIElementCreateApplication(pid)
-        if findDescendant(in: app, role: kAXMenuRole, where: { _ in true }) == nil { return }
+        if findContextMenu(in: app) == nil { return }
         throw TestHarnessError.timeout
+    }
+
+    private func findContextMenu(in app: AXUIElement) -> AXUIElement? {
+        guard let topChildren = readAttribute(app, kAXChildrenAttribute) as? [AXUIElement]
+        else { return nil }
+        for top in topChildren {
+            let topRole = readAttribute(top, kAXRoleAttribute) as? String
+            if topRole == kAXMenuBarRole { continue }
+            if let m = findDescendant(in: top, role: kAXMenuRole, where: { _ in true }) {
+                return m
+            }
+        }
+        return nil
+    }
+
+    private func readAttribute(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, name as CFString, &value)
+        return value
     }
 
     /// Polls `readValue(identifier:)` until it equals `expected`. Absorbs
@@ -1305,6 +1437,11 @@ actor AppAccessor {
                 up.keyboardSetUnicodeString(stringLength: 1, unicodeString: &character)
                 up.post(tap: .cghidEventTap)
             }
+            // Inter-keystroke gap. Without this macOS coalesces/drops
+            // back-to-back synthetic Unicode events, producing
+            // truncated input (e.g. "ui-ed1 (edit" when typing
+            // "ui-editXXX (edited)"). 10 ms is enough on macOS 26.
+            usleep(10000)
         }
     }
 }

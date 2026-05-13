@@ -7,7 +7,7 @@ enum TestHarnessError: Error, Equatable, CustomStringConvertible {
     case notConnected(label: String)
     case moduleUnavailable(label: String, type: String)
     case binaryMissing(path: String)
-    case nonZeroExit(code: Int32, stdout: String, stderr: String)
+    case nonZeroExit(code: Int32, reason: Process.TerminationReason, stdout: String, stderr: String)
     case appBundleMissing(path: String)
     case appBundleNotDebug(path: String)
     case axTrustMissing
@@ -20,17 +20,32 @@ enum TestHarnessError: Error, Equatable, CustomStringConvertible {
         case let .notConnected(label): "TestHarnessError.notConnected(\(label))"
         case let .moduleUnavailable(label, type): "TestHarnessError.moduleUnavailable(\(label), \(type))"
         case let .binaryMissing(path): "TestHarnessError.binaryMissing(\(path))"
-        case let .nonZeroExit(code, stdout, stderr):
+        case let .nonZeroExit(code, reason, stdout, stderr):
             // CLI stdout/stderr routinely include JIDs (e.g. `ducko send <jid>` echoes,
             // `account list` output). Swift Testing prints `description` when an `Issue`
             // surfaces a thrown error, so the project privacy policy applies — redact
             // before printing.
-            "TestHarnessError.nonZeroExit(code: \(code), stdout: \(Self.redactJIDs(in: stdout)), stderr: \(Self.redactJIDs(in: stderr)))"
+            //
+            // `reason` disambiguates Foundation's `terminationStatus`, which returns the
+            // exit code on a normal exit but the signal number on an uncaught signal —
+            // an empty-output `code: 13` could be exit 13 OR SIGPIPE without this field.
+            "TestHarnessError.nonZeroExit(code: \(code), reason: \(Self.describe(reason)), stdout: \(Self.redactJIDs(in: stdout)), stderr: \(Self.redactJIDs(in: stderr)))"
         case let .appBundleMissing(path): "TestHarnessError.appBundleMissing(\(path))"
         case let .appBundleNotDebug(path): "TestHarnessError.appBundleNotDebug(\(path))"
         case .axTrustMissing: "TestHarnessError.axTrustMissing"
         case let .elementNotFound(identifier):
             "TestHarnessError.elementNotFound(\(Self.redactJIDs(in: identifier)))"
+        }
+    }
+
+    /// Maps `Process.TerminationReason` to a stable spelling for error output.
+    /// Foundation's default `description` for the enum is undocumented; pin the
+    /// strings here so assertions and log greps stay stable.
+    static func describe(_ reason: Process.TerminationReason) -> String {
+        switch reason {
+        case .exit: "exit"
+        case .uncaughtSignal: "signal"
+        @unknown default: "unknown"
         }
     }
 

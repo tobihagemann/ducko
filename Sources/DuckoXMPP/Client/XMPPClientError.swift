@@ -9,4 +9,5 @@ public enum XMPPClientError: Error {
     case sessionFailed(String)
     case unexpectedStreamState(String)
     case timeout
+    case streamManagementBusy
 }

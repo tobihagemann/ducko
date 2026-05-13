@@ -114,16 +114,23 @@ extension DuckoIntegrationTests.UILayer {
                 // Prime the chat-state context with `.active` before
                 // `.composing` per XEP-0085, so a receiver gating on prior
                 // negotiation still surfaces the typing indicator.
+                //
+                // Address alice's bare JID. Prosody now routes to the
+                // live resource because the disconnect-side SM
+                // `<r/>`/`<a/>` ack handshake prevents prior test runs
+                // from leaving stale resources in mod_smacks resumption
+                // queue.
                 let chatStates = try #require(await client.module(ofType: ChatStatesModule.self))
-                try await chatStates.sendChatState(.active, to: .bare(aliceJID))
-                try await chatStates.sendChatState(.composing, to: .bare(aliceJID))
+                let aliceTarget: JID = .bare(aliceJID)
+                try await chatStates.sendChatState(.active, to: aliceTarget)
+                try await chatStates.sendChatState(.composing, to: aliceTarget)
 
                 try await app.waitForElement(
                     identifier: "typing-indicator",
                     timeout: TestTimeout.event
                 )
 
-                try await chatStates.sendChatState(.active, to: .bare(aliceJID))
+                try await chatStates.sendChatState(.active, to: aliceTarget)
 
                 // Assert dismissal — the indicator must actually disappear,
                 // not merely "may have disappeared by the time we checked".
@@ -134,17 +141,10 @@ extension DuckoIntegrationTests.UILayer {
             }
         }
 
-        // Disabled: post-modal AppKit first-responder unreachable from external AX.
-        // After the context-menu modal that opens edit mode, neither
-        // CGEvent.cghidEventTap-synthesized keystrokes, AppleScript / System
-        // Events keystrokes, kAXPressAction on the send button, nor a hidden
-        // Button + keyboardShortcut delivers events to the SwiftUI TextField
-        // or the SwiftUI Button's action closure on macOS 26. The
-        // `.turbo/improvements.md` "correcting a sent message updates its
-        // body UI test" entry tracks four candidate fix directions; until
-        // one lands, this test is gated off so the rest of the suite can run
-        // green.
-        @Test(.disabled("Post-modal SwiftUI TextField first-responder + Button kAXPress unreachable from external AX on macOS 26 — see .turbo/improvements.md"))
+        @Test(.enabled(
+            if: AppAccessor.appBundleExists && AppAccessor.isAccessibilityTrusted && CLIProcess.binaryExists,
+            "Ducko.app missing, AX trust not granted, or DuckoCLI binary missing"
+        ))
         @MainActor func `correcting a sent message updates its body`() async throws {
             try await UISeededApp.withSeededApp { app in
                 let bob = TestCredentials.bob
@@ -173,11 +173,6 @@ extension DuckoIntegrationTests.UILayer {
                 try await app.rightClick(identifier: "message-bubble-\(messageID)")
                 try await app.contextMenuItem(title: "Edit")
 
-                // The edit field is pre-populated with the original body
-                // (MessageInputView.onChange(of: editingMessage?.id) sets
-                // text = editing.body). `clearAndType` routes through the
-                // field editor via per-character keystrokes so the SwiftUI
-                // `@State text` Binding actually syncs.
                 try await app.waitForElement(identifier: "message-field", timeout: TestTimeout.uiElement)
                 let editedBody = "\(body) (edited)"
                 try await app.clearAndType(editedBody, intoIdentifier: "message-field")

@@ -19,6 +19,12 @@ public protocol TranscriptStore: Sendable {
     func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage?
     func messageExists(stanzaID: String, conversationID: UUID) async throws -> Bool
     func messageExists(serverID: String, conversationID: UUID) async throws -> Bool
+    /// XEP-0359 stanza-id values are unique only *per sender*, so callers that
+    /// dedup inbound stanzas must scope the lookup by `fromJID`. Otherwise an
+    /// old archived outgoing message from this account with a colliding
+    /// `stanzaID` (e.g. CLI counter resets across processes) would mark a
+    /// fresh incoming message as duplicate and silently drop it.
+    func messageExists(stanzaID: String, fromJID: String, conversationID: UUID) async throws -> Bool
 
     // MARK: - Search
 
