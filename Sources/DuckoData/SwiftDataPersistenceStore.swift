@@ -126,7 +126,7 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
             predicate: #Predicate { $0.account?.id == accountID },
             sortBy: [SortDescriptor(\.lastMessageDate, order: .reverse)]
         )
-        let records = try modelContext.fetch(descriptor)
+        let records: [ConversationRecord] = try modelContext.fetch(descriptor)
         return records.compactMap { $0.toDomain() }
     }
 

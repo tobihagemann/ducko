@@ -5,6 +5,14 @@ set -euo pipefail
 # Usage:
 #   ./Scripts/lint.sh   # Check format + lint + unused code
 
+# Apple's git wrapper at /Applications/Xcode.app/Contents/Developer/usr/libexec/git-core
+# pre-sets SDKROOT (and friends) to the Command Line Tools SDK for every child
+# process, including hooks. The CLT SDK lacks Swift macro plugins (SwiftUIMacros,
+# SwiftDataMacros), so Periphery's `swift build --build-tests` fails with
+# "plugin for module 'SwiftUIMacros' not found". Drop the polluted env so swift
+# falls back to the Xcode SDK via xcode-select.
+unset SDKROOT CPATH LIBRARY_PATH MANPATH
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
