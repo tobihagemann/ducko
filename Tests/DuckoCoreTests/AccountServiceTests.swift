@@ -179,12 +179,12 @@ enum AccountServiceTests {
         }
 
         /// Locks the wiring from `AccountService.deleteAccount` to
-        /// `OMEMOService.purgePreviouslySeenDeviceIDs`. A regression that
-        /// drops the purge call would silently leak the per-account map
-        /// across recreated accounts.
+        /// `OMEMOService.purgeSeenDeviceClassifications`. A regression that
+        /// drops the purge call would silently leak the per-account
+        /// classification cache across recreated accounts.
         @Test
         @MainActor
-        func `deleteAccount purges OMEMOService previously-seen-device-IDs`() async throws {
+        func `deleteAccount purges OMEMOService seen-device classifications`() async throws {
             let store = makeStore()
             let credentials = makeCredentials()
             let account = makeAccount()
@@ -197,14 +197,24 @@ enum AccountServiceTests {
             accountService.setOMEMOService(omemoService)
             try await accountService.loadAccounts()
 
-            // Seed the per-account seen-set, then delete the account.
-            await omemoService.updatePreviouslySeenDeviceIDs([1, 2, 3], accountID: account.id.uuidString)
-            #expect(await omemoService.previouslySeenDeviceIDs(accountID: account.id.uuidString) == [1, 2, 3])
+            // Seed the per-account classification cache, then delete the account.
+            await omemoService.installAccountJIDForTesting(account.jid.description, accountID: account.id.uuidString)
+            await omemoService.mergeSeenDevices(
+                [42: SeenDeviceRecord(
+                    deviceID: 42, lastClassification: .healthy,
+                    staleStreak: 0, hasObservedHealthy: true
+                )],
+                accountID: account.id.uuidString
+            )
+            #expect(await omemoService.loadSeenDevices(accountID: account.id.uuidString).count == 1)
 
             try await accountService.deleteAccount(account.id)
 
-            // Purge wiring must drop the entry.
-            #expect(await omemoService.previouslySeenDeviceIDs(accountID: account.id.uuidString) == [])
+            // Purge wiring must drop the entry. Re-install the JID mapping
+            // (the purge clears it) so the cache read returns the empty
+            // post-purge state rather than bailing on the missing mapping.
+            await omemoService.installAccountJIDForTesting(account.jid.description, accountID: account.id.uuidString)
+            #expect(await omemoService.loadSeenDevices(accountID: account.id.uuidString).isEmpty)
         }
     }
 

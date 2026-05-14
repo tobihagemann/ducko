@@ -12,7 +12,8 @@ public enum ModelContainerFactory {
         OMEMOPreKeyRecord.self,
         OMEMOSignedPreKeyRecord.self,
         OMEMOSessionRecord.self,
-        OMEMOTrustRecord.self
+        OMEMOTrustRecord.self,
+        OMEMOSeenDeviceRecord.self
     ])
 
     public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {

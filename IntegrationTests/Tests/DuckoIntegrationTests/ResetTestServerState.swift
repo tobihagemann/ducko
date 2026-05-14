@@ -14,11 +14,14 @@ private let log = Logger(label: "im.ducko.integrationtests.reset")
 ///
 /// 1. PEP `urn:xmpp:omemo:2:devices` accumulates stale device IDs across
 ///    runs, and each obsolete device leaves a dangling
-///    `urn:xmpp:omemo:2:bundles:<deviceID>` node behind. Once the list
-///    crosses `OMEMOModule.pruneProbeCap` (64) the client cannot self-heal;
-///    sends race ack overflow and dependent tests fail. Retracting the
-///    devicelist and reconnecting causes `OMEMOModule.ensureOwnDeviceInList`
-///    to publish a fresh singleton list containing only the live device ID.
+///    `urn:xmpp:omemo:2:bundles:<deviceID>` node behind. The
+///    `TestHarness` bootstrap-reset gate now triggers this OMEMO path
+///    automatically when any account exceeds
+///    `TestHarness.autoResetDevicelistThreshold` (32) — the env-gated
+///    suite remains the manual entry point and is the only way to also
+///    run the roster reseed below in one shot. Retracting the devicelist
+///    and reconnecting causes `OMEMOModule.ensureOwnDeviceInList` to
+///    publish a fresh singleton list containing only the live device ID.
 ///    Then a disco#items sweep deletes every other bundle node so the live
 ///    server matches the post-`purge-test-omemo.sql` shape (one devicelist
 ///    + one bundle per account).
@@ -68,9 +71,16 @@ extension DuckoIntegrationTests {
         /// Verifies the post-reconnect list is a singleton, then deletes
         /// every `urn:xmpp:omemo:2:bundles:<deviceID>` node whose deviceID
         /// is not the live one — matching `purge-test-omemo.sql`.
+        ///
+        /// `skipBootstrap` is passed through to the inner `withHarness` so
+        /// the bootstrap-reset gate doesn't re-enter when this is called
+        /// from inside `runBootstrapResetIfNeeded`. Defaults to `false` for
+        /// the existing manual `DUCKO_RESET_FIXTURES=1` callers.
         @MainActor
-        private static func resetOMEMODeviceList(for credential: TestCredentials.Credential) async throws {
-            try await TestHarness.withHarness { harness in
+        static func resetOMEMODeviceList(
+            for credential: TestCredentials.Credential, skipBootstrap: Bool = false
+        ) async throws {
+            try await TestHarness.withHarness(skipBootstrap: skipBootstrap) { harness in
                 try await harness.setUp(accounts: [credential.label: credential])
 
                 let pep = try await harness.module(PEPModule.self, for: credential.label)
@@ -125,7 +135,7 @@ extension DuckoIntegrationTests {
         /// the `prosodyarchive` half of `purge-test-omemo.sql`. Asserts no
         /// stale bundle nodes remain after the sweep.
         @MainActor
-        private static func deleteStaleBundleNodes(
+        static func deleteStaleBundleNodes(
             for credential: TestCredentials.Credential,
             keeping liveDeviceID: String,
             on harness: TestHarness

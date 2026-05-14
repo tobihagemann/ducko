@@ -91,47 +91,28 @@ public final class ChatService {
         let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
 
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
-        let recipient = JID.bare(jid)
         let stanzaID = client.generateID()
-        let chatStatesEnabled = ChatPreferences.shared.enableChatStates
-
-        // Encrypt if conversation has encryption enabled and peer has trusted devices
-        let encryptionEnabled = conversation.encryptionEnabled
-        let trustedDeviceIDs = await omemoService?.shouldEncrypt(jid: jid, accountID: accountID, conversationEncryptionEnabled: encryptionEnabled)
+        let trustedDeviceIDs = try await trustedDeviceIDsForSend(
+            jid: jid, accountID: accountID, conversation: conversation
+        )
 
         // Persist before sending so the server's carbon copy finds the stanzaID
         // via isDuplicate and is correctly skipped. Without this, handleCarbon
         // can persist a duplicate before persistMessage runs.
         let message = ChatMessage(
-            id: UUID(),
-            conversationID: conversation.id,
-            stanzaID: stanzaID,
-            fromJID: jid.description,
-            body: filtered.body,
-            htmlBody: filtered.htmlBody,
-            timestamp: Date(),
-            isOutgoing: true,
-            isDelivered: false,
-            isEdited: false,
-            type: "chat",
-            isEncrypted: trustedDeviceIDs != nil
+            id: UUID(), conversationID: conversation.id, stanzaID: stanzaID,
+            fromJID: jid.description, body: filtered.body, htmlBody: filtered.htmlBody,
+            timestamp: Date(), isOutgoing: true, isDelivered: false, isEdited: false,
+            type: "chat", isEncrypted: trustedDeviceIDs != nil
         )
         try await persistMessage(message, in: conversation, accountID: accountID)
 
-        // If the send fails, roll back the persisted message so the transcript
-        // doesn't show a ghost entry that never actually reached the network.
         do {
-            if let omemoService, let trustedDeviceIDs {
-                let elements = try await omemoService.encryptMessage(body: filtered.body, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
-                let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
-                try await chatModule.sendMessage(
-                    to: recipient, body: elements.fallbackBody, id: stanzaID,
-                    requestReceipt: true, markable: true, includeChatState: chatStatesEnabled,
-                    additionalElements: [elements.encrypted, elements.encryption, storeHint]
-                )
-            } else {
-                try await chatModule.sendMessage(to: recipient, body: filtered.body, id: stanzaID, requestReceipt: true, markable: true, includeChatState: chatStatesEnabled, additionalElements: additionalElements)
-            }
+            try await dispatchSend(SendDispatchContext(
+                jid: jid, filteredBody: filtered.body, stanzaID: stanzaID,
+                trustedDeviceIDs: trustedDeviceIDs, accountID: accountID,
+                chatModule: chatModule, additionalElements: additionalElements
+            ))
         } catch {
             // Append a local retract amendment so the ghost doesn't linger in the
             // transcript. The retract is local-only — it has no effect on the server.
@@ -142,6 +123,83 @@ public final class ChatService {
             await messagesChanged(in: conversation.id)
             throw error
         }
+    }
+
+    /// Resolves the encryption decision for `sendMessage` and converts the
+    /// fail-closed cases into typed throws. Returns the trusted recipient
+    /// device IDs when encryption authorized, or `nil` when the user opted
+    /// out (plaintext path).
+    private func trustedDeviceIDsForSend(
+        jid: BareJID, accountID: UUID, conversation: Conversation
+    ) async throws -> [UInt32]? {
+        let resolution = await resolveEncryption(
+            jid: jid, accountID: accountID,
+            conversationEncryptionEnabled: conversation.encryptionEnabled
+        )
+        switch resolution {
+        case let .proceed(ids): return ids
+        case .userDisabled: return nil
+        case .noLocalDevicesForPeer: throw ChatServiceError.omemoNoLocalDevices(conversationJID: jid)
+        case .noTrustedDevicesForPeer: throw ChatServiceError.omemoNoTrustedDevices(conversationJID: jid)
+        case .serviceUnavailable: throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
+        }
+    }
+
+    /// Bundles the arguments `dispatchSend` and `dispatchReply` need from
+    /// the calling `sendMessage` / `sendReply` frame. Carrying them in a
+    /// single struct keeps the helper signatures under the
+    /// function-parameter-count lint cap.
+    private struct SendDispatchContext {
+        let jid: BareJID
+        let filteredBody: String
+        let stanzaID: String
+        let trustedDeviceIDs: [UInt32]?
+        let accountID: UUID
+        let chatModule: ChatModule
+        let additionalElements: [DuckoXMPP.XMLElement]
+    }
+
+    /// Sends a 1:1 chat stanza, encrypted to `trustedDeviceIDs` or plaintext
+    /// when those are nil. Extracted from `sendMessage` so the persist-then-
+    /// dispatch sequence stays readable and the lint complexity stays bounded.
+    ///
+    /// Branches on `trustedDeviceIDs` rather than on `omemoService` because
+    /// `trustedDeviceIDsForSend` returns nil only for the `.userDisabled`
+    /// resolution (intentional plaintext) — every other nil-able outcome
+    /// throws before reaching here. Non-nil `trustedDeviceIDs` therefore
+    /// always means "encryption required"; combining `omemoService` into the
+    /// optional-binding would silently fall through to the plaintext path
+    /// when the service is unwired, defeating the fail-closed gate.
+    private func dispatchSend(_ context: SendDispatchContext) async throws {
+        let recipient = JID.bare(context.jid)
+        let chatStatesEnabled = ChatPreferences.shared.enableChatStates
+        guard let trustedDeviceIDs = context.trustedDeviceIDs else {
+            try await context.chatModule.sendMessage(
+                to: recipient, body: context.filteredBody, id: context.stanzaID,
+                requestReceipt: true, markable: true,
+                includeChatState: chatStatesEnabled,
+                additionalElements: context.additionalElements
+            )
+            return
+        }
+        guard let omemoService else {
+            // Unreachable in production: `resolveEncryption` returns
+            // `.serviceUnavailable` (→ `trustedDeviceIDsForSend` throws)
+            // when the service is nil. Defense in depth — if a future
+            // refactor lets a nil service slip past the resolution gate,
+            // fail closed instead of silently downgrading.
+            throw ChatServiceError.omemoServiceUnavailable(conversationJID: context.jid)
+        }
+        let elements = try await omemoService.encryptMessage(
+            body: context.filteredBody, to: context.jid,
+            trustedDeviceIDs: trustedDeviceIDs, accountID: context.accountID
+        )
+        let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+        try await context.chatModule.sendMessage(
+            to: recipient, body: elements.fallbackBody, id: context.stanzaID,
+            requestReceipt: true, markable: true, includeChatState: chatStatesEnabled,
+            additionalElements: [elements.encrypted, elements.encryption, storeHint]
+        )
     }
 
     public func selectConversation(_ id: UUID?, accountID: UUID? = nil) async {
@@ -247,9 +305,17 @@ public final class ChatService {
 
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
 
-        if let omemoService, let trustedDeviceIDs = await omemoService.shouldEncrypt(
+        let resolution = await resolveEncryption(
             jid: jid, accountID: accountID, conversationEncryptionEnabled: conversation.encryptionEnabled
-        ) {
+        )
+        switch resolution {
+        case let .proceed(trustedDeviceIDs):
+            guard let omemoService else {
+                // Unreachable in production: `resolveEncryption` returns
+                // `.serviceUnavailable` when the service is nil. Defense in
+                // depth.
+                throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
+            }
             let elements = try await omemoService.encryptMessage(body: newBody, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
             let replaceElement = DuckoXMPP.XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": originalStanzaID])
             let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
@@ -258,8 +324,14 @@ public final class ChatService {
                 includeChatState: chatStatesEnabled,
                 additionalElements: [elements.encrypted, elements.encryption, storeHint, replaceElement]
             )
-        } else {
+        case .userDisabled:
             try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
+        case .noLocalDevicesForPeer:
+            throw ChatServiceError.omemoNoLocalDevices(conversationJID: jid)
+        case .noTrustedDevicesForPeer:
+            throw ChatServiceError.omemoNoTrustedDevices(conversationJID: jid)
+        case .serviceUnavailable:
+            throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
         }
         try await transcripts.appendAmendment(
             TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
@@ -322,9 +394,14 @@ public final class ChatService {
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
-        if let omemoService, let trustedDeviceIDs = await omemoService.shouldEncrypt(
+        let resolution = await resolveEncryption(
             jid: jid, accountID: accountID, conversationEncryptionEnabled: conversation.encryptionEnabled
-        ) {
+        )
+        switch resolution {
+        case let .proceed(trustedDeviceIDs):
+            guard let omemoService else {
+                throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
+            }
             let elements = try await omemoService.encryptMessage(body: retractionFallbackBody, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
             let retractElement = DuckoXMPP.XMLElement(name: "retract", namespace: XMPPNamespaces.messageRetract, attributes: ["id": stanzaID])
             let fallbackElement = DuckoXMPP.XMLElement(name: "fallback", namespace: XMPPNamespaces.fallbackIndication, attributes: ["for": XMPPNamespaces.messageRetract])
@@ -334,8 +411,14 @@ public final class ChatService {
                 includeChatState: false,
                 additionalElements: [elements.encrypted, elements.encryption, storeHint, retractElement, fallbackElement]
             )
-        } else {
+        case .userDisabled:
             try await chatModule.sendRetraction(to: .bare(jid), originalID: stanzaID)
+        case .noLocalDevicesForPeer:
+            throw ChatServiceError.omemoNoLocalDevices(conversationJID: jid)
+        case .serviceUnavailable:
+            throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
+        case .noTrustedDevicesForPeer:
+            throw ChatServiceError.omemoNoTrustedDevices(conversationJID: jid)
         }
         try await transcripts.appendAmendment(
             TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
@@ -418,17 +501,19 @@ public final class ChatService {
         let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
 
         let stanzaID = client.generateID()
-        let chatStatesEnabled = ChatPreferences.shared.enableChatStates
-        try await chatModule.sendReply(
-            to: .bare(jid),
-            body: filtered.body,
-            replyToID: replyToStanzaID,
-            replyToJID: .bare(jid),
-            id: stanzaID,
-            includeChatState: chatStatesEnabled
-        )
 
+        // Replies previously bypassed `shouldEncrypt` entirely and always
+        // sent plaintext — a silent-downgrade vector when the conversation
+        // is configured for encryption. Resolve the conversation first so
+        // the encryption decision matches what `sendMessage` would do for
+        // the same peer.
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
+        try await dispatchReply(ReplyDispatchContext(
+            jid: jid, filteredBody: filtered.body, stanzaID: stanzaID,
+            replyToStanzaID: replyToStanzaID, accountID: accountID,
+            conversation: conversation, chatModule: chatModule
+        ))
+
         let message = ChatMessage(
             id: UUID(),
             conversationID: conversation.id,
@@ -444,6 +529,63 @@ public final class ChatService {
             replyToID: replyToStanzaID
         )
         try await persistMessage(message, in: conversation, accountID: accountID)
+    }
+
+    /// Bundles the arguments `dispatchReply` needs from the calling
+    /// `sendReply` frame so the helper stays under the
+    /// function-parameter-count lint cap.
+    private struct ReplyDispatchContext {
+        let jid: BareJID
+        let filteredBody: String
+        let stanzaID: String
+        let replyToStanzaID: String
+        let accountID: UUID
+        let conversation: Conversation
+        let chatModule: ChatModule
+    }
+
+    /// Resolves the encryption decision for a reply and dispatches the
+    /// reply stanza on the chosen path. Extracted from `sendReply` so the
+    /// caller stays under the function-body-length lint cap.
+    private func dispatchReply(_ context: ReplyDispatchContext) async throws {
+        let chatStatesEnabled = ChatPreferences.shared.enableChatStates
+        let resolution = await resolveEncryption(
+            jid: context.jid, accountID: context.accountID,
+            conversationEncryptionEnabled: context.conversation.encryptionEnabled
+        )
+        switch resolution {
+        case let .proceed(trustedDeviceIDs):
+            guard let omemoService else {
+                throw ChatServiceError.omemoServiceUnavailable(conversationJID: context.jid)
+            }
+            let elements = try await omemoService.encryptMessage(
+                body: context.filteredBody, to: context.jid,
+                trustedDeviceIDs: trustedDeviceIDs, accountID: context.accountID
+            )
+            let replyElement = DuckoXMPP.XMLElement(
+                name: "reply", namespace: XMPPNamespaces.messageReply,
+                attributes: ["to": context.jid.description, "id": context.replyToStanzaID]
+            )
+            let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
+            try await context.chatModule.sendMessage(
+                to: .bare(context.jid), body: elements.fallbackBody, id: context.stanzaID,
+                requestReceipt: true, markable: true, includeChatState: chatStatesEnabled,
+                additionalElements: [elements.encrypted, elements.encryption, storeHint, replyElement]
+            )
+        case .userDisabled:
+            try await context.chatModule.sendReply(
+                to: .bare(context.jid),
+                body: context.filteredBody, replyToID: context.replyToStanzaID,
+                replyToJID: .bare(context.jid), id: context.stanzaID,
+                includeChatState: chatStatesEnabled
+            )
+        case .noLocalDevicesForPeer:
+            throw ChatServiceError.omemoNoLocalDevices(conversationJID: context.jid)
+        case .noTrustedDevicesForPeer:
+            throw ChatServiceError.omemoNoTrustedDevices(conversationJID: context.jid)
+        case .serviceUnavailable:
+            throw ChatServiceError.omemoServiceUnavailable(conversationJID: context.jid)
+        }
     }
 
     public func sendReply(
@@ -1013,6 +1155,23 @@ public final class ChatService {
         case encryptionFailed(String)
         case notOutgoingMessage
         case timeout(BareJID)
+        /// Conversation has encryption enabled but the local trust store has
+        /// no devices for the peer (no `+notify`, peer has no OMEMO, fresh
+        /// install). Surfaced to the UI so the composer text is retained
+        /// instead of silently downgrading to plaintext.
+        case omemoNoLocalDevices(conversationJID: BareJID)
+        /// Conversation has encryption enabled and peer devices exist
+        /// locally, but none are trusted.
+        case omemoNoTrustedDevices(conversationJID: BareJID)
+        /// Conversation has encryption enabled but the OMEMO service is
+        /// unavailable (not yet connected, module rebuild in progress).
+        /// Thrown from both 1:1 and group send paths — the parameter is
+        /// named after the conversation (peer JID for 1:1, room JID for
+        /// MUC) rather than overloading "room" for both.
+        case omemoServiceUnavailable(conversationJID: BareJID)
+        /// Group conversation has encryption enabled but every occupant
+        /// resolves to `omemoNoLocalDevices` or `omemoNoTrustedDevices`.
+        case omemoNoTrustedDevicesInRoom(roomJID: BareJID, untrustedJIDs: [BareJID])
 
         public var errorDescription: String? {
             switch self {
@@ -1021,6 +1180,14 @@ public final class ChatService {
             case let .encryptionFailed(reason): "Encryption failed: \(reason)"
             case .notOutgoingMessage: "Cannot correct a message that was not sent by you"
             case let .timeout(jid): "Timed out waiting for room \(jid) join echo"
+            case .omemoNoLocalDevices:
+                "Cannot send: no OMEMO devices known for this peer. The peer may not have OMEMO set up, or you have not received their device list yet."
+            case .omemoNoTrustedDevices:
+                "Cannot send: no trusted devices for this peer. Verify a device fingerprint first."
+            case .omemoServiceUnavailable:
+                "Cannot send: encryption service unavailable. Try reconnecting."
+            case .omemoNoTrustedDevicesInRoom:
+                "Cannot send: room has no occupants with trusted devices."
             }
         }
     }
@@ -1618,19 +1785,64 @@ public final class ChatService {
     // MARK: - Private: Group OMEMO
 
     /// Attempts OMEMO encryption for a group message. Returns `true` if encrypted.
+    ///
+    /// Fail-closed: when the conversation has encryption enabled but the
+    /// OMEMO service is unavailable, or every occupant resolves to no-local
+    /// or no-trusted devices, throw a `ChatServiceError` rather than
+    /// silently downgrading to plaintext. With partial trust (some occupants
+    /// trusted, some not) the message is encrypted to the trusted subset
+    /// and `OMEMOService.encryptGroupMessage` already emits
+    /// `.omemoRecipientsPartial` for the dropped occupants.
     private func encryptAndSendGroupMessage(
         room: BareJID, body: String, stanzaID: String,
         conversation: Conversation, mucModule: MUCModule,
         additionalElements: [DuckoXMPP.XMLElement] = []
     ) async throws -> Bool {
-        guard conversation.encryptionEnabled, let omemoService, let accountID = conversation.accountID else {
+        guard conversation.encryptionEnabled else {
             try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true, additionalElements: additionalElements)
             return false
+        }
+        guard let accountID = conversation.accountID else {
+            try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true, additionalElements: additionalElements)
+            return false
+        }
+        guard let omemoService else {
+            throw ChatServiceError.omemoServiceUnavailable(conversationJID: room)
         }
 
         let memberJIDs = try await roomMemberJIDs(roomJIDString: room.description, accountID: accountID)
         guard !memberJIDs.isEmpty else {
             throw ChatServiceError.encryptionFailed("Cannot encrypt: no room members with known JIDs")
+        }
+
+        // Pre-check per occupant: if every member resolves to no-local or
+        // no-trusted devices, throw before the encryptGroupMessage call
+        // (which would otherwise throw OMEMOServiceError.noTrustedRecipients
+        // — surface a more specific error so the UI can react).
+        var untrustedJIDs: [BareJID] = []
+        var anyEncryptable = false
+        for member in memberJIDs {
+            let resolution = await omemoService.shouldEncrypt(
+                jid: member, accountID: accountID, conversationEncryptionEnabled: true
+            )
+            switch resolution {
+            case .proceed:
+                anyEncryptable = true
+            case .noLocalDevicesForPeer, .noTrustedDevicesForPeer:
+                untrustedJIDs.append(member)
+            case .userDisabled, .serviceUnavailable:
+                // `userDisabled` is unreachable here (we already gated on
+                // `conversation.encryptionEnabled`). `serviceUnavailable` is
+                // unreachable too because `omemoService` is non-nil at this
+                // point (guarded above before entering the loop). Bucket
+                // both into the encryptable side for the gate decision.
+                anyEncryptable = true
+            }
+        }
+        guard anyEncryptable else {
+            throw ChatServiceError.omemoNoTrustedDevicesInRoom(
+                roomJID: room, untrustedJIDs: untrustedJIDs
+            )
         }
 
         let elements = try await omemoService.encryptGroupMessage(
@@ -1664,6 +1876,26 @@ public final class ChatService {
 
     private func accountJID(for accountID: UUID, fallback: BareJID) -> BareJID {
         accountService?.accounts.first { $0.id == accountID }?.jid ?? fallback
+    }
+
+    /// Bridges the optional `OMEMOService` to the fail-closed
+    /// `EncryptionResolution`. When encryption is disabled the service is
+    /// not consulted. When encryption is enabled but the service is absent
+    /// (only reachable in tests; production wires it at app start), return
+    /// `.serviceUnavailable` so every dispatch caller's `case
+    /// .serviceUnavailable:` arm throws `omemoServiceUnavailable` —
+    /// collapsing nil-service into `.userDisabled` or into `.proceed([])`
+    /// would silently downgrade an encryption-required send to plaintext,
+    /// defeating the fail-closed gate.
+    private func resolveEncryption(
+        jid: BareJID, accountID: UUID, conversationEncryptionEnabled: Bool
+    ) async -> OMEMOService.EncryptionResolution {
+        guard conversationEncryptionEnabled else { return .userDisabled }
+        guard let omemoService else { return .serviceUnavailable }
+        return await omemoService.shouldEncrypt(
+            jid: jid, accountID: accountID,
+            conversationEncryptionEnabled: conversationEncryptionEnabled
+        )
     }
 
     /// Returns the XEP-0359 archive-stamped stanza id only when its `by`

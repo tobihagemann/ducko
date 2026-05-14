@@ -31,4 +31,15 @@ struct NoOpOMEMOStore: OMEMOStore {
     func loadAllDevices(for _: String, accountJID _: String) async throws -> [OMEMOTrust] {
         []
     }
+
+    func deleteTrust(accountJID _: String, peerJID _: String, deviceID _: UInt32) async throws {}
+
+    func loadSeenDevices(for _: String) async throws -> [OMEMOStoredSeenDevice] {
+        []
+    }
+
+    func upsertSeenDevices(_: [OMEMOStoredSeenDevice], for _: String) async throws {}
+    func replaceSeenDevices(_: [OMEMOStoredSeenDevice], for _: String) async throws {}
+    func purgeSeenDevices(for _: String) async throws {}
+    func deleteSession(accountJID _: String, peerJID _: String, peerDeviceID _: UInt32) async throws {}
 }

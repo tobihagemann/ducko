@@ -247,6 +247,7 @@ Use this checklist for a rapid sweep across all 14 domains. Each item maps to on
 | 13  | `testing-security-code.md`       | Protocol-based mocking, simulator vs device differences, CI/CD keychain, Swift Testing, mutation testing              | MEDIUM   |
 | 14  | `compliance-owasp-mapping.md`    | OWASP Mobile Top 10 (2024), MASVS v2.1.0, MASTG test IDs, M1/M3/M9/M10 mapping, audit readiness                       | MEDIUM   |
 | 15  | `cryptokit-ed25519-x25519.md`    | CryptoKit Ed25519 seed vs X25519 scalar — `rawRepresentation` pitfall when deriving an X25519 agreement key from an Ed25519 identity key | HIGH     |
+| 16  | `fail-closed-enum-resolution.md` | Fail-closed encryption gates: prefer explicit enum cases over empty-value sentinels; branch on the signal-carrying optional first to avoid silent-downgrade `if let A, let B` traps | HIGH     |
 
 ---
 

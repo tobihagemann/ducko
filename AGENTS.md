@@ -72,6 +72,8 @@ DUCKO_RESET_FIXTURES=1 swift test --package-path IntegrationTests --filter Reset
 
 It is skipped by default and requires all four `DUCKO_TEST_*` credential pairs.
 
+**OMEMO devicelist drift is now handled automatically.** `TestHarness` runs a bootstrap probe before the first test executes; if any account's PEP devicelist exceeds `autoResetDevicelistThreshold` (32 entries) the gate triggers the same OMEMO reset that `ResetTestServerState` runs manually. The env-gated suite stays useful when fixtures drift in non-OMEMO ways — roster subscription baselines or the dave-empty invariant — because the auto-reset only touches the OMEMO devicelist path.
+
 ## Packaging
 
 `version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.

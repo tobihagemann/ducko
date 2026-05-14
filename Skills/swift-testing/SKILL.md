@@ -286,6 +286,7 @@ End of example.
 ### Async & performance
 
 - [references/async-tests.md](references/async-tests.md) — serialized tests, `confirmation()`, time limits, actor isolation, pre-concurrency code, networking mocks, cancellation, callback bridging, legacy-waiting anti-patterns.
+- [references/chunked-parallel-mock-drain.md](references/chunked-parallel-mock-drain.md) — drain mock outboxes one stanza at a time when the system under test fans out via `stride`-chunked `withTaskGroup`; `waitForSent(count: N)` deadlocks at chunk boundaries.
 - [references/performance-and-best-practices.md](references/performance-and-best-practices.md) — test speed, determinism, flakiness prevention.
 
 ### Test doubles & fixtures

@@ -161,56 +161,143 @@ enum OMEMOServiceTests {
     }
 
     /// Locks the production `OMEMOService` conformance to
-    /// `PreviouslySeenDeviceIDsProviding` — the seen-set must persist across
-    /// reads and stay isolated per account. The pruning unit tests in
-    /// DuckoXMPP use a stub provider; these tests prove the real production
-    /// wiring keeps its data correctly.
-    struct PreviouslySeenDeviceIDsProvider {
+    /// `SeenDeviceClassificationProviding` — the per-device classification
+    /// cache must persist across reads, stay isolated per account, lazy-load
+    /// from the store on first read, and coalesce concurrent first-loads
+    /// onto a single store call. The pruning unit tests in DuckoXMPP use a
+    /// stub provider; these tests prove the real production wiring keeps
+    /// its data correctly.
+    struct SeenDeviceClassificationProvider {
         @Test
         @MainActor
-        func `empty by default; round-trips set per account`() async {
+        func `empty by default; merge round-trips per account`() async {
             let store = MockOMEMOStore()
             let service = makeOMEMOService(store: store)
             let acctA = UUID().uuidString
+            let accountJID = testAccountJID.description
+            await service.installAccountJIDForTesting(accountJID, accountID: acctA)
 
-            // Empty by default.
-            let empty = await service.previouslySeenDeviceIDs(accountID: acctA)
-            #expect(empty == [])
+            let empty = await service.loadSeenDevices(accountID: acctA)
+            #expect(empty.isEmpty)
 
-            // Round-trips written values.
-            await service.updatePreviouslySeenDeviceIDs([1, 2, 3], accountID: acctA)
-            let read = await service.previouslySeenDeviceIDs(accountID: acctA)
-            #expect(read == [1, 2, 3])
+            let record = SeenDeviceRecord(
+                deviceID: 42, lastClassification: .healthy,
+                staleStreak: 0, hasObservedHealthy: true
+            )
+            await service.mergeSeenDevices([42: record], accountID: acctA)
+            let read = await service.loadSeenDevices(accountID: acctA)
+            #expect(read[42] == record)
         }
 
         @Test
         @MainActor
-        func `per-account isolation`() async {
+        func `lazy-loads from store on first read; second read is in-memory`() async {
             let store = MockOMEMOStore()
-            let service = makeOMEMOService(store: store)
             let acctA = UUID().uuidString
-            let acctB = UUID().uuidString
+            let accountJID = testAccountJID.description
+            await store.seedSeenDevices(
+                [OMEMOStoredSeenDevice(
+                    accountJID: accountJID, deviceID: 7,
+                    classification: BundleClassification.healthy.rawValue,
+                    staleStreak: 0, hasObservedHealthy: true
+                )],
+                for: accountJID
+            )
 
-            await service.updatePreviouslySeenDeviceIDs([1, 2], accountID: acctA)
-            await service.updatePreviouslySeenDeviceIDs([3, 4], accountID: acctB)
+            let service = makeOMEMOService(store: store)
+            await service.installAccountJIDForTesting(accountJID, accountID: acctA)
 
-            #expect(await service.previouslySeenDeviceIDs(accountID: acctA) == [1, 2])
-            #expect(await service.previouslySeenDeviceIDs(accountID: acctB) == [3, 4])
+            _ = await service.loadSeenDevices(accountID: acctA)
+            #expect(await store.loadSeenDevicesCalls == 1)
+            _ = await service.loadSeenDevices(accountID: acctA)
+            // Second read hits the in-memory cache, not the store.
+            #expect(await store.loadSeenDevicesCalls == 1)
         }
 
         @Test
         @MainActor
-        func `purge drops the per-account entry`() async {
+        func `unrecognized classification raw values are dropped`() async {
             let store = MockOMEMOStore()
+            let acctA = UUID().uuidString
+            let accountJID = testAccountJID.description
+            await store.seedSeenDevices(
+                [OMEMOStoredSeenDevice(
+                    accountJID: accountJID, deviceID: 7,
+                    classification: "future-unknown-value",
+                    staleStreak: 1, hasObservedHealthy: true
+                )],
+                for: accountJID
+            )
+
             let service = makeOMEMOService(store: store)
+            await service.installAccountJIDForTesting(accountJID, accountID: acctA)
+
+            let loaded = await service.loadSeenDevices(accountID: acctA)
+            // Forward-compat: the unknown row is silently dropped at load time.
+            #expect(loaded[7] == nil)
+        }
+
+        @Test
+        @MainActor
+        func `replaceSeenDevices replaces in-memory and store state`() async {
+            let store = MockOMEMOStore()
+            let acctA = UUID().uuidString
+            let accountJID = testAccountJID.description
+            let service = makeOMEMOService(store: store)
+            await service.installAccountJIDForTesting(accountJID, accountID: acctA)
+            await service.mergeSeenDevices(
+                [
+                    1: SeenDeviceRecord(deviceID: 1, lastClassification: .stale, staleStreak: 1, hasObservedHealthy: true),
+                    2: SeenDeviceRecord(deviceID: 2, lastClassification: .healthy, staleStreak: 0, hasObservedHealthy: true)
+                ],
+                accountID: acctA
+            )
+            await service.replaceSeenDevices(
+                [9: SeenDeviceRecord(deviceID: 9, lastClassification: .healthy, staleStreak: 0, hasObservedHealthy: true)],
+                accountID: acctA
+            )
+            let read = await service.loadSeenDevices(accountID: acctA)
+            #expect(read.count == 1)
+            #expect(read[9]?.lastClassification == .healthy)
+            #expect(read[1] == nil)
+            #expect(read[2] == nil)
+        }
+
+        @Test
+        @MainActor
+        func `purgeSeenDeviceClassifications clears in-memory and pending state`() async {
+            let store = MockOMEMOStore()
             let id = UUID()
-            let key = id.uuidString
+            let acctA = id.uuidString
+            let accountJID = testAccountJID.description
+            let service = makeOMEMOService(store: store)
+            await service.installAccountJIDForTesting(accountJID, accountID: acctA)
 
-            await service.updatePreviouslySeenDeviceIDs([1, 2], accountID: key)
-            #expect(await service.previouslySeenDeviceIDs(accountID: key) == [1, 2])
+            await service.mergeSeenDevices(
+                [42: SeenDeviceRecord(deviceID: 42, lastClassification: .healthy, staleStreak: 0, hasObservedHealthy: true)],
+                accountID: acctA
+            )
+            #expect(await service.loadSeenDevices(accountID: acctA).count == 1)
 
-            service.purgePreviouslySeenDeviceIDs(accountID: id)
-            #expect(await service.previouslySeenDeviceIDs(accountID: key) == [])
+            service.purgeSeenDeviceClassifications(accountID: id)
+            // After purge, the accountJID mapping is gone so we re-install
+            // it before re-reading; the cache is empty by contract.
+            await service.installAccountJIDForTesting(accountJID, accountID: acctA)
+            #expect(await service.loadSeenDevices(accountID: acctA).isEmpty)
+        }
+
+        @Test
+        @MainActor
+        func `purgeOrphanDeviceRecords deletes one trust and session per device`() async throws {
+            let store = MockOMEMOStore()
+            let acctA = UUID().uuidString
+            let accountJID = testAccountJID.description
+            let service = makeOMEMOService(store: store)
+            await service.installAccountJIDForTesting(accountJID, accountID: acctA)
+
+            try await service.purgeOrphanDeviceRecords(deviceIDs: [10, 20, 30], accountID: acctA)
+            #expect(await store.deleteTrustCalls == 3)
+            #expect(await store.deleteSessionCalls == 3)
         }
     }
 

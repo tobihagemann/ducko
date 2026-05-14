@@ -78,6 +78,31 @@ public struct OMEMOTrust: Sendable {
     }
 }
 
+public struct OMEMOStoredSeenDevice: Sendable {
+    public let accountJID: String
+    public let deviceID: UInt32
+    /// `BundleClassification` raw value (`"stale"` / `"healthy"` /
+    /// `"transient"`). Stored as the raw string so DuckoCore does not need
+    /// to import DuckoXMPP just to model the persistence row.
+    public let classification: String
+    public let staleStreak: Int
+    public let hasObservedHealthy: Bool
+
+    public init(
+        accountJID: String,
+        deviceID: UInt32,
+        classification: String,
+        staleStreak: Int,
+        hasObservedHealthy: Bool
+    ) {
+        self.accountJID = accountJID
+        self.deviceID = deviceID
+        self.classification = classification
+        self.staleStreak = staleStreak
+        self.hasObservedHealthy = hasObservedHealthy
+    }
+}
+
 public enum OMEMOTrustLevel: String, Sendable, Codable {
     case undecided
     case trusted
@@ -128,4 +153,32 @@ public protocol OMEMOStore: Sendable {
     func saveTrust(_ trust: OMEMOTrust) async throws
     func loadTrust(accountJID: String, peerJID: String, deviceID: UInt32) async throws -> OMEMOTrust?
     func loadAllDevices(for peerJID: String, accountJID: String) async throws -> [OMEMOTrust]
+    /// Deletes a specific trust row. Used by the emergency-retract orphan
+    /// cleanup path; idempotent (no-op when the row is already absent).
+    func deleteTrust(accountJID: String, peerJID: String, deviceID: UInt32) async throws
+
+    // MARK: - Seen Devices
+
+    /// Reads all seen-device classification rows for `accountJID`.
+    func loadSeenDevices(for accountJID: String) async throws -> [OMEMOStoredSeenDevice]
+
+    /// Per-row upsert by `(accountJID, deviceID)`. Rows not in `devices` are
+    /// left untouched — used for delta merges during normal prune cycles.
+    func upsertSeenDevices(_ devices: [OMEMOStoredSeenDevice], for accountJID: String) async throws
+
+    /// Replaces every row for `accountJID` with `devices`: deletes any
+    /// account-scoped row whose deviceID is not in the new set. Used by the
+    /// shrink-detect path (`clearSeenDevicesAbsent`) and the emergency-retract
+    /// baseline.
+    func replaceSeenDevices(_ devices: [OMEMOStoredSeenDevice], for accountJID: String) async throws
+
+    /// Deletes every seen-device row for `accountJID`. Called from
+    /// `OMEMOService.purgeSeenDeviceClassifications` during account deletion.
+    func purgeSeenDevices(for accountJID: String) async throws
+
+    // MARK: - Session Deletion
+
+    /// Deletes a specific session row. Used by the emergency-retract orphan
+    /// cleanup path; idempotent.
+    func deleteSession(accountJID: String, peerJID: String, peerDeviceID: UInt32) async throws
 }

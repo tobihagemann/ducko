@@ -17,6 +17,18 @@ public final class ChatWindowState {
     var replyingTo: ChatMessage?
     var editingMessage: ChatMessage?
 
+    // MARK: - Send Error
+
+    /// The last send-side `ChatService.ChatServiceError` surfaced to the
+    /// composer. Set by `sendMessage(_:)` when the encryption resolution
+    /// refuses to downgrade silently; cleared via `clearSendError()` (or
+    /// transparently on the next successful send).
+    var lastSendError: ChatService.ChatServiceError?
+    /// Body the user typed when the send threw, so `MessageInputView` can
+    /// restore the composer text after a failed send. The composer clears
+    /// `text` optimistically; this lets us put it back.
+    var lastFailedSendBody: String?
+
     // MARK: - Attachments
 
     var pendingAttachments: [DraftAttachment] = []
@@ -128,11 +140,29 @@ public final class ChatWindowState {
             } else {
                 try await environment.chatService.sendMessage(toJIDString: jidString, body: body, accountID: accountID)
             }
+            // Successful send clears any prior error banner.
+            lastSendError = nil
+            lastFailedSendBody = nil
+        } catch let error as ChatService.ChatServiceError {
+            // Capture the typed error so the composer banner can render the
+            // localized message and the composer can restore the typed body.
+            lastSendError = error
+            lastFailedSendBody = body
+            log.warning("Send failed: \(error.localizedDescription)")
         } catch {
-            // Send failed — messages stay as-is
+            // Untyped send failures (network, etc.) leave messages as-is.
+            log.warning("Send failed: \(error)")
         }
 
         cancelReplyOrEdit()
+    }
+
+    /// Clears the most recent send-side error banner. Called by the
+    /// composer's dismiss action; the typed body remains in the input
+    /// field for editing or resend.
+    func clearSendError() {
+        lastSendError = nil
+        lastFailedSendBody = nil
     }
 
     func setRoomSubject(_ subject: String) async {

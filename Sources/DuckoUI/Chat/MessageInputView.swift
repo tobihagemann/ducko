@@ -3,9 +3,10 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct MessageInputView: View {
-    let windowState: ChatWindowState
+    @Bindable var windowState: ChatWindowState
     @State private var text = ""
     @State private var showFileImporter = false
+    @State private var isSending = false
     @FocusState private var isInputFocused: Bool
 
     private var trimmedText: String {
@@ -13,11 +14,13 @@ struct MessageInputView: View {
     }
 
     private var canSend: Bool {
-        !trimmedText.isEmpty || !windowState.pendingAttachments.isEmpty
+        (!trimmedText.isEmpty || !windowState.pendingAttachments.isEmpty) && !isSending
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            SendErrorBanner(windowState: windowState)
+
             ReplyComposeBar(windowState: windowState)
 
             PendingAttachmentBar(windowState: windowState)
@@ -86,6 +89,7 @@ struct MessageInputView: View {
 
         guard !body.isEmpty || hasAttachments else { return }
         text = ""
+        isSending = true
 
         Task {
             if hasAttachments {
@@ -94,6 +98,13 @@ struct MessageInputView: View {
             if !body.isEmpty {
                 await windowState.sendMessage(body)
             }
+            // Restore the composer text if the send threw a typed error
+            // (e.g. encryption-required-but-no-trusted-devices). Untyped
+            // failures leave the composer empty — matching prior behavior.
+            if windowState.lastSendError != nil, let failedBody = windowState.lastFailedSendBody {
+                text = failedBody
+            }
+            isSending = false
         }
     }
 

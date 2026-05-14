@@ -237,4 +237,117 @@ public actor SwiftDataOMEMOStore: OMEMOStore {
             )
         }
     }
+
+    public func deleteTrust(accountJID: String, peerJID: String, deviceID: UInt32) throws {
+        let deviceIDInt = Int64(deviceID)
+        var descriptor = FetchDescriptor<OMEMOTrustRecord>(
+            predicate: #Predicate {
+                $0.accountJID == accountJID && $0.peerJID == peerJID && $0.deviceID == deviceIDInt
+            }
+        )
+        descriptor.fetchLimit = 1
+        if let record = try modelContext.fetch(descriptor).first {
+            modelContext.delete(record)
+            try modelContext.save()
+        }
+    }
+
+    // MARK: - Seen Devices
+
+    public func loadSeenDevices(for accountJID: String) throws -> [OMEMOStoredSeenDevice] {
+        let descriptor = FetchDescriptor<OMEMOSeenDeviceRecord>(
+            predicate: #Predicate { $0.accountJID == accountJID }
+        )
+        return try modelContext.fetch(descriptor).map {
+            OMEMOStoredSeenDevice(
+                accountJID: $0.accountJID,
+                deviceID: UInt32($0.deviceID),
+                classification: $0.classification,
+                staleStreak: $0.staleStreak,
+                hasObservedHealthy: $0.hasObservedHealthy
+            )
+        }
+    }
+
+    public func upsertSeenDevices(_ devices: [OMEMOStoredSeenDevice], for accountJID: String) throws {
+        guard !devices.isEmpty else { return }
+        for device in devices {
+            let deviceIDInt = Int64(device.deviceID)
+            var descriptor = FetchDescriptor<OMEMOSeenDeviceRecord>(
+                predicate: #Predicate {
+                    $0.accountJID == accountJID && $0.deviceID == deviceIDInt
+                }
+            )
+            descriptor.fetchLimit = 1
+            if let existing = try modelContext.fetch(descriptor).first {
+                existing.classification = device.classification
+                existing.staleStreak = device.staleStreak
+                existing.hasObservedHealthy = device.hasObservedHealthy
+            } else {
+                let record = OMEMOSeenDeviceRecord(
+                    id: UUID(),
+                    accountJID: device.accountJID,
+                    deviceID: deviceIDInt,
+                    classification: device.classification,
+                    staleStreak: device.staleStreak,
+                    hasObservedHealthy: device.hasObservedHealthy
+                )
+                modelContext.insert(record)
+            }
+        }
+        try modelContext.save()
+    }
+
+    public func replaceSeenDevices(_ devices: [OMEMOStoredSeenDevice], for accountJID: String) throws {
+        let keepIDs = Set(devices.map { Int64($0.deviceID) })
+        let descriptor = FetchDescriptor<OMEMOSeenDeviceRecord>(
+            predicate: #Predicate { $0.accountJID == accountJID }
+        )
+        var deletedAny = false
+        for existing in try modelContext.fetch(descriptor) where !keepIDs.contains(existing.deviceID) {
+            modelContext.delete(existing)
+            deletedAny = true
+        }
+        if devices.isEmpty {
+            // `upsertSeenDevices` early-returns on empty input without
+            // saving, so the pending deletes above would never persist.
+            // Save here to keep the "wholesale replace" contract holding
+            // even for the empty-baseline case used by the bypass-defense
+            // empty-peer-list path.
+            if deletedAny {
+                try modelContext.save()
+            }
+            return
+        }
+        // Reuse the upsert path for the rows that should remain so the
+        // existing row state (or insert path) is shared between the two
+        // call sites — replace = "delete absent + upsert present."
+        try upsertSeenDevices(devices, for: accountJID)
+    }
+
+    public func purgeSeenDevices(for accountJID: String) throws {
+        let descriptor = FetchDescriptor<OMEMOSeenDeviceRecord>(
+            predicate: #Predicate { $0.accountJID == accountJID }
+        )
+        for record in try modelContext.fetch(descriptor) {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
+    }
+
+    // MARK: - Session Deletion
+
+    public func deleteSession(accountJID: String, peerJID: String, peerDeviceID: UInt32) throws {
+        let peerDeviceIDInt = Int64(peerDeviceID)
+        var descriptor = FetchDescriptor<OMEMOSessionRecord>(
+            predicate: #Predicate {
+                $0.accountJID == accountJID && $0.peerJID == peerJID && $0.peerDeviceID == peerDeviceIDInt
+            }
+        )
+        descriptor.fetchLimit = 1
+        if let record = try modelContext.fetch(descriptor).first {
+            modelContext.delete(record)
+            try modelContext.save()
+        }
+    }
 }

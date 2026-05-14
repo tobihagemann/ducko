@@ -550,25 +550,77 @@ enum OMEMOModuleTests {
     }
 
     struct PruneStaleBundlesTests {
-        actor StubPreviouslySeenProvider: PreviouslySeenDeviceIDsProviding {
-            private var seen: Set<UInt32>
-            private(set) var updates: [Set<UInt32>] = []
+        /// Backwards-compatible stub for tests that thought of the gate as
+        /// "previously seen → retract on stale". Under the new gate the
+        /// equivalent state is `.healthy` recorded at a prior cycle
+        /// (`hasObservedHealthy: true`) — so the "initial" set seeds those
+        /// devices with a healthy lineage. Tests that want the new
+        /// `hasObservedHealthy: false` state seed via empty initial.
+        actor StubSeenDeviceClassificationProvider: SeenDeviceClassificationProviding {
+            private var cache: [UInt32: SeenDeviceRecord]
+            private(set) var mergeUpdates: [[UInt32: SeenDeviceRecord]] = []
+            private(set) var clearAbsentCalls: [Set<UInt32>] = []
+            private(set) var replaceCalls: [[UInt32: SeenDeviceRecord]] = []
 
+            /// Seeds devices in the one-strike-from-retract state so the
+            /// existing tests (which only run one prune cycle) still trip
+            /// the new two-stale gate on the upcoming `.stale`
+            /// classification. Tests that want a never-healthy lineage
+            /// pass the `seed:` initializer with explicit records.
             init(initial: Set<UInt32> = []) {
-                self.seen = initial
+                var seed: [UInt32: SeenDeviceRecord] = [:]
+                for id in initial {
+                    seed[id] = SeenDeviceRecord(
+                        deviceID: id,
+                        lastClassification: .stale,
+                        staleStreak: 1,
+                        hasObservedHealthy: true
+                    )
+                }
+                self.cache = seed
             }
 
-            func previouslySeenDeviceIDs(accountID _: String) async -> Set<UInt32> {
-                seen
+            init(seed: [UInt32: SeenDeviceRecord]) {
+                self.cache = seed
             }
 
-            func updatePreviouslySeenDeviceIDs(_ ids: Set<UInt32>, accountID _: String) async {
-                seen = ids
-                updates.append(ids)
+            func loadSeenDevices(accountID _: String) async -> [UInt32: SeenDeviceRecord] {
+                cache
             }
 
+            func mergeSeenDevices(_ updates: [UInt32: SeenDeviceRecord], accountID _: String) async {
+                mergeUpdates.append(updates)
+                for (id, record) in updates {
+                    cache[id] = record
+                }
+            }
+
+            func clearSeenDevicesAbsent(from currentDeviceIDs: Set<UInt32>, accountID _: String) async {
+                clearAbsentCalls.append(currentDeviceIDs)
+                cache = cache.filter { currentDeviceIDs.contains($0.key) }
+            }
+
+            func replaceSeenDevices(_ records: [UInt32: SeenDeviceRecord], accountID _: String) async {
+                replaceCalls.append(records)
+                cache = records
+            }
+
+            var snapshot: [UInt32: SeenDeviceRecord] {
+                cache
+            }
+
+            /// Returns the device-ID set after the most recent persistence
+            /// operation, or `nil` if no operation has run yet. Compatibility
+            /// shim for tests written against the old
+            /// `Set<UInt32>?`-returning `updatePreviouslySeenDeviceIDs`
+            /// semantics: the new cache stores per-device records but the
+            /// "what's in the cache right now" set still serves the same
+            /// assertions about pruning's final membership.
             var lastUpdate: Set<UInt32>? {
-                updates.last
+                guard !mergeUpdates.isEmpty || !clearAbsentCalls.isEmpty || !replaceCalls.isEmpty else {
+                    return nil
+                }
+                return Set(cache.keys)
             }
         }
 
@@ -579,8 +631,8 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
             let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
@@ -609,19 +661,21 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
-            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+            let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
                 otherDeviceIDsOnList: [99],
                 bundleProbeOutcomes: [99: .itemNotFound],
                 expectedRetracts: [99]
             )
 
-            // Final seen-set update should reflect the trimmed list (just own).
+            // After retract: 99 was removed from the cache, and ownDeviceID
+            // is never recorded (only probed peer IDs get records). The
+            // cache is empty post-trim.
             let last = await stub.lastUpdate
-            #expect(last == Set([ownDeviceID]))
+            #expect(last == Set([]))
 
             await client.disconnect()
         }
@@ -635,19 +689,19 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
-            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+            let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
                 otherDeviceIDsOnList: [99],
                 bundleProbeOutcomes: [99: .healthy]
             )
 
-            // Seen-set should be the full list (own + 99) — neither retracted
-            // nor trimmed.
+            // 99 stays in the cache with the new healthy record; ownDeviceID
+            // is never recorded (only probed peer IDs get records).
             let last = await stub.lastUpdate
-            #expect(last == Set([ownDeviceID, 99]))
+            #expect(last == Set([99]))
 
             let postProbeSent = await mock.sentBytes
             for bytes in postProbeSent {
@@ -666,8 +720,8 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
             let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
@@ -692,8 +746,8 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
             let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
@@ -725,20 +779,22 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
-            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+            let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
                 otherDeviceIDsOnList: [99, 100],
                 bundleProbeOutcomes: [99: .itemNotFound, 100: .itemNotFound],
                 expectedRetracts: [99]
             )
 
-            // Final seen-set update from the retract path: trimmedList is
-            // [own, 100] — 99 was retracted, 100 is unseen-stale and stays.
+            // After retract: 99 was retracted and dropped from the cache; 100
+            // is first-stale-no-prior-healthy and stays for next reconnect.
+            // ownDeviceID is never recorded (only probed peer IDs get
+            // records).
             let last = await stub.lastUpdate
-            #expect(last == Set([ownDeviceID, 100]))
+            #expect(last == Set([100]))
 
             // The retract IQ went out for 99 only; 100 was warn-only logged
             // and not retracted.
@@ -762,17 +818,18 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
-            let (client, ownDeviceID) = try await makeConnectedClientWithDeviceList(
+            let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
                 otherDeviceIDsOnList: []
             )
 
-            // Seen-set must contain the published list (just own).
+            // Empty-peer path: cache is cleared of any sibling records that
+            // remained from a prior epoch. ownDeviceID is never recorded.
             let last = await stub.lastUpdate
-            #expect(last == Set([ownDeviceID]))
+            #expect(last == Set([]))
 
             await client.disconnect()
         }
@@ -786,8 +843,8 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
             let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
@@ -816,8 +873,8 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
             // Build a list larger than `pruneProbeCap` (64). Use 100.
             // Drive connect manually instead of via the standard helper,
@@ -850,11 +907,15 @@ enum OMEMOModuleTests {
             let total = await mock.sentBytes.count
             #expect(total == 7)
 
-            // Seen-set still anchored to the full attacker list + own ID,
-            // so a future shrink-then-regrow cannot bypass the gate.
+            // New semantics: the over-cap path does NOT touch the cache.
+            // The attacker-provided list is untrustworthy, so preserving
+            // whatever the cache already holds is the safer default.
+            // Without a wired emergency-retract closure the prune simply
+            // bails — recovery flows through the closure path tested
+            // separately. Suppress unused-variable warning on ownDeviceID:
+            _ = ownDeviceID
             let last = await stub.lastUpdate
-            #expect(last?.count == attackerList.count + 1)
-            #expect(last?.contains(ownDeviceID) == true)
+            #expect(last == nil)
 
             await client.disconnect()
         }
@@ -867,8 +928,8 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
             let (client, _) = try await makeConnectedClientWithDeviceList(
                 mock: mock, omemoModule: omemoModule, pepModule: pepModule,
@@ -900,8 +961,8 @@ enum OMEMOModuleTests {
             let mock = MockTransport()
             let pepModule = PEPModule()
             let omemoModule = OMEMOModule(pepModule: pepModule)
-            let stub = StubPreviouslySeenProvider(initial: [99])
-            omemoModule.configurePreviouslySeenDeviceIDsProvider(stub, accountID: "acct-1")
+            let stub = StubSeenDeviceClassificationProvider(initial: [99])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
 
             let client = XMPPClient(
                 domain: "example.com",
@@ -951,6 +1012,239 @@ enum OMEMOModuleTests {
             // path bailed before that write, so no update was ever issued.
             let last = await stub.lastUpdate
             #expect(last == nil)
+
+            await client.disconnect()
+        }
+
+        // MARK: - Two-Stale Healthy-Observation Gate
+
+        /// `healthy → stale` (streak: 0 → 1) records the mid-streak state
+        /// but does NOT retract. The gate fires only on the second stale.
+        @Test
+        func `Single stale after healthy does not retract`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            // Seed with a confirmed-healthy record (staleStreak: 0). Under
+            // the new gate, one `.stale` observation pushes the streak to 1
+            // — still below the threshold of 2.
+            let healthySeed = SeenDeviceRecord(
+                deviceID: 99, lastClassification: .healthy,
+                staleStreak: 0, hasObservedHealthy: true
+            )
+            let stub = StubSeenDeviceClassificationProvider(seed: [99: healthySeed])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .itemNotFound]
+            )
+
+            // No retract IQ should have been sent — only one stale strike.
+            let allBytes = await mock.sentBytes
+            for bytes in allBytes {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+            // The record was updated to (.stale, staleStreak: 1, observed: true).
+            let snapshot = await stub.snapshot
+            let record = try #require(snapshot[99])
+            #expect(record.lastClassification == .stale)
+            #expect(record.staleStreak == 1)
+            #expect(record.hasObservedHealthy == true)
+
+            await client.disconnect()
+        }
+
+        /// `healthy → stale → healthy` resets the streak to 0 and does not
+        /// retract. `hasObservedHealthy` stays `true` for the lineage.
+        @Test
+        func `Healthy classification resets stale streak`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            // Seed mid-streak: hasObservedHealthy: true, staleStreak: 1.
+            let midStreakSeed = SeenDeviceRecord(
+                deviceID: 99, lastClassification: .stale,
+                staleStreak: 1, hasObservedHealthy: true
+            )
+            let stub = StubSeenDeviceClassificationProvider(seed: [99: midStreakSeed])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .healthy]
+            )
+
+            // No retract IQ — healthy classification reset the streak.
+            let allBytes = await mock.sentBytes
+            for bytes in allBytes {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+            // Record reset: (.healthy, 0, true).
+            let snapshot = await stub.snapshot
+            let record = try #require(snapshot[99])
+            #expect(record.lastClassification == .healthy)
+            #expect(record.staleStreak == 0)
+            #expect(record.hasObservedHealthy == true)
+
+            await client.disconnect()
+        }
+
+        /// `unseen → stale → stale` reaches staleStreak: 2 but
+        /// `hasObservedHealthy` stays `false`, so the gate does NOT fire.
+        /// Defends against a never-confirmed-healthy device being retracted
+        /// after two reconnects.
+        @Test
+        func `Unseen-stale-stale lineage does not retract`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            // Seed: previously observed as stale once, never healthy.
+            let neverHealthySeed = SeenDeviceRecord(
+                deviceID: 99, lastClassification: .stale,
+                staleStreak: 1, hasObservedHealthy: false
+            )
+            let stub = StubSeenDeviceClassificationProvider(seed: [99: neverHealthySeed])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .itemNotFound]
+            )
+
+            // No retract IQ — without a prior healthy observation the gate
+            // refuses to act.
+            let allBytes = await mock.sentBytes
+            for bytes in allBytes {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!xml.contains("<retract"))
+            }
+            // Streak advanced to 2 but hasObservedHealthy is still false.
+            let snapshot = await stub.snapshot
+            let record = try #require(snapshot[99])
+            #expect(record.staleStreak == 2)
+            #expect(record.hasObservedHealthy == false)
+
+            await client.disconnect()
+        }
+
+        /// `.transient` mid-streak preserves the previous record verbatim.
+        /// A network blip must not penalize an established healthy lineage.
+        @Test
+        func `Transient classification preserves previous record verbatim`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let priorRecord = SeenDeviceRecord(
+                deviceID: 99, lastClassification: .stale,
+                staleStreak: 1, hasObservedHealthy: true
+            )
+            let stub = StubSeenDeviceClassificationProvider(seed: [99: priorRecord])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .empty] // classifies as transient
+            )
+
+            // The record must remain exactly what it was — no streak bump,
+            // no classification change. A future stale would still fire the
+            // gate, but a transient does not advance toward retract.
+            let snapshot = await stub.snapshot
+            let record = try #require(snapshot[99])
+            #expect(record.lastClassification == .stale)
+            #expect(record.staleStreak == 1)
+            #expect(record.hasObservedHealthy == true)
+
+            await client.disconnect()
+        }
+
+        /// Bypass-defense: a previously-healthy device that disappears from
+        /// PEP entirely must be cleared from the cache. Without this, a
+        /// peer could later regrow the same deviceID and inherit
+        /// `hasObservedHealthy: true` to bypass the gate.
+        @Test
+        func `Device removed from PEP list is cleared from cache`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            // Seed device X as healthy; the upcoming list contains only Y.
+            let healthySeed = SeenDeviceRecord(
+                deviceID: 88, lastClassification: .healthy,
+                staleStreak: 0, hasObservedHealthy: true
+            )
+            let stub = StubSeenDeviceClassificationProvider(seed: [88: healthySeed])
+            omemoModule.configureSeenDeviceClassificationProvider(stub, accountID: "acct-1")
+
+            let (client, _) = try await makeConnectedClientWithDeviceList(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule,
+                otherDeviceIDsOnList: [99],
+                bundleProbeOutcomes: [99: .healthy]
+            )
+
+            // After prune: device 88 is gone (no longer in ownDeviceList),
+            // 99 was probed and recorded as healthy.
+            let snapshot = await stub.snapshot
+            #expect(snapshot[88] == nil)
+            #expect(snapshot[99]?.lastClassification == .healthy)
+
+            await client.disconnect()
+        }
+
+        /// Encrypt-path concurrency cap: chunked iteration completes every
+        /// recipient device but never spawns more than `encryptConcurrencyCap`
+        /// (64) concurrent bundle-fetch IQs. The cap chunks recipients into
+        /// windows that complete before the next starts, so the test drains
+        /// the mock's outbox one stanza at a time rather than waiting for
+        /// all IQs up front — that wait would deadlock against the chunk
+        /// boundary (the second chunk doesn't send until the first chunk's
+        /// responses arrive).
+        @Test
+        func `Encrypt fan-out across many devices completes every recipient`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let (client, _) = try await makeConnectedClient(mock: mock, omemoModule: omemoModule, pepModule: pepModule)
+
+            // 100 recipients > the 64-cap → at least one chunk boundary
+            // the test has to cross.
+            let recipientIDs: [UInt32] = (1 ... 100).map(UInt32.init)
+            let task = Task {
+                try await omemoModule.encryptMessage(
+                    plaintext: "hello", to: peerJID,
+                    recipientDeviceIDs: recipientIDs, ownDeviceIDs: []
+                )
+            }
+
+            // Drain one stanza at a time. Asserting strict in-flight depth
+            // would race the scheduler; asserting that every device gets
+            // exactly one bundle fetch and the encrypt completes is
+            // sufficient to confirm chunked iteration covers all recipients.
+            var seenDevices: Set<UInt32> = []
+            var drained = 0
+            while drained < recipientIDs.count {
+                await mock.waitForSent(count: drained + 1)
+                let bytes = await mock.sentBytes[drained]
+                let iqID = try #require(extractIQID(from: bytes))
+                let deviceID = try #require(extractBundleDeviceID(from: bytes))
+                seenDevices.insert(deviceID)
+                await mock.simulateReceive(makeItemNotFoundIQ(iqID: iqID, fromJID: peerJID))
+                drained += 1
+            }
+            #expect(seenDevices == Set(recipientIDs))
+
+            // All recipients were dropped (item-not-found) so the encrypt
+            // throws noUsableRecipientDevices — confirms the cap path
+            // completes every device rather than stopping at the cap.
+            await #expect(throws: OMEMOModuleError.noUsableRecipientDevices) {
+                _ = try await task.value
+            }
 
             await client.disconnect()
         }

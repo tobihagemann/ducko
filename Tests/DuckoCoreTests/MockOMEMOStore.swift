@@ -16,10 +16,14 @@ actor MockOMEMOStore: OMEMOStore {
     private var signedPreKey: [String: OMEMOStoredSignedPreKey] = [:]
     private var sessions: [String: [OMEMOStoredSession]] = [:]
     private var trusts: [String: [OMEMOTrust]] = [:]
+    private var seenDevices: [String: [UInt32: OMEMOStoredSeenDevice]] = [:]
 
     private(set) var saveIdentityCalls = 0
     private(set) var savePreKeysCalls = 0
     private(set) var saveSignedPreKeyCalls = 0
+    private(set) var loadSeenDevicesCalls = 0
+    private(set) var deleteTrustCalls = 0
+    private(set) var deleteSessionCalls = 0
 
     // MARK: - Test Seed Helpers
 
@@ -151,5 +155,59 @@ actor MockOMEMOStore: OMEMOStore {
 
     func loadAllDevices(for peerJID: String, accountJID: String) async throws -> [OMEMOTrust] {
         trusts[accountJID]?.filter { $0.peerJID == peerJID } ?? []
+    }
+
+    func deleteTrust(accountJID: String, peerJID: String, deviceID: UInt32) async throws {
+        deleteTrustCalls += 1
+        guard var rows = trusts[accountJID] else { return }
+        rows.removeAll { $0.peerJID == peerJID && $0.deviceID == deviceID }
+        trusts[accountJID] = rows
+    }
+
+    // MARK: - Seen Devices
+
+    func loadSeenDevices(for accountJID: String) async throws -> [OMEMOStoredSeenDevice] {
+        loadSeenDevicesCalls += 1
+        return Array(seenDevices[accountJID]?.values ?? [:].values)
+    }
+
+    func upsertSeenDevices(_ devices: [OMEMOStoredSeenDevice], for accountJID: String) async throws {
+        var current = seenDevices[accountJID] ?? [:]
+        for device in devices {
+            current[device.deviceID] = device
+        }
+        seenDevices[accountJID] = current
+    }
+
+    func replaceSeenDevices(_ devices: [OMEMOStoredSeenDevice], for accountJID: String) async throws {
+        var replacement: [UInt32: OMEMOStoredSeenDevice] = [:]
+        replacement.reserveCapacity(devices.count)
+        for device in devices {
+            replacement[device.deviceID] = device
+        }
+        seenDevices[accountJID] = replacement
+    }
+
+    func purgeSeenDevices(for accountJID: String) async throws {
+        seenDevices.removeValue(forKey: accountJID)
+    }
+
+    // MARK: - Session Deletion
+
+    func deleteSession(accountJID: String, peerJID: String, peerDeviceID: UInt32) async throws {
+        deleteSessionCalls += 1
+        guard var rows = sessions[accountJID] else { return }
+        rows.removeAll { $0.peerJID == peerJID && $0.peerDeviceID == peerDeviceID }
+        sessions[accountJID] = rows
+    }
+
+    // MARK: - Test Probes
+
+    func seedSeenDevices(_ devices: [OMEMOStoredSeenDevice], for accountJID: String) {
+        var current = seenDevices[accountJID] ?? [:]
+        for device in devices {
+            current[device.deviceID] = device
+        }
+        seenDevices[accountJID] = current
     }
 }

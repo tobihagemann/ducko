@@ -243,7 +243,7 @@ public final class AccountService {
         try await store.deleteAccount(id)
         deletePassword(accountID: id)
         // Drop in-memory per-account caches that outlive the account row.
-        omemoService?.purgePreviouslySeenDeviceIDs(accountID: id)
+        omemoService?.purgeSeenDeviceClassifications(accountID: id)
         try await loadAccounts()
     }
 

@@ -28,10 +28,173 @@ final class TestHarness {
         self.omemoStore = omemoStore
     }
 
+    // MARK: - Bootstrap-Reset Gate
+
+    /// Process-wide once-gate that runs `runBootstrapResetIfNeeded` before
+    /// the first `withHarness` invocation. An async actor (not a `static
+    /// let`-style once trick) so the body can await network I/O without
+    /// blocking the MainActor.
+    actor BootstrapResetGate {
+        private enum State {
+            case idle
+            case running(Task<Void, Error>)
+            case done
+            case failed(any Error)
+        }
+
+        private var state: State = .idle
+
+        func ensure(_ body: @Sendable @escaping () async throws -> Void) async throws {
+            switch state {
+            case .done:
+                return
+            case let .failed(error):
+                // Bootstrap is infra-fatal — a failed bootstrap means
+                // tests would run against undefined server state. Rethrow
+                // on every subsequent call rather than silently retrying.
+                throw error
+            case let .running(task):
+                try await task.value
+            case .idle:
+                let task = Task<Void, Error> { try await body() }
+                state = .running(task)
+                do {
+                    try await task.value
+                    state = .done
+                } catch {
+                    state = .failed(error)
+                    throw error
+                }
+            }
+        }
+    }
+
+    static let bootstrapResetGate = BootstrapResetGate()
+
+    /// Threshold (per account) of PEP devicelist entries beyond which the
+    /// bootstrap reset fires. Historical accumulation went to 400+ before
+    /// the captured-identity fixture path landed; expected steady-state
+    /// growth with fixtures is ≤ 1 device per process per account, so at
+    /// 32 the auto-reset fires at most once every ~128 process runs
+    /// across four accounts. Cost when it fires: ~102 s once.
+    static let autoResetDevicelistThreshold = 32
+
+    /// Per-probe timeout used by the bootstrap to detect a hung server
+    /// without blocking test startup. A timeout logs a warning and the
+    /// gate bails without firing the reset path.
+    static let bootstrapProbeTimeout: Duration = .seconds(10)
+
+    /// Builds a raw `XMPPClient` for `credential`, connects with TLS, fetches
+    /// the OMEMO devicelist via PEP, parses the `<device id="…"/>` children,
+    /// and returns the count. Used by the bootstrap-reset gate to measure
+    /// accumulation per account without standing up a full `AppEnvironment`.
+    /// Returns `nil` on probe failure so the caller can bail without
+    /// blocking test startup.
+    @MainActor
+    static func probeOMEMODevicelistCount(
+        for credential: TestCredentials.Credential,
+        timeout: Duration = bootstrapProbeTimeout
+    ) async -> Int? {
+        guard let jid = BareJID.parse(credential.jid),
+              let username = jid.localPart else { return nil }
+        var builder = XMPPClientBuilder(
+            domain: jid.domainPart, username: username, password: credential.password
+        )
+        builder.withPreferredResource("ducko-bootstrap-probe-\(UUID().uuidString.prefix(8))")
+        let pepModule = PEPModule()
+        builder.withModule(pepModule)
+        let client = await builder.build()
+        defer { Task { await client.disconnect() } }
+        do {
+            try await client.connect()
+            try await Self.waitForRawEvent(in: client.events, timeout: timeout) { event in
+                if case .connected = event { return true }
+                return false
+            }
+            let items = try await pepModule.retrieveItems(node: XMPPNamespaces.omemoDevices, from: nil)
+            let devices = items.first?.payload.children(named: "device") ?? []
+            return devices.count
+        } catch {
+            log.warning("OMEMO bootstrap probe for \(credential.label) failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Bootstrap body for the auto-reset gate. Probes each available
+    /// credential's PEP devicelist count, and if any account is over
+    /// `autoResetDevicelistThreshold` triggers the same reset
+    /// `ResetTestServerState` runs manually for OMEMO.
+    @MainActor
+    static func runBootstrapResetIfNeeded(
+        probe: @MainActor @Sendable (TestCredentials.Credential) async -> Int? = { credential in
+            await TestHarness.probeOMEMODevicelistCount(for: credential)
+        },
+        reset: @MainActor @Sendable (TestCredentials.Credential) async throws -> Void = { credential in
+            try await DuckoIntegrationTests.ResetTestServerState.resetOMEMODeviceList(
+                for: credential, skipBootstrap: true
+            )
+        }
+    ) async throws {
+        guard TestCredentials.isAvailable else { return }
+
+        var credentials: [TestCredentials.Credential] = [
+            TestCredentials.alice,
+            TestCredentials.bob,
+            TestCredentials.carol
+        ]
+        if TestCredentials.isDaveAvailable {
+            credentials.append(TestCredentials.dave)
+        }
+
+        // Refuse to run reset on misconfigured creds aimed at a wrong server.
+        for credential in credentials {
+            guard let jid = BareJID.parse(credential.jid) else {
+                log.warning("OMEMO bootstrap: malformed credential JID for \(credential.label), skipping reset")
+                return
+            }
+            guard jid.domainPart == TestCredentials.testServerDomain else {
+                log.warning("OMEMO bootstrap: credential \(credential.label) domain \(jid.domainPart) does not match expected \(TestCredentials.testServerDomain); skipping reset")
+                return
+            }
+        }
+
+        var overThreshold = false
+        for credential in credentials {
+            guard let count = await probe(credential) else {
+                log.warning("OMEMO bootstrap probe inconclusive for \(credential.label); skipping reset")
+                return
+            }
+            if count > autoResetDevicelistThreshold {
+                log.info("OMEMO bootstrap: \(credential.label) devicelist count \(count) exceeds threshold, reset will fire")
+                overThreshold = true
+            }
+        }
+
+        guard overThreshold else { return }
+        for credential in credentials {
+            try await reset(credential)
+        }
+    }
+
     // MARK: - Lifecycle
 
     /// Runs `body` with a fresh harness, awaiting teardown on both success and failure paths.
     static func withHarness(_ body: (TestHarness) async throws -> Void) async throws {
+        try await withHarness(skipBootstrap: false, body)
+    }
+
+    /// Private variant that lets the bootstrap path itself call back through
+    /// `withHarness` without re-entering the once-gate. Public callers go
+    /// through the default-argument form above.
+    static func withHarness(
+        skipBootstrap: Bool,
+        _ body: (TestHarness) async throws -> Void
+    ) async throws {
+        if !skipBootstrap {
+            try await bootstrapResetGate.ensure {
+                try await TestHarness.runBootstrapResetIfNeeded()
+            }
+        }
         let router = EventRouter()
         let bundle = try TestEnvironmentFactory.makeEnvironment { event, accountID in
             MainActor.assumeIsolated {

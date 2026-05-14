@@ -36,6 +36,13 @@ enum TestCredentials {
 
     static let mucService = "conference.xmpp.tobiha.de"
 
+    /// Domain part the bootstrap-reset gate expects on every available
+    /// credential before it touches PEP. A mismatch indicates the test
+    /// credentials were aimed at the wrong server (production, staging,
+    /// developer's personal account) — auto-reset bails rather than
+    /// retracting devicelists on an unintended target.
+    static let testServerDomain = "xmpp.tobiha.de"
+
     /// Baseline gate for the root integration suite — requires Alice, Bob, Carol.
     /// Dave is a newer addition; requiring him here would skip every existing
     /// integration test in environments that have only the three-account baseline.
