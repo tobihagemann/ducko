@@ -69,8 +69,6 @@ public final class ReceiptsModule: XMPPModule, Sendable {
         try await context.sendStanza(message)
     }
 
-    // MARK: - Private
-
     private func sendReceiptReply(to recipient: JID, messageID: String) {
         let context = state.withLock { $0 }
         guard let context else { return }

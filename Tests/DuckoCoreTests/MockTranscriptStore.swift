@@ -5,8 +5,6 @@ actor MockTranscriptStore: TranscriptStore {
     var messages: [ChatMessage] = []
     var amendments: [(amendment: TranscriptAmendment, conversationID: UUID)] = []
 
-    // MARK: - Test Helpers
-
     func addMessage(_ message: ChatMessage) {
         messages.append(message)
     }
@@ -130,16 +128,11 @@ actor MockTranscriptStore: TranscriptStore {
 
     func deleteTranscripts(for conversationID: UUID) async throws {
         messages.removeAll { $0.conversationID == conversationID }
-        amendments.removeAll { _ in
-            // Remove amendments that target messages in this conversation
-            // For simplicity, keep all amendments (they are orphaned but harmless)
-            false
-        }
+        // Conversation-targeted amendments are kept (orphaned but harmless) for mock simplicity.
+        amendments.removeAll { _ in false }
     }
 
-    func writeMetadata(_ metadata: TranscriptMetadata, for conversationID: UUID) async throws {
-        // No-op for mock
-    }
+    func writeMetadata(_ metadata: TranscriptMetadata, for conversationID: UUID) async throws {}
 
     // MARK: - Amendment Application
 

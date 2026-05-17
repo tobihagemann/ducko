@@ -1,7 +1,5 @@
-/// A feature module that handles specific XMPP stanza types.
-///
-/// Modules are `final class` (not actor) to keep handler calls synchronous from the dispatch loop.
-/// The ``ModuleContext`` is stored behind an `OSAllocatedUnfairLock` for `Sendable` compliance.
+/// Feature module for stanza handling. `final class` (not actor) so handler calls stay synchronous from the dispatch loop.
+/// `ModuleContext` is stored behind an `OSAllocatedUnfairLock` for `Sendable` compliance.
 public protocol XMPPModule: AnyObject, Sendable {
     /// XMPP feature namespaces this module supports (for XEP-0030 Service Discovery).
     var features: [String] { get }
@@ -22,7 +20,6 @@ public protocol XMPPModule: AnyObject, Sendable {
     func handleIQ(_ iq: XMPPIQ) throws -> Bool
 }
 
-/// Default no-op implementations.
 public extension XMPPModule {
     var features: [String] {
         []

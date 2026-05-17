@@ -3,11 +3,7 @@ import Logging
 
 private let log = Logger(label: "im.ducko.xmpp.socks5listener")
 
-/// SOCKS5 listening server for direct Jingle file transfer candidates (XEP-0260).
-///
-/// Listens on an ephemeral port for a single incoming SOCKS5 connection,
-/// validates the handshake, and returns a `SOCKS5Connection` wrapping the
-/// accepted socket.
+/// SOCKS5 listening server for direct Jingle transport candidates (XEP-0260). Accepts one connection on an ephemeral port and returns a validated `SOCKS5Connection`.
 actor SOCKS5Listener {
     // MARK: - Types
 
@@ -63,7 +59,6 @@ actor SOCKS5Listener {
             throw ListenerError.listenFailed(err)
         }
 
-        // Read assigned port
         var boundAddr = sockaddr_in()
         var addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
         _ = withUnsafeMutablePointer(to: &boundAddr) { ptr in
@@ -78,12 +73,7 @@ actor SOCKS5Listener {
         return port
     }
 
-    /// Waits for one incoming connection, validates the SOCKS5 handshake,
-    /// and returns a `SOCKS5Connection` wrapping the accepted socket.
-    ///
-    /// - Parameters:
-    ///   - expectedDstAddr: The expected SOCKS5 DST.ADDR (SHA-1 hash string).
-    ///   - timeout: Maximum seconds to wait for a connection.
+    /// Waits for one incoming connection, validates the SOCKS5 handshake against `expectedDstAddr` (SHA-1 hash), and returns a `SOCKS5Connection`. Times out after `timeout` seconds.
     func accept(expectedDstAddr: String, timeout: Double = 60) async throws -> SOCKS5Connection {
         guard listenFD >= 0 else {
             throw ListenerError.acceptFailed("Not listening")
@@ -152,7 +142,6 @@ actor SOCKS5Listener {
             )
         }
 
-        // Read method list
         let methods = try SOCKS5Connection.recvAll(fd: fd, count: Int(greetingHeader[1]))
         guard methods.contains(0x00) else {
             // Send method rejection (0xFF = no acceptable methods)

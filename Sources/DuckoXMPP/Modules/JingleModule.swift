@@ -28,7 +28,6 @@ public final class JingleModule: XMPPModule, Sendable {
         case unsupportedAlgorithm(String)
     }
 
-    /// Discovered Proxy65 service info.
     private struct ProxyInfo {
         let jid: String
         let host: String
@@ -754,8 +753,7 @@ public final class JingleModule: XMPPModule, Sendable {
         }
     }
 
-    /// Initiates a Jingle file transfer session with the given peer.
-    /// Returns the session ID.
+    /// Initiates a Jingle file transfer session with the given peer. Returns the session ID.
     public func initiateFileTransfer(
         to peer: FullJID, file: JingleFileDescription, senders: JingleContentSenders? = nil
     ) async throws -> String {
@@ -815,7 +813,6 @@ public final class JingleModule: XMPPModule, Sendable {
             throw JingleError.noConnectedJID
         }
 
-        // Build the content for session-accept, optionally including a range
         let acceptContent: JingleContent
         if let range {
             let base = session.content
@@ -941,8 +938,7 @@ public final class JingleModule: XMPPModule, Sendable {
         }
     }
 
-    /// Requests a file from a peer by sending session-initiate with senders='responder'.
-    /// Returns the session ID.
+    /// Requests a file from a peer by sending session-initiate with senders='responder'. Returns the session ID.
     public func requestFileTransfer(from peer: FullJID, file: JingleFileDescription) async throws -> String {
         try await initiateFileTransfer(to: peer, file: file, senders: .responder)
     }
@@ -1094,7 +1090,6 @@ public final class JingleModule: XMPPModule, Sendable {
         }
         guard let context else { throw JingleError.notConnected }
 
-        // Apply range if present — slice data to the requested portion
         let sendData: [UInt8]
         if let range {
             let offset = min(Int(range.offset ?? 0), data.count)

@@ -21,8 +21,6 @@ struct RoomInviteBanner: View {
     }
 }
 
-// MARK: - RoomInviteRow
-
 private struct RoomInviteRow: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.openWindow) private var openWindow

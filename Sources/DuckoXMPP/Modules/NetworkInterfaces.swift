@@ -2,7 +2,6 @@ import Darwin
 
 /// Enumerates local network interface addresses for direct SOCKS5 candidates.
 enum NetworkInterfaces {
-    /// A network interface address.
     struct Address {
         let ip: String
         let isIPv4: Bool

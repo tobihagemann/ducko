@@ -22,23 +22,19 @@ public final class LinkPreviewService: Sendable {
     public func fetchPreview(for url: URL) async throws -> LinkPreview? {
         let key = url.absoluteString
 
-        // Check in-memory cache
         if let cached = cache.withLock({ $0[key] }) {
             return cached
         }
 
-        // Check persistence store
         if let persisted = try await store.fetchLinkPreview(for: key) {
             cache.withLock { $0[key] = persisted }
             return persisted
         }
 
-        // Fetch via fetcher
         guard let preview = try await fetcher.fetchPreview(for: url) else {
             return nil
         }
 
-        // Persist and cache
         do {
             try await store.upsertLinkPreview(preview)
         } catch {

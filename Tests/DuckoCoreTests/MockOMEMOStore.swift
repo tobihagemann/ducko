@@ -25,8 +25,6 @@ actor MockOMEMOStore: OMEMOStore {
     private(set) var deleteTrustCalls = 0
     private(set) var deleteSessionCalls = 0
 
-    // MARK: - Test Seed Helpers
-
     func seedIdentity(_ identity: OMEMOStoredIdentity) {
         self.identity[identity.accountJID] = identity
     }

@@ -35,15 +35,8 @@ public struct SMResumeState: Sendable {
     }
 }
 
-/// Implements XEP-0198 Stream Management — tracks incoming/outgoing stanza
-/// counts and enables reliable delivery via ack requests.
-///
-/// Must be registered as BOTH a module and an interceptor:
-/// ```swift
-/// let sm = StreamManagementModule()
-/// builder.withModule(sm)
-/// builder.withInterceptor(sm)
-/// ```
+/// XEP-0198 Stream Management — tracks incoming/outgoing stanza counts; reliable delivery via ack requests.
+/// Must be registered as BOTH a module and an interceptor.
 public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendable {
     private struct State {
         var context: ModuleContext?
@@ -122,7 +115,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         }
     }
 
-    /// Whether this module has state that can be used to attempt stream resumption.
     public nonisolated var isResumable: Bool {
         state.withLock { $0.resumptionId != nil && $0.connectedJID != nil }
     }
@@ -137,7 +129,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
     // MARK: - Lifecycle
 
     public func handleConnect() async throws {
-        // Skip if SM was already enabled inline via Bind 2
         let alreadyEnabled = state.withLock { $0.enabled }
         if alreadyEnabled {
             log.info("Stream Management already enabled via inline negotiation")
@@ -291,19 +282,8 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
 
     // MARK: - Sync Ack
 
-    /// Sends `<r/>` and awaits the matching `<a h='N'/>`. Used at disconnect
-    /// time to confirm the server processed every stanza we sent (notably
-    /// the unavailable presence) before we close the stream — without this,
-    /// prosody mod_smacks treats an interrupted disconnect as abnormal and
-    /// queues the session in resumption-pending state for hundreds of
-    /// seconds.
-    ///
-    /// Single-inflight: throws ``XMPPClientError/streamManagementBusy`` if a
-    /// previous request is still pending. Throws ``XMPPClientError/timeout``
-    /// when no `<a/>` arrives within `timeout`. Throws
-    /// ``XMPPClientError/notConnected`` if SM is disabled or the stream
-    /// context is gone. Propagates `CancellationError` on parent task
-    /// cancellation.
+    /// Sends `<r/>` and awaits the matching `<a h='N'/>`. See `XMPPClient.disconnect` for the disconnect-time rationale.
+    /// Single-inflight: throws `streamManagementBusy`, `timeout`, or `notConnected`; propagates `CancellationError`.
     public func requestSyncAck(timeout: Duration) async throws {
         let myId = state.withLock { (state: inout State) -> UInt64 in
             state.nextSyncAckWaiterID &+= 1
@@ -367,9 +347,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         }
     }
 
-    /// Outcome of the atomic install transaction. Encoded so the resume
-    /// happens outside the lock — `OSAllocatedUnfairLock` is non-reentrant
-    /// and continuation resumption can re-enter module state.
     private enum InstallOutcome {
         case failNotConnected
         case failBusy
@@ -443,8 +420,6 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         }
     }
 
-    // MARK: - Private
-
     private func handleSMElement(_ element: XMLElement) {
         switch element.name {
         case "enabled":
@@ -495,15 +470,10 @@ public final class StreamManagementModule: XMPPModule, StanzaInterceptor, Sendab
         guard let hStr = element.attribute("h"), let h = UInt32(hStr) else { return }
         let claimed = state.withLock { (state: inout State) -> PendingSyncAck? in
             let valid = Self.reconcileAck(h: h, state: &state)
-            // Covering-ack semantics: `h >= expectedH` (wrap-safe via &-)
-            // means the server has confirmed AT LEAST through our snapshot.
-            // Other actor-reentrant paths can call `send()` between
-            // registration and the matching `<a/>` (e.g.
-            // `replyServiceUnavailable`), advancing `outgoingCounter` past
-            // `expectedH` — a `valid` ack with `h > expectedH` is still a
-            // correct confirmation. The upper bound is a defensive belt
-            // over the `acked <= queue.count` suspenders inside
-            // `reconcileAck`.
+            // Covering-ack: `h >= expectedH` (wrap-safe via `&-`) confirms AT LEAST through snapshot. Reentrant
+            // `send()` between registration and matching `<a/>` (e.g. `replyServiceUnavailable`) can advance
+            // outgoingCounter past expectedH, so `h > expectedH` is still valid. Upper bound is defensive belt
+            // over `reconcileAck`'s `acked <= queue.count` check.
             guard valid, let pending = state.pendingSyncAck,
                   (h &- pending.expectedH) <= UInt32(state.outgoingQueue.count) &+ 1 else {
                 return nil

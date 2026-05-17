@@ -19,10 +19,7 @@ public final class ChatWindowState {
 
     // MARK: - Send Error
 
-    /// The last send-side `ChatService.ChatServiceError` surfaced to the
-    /// composer. Set by `sendMessage(_:)` when the encryption resolution
-    /// refuses to downgrade silently; cleared via `clearSendError()` (or
-    /// transparently on the next successful send).
+    /// Last send-side error surfaced to the composer; cleared via `clearSendError()` or transparently on next successful send.
     var lastSendError: ChatService.ChatServiceError?
     /// Body the user typed when the send threw, so `MessageInputView` can
     /// restore the composer text after a failed send. The composer clears
@@ -157,9 +154,6 @@ public final class ChatWindowState {
         cancelReplyOrEdit()
     }
 
-    /// Clears the most recent send-side error banner. Called by the
-    /// composer's dismiss action; the typed body remains in the input
-    /// field for editing or resend.
     func clearSendError() {
         lastSendError = nil
         lastFailedSendBody = nil
@@ -266,7 +260,7 @@ public final class ChatWindowState {
                 messages = older + messages
             }
         } catch {
-            // Failed to load older messages
+            log.warning("Failed to load older messages: \(error)")
         }
     }
 

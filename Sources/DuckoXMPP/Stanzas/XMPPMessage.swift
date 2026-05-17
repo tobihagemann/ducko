@@ -1,4 +1,3 @@
-/// An XMPP `<message>` stanza.
 public struct XMPPMessage: XMPPStanza {
     public var element: XMLElement
 

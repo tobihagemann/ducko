@@ -108,7 +108,6 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
 
         guard let domainJID = JID.parse(context.domain) else { return nil }
 
-        // Query disco#items on the domain
         var itemsIQ = XMPPIQ(type: .get, to: domainJID, id: context.generateID())
         let itemsQuery = XMLElement(name: "query", namespace: XMPPNamespaces.discoItems)
         itemsIQ.element.addChild(itemsQuery)
@@ -116,7 +115,6 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
         guard let itemsResult = try await context.sendIQ(itemsIQ) else { return nil }
         let items = itemsResult.children(named: "item").compactMap { $0.attribute("jid") }
 
-        // Check items for the channel search feature in parallel
         let match = await findSearchService(items: items, context: context)
         if let match {
             state.withLock { $0.cachedSearchService = match }
@@ -139,7 +137,6 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
         var iq = XMPPIQ(type: .get, to: serviceJID, id: context.generateID())
         var searchElement = XMLElement(name: "search", namespace: XMPPNamespaces.channelSearch)
 
-        // Build data form
         var fields: [DataFormField] = [
             DataFormField(variable: "FORM_TYPE", type: "hidden", values: [XMPPNamespaces.channelSearchQuery])
         ]
@@ -158,7 +155,6 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
         let form = buildSubmitForm(fields)
         searchElement.addChild(form)
 
-        // Add RSM
         if query.maxResults != nil || query.after != nil {
             var setElement = XMLElement(name: "set", namespace: XMPPNamespaces.rsm)
             if let maxResults = query.maxResults {
@@ -182,8 +178,6 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
 
         return parseSearchResult(result)
     }
-
-    // MARK: - Private
 
     private func findSearchService(items: [String], context: ModuleContext) async -> String? {
         await withTaskGroup(of: String?.self) { group in
@@ -228,7 +222,6 @@ public final class ChannelSearchModule: XMPPModule, Sendable {
             )
         }
 
-        // Parse RSM
         var totalCount: Int?
         var lastID: String?
         if let setElement = element.child(named: "set", namespace: XMPPNamespaces.rsm) {

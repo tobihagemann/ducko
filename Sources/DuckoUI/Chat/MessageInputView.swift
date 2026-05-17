@@ -98,9 +98,7 @@ struct MessageInputView: View {
             if !body.isEmpty {
                 await windowState.sendMessage(body)
             }
-            // Restore the composer text if the send threw a typed error
-            // (e.g. encryption-required-but-no-trusted-devices). Untyped
-            // failures leave the composer empty — matching prior behavior.
+            // Restore composer text only on typed send errors (e.g. encryption-required-but-no-trusted-devices); untyped failures leave the composer empty.
             if windowState.lastSendError != nil, let failedBody = windowState.lastFailedSendBody {
                 text = failedBody
             }
@@ -137,9 +135,7 @@ struct MessageInputView: View {
                         Task { @MainActor in
                             windowState.addAttachment(url: tempURL)
                         }
-                    } catch {
-                        // Paste failed
-                    }
+                    } catch {}
                 }
             }
         }

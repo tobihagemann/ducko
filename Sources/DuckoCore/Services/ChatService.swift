@@ -4,12 +4,8 @@ import Logging
 
 private let log = Logger(label: "im.ducko.core.chat")
 
-/// Composite key for the room-join notifier registry. `internal` so unit
-/// tests can verify the registry's `isEmpty` invariant via `@testable import`.
-///
-/// `hash(into:)` is spelled out explicitly so Periphery sees concrete reads
-/// of both fields. Synthesized `Hashable` was flagged non-deterministically
-/// as "assign-only" because the synthesis is opaque to its analyzer.
+/// Composite key for the room-join notifier registry.
+/// `hash(into:)` is spelled out explicitly so Periphery sees concrete reads of both fields (synthesized `Hashable` was flagged non-deterministically as assign-only).
 struct RoomJoinKey: Hashable {
     let accountID: UUID
     let room: BareJID
@@ -20,10 +16,7 @@ struct RoomJoinKey: Hashable {
     }
 }
 
-/// Identity-bearing notifier so cleanup-by-key won't drop a slot that has
-/// since been replaced by a newer registration. The `id` is generated per
-/// `registerRoomJoinNotifier` call; cleanup is a no-op when the key now
-/// holds a different id.
+/// Identity-bearing notifier; cleanup-by-key no-ops when the key now holds a different id.
 struct RoomJoinNotifier {
     let id: UUID
     let continuation: AsyncStream<Void>.Continuation
@@ -39,11 +32,8 @@ public final class ChatService {
     public private(set) var pendingInvites: [PendingRoomInvite] = []
     public private(set) var newlyCreatedRoomJIDs: Set<String> = []
     public private(set) var roomFlags: [String: Set<RoomFlag>] = [:]
-    /// Per-conversation tick that ChatWindow observes via `.onChange` to
-    /// refresh `windowState.messages` after every messages-mutation site
-    /// (incoming, outgoing, carbon, correction, retraction, marker reload).
-    /// `lastMessageDate` does not change for amendments (corrections,
-    /// retractions, markers), so a separate signal is required.
+    /// Per-conversation revision tick. ChatWindow observes via `.onChange` to refresh after amendments
+    /// (corrections, retractions, markers) — these don't bump `lastMessageDate`.
     public private(set) var messagesRevisions: [UUID: Int] = [:]
     public var onIncomingMessage: ((ChatMessage, Conversation) -> Void)?
     public var onHeadlineMessage: (@Sendable (XMPPMessage) -> Void)?
@@ -55,9 +45,6 @@ public final class ChatService {
     private weak var omemoService: OMEMOService?
     private var typingDebounce: [BareJID: Task<Void, Never>] = [:]
     /// Registry of pending room-join waiters keyed by `(accountID, room)`.
-    /// Internal-readable so unit tests can verify no entries leak after
-    /// success/timeout paths. Mutated only by `registerRoomJoinNotifier`,
-    /// `clearRoomJoinNotifier`, and `handleRoomJoined`.
     private(set) var roomJoinNotifiers: [RoomJoinKey: RoomJoinNotifier] = [:]
 
     public init(store: any PersistenceStore, transcripts: any TranscriptStore, filterPipeline: MessageFilterPipeline) {
@@ -125,10 +112,8 @@ public final class ChatService {
         }
     }
 
-    /// Resolves the encryption decision for `sendMessage` and converts the
-    /// fail-closed cases into typed throws. Returns the trusted recipient
-    /// device IDs when encryption authorized, or `nil` when the user opted
-    /// out (plaintext path).
+    /// Resolves encryption for `sendMessage` and converts fail-closed resolutions into typed throws.
+    /// Returns trusted device IDs or nil for user-opted-out plaintext.
     private func trustedDeviceIDsForSend(
         jid: BareJID, accountID: UUID, conversation: Conversation
     ) async throws -> [UInt32]? {
@@ -145,10 +130,6 @@ public final class ChatService {
         }
     }
 
-    /// Bundles the arguments `dispatchSend` and `dispatchReply` need from
-    /// the calling `sendMessage` / `sendReply` frame. Carrying them in a
-    /// single struct keeps the helper signatures under the
-    /// function-parameter-count lint cap.
     private struct SendDispatchContext {
         let jid: BareJID
         let filteredBody: String
@@ -159,17 +140,9 @@ public final class ChatService {
         let additionalElements: [DuckoXMPP.XMLElement]
     }
 
-    /// Sends a 1:1 chat stanza, encrypted to `trustedDeviceIDs` or plaintext
-    /// when those are nil. Extracted from `sendMessage` so the persist-then-
-    /// dispatch sequence stays readable and the lint complexity stays bounded.
-    ///
-    /// Branches on `trustedDeviceIDs` rather than on `omemoService` because
-    /// `trustedDeviceIDsForSend` returns nil only for the `.userDisabled`
-    /// resolution (intentional plaintext) — every other nil-able outcome
-    /// throws before reaching here. Non-nil `trustedDeviceIDs` therefore
-    /// always means "encryption required"; combining `omemoService` into the
-    /// optional-binding would silently fall through to the plaintext path
-    /// when the service is unwired, defeating the fail-closed gate.
+    /// Sends a 1:1 stanza; encrypts when `trustedDeviceIDs` is non-nil. Branches on `trustedDeviceIDs` (not on
+    /// `omemoService`) because `trustedDeviceIDsForSend` only returns nil on intentional `.userDisabled` —
+    /// folding `omemoService` into the optional-binding would silently downgrade to plaintext when the service is unwired.
     private func dispatchSend(_ context: SendDispatchContext) async throws {
         let recipient = JID.bare(context.jid)
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
@@ -262,13 +235,8 @@ public final class ChatService {
         guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let module = await client.module(ofType: ChatStatesModule.self) else { return }
 
-        // Cancel existing debounce
         typingDebounce[jid]?.cancel()
-
-        // Send composing
         try? await module.sendChatState(.composing, to: .bare(jid))
-
-        // Schedule paused after 5 seconds
         typingDebounce[jid] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
@@ -502,11 +470,9 @@ public final class ChatService {
 
         let stanzaID = client.generateID()
 
-        // Replies previously bypassed `shouldEncrypt` entirely and always
-        // sent plaintext — a silent-downgrade vector when the conversation
-        // is configured for encryption. Resolve the conversation first so
-        // the encryption decision matches what `sendMessage` would do for
-        // the same peer.
+        // Resolve the conversation so the reply runs through `shouldEncrypt`
+        // and matches `sendMessage`'s encryption decision for the same peer —
+        // bypassing this is a silent-downgrade vector.
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
         try await dispatchReply(ReplyDispatchContext(
             jid: jid, filteredBody: filtered.body, stanzaID: stanzaID,
@@ -531,9 +497,6 @@ public final class ChatService {
         try await persistMessage(message, in: conversation, accountID: accountID)
     }
 
-    /// Bundles the arguments `dispatchReply` needs from the calling
-    /// `sendReply` frame so the helper stays under the
-    /// function-parameter-count lint cap.
     private struct ReplyDispatchContext {
         let jid: BareJID
         let filteredBody: String
@@ -544,9 +507,7 @@ public final class ChatService {
         let chatModule: ChatModule
     }
 
-    /// Resolves the encryption decision for a reply and dispatches the
-    /// reply stanza on the chosen path. Extracted from `sendReply` so the
-    /// caller stays under the function-body-length lint cap.
+    /// Resolves encryption and dispatches the reply on the chosen path.
     private func dispatchReply(_ context: ReplyDispatchContext) async throws {
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
         let resolution = await resolveEncryption(
@@ -654,12 +615,8 @@ public final class ChatService {
         _ = try await findOrCreateGroupConversation(for: jid, nickname: nickname, accountID: accountID)
     }
 
-    /// Joins `jid` and awaits the matching `.roomJoined` self-presence echo.
-    ///
-    /// The notifier is registered synchronously BEFORE the join is sent so the
-    /// echo cannot race ahead of registration. Throws `.timeout(jid)` if no
-    /// echo arrives within `timeout`, or rethrows any error from the
-    /// underlying `joinRoom` (in which case the notifier is cleaned up first).
+    /// Joins `jid` and awaits the matching `.roomJoined` self-presence echo. Notifier registers BEFORE join is sent so the echo cannot race ahead.
+    /// Throws `.timeout(jid)` if the echo doesn't arrive within `timeout`; rethrows `joinRoom` errors after cleanup.
     public func joinRoomAwaitingEcho(
         jid: BareJID,
         nickname: String,
@@ -681,10 +638,7 @@ public final class ChatService {
         }
     }
 
-    /// String-based overload of `joinRoomAwaitingEcho(jid:…)` for callers in
-    /// modules that don't import DuckoXMPP (e.g. DuckoUI). Throws
-    /// `.invalidJID` on parse failure to match the rest of `ChatService`'s
-    /// `jidString:` API surface.
+    /// String overload of `joinRoomAwaitingEcho(jid:…)`. Throws `.invalidJID` on parse failure.
     public func joinRoomAwaitingEcho(
         jidString: String,
         nickname: String,
@@ -701,13 +655,8 @@ public final class ChatService {
         )
     }
 
-    /// Atomically registers a one-shot notifier for the next `.roomJoined`
-    /// matching `(accountID, jid)`. Synchronous + MainActor-isolated so the
-    /// continuation lands in the registry BEFORE any await — the self-presence
-    /// echo can never race ahead. Returns the notifier id for identity-aware
-    /// cleanup. `internal` so unit tests can drive the mechanism directly
-    /// without exercising the full `joinRoomAwaitingEcho` flow (which needs a
-    /// live `MUCModule`).
+    /// Atomically registers a one-shot notifier for the next `.roomJoined` matching `(accountID, jid)`. Synchronous + MainActor
+    /// so registration lands BEFORE any await — the self-presence echo cannot race ahead.
     func registerRoomJoinNotifier(jid: BareJID, accountID: UUID) -> (id: UUID, stream: AsyncStream<Void>) {
         let key = RoomJoinKey(accountID: accountID, room: jid)
         let id = UUID()
@@ -722,20 +671,14 @@ public final class ChatService {
         return (id, stream)
     }
 
-    /// Identity-aware cleanup. Removes the notifier only when the registered
-    /// slot still belongs to `id` — a newer registration's continuation is
-    /// preserved when the older one's cleanup fires after the takeover.
-    /// Idempotent.
+    /// Identity-aware cleanup; no-ops when the slot now holds a different id. Idempotent.
     func clearRoomJoinNotifier(jid: BareJID, accountID: UUID, id: UUID) {
         let key = RoomJoinKey(accountID: accountID, room: jid)
         guard roomJoinNotifiers[key]?.id == id else { return }
         roomJoinNotifiers.removeValue(forKey: key)?.continuation.finish()
     }
 
-    /// Awaits a yield on `stream` or `timeout`, whichever fires first.
-    /// Returns `true` only on yield — natural completion (timeout / finished
-    /// without yield) returns `false`. `internal` so unit tests can verify
-    /// the timeout/cancel/yield contract independent of `joinRoom`.
+    /// Returns `true` only on stream yield; timeout / no-yield → `false`.
     func awaitRoomJoinedEcho(stream: AsyncStream<Void>, timeout: Duration) async -> Bool {
         await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
             group.addTask {
@@ -898,19 +841,9 @@ public final class ChatService {
         Set(roomParticipants.keys.map(\.domainPart))
     }
 
-    /// Bridges a user-input JID string (mixed case, possibly malformed) into
-    /// the canonical `BareJID` key used by `roomParticipants`. Callers may
-    /// pass the user-provided `windowState.jidString` whose localpart
-    /// preserves whatever case the joining JID had (e.g.
-    /// `inttest-ui-FCA13B13@…` from the integration suite's
-    /// `UUID.prefix(8)`). Returns `nil` for malformed input — a malformed
-    /// JID can't legitimately key into a roster of bare-JID-keyed rooms, so
-    /// the read-side accessors fall back to "no entry" rather than the
-    /// previous string-fallback that could spuriously hit a string-keyed
-    /// raw entry. Without this normalization the sidebar's `roomJIDString`
-    /// (raw) wouldn't match the title bar's `conversation.jid.description`
-    /// (already lowercase) — the title would show "1 participants" while the
-    /// sidebar renders an empty list.
+    /// Normalizes user-input JID strings to `BareJID`. Required because integration-test localparts (e.g.
+    /// `inttest-ui-FCA13B13@…`) preserve `UUID.prefix(8)` casing while `conversation.jid.description` is
+    /// lowercased — without canonicalization the sidebar and title bar would read different keys for the same room.
     private func normalizedRoomKey(_ jidString: String) -> BareJID? {
         BareJID.parse(jidString)
     }
@@ -1163,11 +1096,8 @@ public final class ChatService {
         /// Conversation has encryption enabled and peer devices exist
         /// locally, but none are trusted.
         case omemoNoTrustedDevices(conversationJID: BareJID)
-        /// Conversation has encryption enabled but the OMEMO service is
-        /// unavailable (not yet connected, module rebuild in progress).
-        /// Thrown from both 1:1 and group send paths — the parameter is
-        /// named after the conversation (peer JID for 1:1, room JID for
-        /// MUC) rather than overloading "room" for both.
+        /// Encryption enabled but OMEMO service unavailable (not connected, module rebuild in progress).
+        /// Thrown from both 1:1 and group send paths; the parameter is `conversationJID` (peer or room).
         case omemoServiceUnavailable(conversationJID: BareJID)
         /// Group conversation has encryption enabled but every occupant
         /// resolves to `omemoNoLocalDevices` or `omemoNoTrustedDevices`.
@@ -1754,12 +1684,7 @@ public final class ChatService {
         }
     }
 
-    /// Drops every per-room snapshot (`roomParticipants`, `roomFlags`,
-    /// `newlyCreatedRoomJIDs`) for `jid` so room-lifecycle exits leave a
-    /// consistent view. Called from `leaveRoom`, the `.roomDestroyed` switch
-    /// arm, and the per-account disconnect path so all three maps clear
-    /// together; clearing only one of the three is what motivated the
-    /// helper in the first place.
+    /// Drops per-room state (`roomParticipants`, `roomFlags`, `newlyCreatedRoomJIDs`) for `jid`. Clearing only one of the three was the bug this helper guards against.
     package func clearRoomState(for jid: BareJID) {
         let key = jid.description
         roomParticipants.removeValue(forKey: jid)
@@ -1767,14 +1692,8 @@ public final class ChatService {
         newlyCreatedRoomJIDs.remove(key)
     }
 
-    /// Disconnect-time clear scoped to one account's groupchat conversations
-    /// so a multi-account session that disconnects one account does not erase
-    /// rooms belonging to still-connected accounts. The room-state maps
-    /// (`roomParticipants` keyed by `BareJID`; `roomFlags` and
-    /// `newlyCreatedRoomJIDs` keyed by `String`) carry no per-account
-    /// partitioning, so we re-derive the disconnecting account's room set
-    /// from the persisted conversations (the only authoritative cross-room
-    /// mapping).
+    /// Per-account disconnect clear. The room-state maps carry no per-account partitioning, so re-derive the
+    /// disconnecting account's rooms from persisted conversations to avoid erasing other accounts' rooms.
     private func clearRoomState(forAccount accountID: UUID) async {
         let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
         for conversation in conversations where conversation.type == .groupchat {
@@ -1784,15 +1703,9 @@ public final class ChatService {
 
     // MARK: - Private: Group OMEMO
 
-    /// Attempts OMEMO encryption for a group message. Returns `true` if encrypted.
-    ///
-    /// Fail-closed: when the conversation has encryption enabled but the
-    /// OMEMO service is unavailable, or every occupant resolves to no-local
-    /// or no-trusted devices, throw a `ChatServiceError` rather than
-    /// silently downgrading to plaintext. With partial trust (some occupants
-    /// trusted, some not) the message is encrypted to the trusted subset
-    /// and `OMEMOService.encryptGroupMessage` already emits
-    /// `.omemoRecipientsPartial` for the dropped occupants.
+    /// Attempts OMEMO for a group message; returns `true` if encrypted. Fail-closed when service unwired or every
+    /// occupant resolves to no-local/no-trusted. Partial trust → encrypt to trusted subset (OMEMOService emits
+    /// `.omemoRecipientsPartial` for the dropped occupants).
     private func encryptAndSendGroupMessage(
         room: BareJID, body: String, stanzaID: String,
         conversation: Conversation, mucModule: MUCModule,
@@ -1856,13 +1769,7 @@ public final class ChatService {
         return true
     }
 
-    // MARK: - Private
-
-    /// Notifies observers that messages in `conversationID` may have changed
-    /// after an amendment. Always bumps the revision (so any open
-    /// `ChatWindow` on that conversation refreshes — even if it is not the
-    /// global active conversation). The local `messages` array is reloaded
-    /// only when `conversationID` matches the active conversation.
+    /// Bumps the revision (so any open `ChatWindow` refreshes) and reloads `messages` only when `conversationID` matches the active one.
     private func messagesChanged(in conversationID: UUID) async {
         bumpRevision(for: conversationID)
         if conversationID == activeConversationID {
@@ -1878,15 +1785,9 @@ public final class ChatService {
         accountService?.accounts.first { $0.id == accountID }?.jid ?? fallback
     }
 
-    /// Bridges the optional `OMEMOService` to the fail-closed
-    /// `EncryptionResolution`. When encryption is disabled the service is
-    /// not consulted. When encryption is enabled but the service is absent
-    /// (only reachable in tests; production wires it at app start), return
-    /// `.serviceUnavailable` so every dispatch caller's `case
-    /// .serviceUnavailable:` arm throws `omemoServiceUnavailable` —
-    /// collapsing nil-service into `.userDisabled` or into `.proceed([])`
-    /// would silently downgrade an encryption-required send to plaintext,
-    /// defeating the fail-closed gate.
+    /// Bridges optional `OMEMOService` to `EncryptionResolution`. Fail-closed: nil service → `.serviceUnavailable`
+    /// (every dispatch throws). Collapsing nil-service into `.userDisabled` or `.proceed([])` would silently
+    /// downgrade an encryption-required send to plaintext.
     private func resolveEncryption(
         jid: BareJID, accountID: UUID, conversationEncryptionEnabled: Bool
     ) async -> OMEMOService.EncryptionResolution {
@@ -1898,23 +1799,17 @@ public final class ChatService {
         )
     }
 
-    /// Returns the XEP-0359 archive-stamped stanza id only when its `by`
-    /// attribute parses to a `BareJID` equal to `trustedBy` (the user's own
-    /// bare JID or, for groupchat, the room's bare JID). Filtering by `by` is
-    /// the §3 trust contract — without it, a remote peer can stamp their own
-    /// `<stanza-id>` element and use the dedup key to silently suppress
-    /// legitimate later messages.
+    /// Canonical home for the XEP-0359 §3 `by`-filter contract.
     ///
-    /// JID-aware comparison (not raw string equality) because a server may
-    /// stamp `by="Alice@Example.COM"` while our canonicalized
-    /// `accountJID.description` is `"alice@example.com"`. `BareJID.init`
-    /// applies the same lowercase normalization to both sides.
+    /// Returns the archive-stamped stanza id only when its `by` attribute parses to a `BareJID` equal to `trustedBy`
+    /// (the user's own bare JID, or the room's bare JID for groupchat). Without the filter, a remote peer can stamp
+    /// their own `<stanza-id>` and use the dedup key to silently suppress legitimate later messages.
     ///
-    /// Returns nil when `trustedBy` is nil — that is the fail-closed posture
-    /// for cases where the account JID can't be resolved (e.g., the weakly-
-    /// held `accountService` deallocated). The previous behavior fell back to
-    /// the peer JID, which would have let a peer's own `<stanza-id by=...>`
-    /// pass the filter.
+    /// `BareJID`-aware comparison (not raw string equality) — a server may stamp `by="Alice@Example.COM"` while our
+    /// canonicalized `accountJID.description` is `"alice@example.com"`; `BareJID.init` normalizes both sides.
+    ///
+    /// Fail-closed: returns nil when `trustedBy` is nil (e.g., weakly-held `accountService` deallocated). Falling back
+    /// to the peer JID would let a peer's own `<stanza-id by=...>` pass the filter.
     private func trustedServerID(in element: DuckoXMPP.XMLElement, trustedBy: BareJID?) -> String? {
         guard let trustedBy else { return nil }
         return element.children(named: "stanza-id")
@@ -1956,13 +1851,8 @@ public final class ChatService {
         guard let body else { return }
 
         let stanzaID = xmppMessage.id
-        // XEP-0359 stanza-id stamped by the user's archive (mod_mam) — globally
-        // unique within that archive, unlike the per-sender `stanzaID`. Preferred
-        // dedup key because two senders can independently emit the same
-        // `stanzaID` without collision protection at this layer. §3 of the XEP
-        // restricts trust to IDs whose `by` matches the user's bare JID; without
-        // that filter a peer can stamp their own `<stanza-id>` element and
-        // suppress legitimate inbound messages by colliding the dedup key.
+        // XEP-0359 mod_mam stanza-id — preferred dedup key (globally unique within the user's archive,
+        // unlike per-sender `stanzaID`). See `trustedServerID` for the §3 `by`-filter trust contract.
         let serverID = trustedServerID(
             in: xmppMessage.element, trustedBy: resolvedAccountJID(for: accountID)
         )
@@ -2040,10 +1930,7 @@ public final class ChatService {
         )
     }
 
-    /// Persists a carbon body after the parent guards have classified it. Split
-    /// out of `handleCarbon` to keep the parent under SwiftLint's function-body
-    /// length cap; no behavior change. OOB attachments are re-parsed here to
-    /// keep the parameter count under the project lint cap.
+    /// Persists a carbon body after the parent guards classify it. OOB attachments are re-parsed here.
     private func ingestCarbonBody(
         _ forwarded: ForwardedMessage,
         jid: BareJID,
@@ -2052,13 +1939,9 @@ public final class ChatService {
         isOutgoing: Bool
     ) async {
         let attachments = parseOOBAttachments(from: forwarded.message.element)
-        // Extract XEP-0359 stanza-id stamped by the user's own archive. For
-        // inbound carbons this is the globally-unique dedup key — without it,
-        // a carbon insert followed by a MAM replay would double-persist because
-        // MAM ingest keys on `serverID` while the older carbon path keyed only
-        // on `stanzaID`. Outgoing carbons reuse the simpler `(stanzaID, fromJID)`
-        // path because the message was already persisted locally before send.
-        // Trust scope: XEP-0359 §3 — only IDs whose `by` matches our bare JID.
+        // XEP-0359 trust-filtered (see `trustedServerID`). Inbound carbons key on `serverID` — without it, a carbon
+        // insert followed by a MAM replay would double-persist (MAM keys on serverID, older carbons keyed only on
+        // stanzaID). Outgoing carbons reuse the simpler `(stanzaID, fromJID)` path since the message persisted before send.
         let serverID = trustedServerID(
             in: forwarded.message.element, trustedBy: resolvedAccountJID(for: accountID)
         )
@@ -2166,15 +2049,9 @@ public final class ChatService {
         return await (try? transcripts.messageExists(stanzaID: stanzaID, conversationID: conversationID)) ?? false
     }
 
-    /// Dedup an inbound 1:1 stanza. When the user's archive (XEP-0359 mod_mam)
-    /// has stamped a `serverID` on the inbound stanza, that ID is globally
-    /// unique and is the *only* key we consult — falling through to
-    /// `(stanzaID, fromJID)` here would mis-dedup a fresh inbound message
-    /// whose `stanzaID` happens to match a stale archive entry from the same
-    /// sender (e.g. a CLI peer whose process restarted and reset its
-    /// sequential id counter back into our archive's id space). The
-    /// `(stanzaID, fromJID)` path is reserved for the legacy case where no
-    /// `serverID` is present at all.
+    /// Inbound 1:1 dedup. When a `serverID` is present it is the *only* key — falling through to `(stanzaID, fromJID)`
+    /// would mis-dedup against a stale archive entry whose `stanzaID` collides (e.g. a CLI peer that restarted and
+    /// reset its sequential id counter). Fallback path only when no XEP-0359 stamp is present.
     private func isDuplicateIncoming(serverID: String?, stanzaID: String?, from jid: BareJID, accountID: UUID) async -> Bool {
         guard let conversationID = await conversationID(for: .bare(jid), accountID: accountID) else { return false }
         if let serverID {

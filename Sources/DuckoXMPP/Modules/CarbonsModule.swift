@@ -33,7 +33,6 @@ public final class CarbonsModule: XMPPModule, Sendable {
     }
 
     public func handleConnect() async throws {
-        // Skip if carbons were already enabled inline via Bind 2
         let alreadyEnabled = state.withLock { $0.inlineEnabled }
         if alreadyEnabled {
             log.info("Message Carbons already enabled via inline negotiation")
@@ -61,7 +60,6 @@ public final class CarbonsModule: XMPPModule, Sendable {
     // MARK: - Message Handling
 
     public func handleMessage(_ message: XMPPMessage) throws {
-        // Early-return for non-carbon messages
         let received = message.element.child(named: "received", namespace: XMPPNamespaces.carbons)
         let sent = message.element.child(named: "sent", namespace: XMPPNamespaces.carbons)
         guard received != nil || sent != nil else { return }

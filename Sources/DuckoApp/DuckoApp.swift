@@ -210,9 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the app refusing to quit, and AppKit's own (~60 s) failsafe is too long.
     static let disconnectDeadline: Duration = .seconds(3)
 
-    /// Runs the bounded disconnect that `applicationShouldTerminate` issues
-    /// before replying to AppKit. Extracted so unit tests can exercise the
-    /// disconnect path without standing up an `NSApplication` host.
+    /// Extracted so unit tests can exercise the disconnect path without an `NSApplication` host.
     static func performShutdown(_ accountService: AccountService) async {
         log.info("applicationShouldTerminate fired; awaiting disconnectAll")
         await accountService.disconnectAll(within: disconnectDeadline)

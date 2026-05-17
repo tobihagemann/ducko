@@ -55,7 +55,6 @@ public actor AdiumImportService {
     // MARK: - Import
 
     // swiftlint:disable cyclomatic_complexity function_body_length
-    /// Imports Adium logs from the discovered service accounts.
     public func importLogs(
         from sources: [AdiumServiceAccount],
         progress: @Sendable (ImportProgress) -> Void
@@ -82,11 +81,8 @@ public actor AdiumImportService {
                     continue
                 }
 
-                // Cache conversation for this contact
                 var conversation: Conversation?
-                // In-memory set of stanzaIDs already imported for this conversation
                 var knownStanzaIDs: Set<String> = []
-                // Track latest message for deferred conversation metadata update
                 var latestMessage: ChatMessage?
 
                 for fileURL in logFiles {
@@ -155,7 +151,6 @@ public actor AdiumImportService {
                             )
                         }
 
-                        // Build messages
                         let messages = parsed.entries.enumerated().map { index, entry in
                             let stanzaID = AdiumXMLLogParser.stanzaID(sourcePath: parsed.sourcePath, messageIndex: index)
                             let isOutgoing = isOutgoingMessage(entry: entry, accountUID: source.accountUID)
@@ -180,7 +175,7 @@ public actor AdiumImportService {
                             )
                         }
 
-                        // Deduplicate using in-memory set (O(1) per message)
+                        // Dedup against the in-memory stanza-id set seeded from existing transcripts (avoids a store hit per message).
                         let newMessages = messages.filter { msg in
                             guard let sid = msg.stanzaID else { return true }
                             return !knownStanzaIDs.contains(sid)
@@ -192,7 +187,6 @@ public actor AdiumImportService {
                             try await transcripts.appendMessages(newMessages)
                             result.importedMessages += newMessages.count
 
-                            // Track stanzaIDs and latest message
                             for msg in newMessages {
                                 if let sid = msg.stanzaID {
                                     knownStanzaIDs.insert(sid)
@@ -235,8 +229,6 @@ public actor AdiumImportService {
     }
 
     // swiftlint:enable cyclomatic_complexity function_body_length
-
-    // MARK: - Private
 
     private func parseLogFile(at url: URL, accountUID: String) throws -> AdiumLogFile {
         let data = try Data(contentsOf: url)

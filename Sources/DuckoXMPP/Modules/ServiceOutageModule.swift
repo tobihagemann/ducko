@@ -30,8 +30,6 @@ public final class ServiceOutageModule: XMPPModule, Sendable {
         checkForOutage()
     }
 
-    // MARK: - Private
-
     private func checkForOutage() {
         guard let context = state.withLock({ $0.context }) else { return }
 

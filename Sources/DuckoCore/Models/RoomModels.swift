@@ -3,13 +3,9 @@ import DuckoXMPP
 /// Re-export for DuckoUI which cannot import DuckoXMPP.
 public typealias RoomFlag = DuckoXMPP.RoomFlag
 
-// MARK: - Room Role
-
 public enum RoomRole: String, Sendable, Hashable {
     case moderator, participant, visitor, none
 }
-
-// MARK: - Room Affiliation
 
 public enum RoomAffiliation: String, Sendable, Hashable {
     case owner, admin, member, outcast, none
@@ -35,8 +31,6 @@ public enum RoomAffiliation: String, Sendable, Hashable {
     }
 }
 
-// MARK: - Room Participant
-
 public struct RoomParticipant: Sendable, Identifiable, Hashable {
     public var id: String {
         nickname
@@ -55,8 +49,6 @@ public struct RoomParticipant: Sendable, Identifiable, Hashable {
     }
 }
 
-// MARK: - Room Participant Group
-
 public struct RoomParticipantGroup: Sendable, Identifiable {
     public var id: RoomAffiliation {
         affiliation
@@ -70,8 +62,6 @@ public struct RoomParticipantGroup: Sendable, Identifiable {
         self.participants = participants
     }
 }
-
-// MARK: - Discovered Room
 
 public struct DiscoveredRoom: Sendable, Identifiable {
     public var id: String {
@@ -87,8 +77,6 @@ public struct DiscoveredRoom: Sendable, Identifiable {
     }
 }
 
-// MARK: - Channel Search Result
-
 public struct ChannelSearchResult: Sendable {
     public let channels: [SearchedChannel]
     public let hasMore: Bool
@@ -100,8 +88,6 @@ public struct ChannelSearchResult: Sendable {
         self.lastCursor = lastCursor
     }
 }
-
-// MARK: - Searched Channel
 
 /// Bridge type for XEP-0433 channel search results — DuckoUI-safe (String JIDs).
 public struct SearchedChannel: Sendable, Identifiable {
@@ -123,8 +109,6 @@ public struct SearchedChannel: Sendable, Identifiable {
         self.description = description
     }
 }
-
-// MARK: - Room Config Field
 
 /// Bridge type for `DataFormField` so DuckoUI can edit room config without importing DuckoXMPP.
 public struct RoomConfigField: Sendable, Identifiable {
@@ -163,8 +147,6 @@ public struct RoomConfigField: Sendable, Identifiable {
     }
 }
 
-// MARK: - Room Affiliation Item
-
 /// Bridge type for `MUCAffiliationItem` so DuckoUI can manage affiliations without importing DuckoXMPP.
 public struct RoomAffiliationItem: Sendable, Identifiable {
     public var id: String {
@@ -183,8 +165,6 @@ public struct RoomAffiliationItem: Sendable, Identifiable {
         self.reason = reason
     }
 }
-
-// MARK: - Pending Room Invite
 
 public struct PendingRoomInvite: Sendable, Identifiable {
     public var id: String {

@@ -146,17 +146,14 @@ public final class BlockingModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    /// Returns the current set of blocked JIDs.
     public var blockedJIDs: Set<BareJID> {
         state.withLock { $0.blockedJIDs }
     }
 
-    /// Blocks a contact.
     public func blockContact(jid: BareJID) async throws {
         try await sendBlockingIQ(elementName: "block", jid: jid)
     }
 
-    /// Unblocks a contact.
     public func unblockContact(jid: BareJID) async throws {
         try await sendBlockingIQ(elementName: "unblock", jid: jid)
     }

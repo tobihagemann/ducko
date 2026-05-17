@@ -1,6 +1,5 @@
 import Foundation
 
-/// A discovered XMPP account from Adium's configuration files.
 public struct AdiumAccount: Sendable, Identifiable {
     public let id: String
     public let service: String

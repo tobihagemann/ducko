@@ -343,9 +343,6 @@ struct ProfileEditView: View {
         }
     }
 
-    // MARK: - Binding Helpers
-
-    /// Creates a non-optional String binding for an optional String keypath.
     private func binding(for keyPath: WritableKeyPath<ProfileInfo, String?>) -> Binding<String> {
         Binding(
             get: { profile[keyPath: keyPath] ?? "" },
@@ -355,7 +352,6 @@ struct ProfileEditView: View {
         )
     }
 
-    /// Creates a non-optional String binding for a Binding<String?>.
     private func optionalBinding(_ binding: Binding<String?>) -> Binding<String> {
         Binding(
             get: { binding.wrappedValue ?? "" },

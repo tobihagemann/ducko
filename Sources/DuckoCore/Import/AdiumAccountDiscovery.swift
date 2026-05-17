@@ -54,8 +54,6 @@ public enum AdiumAccountDiscovery {
         }.sorted { $0.uid < $1.uid }
     }
 
-    // MARK: - Private
-
     private static func loadAccountPrefs(at userDirectoryURL: URL) -> [String: Any] {
         let prefsURL = userDirectoryURL.appendingPathComponent("AccountPrefs.plist")
         guard let data = try? Data(contentsOf: prefsURL),

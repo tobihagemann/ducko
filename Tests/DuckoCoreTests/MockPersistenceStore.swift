@@ -7,8 +7,6 @@ actor MockPersistenceStore: PersistenceStore {
     var conversations: [Conversation] = []
     var linkPreviews: [LinkPreview] = []
 
-    // MARK: - Test Helpers
-
     func addAccount(_ account: Account) {
         accounts.append(account)
     }

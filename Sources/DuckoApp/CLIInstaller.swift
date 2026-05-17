@@ -3,8 +3,7 @@ import AppKit
 enum CLIInstaller {
     @MainActor
     static func installCLITools() {
-        // Use the stable /Applications path so the symlink survives app updates
-        // and doesn't break if the user ran the app from a DMG or build directory.
+        // Stable /Applications path so the symlink survives app updates and DMG/build-dir runs.
         let cliSource = "/Applications/Ducko.app/Contents/Resources/ducko"
         let cliTarget = "/usr/local/bin/ducko"
 

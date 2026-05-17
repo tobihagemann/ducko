@@ -16,14 +16,7 @@ Default subcommand is `interactive` (REPL mode).
 
 ## Authentication
 
-Password is required for all commands that connect to XMPP. Two-tier fallback (first match wins):
-
-| Tier | Method | Usage |
-|---|---|---|
-| 1 | Keychain | Saved automatically on connect in DuckoApp |
-| 2 | Interactive prompt | Reads from `/dev/tty` when stdin is a TTY |
-
-Accounts can be created via `ducko account add <jid>` or in DuckoApp (GUI). The CLI shares the same SwiftData database and macOS Keychain.
+Password lookup order: macOS Keychain first, then prompt on `/dev/tty` if stdin is a TTY. Accounts can be created with `ducko account add <jid>` or in DuckoApp — the CLI and GUI share the same SwiftData database and Keychain.
 
 ## Global Options
 
@@ -34,11 +27,13 @@ Accounts can be created via `ducko account add <jid>` or in DuckoApp (GUI). The 
 
 ## Subcommands
 
+Unless noted otherwise, each subcommand connects, performs its action, and disconnects.
+
 ### `send [--file <path>] [--method auto|http|jingle] <jid> [body]`
 
 Send a message or file, then disconnect. At least one of `--file` or `body` is required. When both are provided, the file is uploaded first, then the body is sent as a separate caption message.
 
-The `--method` option selects the file transfer mechanism: `auto` (default, currently HTTP upload), `http` (HTTP upload via XEP-0363), or `jingle` (peer-to-peer via XEP-0234). Jingle requires a full JID with resource.
+`--method auto` (default) picks HTTP upload; `http` forces XEP-0363; `jingle` forces XEP-0234 peer-to-peer and requires a full JID with resource.
 
 ```
 ducko send alice@example.com "Hello"
@@ -59,6 +54,7 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/join <room> [nickname]` — join a MUC room (sets as current room)
 - `/leave [room]` — leave a MUC room (uses current room if omitted)
 - `/members [room]` — show room occupants
+- `/pm <nickname> <message>` — send private message to a room occupant (current room)
 - `/topic [room] [text]` — view or set room topic
 - `/nick <nickname>` — change nickname in current room
 - `/destroy [reason]` — destroy current room (owner only)
@@ -82,16 +78,21 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/pref markers on|off` — toggle displayed markers (read receipts)
 - `/reply <jid> <message>` — reply to last incoming message from JID
 - `/retract <jid>` — retract last sent message to JID
+- `/edit <jid> <new-body>` — edit last sent message to JID
+- `/moderate [reason]` — moderate last message in current room (MUC moderator)
 - `/search <jid> <query>` — search message history with JID
+- `/directed-presence <jid>` — send directed presence to a JID
+- `/check-registration [jid]` — show server registration form
+- `/submit-registration [jid]` — submit registration to server/component
+- `/unregister-account` — unregister account from server
+- `/request-file <jid> <file>` — request a file from a peer
+- `/fulfill [sid] <path>` — fulfill incoming file request
+- `/add-file [sid] <path>` — add a file to an active Jingle session
+- `/remove-content <sid> <cid>` — remove content from a Jingle session
 - `help` — show available commands
 - `quit` / `exit` — disconnect and exit
 
-Real-time indicators in interactive mode:
-- Typing indicators from contacts are displayed as they arrive
-- Delivery receipts and message corrections appear in the event stream
-- Jingle file transfer notifications: incoming offers (with bell), progress updates, completion, and failure
-- Terminal bell rings on incoming messages, room messages, and file transfer offers
-- MUC room lifecycle events: `[new room]` when creating a room, nickname changes (`oldnick is now known as newnick`), room destruction with reason and alternate venue
+Interactive mode also prints async events as they arrive: typing indicators, delivery receipts, message corrections, Jingle transfer state changes, and MUC lifecycle events (`[new room]`, nickname changes, room destruction). Terminal bell rings on incoming messages and file transfer offers.
 
 ```
 ducko interactive
@@ -127,7 +128,7 @@ ducko account list --output json
 
 ### `account add <jid> [--password <password>]`
 
-Add a new XMPP account. Connects to verify credentials, saves password, then disconnects. Password is prompted interactively if `--password` is omitted.
+Add a new XMPP account. Verifies credentials, saves the password. Password is prompted interactively if `--password` is omitted.
 
 ```
 ducko account add alice@example.com
@@ -144,7 +145,7 @@ ducko account delete alice@example.com
 
 ### `roster list`
 
-List contacts grouped by roster group, with presence indicators. Connects, waits for roster and initial presence, then displays.
+List contacts grouped by roster group, with presence indicators. Waits for the initial presence sweep before displaying.
 
 ```
 ducko roster list
@@ -156,7 +157,7 @@ Plain output shows `[+]` available, `[~]` away/xa, `[-]` dnd, `[ ]` offline. ANS
 
 ### `roster add <jid> [--name <name>] [--group <group>]`
 
-Add a contact to the roster. Connects, sends roster set + subscribe, then disconnects.
+Add a contact to the roster (roster set + subscribe).
 
 ```
 ducko roster add alice@example.com
@@ -165,7 +166,7 @@ ducko roster add alice@example.com --name "Alice" --group "Friends"
 
 ### `roster remove <jid>`
 
-Remove a contact from the roster. Connects, sends roster remove, then disconnects.
+Remove a contact from the roster (roster remove).
 
 ```
 ducko roster remove alice@example.com
@@ -173,7 +174,7 @@ ducko roster remove alice@example.com
 
 ### `profile`
 
-View own vCard profile. Connects, fetches the vCard, displays profile fields, then disconnects.
+View own vCard profile.
 
 ```
 ducko profile
@@ -195,7 +196,7 @@ ducko presence --output json      # JSON output
 
 ### `bookmarks list`
 
-List server-side PEP bookmarks. Connects, retrieves bookmarks, then disconnects.
+List server-side PEP bookmarks.
 
 ```
 ducko bookmarks list
@@ -245,9 +246,26 @@ ducko account register --server example.com --username alice --password secret
 ducko account register --server example.com --username alice --password secret --email alice@mail.com
 ```
 
+### `account check-registration --server <domain> [--host <host>] [--port <port>]`
+
+Fetch and display a server's XEP-0077 registration form without registering. Useful for inspecting required fields or CAPTCHAs before calling `account register`.
+
+```
+ducko account check-registration --server example.com
+```
+
+### `account unregister <jid> [--include-history]`
+
+Unregister an account from its server via XEP-0077 and remove it locally. With `--include-history`, also deletes stored chat transcripts for the account.
+
+```
+ducko account unregister alice@example.com
+ducko account unregister alice@example.com --include-history
+```
+
 ### `server-info`
 
-Show server contact information (XEP-0157). Connects, queries disco#info for the server's contact addresses, then disconnects.
+Show server contact information (XEP-0157) via disco#info.
 
 ```
 ducko server-info
@@ -292,7 +310,7 @@ ducko room send chat@conference.example.com "Hello everyone"
 
 ### `omemo fingerprint`
 
-Display own OMEMO device fingerprint. Connects, retrieves the local device's identity key, then disconnects.
+Display own OMEMO device fingerprint (the local device's identity key).
 
 ```
 ducko omemo fingerprint
@@ -301,7 +319,7 @@ ducko omemo fingerprint --output json
 
 ### `omemo devices <jid>`
 
-List a contact's OMEMO devices with trust status. Connects, fetches the device list, then disconnects.
+List a contact's OMEMO devices with trust status.
 
 ```
 ducko omemo devices alice@example.com
@@ -322,6 +340,36 @@ Untrust an OMEMO device. Marks the device as untrusted, preventing encrypted ses
 
 ```
 ducko omemo untrust alice@example.com 12345
+```
+
+### `logs show [--lines <n>]`
+
+Print recent entries from `~/Library/Application Support/<app-dir>/Logs/ducko.log`. Default: 50 lines.
+
+```
+ducko logs show
+ducko logs show --lines 200
+```
+
+### `logs export <destination>`
+
+Copy all log files (current + rotated archives) to a directory.
+
+```
+ducko logs export ~/Desktop/ducko-logs
+```
+
+### `logs path`
+
+Print the absolute path to the log directory.
+
+### `import adium [--path <dir>] [--dry-run]`
+
+Import chat history from Adium logs. Auto-discovers Adium's default logs directory if `--path` is omitted. With `--dry-run`, scans and reports discovered accounts/contacts/files without writing transcripts.
+
+```
+ducko import adium
+ducko import adium --path ~/Library/Application\ Support/Adium\ 2.0/Users/Default/Logs --dry-run
 ```
 
 ## Output Formats
@@ -347,7 +395,7 @@ Same as plain with color codes (green incoming, cyan outgoing, red errors, dim t
 {"body":"Hello","direction":"incoming","from":"alice@example.com","timestamp":"2026-02-27T10:00:00Z","type":"message"}
 ```
 
-Optional keys: `"delivered":"true"`, `"edited":"true"`, `"encrypted":"true"`, `"error":"..."`. Keys are sorted alphabetically. Use `--output json` when piping to `jq` or processing programmatically.
+Optional keys: `"delivered":"true"`, `"edited":"true"`, `"encrypted":"true"`, `"error":"..."`. Keys are sorted alphabetically.
 
 ## Examples
 

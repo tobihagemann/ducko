@@ -8,7 +8,6 @@ func parseBeforeDate(_ string: String?) throws -> Date? {
     if let date = try? style.parse(string) {
         return date
     }
-    // Try without fractional seconds
     let basicStyle = Date.ISO8601FormatStyle()
     if let date = try? basicStyle.parse(string) {
         return date

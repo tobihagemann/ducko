@@ -1,7 +1,7 @@
 import DuckoCore
 import SwiftUI
 
-/// Shared progress indicator for Adium log import. Shows a determinate progress bar with file and message counts.
+/// Shared progress indicator for Adium log import.
 struct AdiumImportProgressView: View {
     let progress: AdiumImportService.ImportProgress
 

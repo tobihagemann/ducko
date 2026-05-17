@@ -15,7 +15,6 @@ struct TranscriptDetailView: View {
     var body: some View {
         if let conversation = state.selectedConversation {
             VStack(spacing: 0) {
-                // Header
                 HStack {
                     VStack(alignment: .leading) {
                         Text(conversation.displayName ?? conversation.jid.description)
@@ -31,7 +30,6 @@ struct TranscriptDetailView: View {
 
                 Divider()
 
-                // Date list + messages
                 HSplitView {
                     dateListView
                     messageListView

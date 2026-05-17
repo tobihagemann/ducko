@@ -36,7 +36,6 @@ public final class RosterModule: XMPPModule, Sendable {
     public func handleConnect() async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
-        // Check server feature support
         let serverFeatures = context.serverStreamFeatures()
         let supportsVersioning = serverFeatures?.child(named: "ver", namespace: XMPPNamespaces.rosterVersioning) != nil
         let supportsPreApproval = serverFeatures?.child(named: "sub", namespace: XMPPNamespaces.preApproval) != nil
@@ -45,7 +44,6 @@ public final class RosterModule: XMPPModule, Sendable {
             log.info("Server supports subscription pre-approval")
         }
 
-        // Request roster (with version if supported)
         var iq = XMPPIQ(type: .get, id: context.generateID())
         var query = XMLElement(name: "query", namespace: XMPPNamespaces.roster)
         if supportsVersioning {
@@ -72,7 +70,6 @@ public final class RosterModule: XMPPModule, Sendable {
 
         let items = result.children(named: "item").compactMap(RosterItem.parse)
 
-        // Track version from roster result
         if let ver = result.attribute("ver") {
             context.emitEvent(.rosterVersionChanged(ver))
         }
@@ -116,12 +113,10 @@ public final class RosterModule: XMPPModule, Sendable {
             }
         }
 
-        // Track version from roster push
         if let ver = query.attribute("ver") {
             context.emitEvent(.rosterVersionChanged(ver))
         }
 
-        // Process roster push items
         for child in query.children(named: "item") {
             guard let item = RosterItem.parse(child) else { continue }
 
@@ -158,7 +153,6 @@ public final class RosterModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    /// Adds or updates a contact in the roster.
     public func addContact(jid: BareJID, name: String? = nil, groups: [String] = []) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 
@@ -177,7 +171,6 @@ public final class RosterModule: XMPPModule, Sendable {
         _ = try await context.sendIQ(iq)
     }
 
-    /// Removes a contact from the roster.
     public func removeContact(jid: BareJID) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
 

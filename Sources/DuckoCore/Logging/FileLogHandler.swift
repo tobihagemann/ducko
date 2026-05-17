@@ -1,14 +1,9 @@
 import Foundation
 import Logging
 
-/// A swift-log `LogHandler` that writes log entries to a rotating file.
-///
-/// Uses a shared `FileLogWriter` actor for thread-safe file I/O. Rotation triggers when the
-/// current log file exceeds `maxFileSize`, keeping at most `maxArchivedFiles` old files.
-///
-/// `logLevel` is kept at `.trace` so that `MultiplexLogHandler` passes all messages through.
-/// Actual filtering is done dynamically via `minimumLevelProvider`, which reads from UserDefaults
-/// to support runtime debug-mode toggling without re-bootstrapping the logging system.
+/// swift-log `LogHandler` writing to a rotating file via a shared `FileLogWriter` actor (`maxFileSize`/`maxArchivedFiles`).
+/// `logLevel` is pinned to `.trace` so `MultiplexLogHandler` passes everything through; real filtering runs dynamically via
+/// `minimumLevelProvider` (reads UserDefaults for runtime toggling without re-bootstrapping).
 struct FileLogHandler: LogHandler {
     private let label: String
     private let writer: FileLogWriter
@@ -76,7 +71,6 @@ public actor FileLogWriter {
         self.maxArchivedFiles = maxArchivedFiles
     }
 
-    /// The path to the current log file.
     public var currentLogFile: URL {
         directory.appendingPathComponent(fileName)
     }

@@ -165,7 +165,6 @@ enum JingleSOCKS5Tests {
     struct ProxyActivationIQ {
         @Test
         func `Proxy activation IQ has correct structure`() {
-            // Verify the proxy activation IQ would have the right namespace and elements
             var query = XMLElement(name: "query", namespace: XMPPNamespaces.bytestreams, attributes: ["sid": "transport-sid"])
             var activate = XMLElement(name: "activate")
             activate.addText("target@example.com/res")

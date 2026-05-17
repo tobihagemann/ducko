@@ -262,7 +262,6 @@ public final class VCardModule: XMPPModule, Sendable {
             prefix: n.childText(named: "PREFIX"),
             suffix: n.childText(named: "SUFFIX")
         )
-        // Return nil if all fields are empty
         if name.familyName == nil, name.givenName == nil, name.middleName == nil,
            name.prefix == nil, name.suffix == nil {
             return nil

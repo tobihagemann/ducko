@@ -24,16 +24,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         var sessions: [SessionKey: SessionEntry] = [:]
         var usedPreKeyIDs: Set<UInt32> = []
         var identityKeyValidator: (@Sendable (BareJID, UInt32, [UInt8]) async throws -> Void)?
-        /// Provider of the per-account seen-device classification cache used
-        /// by `pruneStaleBundles` to gate auto-retract on a two-stale
-        /// healthy-observation lineage. Stored on the service rather than the
-        /// module so the cache survives reconnects (modules are rebuilt per
-        /// reconnect; the service is held by `AppEnvironment` and outlives
-        /// them). `accountID` is an opaque String (the service's
-        /// `UUID.uuidString` in production) so this file does not need to
-        /// import Foundation; `accountJID` is the wire-keyed JID string used
-        /// by the persistence layer (`OMEMOStore` rows are keyed by JID, not
-        /// by account UUID).
+        /// See `OMEMOService.seenDeviceCacheByAccount` for the cache-survival rationale and the opaque-`accountID` contract.
         var seenDeviceClassificationProvider: (any SeenDeviceClassificationProviding)?
         var seenDeviceClassificationAccountID: String?
         var emergencyRetractGuard: (any EmergencyRetractGuarding)?
@@ -115,7 +106,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Public API
 
-    /// Exports the current identity as serializable data for persistence.
     public var ownIdentityData: OMEMOIdentityData? {
         state.withLock { state in
             guard let identity = state.ownIdentity else { return nil }
@@ -137,25 +127,15 @@ public final class OMEMOModule: XMPPModule, Sendable {
         state.withLock { $0.pendingIdentity = data }
     }
 
-    /// Sets a callback invoked during session establishment to verify the peer's identity key.
-    ///
-    /// The validator receives `(peerJID, deviceID, identityKey)` and should throw
-    /// if the key is untrusted or mismatched. Called before X3DH key agreement.
+    /// Verifies the peer's identity key during session establishment (before X3DH key agreement).
+    /// Receives `(peerJID, deviceID, identityKey)`; throw to reject.
     public func setIdentityKeyValidator(
         _ validator: (@Sendable (BareJID, UInt32, [UInt8]) async throws -> Void)?
     ) {
         state.withLock { $0.identityKeyValidator = validator }
     }
 
-    /// Wires the seen-device classification provider used by
-    /// ``pruneStaleBundles(ownDeviceID:ownDeviceList:)`` to gate auto-retract
-    /// on a two-stale healthy-observation lineage. The provider is shared
-    /// per-account by `OMEMOService`, which holds the cache across reconnects.
-    ///
-    /// DuckoXMPP carries only the opaque `accountID` token (a String the
-    /// service treats as its `UUID.uuidString`). The persistence-side
-    /// JID lookup happens on the service side because `OMEMOStore` rows
-    /// are keyed by JID, not by accountID.
+    /// Wires the seen-device classification provider for `pruneStaleBundles`. See `SeenDeviceClassificationProviding` for the cache contract.
     package func configureSeenDeviceClassificationProvider(
         _ provider: any SeenDeviceClassificationProviding,
         accountID: String
@@ -166,12 +146,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         }
     }
 
-    /// Wires the emergency-retract confirmation closure and reentrancy guard
-    /// used by ``pruneStaleBundles(ownDeviceID:ownDeviceList:)`` to recover
-    /// from over-cap devicelist accumulation. Both live on `OMEMOService` —
-    /// the closure surfaces to UI; the in-flight guard must survive reconnects
-    /// mid-retract (modules are rebuilt per reconnect, the service is not).
-    /// `orphanPurger` deletes trust/session rows for retracted own-deviceIDs.
+    /// Wires the emergency-retract dependencies. See `EmergencyRetractGuarding` for the reconnect-survival rationale; `orphanPurger` deletes trust/session rows for retracted own-deviceIDs.
     package func configureEmergencyRetract(
         confirmation: EmergencyRetractConfirmation?,
         guard inFlightGuard: any EmergencyRetractGuarding,
@@ -227,14 +202,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
         }
     }
 
-    /// Fetches device IDs for a JID. Returns the cached list when available;
-    /// pass `forceRefresh: true` to bypass the cache and pull from PEP.
-    ///
-    /// A forced refresh updates the module cache and emits
-    /// `.omemoDeviceListReceived` so downstream services (trust store, UI)
-    /// observe the new list exactly as they would for a +notify. Without a
-    /// force, the cache hit path is silent — callers that need the store to
-    /// reflect the peer's current publish must opt into a refresh.
+    /// Fetches device IDs for a JID. Cache hit is silent; pass `forceRefresh: true` to pull from PEP and emit
+    /// `.omemoDeviceListReceived` (so trust store / UI observe it as they would a +notify).
     public func fetchDeviceList(
         for jid: BareJID, forceRefresh: Bool = false
     ) async throws -> [UInt32] {
@@ -252,13 +221,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return devices
     }
 
-    /// Encrypts a message for the recipient's devices.
-    ///
-    /// - Parameters:
-    ///   - plaintext: Message body to encrypt.
-    ///   - recipientJID: The recipient's bare JID.
-    ///   - recipientDeviceIDs: Specific device IDs to encrypt for, or `nil` to encrypt for all known devices.
-    ///   - ownDeviceIDs: Specific own device IDs to encrypt for, or `nil` to encrypt for all own devices.
+    /// Encrypts a 1:1 message. `recipientDeviceIDs`/`ownDeviceIDs` nil means "all known".
     public func encryptMessage(
         plaintext: String,
         to recipientJID: BareJID,
@@ -278,14 +241,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         )
     }
 
-    /// Encrypts a message for multiple recipients (group chat OMEMO).
-    ///
-    /// - Parameters:
-    ///   - plaintext: Message body to encrypt.
-    ///   - roomJID: The MUC bare JID; used to label `omemoRecipientsPartial`
-    ///     events for downstream correlation.
-    ///   - recipients: Per-recipient JID and device IDs.
-    ///   - ownDeviceIDs: Specific own device IDs to encrypt for, or `nil` to encrypt for all own devices.
+    /// Encrypts a group message. `roomJID` labels emitted `omemoRecipientsPartial` events for correlation.
     public func encryptGroupMessage(
         plaintext: String,
         roomJID: BareJID,
@@ -301,13 +257,9 @@ public final class OMEMOModule: XMPPModule, Sendable {
         )
     }
 
-    /// Shared encrypt pipeline for 1:1 and group OMEMO sends. Throws
-    /// `noUsableRecipientDevices` when every peer device's bundle was
-    /// missing — covers both the "PEP list empty" case and the "every
-    /// listed device returned item-not-found" case, which are otherwise
-    /// indistinguishable from a lost message to the recipient. `conversation`
-    /// labels the emitted `omemoRecipientsPartial` event (peer JID for 1:1,
-    /// room JID for group).
+    /// Shared encrypt pipeline. Throws `noUsableRecipientDevices` when every peer bundle was missing — empty-PEP-list
+    /// and all-item-not-found are otherwise indistinguishable from a silent drop. `conversation` labels emitted
+    /// `omemoRecipientsPartial` events (peer or room JID).
     private func encryptForDevices(
         plaintext: String,
         peerDevices: [(jid: BareJID, deviceID: UInt32)],
@@ -353,23 +305,15 @@ public final class OMEMOModule: XMPPModule, Sendable {
         let updatedEntry: SessionEntry
     }
 
-    /// Bulk result of encrypting a content key for many devices: successful
-    /// per-device key elements plus the subset that was skipped because no
-    /// bundle could be fetched. The dropped subset is what `encryptMessage` /
-    /// `encryptGroupMessage` need to surface via `omemoRecipientsPartial`.
+    /// Encryption results plus the subset dropped because no bundle could be fetched (surfaced via `omemoRecipientsPartial`).
     private struct EncryptionBatch {
         var results: [EncryptionResult]
         var dropped: [DroppedOMEMORecipient]
     }
 
-    /// Maximum number of concurrent per-recipient bundle fetches during
-    /// encrypt. Without bounding fan-out, a peer with thousands of devices
-    /// would spawn N concurrent IQ fetches per send and saturate SM ack
-    /// windows (observed at 950+ devices). The cap doesn't restrict total
-    /// recipients, only in-flight fetches; chunked iteration completes
-    /// every device. Value chosen empirically: 64 is small enough that
-    /// SM windows don't fill, large enough to amortize TLS handshakes on
-    /// realistic device counts.
+    /// Cap on concurrent per-recipient bundle fetches during encrypt. Without bounding, a peer with thousands of
+    /// devices saturates SM ack windows (observed at 950+). 64 stays below SM-window pressure while amortizing TLS
+    /// handshakes; chunked iteration still completes every device.
     private static let encryptConcurrencyCap = 64
 
     private func encryptKeysInParallel(
@@ -380,15 +324,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
             Set(devices.map { SessionKey(jid: $0.jid, deviceID: $0.deviceID) }).count == devices.count,
             "Duplicate devices would corrupt Double Ratchet sessions"
         )
-        // XEP-0384 §5.4: A device listed without a published bundle is not an
-        // error state — skip it instead of aborting the whole send. Guards the
-        // sender against stale PEP device-list entries whose bundle was never
-        // (or no longer) published.
-        //
-        // Chunk via `stride` + per-chunk `withThrowingTaskGroup`, mirroring
-        // the bounded-parallel idiom already used in `classifyBundleProbes`.
-        // Each chunk completes before the next starts, so at most
-        // `encryptConcurrencyCap` IQ fetches are in flight at a time.
+        // XEP-0384 §5.4: a listed device without a bundle is not an error — skip it (guards against stale PEP entries).
+        // Chunked via `stride` + per-chunk `withThrowingTaskGroup` so at most `encryptConcurrencyCap` fetches are in flight.
         enum Outcome: Sendable {
             case encrypted(EncryptionResult)
             case dropped(DroppedOMEMORecipient)
@@ -614,46 +551,20 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     // MARK: - Stale Bundle Pruning
 
-    /// Maximum number of peer deviceIDs to probe in a single prune cycle.
-    /// A malicious or compromised PEP server can return an arbitrarily large
-    /// own-device list; without a cap, every reconnect would issue thousands
-    /// of bundle-probe IQs, blocking connect and saturating logs/network.
-    /// 64 is generous for any realistic legitimate user (own devices on one
-    /// account) and small enough to bound the worst case.
+    /// Cap on peer-device probes per prune. A hostile PEP server could return an arbitrarily large own-device list;
+    /// without a cap, every reconnect issues thousands of IQs. 64 is generous for legitimate users.
     private static let pruneProbeCap = 64
 
-    /// Threshold of consecutive `.stale` observations after a prior `.healthy`
-    /// before auto-retract fires. The "two strikes after a confirmed-healthy
-    /// observation" gate defends against a malicious own-server answering
-    /// `item-not-found` for a real sibling's bundle on a single reconnect to
-    /// coerce a retract: one stale alone never retracts, only a confirmed
-    /// streak does.
+    /// Two-stale gate threshold: requires a prior `.healthy` then two consecutive `.stale` observations before auto-retract.
+    /// Defends against a hostile own-server answering `item-not-found` for a real sibling's bundle on a single reconnect.
     private static let staleRetractStreakThreshold = 2
 
-    /// Probes each peer device's bundle on the published own-device list,
-    /// classifies the response, and auto-retracts orphan bundle nodes when
-    /// the per-device classification history (kept across reconnects on
-    /// `OMEMOService`) shows a healthy → stale → stale lineage. First
-    /// observation is always warn-only; an `unseen → stale → stale`
-    /// trajectory without a prior `.healthy` never retracts.
+    /// Probes each peer-listed bundle, classifies the response, and auto-retracts orphans when the per-device lineage
+    /// (kept on `OMEMOService` across reconnects) shows `healthy → stale → stale`. First-observation never retracts.
     ///
-    /// On an over-cap list (`peerDeviceIDs.count > pruneProbeCap`) the prune
-    /// invokes the optional emergency-retract closure on the service. If the
-    /// closure returns `true`, the path publishes a singleton devicelist
-    /// first (mirroring `retractAndRePublish`'s rollback-safe ordering),
-    /// then best-effort retracts every non-own bundle node, purges orphan
-    /// trust/session rows, and resets the cache to a singleton baseline.
-    ///
-    /// - Parameters:
-    ///   - ownDeviceID: This client's device ID; never probed/retracted.
-    ///   - ownDeviceList: The current device-list contents at PEP.
-    /// - Returns: The (possibly trimmed) device list.
-    /// - Throws: Only when the post-pruning `publishDeviceList(_:)` re-publish
-    ///   fails. Per-device probe failures are swallowed (logged at
-    ///   `.warning`) so a transient PEP error never aborts the connect chain.
-    /// Bundle of per-account slots resolved from `state` at the top of
-    /// `pruneStaleBundles`. Carrying them in one struct keeps the
-    /// extracted helper functions under the function-parameter-count cap.
+    /// Over-cap path (`peerDeviceIDs.count > pruneProbeCap`): invokes the emergency-retract closure; on confirm,
+    /// publishes a singleton devicelist first (rollback-safe), retracts every non-own bundle, purges orphans, and
+    /// resets the cache to a singleton baseline. Throws only when the re-publish fails.
     private struct PruneContext {
         let provider: (any SeenDeviceClassificationProviding)?
         let accountID: String?
@@ -678,9 +589,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
         // Empty peer-list path: drop any leftover sibling records the cache
         // still carries so the next list-regrowth sees the new IDs as
-        // truly unseen. The old "anchor to whatever PEP currently lists"
-        // pattern is replaced — membership is now decoupled from
-        // classification.
+        // truly unseen. Membership is decoupled from classification.
         guard !peerDeviceIDs.isEmpty else {
             if let provider = context.provider, let accountID = context.accountID {
                 await provider.clearSeenDevicesAbsent(from: Set([ownDeviceID]), accountID: accountID)
@@ -728,9 +637,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return await provider.loadSeenDevices(accountID: accountID)
     }
 
-    /// Folds the per-device classification results into updated records
-    /// plus the retract list. Pulled out so the parent function stays
-    /// under the function-body-length lint cap.
+    /// Folds the per-device classification results into updated records and the retract list.
     private func computeProbeOutcome(
         classifications: [(id: UInt32, classification: BundleClassification)],
         previousRecords: [UInt32: SeenDeviceRecord]
@@ -787,18 +694,12 @@ public final class OMEMOModule: XMPPModule, Sendable {
         }
     }
 
-    /// Result of folding one bundle-probe classification into the
-    /// per-device seen-device record: the updated record to persist and a
-    /// flag indicating whether the gate fires (retract this device).
     private struct SeenDeviceProgress {
         let record: SeenDeviceRecord
         let shouldRetract: Bool
     }
 
-    /// Folds a single classification result into the per-device seen-device
-    /// record. Extracted from `pruneStaleBundles` so the gate's transition
-    /// logic stays under the cyclomatic-complexity lint cap and is easier to
-    /// reason about in isolation.
+    /// Folds a single classification result into the per-device seen-device record.
     private func nextSeenDeviceRecord(
         deviceID: UInt32,
         classification: BundleClassification,
@@ -835,10 +736,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         }
     }
 
-    /// Stale-branch of `nextSeenDeviceRecord`: increments the streak,
-    /// preserves the `hasObservedHealthy` flag, and decides whether the
-    /// two-stale gate fires. Split out so the parent function stays under
-    /// the cyclomatic-complexity cap.
+    /// Stale-branch of `nextSeenDeviceRecord`: increments the streak, preserves `hasObservedHealthy`, and fires the two-stale gate when both pass.
     private func staleSeenDeviceProgress(
         deviceID: UInt32,
         previous: SeenDeviceRecord?
@@ -883,12 +781,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
         }
     }
 
-    /// Publishes a singleton devicelist (`[ownDeviceID]`) FIRST, then
-    /// best-effort retracts each non-own bundle node, purges orphan
-    /// trust/session rows for the retracted own-deviceIDs, and installs a
-    /// clean singleton baseline in the seen-device cache. Mirrors
-    /// `retractAndRePublish`'s publish-first ordering: if the publish fails
-    /// the subsequent retracts are not attempted and PEP is unchanged.
+    /// Singleton-publish → bundle-retract → orphan-purge → cache-reset. Publishes first so a publish failure leaves
+    /// PEP untouched (mirrors `retractAndRePublish`'s ordering).
     private func performEmergencyRetract(
         ownDeviceID: UInt32,
         ownDeviceList: [UInt32],
@@ -950,10 +844,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return trimmedList
     }
 
-    /// Probes each peer device's bundle node and classifies the response.
-    /// Caps concurrency at 4 by chunking — `withTaskGroup` does not have a
-    /// built-in concurrency limiter but slicing into windows of 4 achieves
-    /// the same effect with no extra primitives.
+    /// Probes each peer-device bundle and classifies the response. Concurrency capped at 4 by chunking (`withTaskGroup` has no built-in limiter).
     private func classifyBundleProbes(
         deviceIDs: [UInt32]
     ) async -> [(id: UInt32, classification: BundleClassification)] {
@@ -982,13 +873,8 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return classifications
     }
 
-    /// Classifies a peer device's bundle. Only `item-not-found` and
-    /// successfully-parsed-as-empty responses count as `.stale`; an empty
-    /// `<items/>` list is ambiguous (e.g. a hostile or replicating server
-    /// answering empty for a live bundle), so it falls into `.transient`. A
-    /// listed bundle item whose payload fails `parseBundleElement` would be
-    /// `bundleNotFound` to the encrypt path, so we classify it as `.stale`
-    /// here for symmetry.
+    /// Classifies a peer-device bundle: `item-not-found` or payload-parse-failure → `.stale`; empty `<items/>` list →
+    /// `.transient` (ambiguous, possibly a hostile server answering empty for a live bundle); healthy parse → `.healthy`.
     private func probeBundle(
         deviceID: UInt32
     ) async -> (id: UInt32, classification: BundleClassification) {
@@ -1016,11 +902,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         }
     }
 
-    /// Re-publishes the trimmed device list FIRST so a subsequent retract
-    /// failure leaves PEP no worse off — a future `fetchBundle` on a
-    /// still-orphan bundle is harmless because the device list no longer
-    /// names it. After re-publish, retracts each orphan bundle, then updates
-    /// in-memory cache and merges classification updates.
+    /// Publishes the trimmed list FIRST so a retract failure leaves PEP no worse off — a `fetchBundle` on a still-orphan bundle is harmless once the list no longer names it.
     private func retractAndRePublish(
         retractIDs: [UInt32],
         ownDeviceList: [UInt32],
@@ -1048,11 +930,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
             state.withLock { $0.deviceLists[connectedJID] = trimmedList }
         }
         if let provider, let accountID {
-            // Drop records for retracted IDs from the updates we're about to
-            // persist; they're gone from PEP and we don't want them coming
-            // back via merge. `clearSeenDevicesAbsent` then deletes the
-            // corresponding cache rows so the next prune sees a clean slate
-            // for the IDs that disappeared.
+            // Drop retracted IDs from the merge; `clearSeenDevicesAbsent` then deletes the corresponding store rows so the next prune sees a clean slate.
             var survivingUpdates = updatedRecords
             for id in retractIDs {
                 survivingUpdates.removeValue(forKey: id)
@@ -1723,8 +1601,6 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return fields
     }
 
-    // MARK: - Helpers
-
     private func bundleNodeName(
         _ deviceID: UInt32
     ) -> String {
@@ -1782,10 +1658,7 @@ public extension OMEMOModule {
         public let encryption: XMLElement
         /// Fallback body for non-OMEMO clients.
         public let fallbackBody: String
-        /// Recipient devices that were skipped because no bundle could be
-        /// fetched (`item-not-found` / `bundleNotFound`). Empty in the common
-        /// path; non-empty signals partial recipient coverage. Defaulted on
-        /// the explicit init so existing call sites keep working.
+        /// Devices skipped because no bundle was fetchable (`item-not-found` / `bundleNotFound`). Non-empty signals partial coverage.
         public let droppedRecipients: [DroppedOMEMORecipient]
 
         public init(
@@ -1874,11 +1747,7 @@ extension OMEMOModule: OMEMOIdentityProviding {}
 
 // MARK: - Seen Device Classification
 
-/// Probe outcome classification used by ``OMEMOModule/pruneStaleBundles`` to
-/// decide whether a peer device's PEP-listed bundle is healthy, missing
-/// (`.stale`), or in an ambiguous state we should not act on yet
-/// (`.transient`). Promoted to `package` Sendable+Codable so the seen-device
-/// classification cache crosses the DuckoXMPP→DuckoCore boundary intact.
+/// Bundle probe outcome: `.healthy`, `.stale` (missing/unparseable), or `.transient` (ambiguous — do not act).
 package enum BundleClassification: String, Codable {
     case stale
     case healthy
@@ -1915,58 +1784,33 @@ package struct SeenDeviceRecord: Equatable, Codable {
     }
 }
 
-/// Read/write access to a per-account seen-device classification cache.
-/// `OMEMOService` (which outlives reconnects) stores the cache and conforms;
-/// `OMEMOModule.pruneStaleBundles` reads it to gate auto-retract on a
-/// two-stale healthy-observation lineage, then merges per-device deltas
-/// back. All methods are non-throwing — the service-side implementation
-/// absorbs `OMEMOStore` errors and falls back to in-memory state rather
-/// than aborting the prune pipeline.
-///
-/// `accountID` is an opaque String — DuckoXMPP cannot import Foundation
-/// (because `XMLElement` would clash with `NSXMLElement`), so the token is
-/// passed through as a plain String. In production it is the consumer's
-/// `UUID.uuidString`; tests can use any unique string.
+/// Read/write access to the per-account seen-device classification cache.
+/// See `OMEMOService.seenDeviceCacheByAccount` for the cache-survival rationale and the opaque-`accountID` contract.
+/// Non-throwing — the service-side implementation absorbs `OMEMOStore` errors so the prune pipeline does not abort.
 package protocol SeenDeviceClassificationProviding: Sendable {
-    /// Returns the in-memory cache for `accountID`, lazy-loading from the
-    /// persistent store on first read per account. Coalesces concurrent
-    /// first-load callers via an in-flight `Task` cache.
+    /// Returns the cache for `accountID`, lazy-loading from the store on first read; coalesces concurrent first-loads.
     func loadSeenDevices(accountID: String) async -> [UInt32: SeenDeviceRecord]
 
-    /// Merges per-device updates into the cache (last-write-wins per
-    /// deviceID) and upserts only the delta rows in the store.
+    /// Merges per-device updates (last-write-wins per deviceID) and upserts only the delta rows.
     func mergeSeenDevices(_ updates: [UInt32: SeenDeviceRecord], accountID: String) async
 
-    /// Drops rows whose deviceID is not in `currentDeviceIDs`. Used both to
-    /// clear sibling records when the published list shrinks and to defend
-    /// against a peer's "old healthy survives after disappearance" attack.
+    /// Drops rows whose deviceID is not in `currentDeviceIDs` — defends against the "old healthy survives after disappearance" attack.
     func clearSeenDevicesAbsent(from currentDeviceIDs: Set<UInt32>, accountID: String) async
 
-    /// Replaces the cache wholesale with `records`. Used by the emergency-
-    /// retract path to install a clean singleton baseline; delta-merge would
-    /// leave old sibling rows in the cache and re-trigger the gate on the
-    /// next prune.
+    /// Wholesale replace. Used by emergency-retract to install a singleton baseline; delta-merge would leave old sibling rows and re-trigger the gate.
     func replaceSeenDevices(_ records: [UInt32: SeenDeviceRecord], accountID: String) async
 }
 
-/// Returned from the over-cap emergency-retract confirmation closure;
-/// `true` authorizes publish-singleton + bundle retract + orphan cleanup.
+/// Returned from the over-cap emergency-retract confirmation closure; `true` authorizes publish-singleton + retract + cleanup.
 package typealias EmergencyRetractConfirmation = @Sendable (_ deviceCount: Int, _ ownDeviceID: UInt32) async -> Bool
 
-/// Service-side reentrancy guard for the emergency-retract path. Lives on
-/// `OMEMOService` (not the module) because the module is rebuilt per
-/// reconnect and the in-flight flag must survive a mid-retract reconnect —
-/// otherwise a second prune entering after the new module is built could
-/// re-prompt the user while the publish/retract phase is still running.
+/// Service-side reentrancy guard for the emergency-retract path.
+/// Lives on `OMEMOService` so the in-flight flag survives a mid-retract module rebuild (see `seenDeviceCacheByAccount` for the same reconnect rationale).
 package protocol EmergencyRetractGuarding: Sendable {
-    /// Atomically checks and sets the in-flight flag for `accountID`.
-    /// Returns `true` if the caller claimed it (was not already in flight);
-    /// `false` otherwise.
+    /// Atomically checks and sets the in-flight flag. Returns `true` iff the caller claimed it.
     func tryClaimInFlight(accountID: String) async -> Bool
 
-    /// Clears the in-flight flag for `accountID`. Called via `defer` across
-    /// the entire publish/retract path so a second prune sees in-flight=true
-    /// for the whole duration, not just the closure await.
+    /// Clears the in-flight flag. Called via `defer` across the entire publish/retract path.
     func releaseInFlight(accountID: String) async
 }
 

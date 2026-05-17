@@ -178,7 +178,6 @@ public actor FileTranscriptStore: TranscriptStore {
             if result.count >= limit { break }
         }
 
-        // Sort by timestamp descending (newest first), take limit
         result.sort { $0.timestamp > $1.timestamp }
         return Array(result.prefix(limit))
     }
@@ -229,16 +228,9 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     public func messageExists(stanzaID: String, fromJID: String, conversationID: UUID) async throws -> Bool {
-        // Inbound-only dedup. Outgoing 1:1 messages persist `fromJID` as the
-        // RECIPIENT (so server carbon copies can find the row via stanzaID),
-        // so without an `!isOutgoing` filter a fresh inbound from bob whose
-        // `stanzaID` happens to match an outgoing alice→bob row would dedup
-        // against alice's outbound and be silently dropped.
-        //
-        // Fast path: check the stanza index (it's a 1:1 map, so it only
-        // resolves to the most-recently-indexed message for this stanzaID).
-        // Fall through to the per-file scan when the index points at the
-        // wrong sender or an outgoing row.
+        // Inbound-only dedup: outgoing 1:1 rows persist `fromJID` as the RECIPIENT (so carbons can find them), so
+        // omitting `!isOutgoing` would let an inbound from bob alias an outgoing alice→bob row and be dropped.
+        // Stanza index is 1:1 (last-write-wins) so falls through to per-file scan when it points at the wrong sender.
         let predicate: (ChatMessage) -> Bool = { msg in
             !msg.isOutgoing && msg.stanzaID == stanzaID && msg.fromJID == fromJID
         }
@@ -313,13 +305,11 @@ public actor FileTranscriptStore: TranscriptStore {
         var earliest: Date?
         var latest: Date?
 
-        // Check the oldest file for earliest
         if let (_, oldestURL) = dateFiles.last {
             let messages = try readAndMaterialize(fileURL: oldestURL, conversationID: conversationID)
             earliest = messages.min(by: { $0.timestamp < $1.timestamp })?.timestamp
         }
 
-        // Check the newest file for latest
         if let (_, newestURL) = dateFiles.first {
             let messages = try readAndMaterialize(fileURL: newestURL, conversationID: conversationID)
             latest = messages.max(by: { $0.timestamp < $1.timestamp })?.timestamp
@@ -336,7 +326,6 @@ public actor FileTranscriptStore: TranscriptStore {
         if FileManager.default.fileExists(atPath: dir.path) {
             try FileManager.default.removeItem(at: dir)
         }
-        // Purge index entries for this conversation
         stanzaIndex = stanzaIndex.filter { $0.value.0 != conversationID }
         serverIndex = serverIndex.filter { $0.value.0 != conversationID }
     }
@@ -349,8 +338,6 @@ public actor FileTranscriptStore: TranscriptStore {
         let data = try metaEncoder.encode(metadata)
         try data.write(to: metaURL, options: .atomic)
     }
-
-    // MARK: - Private Helpers
 
     private func conversationDirectory(for conversationID: UUID) -> URL {
         baseDirectory.appendingPathComponent(conversationID.uuidString, isDirectory: true)
@@ -409,7 +396,7 @@ public actor FileTranscriptStore: TranscriptStore {
         handle.write(data)
     }
 
-    /// Scans all date files for a conversation and returns the first message matching the predicate.
+    /// Walks date files newest-first and returns the first message matching the predicate.
     private func findMessage(
         in conversationID: UUID, where predicate: (ChatMessage) -> Bool
     ) throws -> ChatMessage? {
@@ -440,7 +427,6 @@ public actor FileTranscriptStore: TranscriptStore {
         return contents.compactMap { UUID(uuidString: $0.lastPathComponent) }
     }
 
-    // Reads a single JSONL file, parses records, and materializes messages with amendments applied.
     // swiftlint:disable:next cyclomatic_complexity
     private func readAndMaterialize(fileURL: URL, conversationID: UUID) throws -> [ChatMessage] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }

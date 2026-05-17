@@ -31,7 +31,6 @@ public enum XMPPRegistrationClient {
 
             try await negotiateStream(connection: connection, reader: reader, domain: domain)
 
-            // Send registration query
             var iq = XMPPIQ(type: .get, id: "reg1")
             let query = XMLElement(name: "query", namespace: XMPPNamespaces.register)
             iq.element.addChild(query)
@@ -74,7 +73,6 @@ public enum XMPPRegistrationClient {
 
             try await negotiateStream(connection: connection, reader: reader, domain: domain)
 
-            // Build registration IQ
             var iq = XMPPIQ(type: .set, id: "reg1")
             let query = RegistrationModule.buildRegistrationQuery(username: username, password: password, email: email)
             iq.element.addChild(query)
@@ -108,14 +106,11 @@ public enum XMPPRegistrationClient {
         }
     }
 
-    // MARK: - Private
-
     private static func negotiateStream(
         connection: XMPPConnection,
         reader: EventReader,
         domain: String
     ) async throws {
-        // Open stream
         try await connection.send(XMPPStreamWriter.streamOpening(to: domain))
         let features = try await awaitFeatures(reader)
 

@@ -6,7 +6,6 @@ enum XMLStreamEvent {
     case stanzaReceived(XMLElement)
     /// The closing `</stream:stream>` tag has been received.
     case streamClosed
-    /// A parse error occurred.
     case error(XMLStreamParseError)
 }
 

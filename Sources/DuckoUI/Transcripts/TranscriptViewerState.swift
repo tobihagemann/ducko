@@ -26,7 +26,6 @@ final class TranscriptViewerState {
     var searchResults: Set<UUID> = []
     var searchMatchDates: Set<Date> = []
 
-    /// Loading
     var isLoading = false
 
     private let environment: AppEnvironment
@@ -40,14 +39,12 @@ final class TranscriptViewerState {
     var filteredConversations: [Conversation] {
         var result = allConversations
 
-        // Type filter
         switch typeFilter {
         case .all: break
         case .chats: result = result.filter { $0.type == .chat }
         case .rooms: result = result.filter { $0.type == .groupchat }
         }
 
-        // Search filter
         if !searchText.isEmpty {
             result = result.filter { conversation in
                 let name = conversation.displayName ?? conversation.jid.description

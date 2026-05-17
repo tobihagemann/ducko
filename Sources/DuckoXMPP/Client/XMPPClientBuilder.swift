@@ -18,7 +18,7 @@ public struct XMPPClientBuilder {
         self.requireTLS = requireTLS
     }
 
-    /// Sets a preferred resource for binding (optional, server may ignore it).
+    /// Sets a preferred resource for binding. Server may ignore it.
     public mutating func withPreferredResource(_ resource: String?) {
         preferredResource = resource
     }
@@ -28,17 +28,15 @@ public struct XMPPClientBuilder {
         self.transport = transport
     }
 
-    /// Adds a stanza interceptor to be registered on the client.
     public mutating func withInterceptor(_ interceptor: any StanzaInterceptor) {
         interceptors.append(interceptor)
     }
 
-    /// Adds a module to be registered on the client.
     public mutating func withModule(_ module: any XMPPModule) {
         modules.append(module)
     }
 
-    /// Creates and configures the client. Must be `async` because ``XMPPClient/register(_:)`` is actor-isolated.
+    /// `async` because ``XMPPClient/register(_:)`` is actor-isolated.
     public func build() async -> XMPPClient {
         let client = XMPPClient(
             domain: domain,

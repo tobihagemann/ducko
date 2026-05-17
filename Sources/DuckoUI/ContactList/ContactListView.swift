@@ -62,23 +62,15 @@ struct ContactListView: View {
         }
         .listStyle(.sidebar)
         .accessibilityIdentifier("contact-list")
-        // AX-only connectivity gate. UI integration tests poll
-        // `kAXValueAttribute` on `contact-list` and wait for "connected" —
-        // `contact-row-*` can render from the cached roster before the new
-        // client finishes binding, so a row by itself is not a safe
-        // connectivity gate. `.accessibilityValue` is the documented modifier
-        // for exposing dynamic state on a SwiftUI accessibility element, and
-        // it propagates reliably to the bridged `kAXValueAttribute` on the
-        // List's AX representation (a Button / overlay sentinel does not —
-        // SwiftUI elides zero-frame / decorative primitives from the AX tree
-        // and drops the identifier with them).
+        // AX-only connectivity gate at `contact-list`. `.accessibilityValue` propagates to `kAXValueAttribute` on
+        // the List's AX element; a Button/overlay sentinel doesn't (SwiftUI elides zero-frame primitives from the
+        // AX tree). Tests wait for "connected" because `contact-row-*` can render from cached roster before bind completes.
         .accessibilityValue(hasConnectedAccount ? "connected" : "connecting")
     }
 
     private var sortedAndFilteredGroups: [ContactGroup] {
         let groups = environment.rosterService.groups
 
-        // Apply search filter
         let searched: [ContactGroup] = if searchText.isEmpty {
             groups
         } else {
@@ -92,7 +84,6 @@ struct ContactListView: View {
             }
         }
 
-        // Filter offline contacts
         let filtered: [ContactGroup] = if preferences.hideOffline {
             searched.compactMap { group in
                 let onlineContacts = group.contacts.filter { contact in
@@ -105,7 +96,6 @@ struct ContactListView: View {
             searched
         }
 
-        // Sort contacts within groups
         return filtered.map { group in
             let sorted = sortContacts(group.contacts)
             return ContactGroup(id: group.id, name: group.name, contacts: sorted)
@@ -159,8 +149,6 @@ struct ContactListView: View {
     }
 }
 
-// MARK: - RoomRowWithMenu
-
 private struct RoomRowWithMenu: View {
     @Environment(AppEnvironment.self) private var environment
     let conversation: Conversation
@@ -209,8 +197,6 @@ private struct RoomRowWithMenu: View {
             }
     }
 }
-
-// MARK: - InviteUserSheet
 
 private struct InviteUserSheet: View {
     @Environment(AppEnvironment.self) private var environment
@@ -281,8 +267,6 @@ private struct InviteUserSheet: View {
     }
 }
 
-// MARK: - ContactRowWithMenu
-
 private struct ContactRowWithMenu: View {
     let contact: Contact
     @State private var isShowingRenameSheet = false
@@ -301,8 +285,6 @@ private struct ContactRowWithMenu: View {
             }
     }
 }
-
-// MARK: - RenameContactSheet
 
 private struct RenameContactSheet: View {
     @Environment(AppEnvironment.self) private var environment

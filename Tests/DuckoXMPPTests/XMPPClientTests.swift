@@ -923,12 +923,8 @@ enum XMPPClientTests {
 
             await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
 
-            // First response carries no `from` — must be REJECTED. We confirm
-            // that the pending IQ is still waiting by following with a valid
-            // response from the peer carrying a distinguishable child element.
-            // If the no-`from` response had incorrectly matched, `iqTask` would
-            // already have returned `<reject/>` and the second response would
-            // be dropped.
+            // First response (no `from`) must NOT match. The follow-up from the legitimate sender carries `<accept/>`
+            // so the test fails loudly if the bad response was incorrectly matched.
             await mock.simulateReceive(
                 "<iq type='result' id='test-peer-no-from'><reject/></iq>"
             )
@@ -966,12 +962,8 @@ enum XMPPClientTests {
 
             await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
 
-            // First response is spoofed (`from=user@example.com == ownBare`);
-            // matcher must reject it. We confirm by following with a valid
-            // response from the actual peer carrying a distinguishable child
-            // element — if the spoofed response had matched, `iqTask` would
-            // already have returned `<reject/>` and the second response would
-            // be dropped.
+            // First response is spoofed (`from=user@example.com == ownBare`); matcher must reject it. The follow-up
+            // from the legitimate peer carries `<accept/>` so the test fails loudly if the spoofed response was matched.
             await mock.simulateReceive(
                 "<iq type='result' id='test-peer-spoofed' from='user@example.com'><reject/></iq>"
             )

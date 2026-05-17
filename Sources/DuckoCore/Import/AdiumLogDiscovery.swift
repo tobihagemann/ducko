@@ -1,6 +1,5 @@
 import Foundation
 
-/// Represents a discovered Adium service/account directory with its contacts and file counts.
 public struct AdiumServiceAccount: Sendable {
     public let service: String
     public let accountUID: String

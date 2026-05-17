@@ -410,7 +410,6 @@ struct SwiftDataPersistenceStoreTests {
         func `Delete nonexistent account is no-op`() async throws {
             let store = try outer.makeStore()
             try await store.deleteAccount(UUID())
-            // No error thrown
         }
     }
 }

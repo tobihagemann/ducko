@@ -69,10 +69,8 @@ public final class HTTPUploadModule: XMPPModule, Sendable {
             throw HTTPUploadError.notConnected
         }
 
-        // Query disco#items on the domain
         let items = try await queryItems(context: context)
 
-        // Check each item for the HTTP upload feature
         for item in items {
             let info: DiscoInfoResult
             do {
@@ -99,12 +97,10 @@ public final class HTTPUploadModule: XMPPModule, Sendable {
         size: Int64,
         contentType: String
     ) async throws -> UploadSlot {
-        // Discover if not cached
         guard let service = try await discoverUploadService() else {
             throw HTTPUploadError.noUploadServiceFound
         }
 
-        // Check max file size
         if let maxSize = service.maxFileSize, size > maxSize {
             throw HTTPUploadError.fileTooLarge(maxSize: maxSize)
         }
@@ -117,7 +113,6 @@ public final class HTTPUploadModule: XMPPModule, Sendable {
             throw HTTPUploadError.slotRequestFailed("Invalid service JID: \(service.jid)")
         }
 
-        // Build slot request IQ
         var iq = XMPPIQ(type: .get, to: serviceJID, id: context.generateID())
         let request = XMLElement(
             name: "request",

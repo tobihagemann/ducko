@@ -51,8 +51,6 @@ final class ContactListPreferences {
         }
     }
 
-    // MARK: - Private
-
     private func saveCollapsedGroups() {
         if let data = try? JSONEncoder().encode(Array(collapsedGroups)),
            let json = String(data: data, encoding: .utf8) {

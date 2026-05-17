@@ -117,8 +117,6 @@ public final class PresenceModule: XMPPModule, Sendable {
         try await context.sendStanza(presence)
     }
 
-    // MARK: - Private
-
     /// Handles subscription-related presence types. Returns `true` if the presence was handled.
     @discardableResult
     private func handleSubscriptionPresence(from: JID, type: XMPPPresence.PresenceType?, context: ModuleContext?) -> Bool? {

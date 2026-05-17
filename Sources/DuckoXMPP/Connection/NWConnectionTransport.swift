@@ -47,11 +47,9 @@ actor NWConnectionTransport: XMPPTransport {
         // Prevent the old connection's receive callback from finishing the stream
         isUpgrading.store(true, ordering: .releasing)
 
-        // Cancel the existing plain-text connection
         conn.cancel()
         connection = nil
 
-        // Create a new connection with TLS
         let tlsOptions = NWProtocolTLS.Options()
         sec_protocol_options_set_tls_server_name(tlsOptions.securityProtocolOptions, serverName)
 
@@ -89,8 +87,6 @@ actor NWConnectionTransport: XMPPTransport {
         connection = nil
         receivedContinuation.finish()
     }
-
-    // MARK: - Private
 
     private func startConnection(_ conn: NWConnection) async throws {
         let stateStream = AsyncThrowingStream<Void, any Error> { continuation in

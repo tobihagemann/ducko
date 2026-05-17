@@ -225,8 +225,6 @@ struct SASL2Authenticator {
         return parseSuccessJID(stanza)
     }
 
-    // MARK: - Private: SCRAM Helpers
-
     /// Processes a SCRAM challenge and produces the response element.
     private func scramChallengeResponse<H: HashFunction>(
         _ decoded: String,

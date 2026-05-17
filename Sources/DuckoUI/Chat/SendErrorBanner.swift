@@ -1,10 +1,7 @@
 import DuckoCore
 import SwiftUI
 
-/// Transient banner shown above `MessageInputView` when a send threw a
-/// `ChatService.ChatServiceError`. Visible while `windowState.lastSendError`
-/// is non-nil; dismiss button clears the banner via `clearSendError()`,
-/// leaving the composer text in place for editing or resend.
+/// Banner over `MessageInputView` while `windowState.lastSendError` is non-nil. Dismiss clears the error but leaves composer text in place.
 struct SendErrorBanner: View {
     @Bindable var windowState: ChatWindowState
 

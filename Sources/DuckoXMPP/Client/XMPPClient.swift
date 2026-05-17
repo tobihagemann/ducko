@@ -57,8 +57,6 @@ public actor XMPPClient {
         case connected(FullJID)
     }
 
-    // MARK: - Init
-
     private let requireTLS: Bool
     private let preferredResource: String?
 
@@ -163,9 +161,7 @@ public actor XMPPClient {
             let resumed = try await performHandshake(reader: reader)
             startReader(reader: reader)
             try await runPostHandshakeModules(resumed: resumed)
-            // Resume path: emit `.streamResumed` after the resume handlers
-            // have run. Resumption doesn't trigger a fresh roster fetch, so
-            // there is no `.rosterLoaded` to order against.
+            // Emit `.streamResumed` after resume handlers; resumption skips roster fetch.
             if resumed, let fullJID = connectedJIDLock.withLock({ $0 }) {
                 eventContinuation.yield(.streamResumed(fullJID))
             }
@@ -178,13 +174,8 @@ public actor XMPPClient {
         }
     }
 
-    /// Drives the module lifecycle after a successful handshake.
-    ///
-    /// Resume path: every module gets `handleResume()` in dictionary order.
-    /// Fresh path: SM `<enable>` first, then `.connected` is yielded, then
-    /// roster, then everything else, then presence last. See the inline
-    /// comments for the ordering invariants — they are observable in
-    /// `connectionStates` and `BookmarksService` PEP fetch.
+    /// Module lifecycle after handshake. Resume: `handleResume()` in dict order. Fresh: SM `<enable>` → `.connected` →
+    /// roster → others → presence (RFC 6121 / XEP-0198 ordering invariants — see inline comments).
     private func runPostHandshakeModules(resumed: Bool) async throws {
         if resumed {
             for module in modules.values {
@@ -207,20 +198,9 @@ public actor XMPPClient {
         if let smModule = modules[smKey] {
             try await smModule.handleConnect()
         }
-        // Yield `.connected` immediately after SM is verifiably on
-        // (handleConnect blocks until `<enabled>` round-trips), but BEFORE
-        // the rest of the handleConnect chain (notably roster, which yields
-        // `.rosterLoaded`). Rationale:
-        // - Service-layer handlers that react to `.connected` (e.g.
-        //   `BookmarksService` PEP fetch) need SM enabled first or they
-        //   drift the SM counter by one per session.
-        // - Tests and callers that gate on `connectionStates` being
-        //   `.connected` after observing `.rosterLoaded` rely on the
-        //   ordering `.connected` → `.rosterLoaded`. Yielding `.connected`
-        //   after the entire chain reverses that order and breaks the
-        //   implicit gate (TestHarness.setUp returned from `.rosterLoaded`
-        //   while `connectionStates` was still `.connecting`, surfacing as
-        //   `.notConnected` in downstream `connectedClient(for:)` callers).
+        // Yield `.connected` after SM `<enabled>` round-trip but BEFORE roster. `.connected` → `.rosterLoaded` is
+        // contractual: BookmarksService PEP fetch and TestHarness.setUp gate on it; reversing surfaces `.notConnected`
+        // in `connectedClient(for:)` callers.
         if let fullJID = connectedJIDLock.withLock({ $0 }) {
             eventContinuation.yield(.connected(fullJID))
         }
@@ -375,13 +355,9 @@ public actor XMPPClient {
     // MARK: - Disconnect
 
     public func disconnect() async {
-        // Reentrancy guard: a module's `handleDisconnect` callback can
-        // recursively call back into `disconnect()`, and `cleanUp` is
-        // reachable from non-disconnect paths (stream errors, redirect,
-        // connection lost) that may also race a caller-issued disconnect.
-        // The flag is one-way: actor isolation makes the check-and-set
-        // atomic before any `await`, and `XMPPClient` is terminal after
-        // cleanUp so no reset is needed.
+        // Reentrancy guard: module `handleDisconnect` can re-call `disconnect()`, and `cleanUp` is reachable from
+        // non-disconnect paths (stream errors, redirect, connection lost). Check-and-set is actor-atomic before any
+        // await; one-way flag is fine because XMPPClient is terminal after cleanUp.
         guard !disconnectInFlight else { return }
         disconnectInFlight = true
 
@@ -391,13 +367,9 @@ public actor XMPPClient {
         // warning on the next ack and corrupting any subsequent resume.
         if case .connected = state {
             try? await send(XMPPPresence(type: .unavailable))
-            // XEP-0198 ack handshake: confirm the server processed every
-            // stanza we sent (including the unavailable presence) before
-            // closing the stream. Without this, prosody mod_smacks treats
-            // an interrupted disconnect as abnormal and queues the session
-            // in resumption-pending state for hundreds of seconds. 1.5 s
-            // leaves comfortable headroom under
-            // `AppDelegate.disconnectDeadline`.
+            // XEP-0198 sync ack: confirm server processed all sent stanzas (incl. the unavailable presence) before
+            // closing the stream. Without this, prosody mod_smacks holds the session in resumption-pending state for
+            // hundreds of seconds. 1.5s fits under `AppDelegate.disconnectDeadline`.
             if let smModule = modules[ObjectIdentifier(StreamManagementModule.self)] as? StreamManagementModule,
                smModule.isEnabled {
                 try? await smModule.requestSyncAck(timeout: .seconds(1.5))
@@ -421,10 +393,8 @@ public actor XMPPClient {
         try await connection.send(XMPPStreamWriter.stanza(stanza.element))
     }
 
-    /// Sends an IQ and awaits the matching result response.
-    /// Returns the result's child element, or `nil` for result IQs with no child.
-    /// Throws ``XMPPClientError/notConnected`` if called before the handshake reaches `.connected`,
-    /// ``XMPPStanzaError`` for IQ errors, and ``XMPPClientError/timeout`` if no response arrives within `timeout`.
+    /// Sends an IQ and awaits the matching result. Returns the result's child element or `nil`.
+    /// Throws `notConnected`, `XMPPStanzaError`, or `timeout`.
     public func sendIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
         guard case .connected = state else {
             throw XMPPClientError.notConnected
@@ -621,8 +591,6 @@ public actor XMPPClient {
         reader: EventReader
     ) async throws -> SASL2Authenticator.AuthResult {
         var authenticator = SASL2Authenticator()
-
-        // Build inline payloads
         var inlinePayloads: [XMLElement] = []
         if sasl2Features.supportsBind2 {
             let hasSM = modules[ObjectIdentifier(StreamManagementModule.self)] != nil
@@ -760,12 +728,9 @@ public actor XMPPClient {
         }
     }
 
-    /// When a user-initiated `disconnect()` is in flight, any concurrent
-    /// stream-end / stream-error / connection-lost event must be reported as
-    /// `.requested` — otherwise `AccountService.handleDisconnect` sees the
-    /// race-emitted `.connectionLost` / `.streamError` first, sets the
-    /// account to `.error(...)`, and `scheduleReconnect`s a session the user
-    /// explicitly asked to close.
+    /// During a user-initiated `disconnect()`, concurrent stream-end / stream-error / connection-lost events must
+    /// be remapped to `.requested` — otherwise `AccountService.handleDisconnect` interprets the race-emitted error
+    /// as a failure and schedules a reconnect for a session the user asked to close.
     private func mapDisconnectReason(_ reason: DisconnectReason) -> DisconnectReason {
         disconnectInFlight ? .requested : reason
     }
@@ -872,14 +837,9 @@ public actor XMPPClient {
         }
     }
 
-    /// Returns `true` if an inbound IQ response should be routed to the pending IQ.
-    ///
-    /// Matches when `expectedFrom` is nil or equals the stanza's `from`. The
-    /// RFC 6120 §8.1.2.1 carve-out — server omitting/substituting `from` on
-    /// stanzas it generates on the client's behalf (e.g. Prosody `mod_pep`
-    /// for same-server PEP IQs) — only applies to same-server responses, so
-    /// an absent or own-bare `from` matches only when `expectedFrom` is the
-    /// connected client's own bare JID.
+    /// Matches when `expectedFrom` is nil or equals the stanza's `from`. RFC 6120 §8.1.2.1 carve-out (server
+    /// omits/substitutes `from` on stanzas generated on the client's behalf — e.g. Prosody `mod_pep` for same-server
+    /// PEP IQs) only applies same-server, so absent/own-bare `from` matches only when `expectedFrom` is the connected client's bare JID.
     private func iqResponseMatchesExpectedFrom(_ iq: XMPPIQ, expectedFrom: BareJID?) -> Bool {
         guard let expectedFrom else { return true }
         if let from = iq.from?.bareJID, from == expectedFrom { return true }
@@ -914,12 +874,7 @@ public actor XMPPClient {
 
     private func cleanUp(reason: DisconnectReason) async {
         if case .disconnected = state { return }
-        // Set the flag here too: `cleanUp` is called from non-disconnect
-        // paths (handleStreamEnd, stream-error/redirect/connection-lost
-        // handlers). A module's `handleDisconnect` callback can recursively
-        // invoke `client.disconnect()`; without this, the recursive call
-        // would re-enter the full disconnect body on a stream that's
-        // already dying.
+        // Same reentrancy guard as disconnect() — cleanUp also runs from stream-error/redirect/connection-lost paths.
         disconnectInFlight = true
         readerTask?.cancel()
         readerTask = nil
@@ -940,9 +895,7 @@ public actor XMPPClient {
         pendingIQs.removeAll()
 
         eventContinuation.yield(.disconnected(reason))
-        // XMPPClient is terminal after cleanUp: callers drop the instance and
-        // build a new one on reconnect. Finishing the stream releases any
-        // lingering `for await` consumers instead of leaving them suspended.
+        // Terminal: callers drop instance and rebuild on reconnect. `finish()` releases any pending for-await consumers.
         eventContinuation.finish()
     }
 

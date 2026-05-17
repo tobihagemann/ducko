@@ -170,8 +170,6 @@ public final class RosterService {
         }
     }
 
-    // MARK: - Private
-
     private func handleRosterLoaded(_ items: [RosterItem], accountID: UUID) async {
         let existingContacts = await (try? store.fetchContacts(for: accountID)) ?? []
 
@@ -183,15 +181,12 @@ public final class RosterService {
             }
         }
 
-        // Build set of JIDs on the server roster
         let rosterJIDs = Set(items.map(\.jid))
 
-        // Delete contacts no longer on roster
         for contact in existingContacts where !rosterJIDs.contains(contact.jid) {
             try? await store.deleteContact(contact.id)
         }
 
-        // Upsert all roster items and collect results for group building
         var updatedContacts: [Contact] = []
         for item in items {
             let contact = mapRosterItem(item, accountID: accountID, existingContacts: existingContacts)
@@ -289,7 +284,6 @@ public final class RosterService {
             }
         }
 
-        // Sort contacts within each group by display name
         for key in grouped.keys {
             grouped[key]?.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         }

@@ -319,9 +319,7 @@ public actor SwiftDataOMEMOStore: OMEMOStore {
             }
             return
         }
-        // Reuse the upsert path for the rows that should remain so the
-        // existing row state (or insert path) is shared between the two
-        // call sites — replace = "delete absent + upsert present."
+        // "replace = delete absent + upsert present" — reuse the upsert path so row state is shared.
         try upsertSeenDevices(devices, for: accountJID)
     }
 

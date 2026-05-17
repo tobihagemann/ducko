@@ -87,7 +87,6 @@ final class XMPPStreamParser {
             }
             pendingEvents.append(.streamOpened(attributes: allAttrs))
         } else {
-            // Building a stanza or nested element
             let ns = (namespaceURI != nil && namespaceURI != contentNamespace) ? namespaceURI : nil
             let element = XMLElement(name: localname, namespace: ns, attributes: attributes)
             elementStack.append(element)

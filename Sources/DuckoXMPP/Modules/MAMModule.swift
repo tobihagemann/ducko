@@ -117,7 +117,6 @@ public final class MAMModule: XMPPModule, Sendable {
         state.withLock { $0.activeQueries[queryID] = [] }
         defer { state.withLock { _ = $0.activeQueries.removeValue(forKey: queryID) } }
 
-        // Build IQ
         var iq = XMPPIQ(type: .set, id: context.generateID())
         if let to = query.to { iq.to = .bare(to) }
         var queryElement = XMLElement(name: "query", namespace: XMPPNamespaces.mam, attributes: ["queryid": queryID])
@@ -134,15 +133,12 @@ public final class MAMModule: XMPPModule, Sendable {
 
         iq.element.addChild(queryElement)
 
-        // Send and await the <fin> element (returned as IQ result child)
         let finElement = try await context.sendIQ(iq)
 
-        // Collect accumulated results
         let messages = state.withLock { state -> [ArchivedMessage] in
             return state.activeQueries.removeValue(forKey: queryID) ?? []
         }
 
-        // Parse fin
         let fin: MAMFin = if let finElement, let parsed = MAMFin.parse(finElement) {
             parsed
         } else {
@@ -171,8 +167,6 @@ public final class MAMModule: XMPPModule, Sendable {
             before: rsmBefore, after: after, max: max
         ))
     }
-
-    // MARK: - Private
 
     private static func buildFilterForm(jid: BareJID?, start: String?, end: String?) -> XMLElement? {
         guard jid != nil || start != nil || end != nil else { return nil }

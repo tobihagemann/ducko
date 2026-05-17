@@ -1,7 +1,6 @@
 import DuckoXMPP
 
 public extension RoomConfigField {
-    /// Initializes from a ``DataFormField`` returned by MUCModule.
     init(from field: DataFormField) {
         self.init(
             variable: field.variable,

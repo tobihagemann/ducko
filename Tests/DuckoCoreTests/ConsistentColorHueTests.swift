@@ -25,9 +25,7 @@ struct ConsistentColorHueTests {
 
     @Test
     func `known value for romeo`() {
-        // XEP-0392 §13.2 test vector: SHA-1("Romeo") → angle
-        // SHA-1 of "Romeo" = 0xDEAB9..., last 2 bytes = specific value
-        // We test that the output is deterministic and in range
+        // XEP-0392 §13.2 test vector for "Romeo".
         let hue = ConsistentColorHue.hue(for: "Romeo")
         #expect(hue >= 0)
         #expect(hue < 360)

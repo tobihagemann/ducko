@@ -16,8 +16,6 @@ public final class AccountService {
         public let newFingerprint: String
     }
 
-    // MARK: - Internal
-
     private let store: any PersistenceStore
     private let credentialStore: any CredentialStore
     private let clientFactory: any XMPPClientFactory
@@ -122,24 +120,15 @@ public final class AccountService {
     }
 
     public func disconnectAll() async {
-        // Iterate the union of connected clients AND scheduled reconnect
-        // tasks: an account between reconnect attempts has no `clients` entry
-        // but a delayed `reconnectTasks[accountID]` that would re-establish a
-        // connection after a caller asked for full shutdown.
+        // Reconnecting accounts have no `clients[]` entry but a delayed `reconnectTasks[]` that would reconnect after shutdown.
         let ids = Set(clients.keys).union(reconnectTasks.keys)
         for id in ids {
             await disconnect(accountID: id)
         }
     }
 
-    /// Calls `disconnectAll()` with a hard upper bound. When the deadline
-    /// expires before disconnect finishes, the in-flight work is abandoned
-    /// — `XMPPClient.disconnect()` does not honor cancellation, so a stuck
-    /// transport write cannot be preempted, but it is also not awaited past
-    /// the deadline. Use at process-exit so AppKit's terminate-later reply
-    /// fires within a bounded budget; the abandoned task dies with the
-    /// process. Not safe for callers that must observe all teardown side
-    /// effects before continuing.
+    /// Bounded disconnect. `XMPPClient.disconnect()` ignores cancellation, so a stuck transport write is abandoned (not preempted) past the deadline.
+    /// Safe at process exit; unsafe when callers must observe teardown completion.
     public func disconnectAll(within deadline: Duration) async {
         let work = Task { [weak self] in
             await self?.disconnectAll()
@@ -162,9 +151,7 @@ public final class AccountService {
             break
         }
         timeout.cancel()
-        // `work` is intentionally NOT awaited — abandoning it is the whole
-        // point of the deadline. `cancel()` requests cooperative cancellation
-        // for any sleep/await paths inside the disconnect chain.
+        // Don't await `work` — abandoning it is the deadline's purpose. `cancel()` only requests cooperation.
         work.cancel()
     }
 
@@ -233,12 +220,7 @@ public final class AccountService {
         }
     }
 
-    /// Deletes a local account: removes from store, deletes password, reloads accounts.
-    ///
-    /// Does NOT disconnect — callers must disconnect first if the account is active.
-    /// For full teardown including optional transcript deletion, use
-    /// ``AppEnvironment/removeAccount(_:includeHistory:)`` or
-    /// ``AppEnvironment/cancelAccount(_:includeHistory:)``.
+    /// Local delete only — does NOT disconnect. Use `AppEnvironment.removeAccount` / `cancelAccount` for full teardown with optional transcript deletion.
     public func deleteAccount(_ id: UUID) async throws {
         try await store.deleteAccount(id)
         deletePassword(accountID: id)
@@ -279,10 +261,7 @@ public final class AccountService {
 
     // MARK: - Registration
 
-    /// Creates a local account, connects to verify credentials, saves the password, and reloads accounts.
-    /// On connection failure, rolls back by deleting the partially-created account.
-    /// The optional `afterConnect` closure runs after connection but before saving the password,
-    /// inside the rollback scope — any failure triggers cleanup.
+    /// Create + connect with rollback on failure. `afterConnect` runs inside the rollback scope before the password is saved — any throw triggers cleanup.
     public func createAndConnect(
         jidString: String,
         password: String,
@@ -416,27 +395,16 @@ public final class AccountService {
         clients[accountID]
     }
 
-    /// Returns the account's `XMPPClient` only when its connection state has
-    /// reached `.connected`. `client(for:)` publishes the client into
-    /// `clients[accountID]` before awaiting `client.connect()`, so a caller
-    /// racing the handshake otherwise reaches `XMPPClient.send`'s own
-    /// `.notConnected` guard and surfaces a leaky `XMPPClientError` instead
-    /// of the calling service's `notConnected` error envelope.
-    ///
-    /// The gate narrows the race to the window between this sync check and
-    /// the caller's next `await` on the returned client; if the connection
-    /// drops in that window, `XMPPClient.send`'s own guard can still surface.
-    /// For full coverage the caller would need to repeat the check inside
-    /// `XMPPClient.module(...)` itself.
+    /// Returns the client only when state is `.connected`. Gates against the race where `clients[id]` is set before
+    /// `client.connect()` resolves — that race would otherwise leak `XMPPClientError.notConnected` instead of the
+    /// service's typed `notConnected`. Race window narrows to before the caller's next await; not airtight without a
+    /// re-check inside `XMPPClient.module(...)`.
     public func connectedClient(for accountID: UUID) -> XMPPClient? {
         guard case .connected = connectionStates[accountID] else { return nil }
         return clients[accountID]
     }
 
-    /// True when at least one account has reached `.connected`. Used by
-    /// `WelcomeView` to gate the contacts-window transition and by
-    /// `ContactListView` to publish a coarse `accessibilityValue` sentinel
-    /// for UI integration tests.
+    /// True when at least one account is `.connected`. Drives `WelcomeView`'s contacts-window transition and `ContactListView`'s `accessibilityValue` sentinel.
     public var hasAnyConnectedAccount: Bool {
         connectionStates.values.contains {
             if case .connected = $0 { return true }
@@ -444,7 +412,6 @@ public final class AccountService {
         }
     }
 
-    /// Returns TLS connection info for a connected account.
     public func tlsInfo(for accountID: UUID) -> TLSInfo? {
         clients[accountID]?.tlsInfo
     }

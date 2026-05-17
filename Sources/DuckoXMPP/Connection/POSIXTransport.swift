@@ -80,10 +80,7 @@ private func skipTagAndBody(_ offset: inout Int, in der: [UInt8], expected: UInt
 
 // MARK: OID → Hash Mapping
 
-/// Maps a DER-encoded OID to the corresponding hash algorithm.
-///
-/// OID families are identified by prefix, with the trailing byte selecting
-/// the specific hash. EdDSA and unknown OIDs fall back to SHA-256.
+/// Maps a DER OID to its hash algorithm. OID families identified by prefix; EdDSA and unknown fall back to SHA-256.
 private func hashAlgorithm(forOID oid: [UInt8]) -> CertHashAlgorithm {
     // RSA: 1.2.840.113549.1.1.{11=SHA256, 12=SHA384, 13=SHA512}
     let rsaPrefix: [UInt8] = [0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x01]
@@ -172,7 +169,6 @@ actor POSIXTransport: XMPPTransport {
         await receiveTask?.value
         receiveTask = nil
 
-        // SSLHandshake requires a blocking socket
         setNonBlocking(false)
 
         let fdPtr = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
@@ -242,11 +238,7 @@ actor POSIXTransport: XMPPTransport {
         receivedContinuation.finish()
     }
 
-    /// Returns `tls-server-end-point` channel binding data (RFC 5929 §4.1).
-    ///
-    /// Hashes the server's DER-encoded leaf certificate using the hash algorithm
-    /// from the certificate's signature algorithm. Falls back to SHA-256 for
-    /// MD5/SHA-1 signatures or unknown algorithms.
+    /// `tls-server-end-point` channel binding (RFC 5929 §4.1). Hashes the leaf cert with its signature hash algorithm; MD5/SHA-1 and unknown fall back to SHA-256.
     func channelBindingData() -> [UInt8]? {
         guard let ctx = sslContext else { return nil }
         var trust: SecTrust?
@@ -261,8 +253,6 @@ actor POSIXTransport: XMPPTransport {
         case .sha512: return Array(SHA512.hash(data: derBytes))
         }
     }
-
-    // MARK: - Private
 
     private func tearDownSSL() {
         guard let ctx = sslContext else { return }
@@ -538,10 +528,7 @@ private func formatCipherSuite(_ suite: SSLCipherSuite) -> String {
 
 // MARK: - SSL Trust Validation
 
-/// Validates the server certificate chain after a successful TLS handshake.
-///
-/// Secure Transport requires the application to explicitly evaluate the peer trust
-/// chain. Without this, a self-signed or invalid certificate would be silently accepted.
+/// Validates the server certificate chain after TLS handshake. Secure Transport requires explicit peer-trust evaluation; without this, self-signed/invalid certs are silently accepted.
 private func validatePeerTrust(ctx: SSLContext) throws {
     var trust: SecTrust?
     let status = SSLCopyPeerTrust(ctx, &trust)
@@ -558,11 +545,7 @@ private func validatePeerTrust(ctx: SSLContext) throws {
 
 // MARK: - SSL I/O Callbacks
 
-/// Reads exactly the requested number of bytes from the socket.
-///
-/// Secure Transport expects the read callback to fill the entire buffer on success.
-/// A single `recv()` call may return fewer bytes than requested (partial read), so
-/// we loop until the buffer is full or an error occurs.
+/// Reads exactly `dataLength` bytes. Secure Transport requires the callback to fill the buffer; `recv()` may return short, so loop.
 private func posixSSLRead(
     connection: SSLConnectionRef,
     data: UnsafeMutableRawPointer,
@@ -582,10 +565,7 @@ private func posixSSLRead(
         } else {
             if errno == EAGAIN || errno == EWOULDBLOCK {
                 if totalRead > 0 {
-                    // Partial data already buffered — report what we have.
-                    // On a blocking socket this shouldn't happen, but handle
-                    // it gracefully: return partial data and signal would-block
-                    // so the caller can retry.
+                    // Buffered partial data — return it with `errSSLWouldBlock` so the caller retries.
                     dataLength.pointee = totalRead
                     return errSSLWouldBlock
                 }
@@ -601,10 +581,7 @@ private func posixSSLRead(
     return errSecSuccess
 }
 
-/// Writes exactly the requested number of bytes to the socket.
-///
-/// A single `send()` call may write fewer bytes than requested (partial write), so
-/// we loop until all bytes are sent or an error occurs.
+/// Writes exactly `dataLength` bytes; `send()` may return short, so loop (mirror of `posixSSLRead`).
 private func posixSSLWrite(
     connection: SSLConnectionRef,
     data: UnsafeRawPointer,

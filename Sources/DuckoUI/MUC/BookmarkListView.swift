@@ -48,8 +48,6 @@ struct BookmarkListView: View {
     }
 }
 
-// MARK: - Bookmark Row
-
 private struct BookmarkRow: View {
     let bookmark: RoomBookmark
     let onRemove: () -> Void
@@ -94,8 +92,6 @@ private struct BookmarkRow: View {
         .padding(.vertical, 2)
     }
 }
-
-// MARK: - Add Bookmark Sheet
 
 private struct AddBookmarkSheet: View {
     @Environment(AppEnvironment.self) private var environment

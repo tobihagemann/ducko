@@ -1,9 +1,6 @@
 import CryptoKit
 
-/// Double Ratchet session state for OMEMO end-to-end encryption.
-///
-/// All state is value types for safe copying and persistence.
-/// Use `mutating func` for encrypt/decrypt — the caller manages synchronization.
+/// Double Ratchet session state for OMEMO. Value type — callers serialize mutating encrypt/decrypt.
 struct OMEMODoubleRatchetSession {
     /// Our current DH ratchet key pair (sending).
     var dhSendKeyPair: Curve25519.KeyAgreement.PrivateKey
@@ -33,11 +30,7 @@ struct OMEMODoubleRatchetSession {
 
     // MARK: - Initialization
 
-    /// Initializes as the initiator (Alice) after X3DH.
-    ///
-    /// - Parameters:
-    ///   - sharedSecret: 32-byte shared secret from X3DH.
-    ///   - peerSignedPreKey: Bob's signed pre-key (initial DHr).
+    /// X3DH initiator (Alice). `peerSignedPreKey` becomes initial DHr; `sharedSecret` is the 32-byte X3DH output.
     init(
         asInitiatorWithSharedSecret sharedSecret: [UInt8],
         peerSignedPreKey: [UInt8]
@@ -55,11 +48,7 @@ struct OMEMODoubleRatchetSession {
         self.sendChainKey = rk.chainKey
     }
 
-    /// Initializes as the responder (Bob) after X3DH.
-    ///
-    /// - Parameters:
-    ///   - sharedSecret: 32-byte shared secret from X3DH.
-    ///   - ourSignedPreKeyPair: Our signed pre-key pair (initial DHs).
+    /// X3DH responder (Bob). `ourSignedPreKeyPair` becomes initial DHs; recv chain stays nil until first inbound message.
     init(
         asResponderWithSharedSecret sharedSecret: [UInt8],
         ourSignedPreKeyPair: Curve25519.KeyAgreement.PrivateKey
@@ -74,12 +63,7 @@ struct OMEMODoubleRatchetSession {
 
     // MARK: - Encryption
 
-    /// Encrypts a plaintext message, advancing the sending chain.
-    ///
-    /// - Parameters:
-    ///   - plaintext: Message to encrypt.
-    ///   - associatedData: AD from the X3DH handshake (64 bytes).
-    /// - Returns: Ratchet message with header and encrypted payload.
+    /// Encrypts and advances the sending chain. `associatedData` must match the X3DH AD (64 bytes).
     mutating func encrypt(
         plaintext: [UInt8],
         associatedData: [UInt8]
@@ -110,13 +94,7 @@ struct OMEMODoubleRatchetSession {
 
     // MARK: - Decryption
 
-    /// Decrypts a received message, advancing the receiving chain and performing
-    /// DH ratchet steps as needed.
-    ///
-    /// - Parameters:
-    ///   - message: The received ratchet message.
-    ///   - associatedData: AD from the X3DH handshake (64 bytes).
-    /// - Returns: Decrypted plaintext bytes.
+    /// Decrypts and advances the receiving chain; performs a DH ratchet step when `header.dhPublicKey` is new. Rolls back on auth failure.
     mutating func decrypt(
         message: OMEMORatchetMessage,
         associatedData: [UInt8]

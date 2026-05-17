@@ -63,19 +63,21 @@ DuckoXMPP  (standalone XMPP protocol implementation)
     ^
     |
 DuckoCore  (domain types, services, business logic)
-    ^            ^            ^
-    |            |            |
-DuckoData    DuckoUI      DuckoCLI  (+ swift-argument-parser)
+    ^            ^
+    |            |
+DuckoData    DuckoUI
     ^            ^
     |            |
     +-- DuckoApp --+  (+ Sparkle)
+
+DuckoCLI  →  depends on DuckoCore, DuckoData, DuckoXMPP  (+ swift-argument-parser)
 ```
 
 | Module | Purpose |
 |--------|---------|
 | **DuckoXMPP** | Standalone, reusable XMPP library. Connection, stream parsing, SASL auth, stanza types, JID types, XEP modules. |
 | **DuckoCore** | Domain layer. Account/Contact/Conversation types, service objects, message filter pipeline. |
-| **DuckoData** | Persistence layer. SwiftData models, migration logic, query helpers. |
+| **DuckoData** | Persistence layer. SwiftData models, mapping to/from domain types, query helpers. |
 | **DuckoUI** | View layer. SwiftUI views, view models, theme engine, window management. |
 | **DuckoApp** | GUI entry point. Dependency wiring, menu bar, Sparkle updates, lifecycle. |
 | **DuckoCLI** | CLI entry point. Subcommands, interactive REPL, terminal output formatting. |
@@ -89,7 +91,7 @@ DuckoData    DuckoUI      DuckoCLI  (+ swift-argument-parser)
 | Protocol | XMPP only (v1) | Start focused, expand later |
 | Build system | SwiftPM | No Xcode project. Clean, reproducible builds. |
 | Distribution | Direct (Sparkle) | No App Store sandbox constraints |
-| Persistence | SwiftData | Modern, declarative, Swift-native |
+| Persistence | SwiftData (metadata) + JSONL transcripts | Declarative metadata store; append-only message log keeps history portable |
 | UI | SwiftUI + separate windows | Adium-style multi-window UX |
 | CLI | swift-argument-parser | Scriptable + interactive access alongside GUI |
 

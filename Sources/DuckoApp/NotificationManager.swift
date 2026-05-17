@@ -75,7 +75,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             content.attachments = [attachment]
             try? FileManager.default.removeItem(at: tempURL)
         } catch {
-            // Avatar attachment failed — notification still works without it
+            // Avatar attachment failed — notification still works without it.
         }
     }
 }

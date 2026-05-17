@@ -87,7 +87,6 @@ public final class RegistrationModule: XMPPModule, Sendable {
         return Self.parseForm(result)
     }
 
-    /// Submits a legacy registration form with username/password/email.
     public func submitLegacy(
         username: String,
         password: String,
@@ -165,13 +164,10 @@ public final class RegistrationModule: XMPPModule, Sendable {
         log.info("Registration cancelled")
     }
 
-    // MARK: - Shared Helpers
-
     static func parseForm(_ element: XMLElement) -> RegistrationForm {
         let instructions = element.childText(named: "instructions")
         let isRegistered = element.child(named: "registered") != nil
 
-        // Check for data form
         if let formElement = element.child(named: "x", namespace: XMPPNamespaces.dataForms) {
             let fields = parseDataForm(formElement)
             return RegistrationForm(
@@ -197,7 +193,7 @@ public final class RegistrationModule: XMPPModule, Sendable {
         )
     }
 
-    /// Builds a legacy registration `<query>` element with username, password, and optional email.
+    /// Builds the XEP-0077 `<query>` element.
     static func buildRegistrationQuery(username: String, password: String, email: String?) -> XMLElement {
         var query = XMLElement(name: "query", namespace: XMPPNamespaces.register)
 

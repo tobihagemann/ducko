@@ -3,21 +3,10 @@ import Testing
 @testable import DuckoCore
 @testable import DuckoXMPP
 
-// Pins the two read-side gates that fix concrete user-visible bugs documented
-// in the helpers' own comments:
-//
-// * `AccountService.connectedClient(for:)` — gates ChatService methods on
-//   `connectionStates[accountID] == .connected`. Without it, a caller racing
-//   the handshake reaches `XMPPClient.send`'s own guard and surfaces a leaky
-//   `XMPPClientError.notConnected` instead of `ChatServiceError.notConnected`.
-// * `ChatService.normalizedRoomKey(_:)` (read via `participants(forRoomJIDString:)`)
-//   — bridges raw user-input JID strings (mixed case, possibly malformed)
-//   into the canonical RFC 7622-lowercased key written via `room.description`.
-//
-// Reproduces both end-to-end without a live transport: tests against a fresh
-// `AccountService` whose `connectionStates[accountID]` stays `.disconnected`
-// (no `connect()` driven), and against `ChatService.handleEvent(.roomJoined…)`
-// to seed `roomParticipants`.
+// Pins two read-side gates: `AccountService.connectedClient(for:)` must surface
+// `ChatServiceError.notConnected` (not the leaky `XMPPClientError.notConnected`)
+// and `ChatService.normalizedRoomKey(_:)` must RFC 7622-lowercase user-typed
+// room JID strings. Driven without a live transport.
 
 private let testJID = BareJID(localPart: "alice", domainPart: "example.com")!
 private let testRoomJID = BareJID(localPart: "room", domainPart: "conference.example.com")!

@@ -7,15 +7,15 @@ description: "End-to-end UI testing for the Ducko macOS app using pre-built help
 
 Run the `/macos-ui-testing` skill first to load generic macOS UI automation patterns. This skill provides Ducko-specific helper scripts on top.
 
-End-to-end UI testing for DuckoApp with reusable shell scripts. Each script is a self-contained osascript wrapper that can be allowlisted individually in `settings.local.json`.
+Each script wraps a single osascript flow so it can be allowlisted in `settings.local.json` (see Permission Allowlisting at the end).
 
 ## Window Architecture
 
-DuckoApp uses separate windows instead of a single NavigationSplitView:
+DuckoApp ships separate windows:
 
-- **Contact List Window** (`id: "contacts"`) — singleton window showing roster contacts grouped by roster groups, status bar with presence picker, and searchable toolbar. This is the main window shown after login.
-- **Chat Windows** (`id: "chat"`, keyed by JID string) — per-conversation windows opened by double-clicking a contact or using "New Chat". Each window has its own message state.
-- **MenuBarExtra** — quick status switching, "Show Contact List", and "Quit Ducko".
+- **Contact List** (`id: "contacts"`) — singleton, main window after login (roster, status picker, search).
+- **Chat** (`id: "chat"`, keyed by JID string) — one window per conversation, opened by double-click or New Chat.
+- **MenuBarExtra** — quick status, Show Contact List, Quit.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ DuckoApp uses separate windows instead of a single NavigationSplitView:
 
 All scripts are in `scripts/` relative to this skill. Run from the repo root or use absolute paths.
 
-Scripts rely on SwiftUI accessibility identifiers for reliable element targeting instead of fragile positional selectors.
+Scripts target SwiftUI accessibility identifiers, not positional selectors.
 
 ### Accessibility Identifiers
 
@@ -59,8 +59,12 @@ Scripts rely on SwiftUI accessibility identifiers for reliable element targeting
 | `room-subject-view` | Room topic banner (editable) | Chat |
 | `participant-sidebar` | Participant sidebar list | Chat |
 | `toggle-participant-sidebar` | Sidebar toggle button (person.2 icon) | Chat |
+| `send-pm-menu-item` | "Send Private Message" context menu item on a MUC participant | Chat (sidebar) |
+| `send-directed-presence-menu-item` | "Send Directed Presence" context menu item on a contact | Contacts |
 | `attachment-button` | Paperclip file picker button | Chat |
 | `pending-attachments` | Pending attachment bar above input | Chat |
+| `add-file-to-session-button` | Add-file button on an active Jingle transfer session | Chat |
+| `transfer-progress` | Progress indicator for an active file transfer | Chat |
 | `file-drop-overlay` | Drag-and-drop overlay | Chat |
 | `attachment-view` | Attachment in message bubble | Chat |
 | `image-preview` | Full-size image preview sheet | Chat |
@@ -218,6 +222,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-device-trust.sh` | Trust/untrust/verify an OMEMO device | `DEVICE_ID ACTION` (`ACTION`: trust\|untrust\|verify) |
 | `ducko-attach.sh` | Attach a file via the attachment button in chat | `FILE_PATH` |
 | `ducko-change-nickname.sh` | Change MUC nickname via participant sidebar context menu | `NICKNAME` |
+| `ducko-private-message.sh` | Send a MUC private message via the participant sidebar context menu | `NICKNAME` |
 | `ducko-room-topic.sh` | View or set the room topic | `[TEXT]` (optional; no args prints current topic) |
 | `ducko-channel-search.sh` | Search for channels in the Join Room dialog | `QUERY` |
 | `ducko-connection-info.sh` | Open Connection Info sheet from Preferences > Accounts | none |
@@ -297,7 +302,7 @@ $SCRIPTS/ducko-screenshot.sh
 
 ### Chat UI polish test (message grouping, search, reply)
 
-Tests features from Prompt 18 — message grouping, search bar, reply compose bar, and context menu:
+Tests message grouping, search bar, reply compose bar, and context menu:
 
 ```bash
 SCRIPTS="Skills/ducko-ui/scripts"
@@ -727,11 +732,10 @@ To allow these scripts in `settings.local.json` without prompts:
 
 ## Notes
 
-- Scripts use `keystroke` (not `set value`) to trigger SwiftUI bindings
-- App activation uses `set frontmost of process` (works with SwiftPM builds)
-- Multi-step interactions are bundled in single osascript blocks to avoid focus loss
-- Arguments passed via `osascript - "$ARG" << 'APPLESCRIPT'` + `on run argv` (no shell injection)
-- Credentials are arguments, never hardcoded
-- Element targeting uses `entire contents` + `AXIdentifier` matching for reliability across window sizes
-- The contact list window is a singleton (`Window`, not `WindowGroup`). The "New Chat" button is in its toolbar.
-- Chat windows are data-driven (`WindowGroup` keyed by JID string). `ducko-send.sh` targets the frontmost chat window.
+- Scripts use `keystroke` (not `set value`) to trigger SwiftUI bindings.
+- App activation uses `set frontmost of process` (works with SwiftPM builds).
+- Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
+- Element targeting uses `entire contents` + `AXIdentifier` matching for reliability across window sizes.
+- The contact list is a singleton (`Window`, not `WindowGroup`); chat windows are data-driven (`WindowGroup` keyed by JID string), so `ducko-send.sh` targets the frontmost chat window.
+- Arguments passed via `osascript - "$ARG" << 'APPLESCRIPT'` + `on run argv` (no shell injection).
+- Credentials are arguments, never hardcoded.

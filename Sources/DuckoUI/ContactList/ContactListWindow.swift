@@ -92,7 +92,6 @@ struct ContactListWindow: View {
         }
         .task {
             guard let accountID = account?.id else { return }
-            // Auto-connect if disconnected
             switch environment.accountService.connectionStates[accountID] {
             case .connected:
                 break

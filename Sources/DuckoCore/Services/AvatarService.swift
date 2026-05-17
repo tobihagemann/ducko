@@ -108,7 +108,6 @@ public final class AvatarService {
         let hash = sha1Hex(Array(imageData))
         let base64String = imageData.base64EncodedString()
 
-        // Publish avatar data
         var dataPayload = DuckoXMPP.XMLElement(name: "data", namespace: XMPPNamespaces.avatarData)
         dataPayload.addText(base64String)
         try await pepModule.publishItem(
@@ -117,7 +116,6 @@ public final class AvatarService {
             payload: dataPayload
         )
 
-        // Publish avatar metadata
         let metadata = buildMetadataElement(hash: hash, mimeType: mimeType, bytes: imageData.count)
         try await pepModule.publishItem(
             node: XMPPNamespaces.avatarMetadata,
@@ -136,13 +134,11 @@ public final class AvatarService {
         await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
     }
 
-    /// Removes the user's avatar.
     public func removeAvatar(accountID: UUID) async throws {
         guard let client = accountService?.connectedClient(for: accountID) else { throw AvatarServiceError.notConnected(accountID) }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
-        // Publish empty metadata
         let metadata = DuckoXMPP.XMLElement(name: "metadata", namespace: XMPPNamespaces.avatarMetadata)
         try await pepModule.publishItem(
             node: XMPPNamespaces.avatarMetadata,
@@ -160,13 +156,10 @@ public final class AvatarService {
         await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
     }
 
-    /// Fetches a contact's avatar. Returns `AvatarData` or nil.
     public func fetchAvatar(for jid: BareJID, accountID: UUID) async -> AvatarData? {
-        // Try PEP first
         if let result = await fetchPEPAvatar(for: jid, accountID: accountID) {
             return result
         }
-        // Fall back to vCard
         return await fetchVCardAvatar(for: jid, accountID: accountID)
     }
 
@@ -227,14 +220,12 @@ public final class AvatarService {
     // MARK: - Private: PEP Avatar Metadata
 
     private func handleAvatarMetadataPublished(from: BareJID, items: [PEPItem], accountID: UUID) async {
-        // Only process contacts' avatars, not our own
         guard let account = accountService?.accounts.first(where: { $0.id == accountID }),
               from != account.jid else { return }
 
         guard let item = items.first else { return }
         let metadata = item.payload
 
-        // Empty metadata = avatar disabled
         guard let info = metadata.child(named: "info") else {
             await clearContactAvatar(jid: from, accountID: accountID)
             return
@@ -243,10 +234,8 @@ public final class AvatarService {
         let hash = info.attribute("id")
         guard let contact = await findContact(jid: from, accountID: accountID) else { return }
 
-        // Skip if hash matches
         if let hash, contact.avatarHash == hash { return }
 
-        // Fetch avatar data from PEP
         await fetchAndStoreAvatar(for: contact, hash: hash, accountID: accountID)
     }
 
@@ -255,7 +244,6 @@ public final class AvatarService {
     private func handleVCardAvatarHash(from: BareJID, hash: String?, accountID: UUID) async {
         guard let contact = await findContact(jid: from, accountID: accountID) else { return }
 
-        // No avatar
         guard let hash else {
             if contact.avatarHash != nil {
                 await clearContactAvatar(jid: from, accountID: accountID)
@@ -263,10 +251,8 @@ public final class AvatarService {
             return
         }
 
-        // Skip if hash matches
         if contact.avatarHash == hash { return }
 
-        // Fetch vCard to get photo
         guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
 
@@ -283,8 +269,6 @@ public final class AvatarService {
             log.warning("Failed to fetch vCard avatar for \(from): \(error.localizedDescription)")
         }
     }
-
-    // MARK: - Private: Fetch Helpers
 
     private func fetchAndStoreAvatar(for contact: Contact, hash: String?, accountID: UUID) async {
         guard let client = accountService?.connectedClient(for: accountID) else { return }
@@ -316,7 +300,6 @@ public final class AvatarService {
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return nil }
 
         do {
-            // Fetch metadata first
             let metaItems = try await pepModule.retrieveItems(
                 node: XMPPNamespaces.avatarMetadata,
                 from: jid,
@@ -328,7 +311,6 @@ public final class AvatarService {
             let hash = info.attribute("id") ?? ""
             let mimeType = info.attribute("type") ?? "image/png"
 
-            // Fetch data
             let dataItems = try await pepModule.retrieveItems(
                 node: XMPPNamespaces.avatarData,
                 from: jid,
@@ -359,8 +341,6 @@ public final class AvatarService {
             return nil
         }
     }
-
-    // MARK: - Private: Update Helpers
 
     private func clearContactAvatar(jid: BareJID, accountID: UUID) async {
         guard var contact = await findContact(jid: jid, accountID: accountID) else { return }

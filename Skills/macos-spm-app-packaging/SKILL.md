@@ -5,8 +5,7 @@ description: Scaffold, build, and package SwiftPM-based macOS apps without an Xc
 
 # macOS SwiftPM App Packaging (No Xcode)
 
-## Overview
-Bootstrap a complete SwiftPM macOS app folder, then build, package, and run it without Xcode. Use `assets/templates/bootstrap/` for the starter layout and `references/packaging.md` + `references/release.md` for packaging and release details.
+Use `assets/templates/bootstrap/` for the starter layout and `references/packaging.md` + `references/release.md` for packaging and release details.
 
 ## Two-Step Workflow
 1) Bootstrap the project folder

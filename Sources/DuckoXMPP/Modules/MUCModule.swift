@@ -97,7 +97,6 @@ public final class MUCModule: XMPPModule, Sendable {
         let roomJID = fullJID.bareJID
         let nickname = fullJID.resourcePart
 
-        // Only handle presence for rooms we're tracking
         let (isTracked, context) = state.withLock { ($0.rooms[roomJID] != nil, $0.context) }
         guard isTracked else { return }
 
@@ -487,7 +486,6 @@ public final class MUCModule: XMPPModule, Sendable {
         _ = try await context.sendIQ(iq)
     }
 
-    /// Sets the room subject.
     public func setSubject(in room: BareJID, subject: String) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
         var message = XMPPMessage(type: .groupchat, to: .bare(room))
@@ -554,7 +552,6 @@ public final class MUCModule: XMPPModule, Sendable {
         }
     }
 
-    /// Returns the nickname used in a given room, if any.
     public func nickname(in room: BareJID) -> String? {
         state.withLock { $0.rooms[room]?.nickname }
     }
@@ -609,7 +606,6 @@ public final class MUCModule: XMPPModule, Sendable {
 
     // MARK: - Voice Management
 
-    /// Sets the role of an occupant by nickname.
     public func setRole(nickname: String, in room: BareJID, to role: MUCRole, reason: String? = nil) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
         var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
@@ -646,7 +642,6 @@ public final class MUCModule: XMPPModule, Sendable {
         return result.children(named: "item").compactMap { MUCAffiliationItem.parse($0) }
     }
 
-    /// Sets the affiliation of a user by JID.
     public func setAffiliation(jid: BareJID, in room: BareJID, to affiliation: MUCAffiliation, reason: String? = nil) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
         var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
@@ -702,7 +697,6 @@ public final class MUCModule: XMPPModule, Sendable {
         }
         guard let nickname, let context, let lastActivity else { return }
 
-        // Skip ping if recent activity
         let elapsed = ContinuousClock.now - lastActivity
         if elapsed < Self.selfPingInterval {
             return
@@ -750,8 +744,6 @@ public final class MUCModule: XMPPModule, Sendable {
             log.debug("Self-ping error for \(room): \(error.condition.rawValue)")
         }
     }
-
-    // MARK: - Private Helpers
 
     private func buildJoinPresence(
         room: BareJID,

@@ -1,4 +1,3 @@
-/// An XMPP `<iq>` stanza.
 public struct XMPPIQ: XMPPStanza {
     public var element: XMLElement
 

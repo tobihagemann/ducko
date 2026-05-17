@@ -31,8 +31,6 @@ public final class FileCredentialStore: CredentialStore, @unchecked Sendable {
         persist()
     }
 
-    // MARK: - Private
-
     private func persist() {
         let snapshot = lock.withLock { $0 }
         do {

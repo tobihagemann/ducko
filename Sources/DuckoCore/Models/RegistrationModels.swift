@@ -16,7 +16,6 @@ public struct RegistrationFormInfo: Sendable {
     public let hasEmail: Bool
     public let dataFormFields: [RoomConfigField]
 
-    /// Initializes from a ``RegistrationModule/RegistrationForm``.
     public init(from form: RegistrationModule.RegistrationForm) {
         self.formKind = form.formType == .dataForm ? .dataForm : .legacy
         self.instructions = form.instructions

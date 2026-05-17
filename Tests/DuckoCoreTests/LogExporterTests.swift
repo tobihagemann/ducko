@@ -11,11 +11,7 @@ struct LogExporterTests {
 
     @Test
     func `recentLines returns no-file message when log directory is empty`() throws {
-        // LogExporter.recentLines reads from the configured logsDirectory.
-        // If the file doesn't exist yet, it should return a placeholder message.
-        // This test verifies the fallback path.
         let result = try LogExporter.recentLines(count: 10)
-        // Either returns actual log content or the no-file message
         #expect(!result.isEmpty)
     }
 

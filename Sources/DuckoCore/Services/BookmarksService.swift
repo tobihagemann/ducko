@@ -136,8 +136,6 @@ public final class BookmarksService {
         }
     }
 
-    // MARK: - Private
-
     private func handleBookmarksPublished(from: BareJID, items: [PEPItem], accountID: UUID) async {
         // Only process our own bookmarks
         guard let account = accountService?.accounts.first(where: { $0.id == accountID }),

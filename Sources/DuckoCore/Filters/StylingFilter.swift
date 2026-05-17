@@ -1,7 +1,4 @@
-/// Applies XEP-0393 message styling to messages.
-///
-/// Priority 5 — runs before link detection (10) and mentions (50) so that
-/// styled HTML is the base that later filters augment.
+/// XEP-0393 message styling filter. Priority 5 — runs before link detection (10) and mentions (50) so styled HTML is the base later filters augment.
 struct StylingFilter: MessageFilter {
     let priority = 5
 
@@ -13,7 +10,6 @@ struct StylingFilter: MessageFilter {
 
         let blocks = MessageStylingParser.parse(content.body)
 
-        // If the parse result is a single plain block with no styled spans, skip
         guard hasStyledContent(blocks) else { return content }
 
         let html = MessageStylingHTMLRenderer.render(blocks)

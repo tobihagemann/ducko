@@ -3,11 +3,9 @@ import Testing
 @testable import DuckoCore
 @testable import DuckoXMPP
 
-// Service-level coverage for the carbon ingest path that was extended in this
-// batch to extract XEP-0359 `<stanza-id>` and dedup via
-// `isDuplicateIncoming(serverID:stanzaID:fromJID:)`. The store-level test in
-// `FileTranscriptStoreTests` covers the predicate; these tests pin the
-// ChatService event-handler wiring and the trust filter on `by=`.
+// Service-level coverage for the carbon ingest path: extracts XEP-0359 `<stanza-id>` and dedups via
+// `isDuplicateIncoming(serverID:stanzaID:fromJID:)`. Store-level predicate coverage lives in
+// `FileTranscriptStoreTests`; these tests pin the ChatService wiring and the `by=` trust filter.
 
 private let contactJID = BareJID(localPart: "bob", domainPart: "example.com")!
 private let accountBareJID = BareJID.parse(testJIDString)!

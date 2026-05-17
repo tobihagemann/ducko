@@ -7,10 +7,7 @@
 ///
 /// where `p = 2^255 - 19`.
 enum OMEMOCurveConversion {
-    /// Converts an Ed25519 public key (32 bytes) to an X25519 public key (32 bytes).
-    ///
-    /// The Ed25519 key encodes the y-coordinate of the Edwards curve point.
-    /// Returns `nil` if the input is invalid (wrong length or `1 - y == 0`).
+    /// Edwards y-coordinate (32 bytes) → Montgomery u. Returns nil on wrong length or `1 - y == 0`.
     static func ed25519ToX25519(_ edKey: [UInt8]) -> [UInt8]? {
         guard edKey.count == 32 else { return nil }
 
@@ -26,10 +23,7 @@ enum OMEMOCurveConversion {
         return u.encode()
     }
 
-    /// Converts an X25519 public key (32 bytes) to an Ed25519 public key (32 bytes).
-    ///
-    /// The `signBit` determines the sign of the x-coordinate (bit 255 of the encoded point).
-    /// Returns `nil` if the input is invalid (wrong length or `u + 1 == 0`).
+    /// Montgomery u (32 bytes) → Edwards y. `signBit` packs into bit 255 of the encoded point. Returns nil on wrong length or `u + 1 == 0`.
     static func x25519ToEd25519(_ xKey: [UInt8], signBit: UInt8 = 0) -> [UInt8]? {
         guard xKey.count == 32 else { return nil }
 
@@ -150,8 +144,6 @@ private struct FieldElement {
         }
         return result
     }
-
-    // MARK: - Private Helpers
 
     private func invertChain(z11: FieldElement, z31: FieldElement) -> FieldElement {
         let z_10_0 = z31.squareN(5).multiply(z31)

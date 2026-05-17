@@ -8,12 +8,7 @@ public enum OMEMOPreKeyManager {
     /// Target number of pre-keys to maintain in storage.
     public static let targetPreKeyCount = 100
 
-    /// Generates a batch of one-time pre-keys with sequential IDs.
-    ///
-    /// - Parameters:
-    ///   - startID: The first key ID in the batch.
-    ///   - count: Number of pre-keys to generate.
-    /// - Returns: Array of freshly generated pre-keys.
+    /// Generates a batch of one-time pre-keys with sequential IDs starting at `startID`.
     public static func generatePreKeys(startID: UInt32, count: Int) -> [OMEMOPreKey] {
         (0 ..< count).map { offset in
             OMEMOPreKey(keyID: startID + UInt32(offset))
@@ -21,11 +16,6 @@ public enum OMEMOPreKeyManager {
     }
 
     /// Generates a signed pre-key, signed with the identity key.
-    ///
-    /// - Parameters:
-    ///   - keyID: The key ID for the signed pre-key.
-    ///   - identityKey: The identity key pair used to sign.
-    /// - Returns: A freshly generated and signed pre-key.
     static func generateSignedPreKey(
         keyID: UInt32,
         identityKey: OMEMOIdentityKeyPair

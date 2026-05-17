@@ -44,8 +44,6 @@ struct PlainFileTransferFormatterTests {
         #expect(output.contains("https://upload.example.com/doc.pdf"))
     }
 
-    // MARK: - Jingle Formatter Methods
-
     @Test func `format file offer`() {
         let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
         #expect(output.contains("report.pdf"))
@@ -112,8 +110,6 @@ struct ANSIFileTransferFormatterTests {
         #expect(output.contains("photo.jpg"))
         #expect(output.contains("https://upload.example.com/photo.jpg"))
     }
-
-    // MARK: - Jingle Formatter Methods
 
     @Test func `format file offer contains yellow`() {
         let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
@@ -193,8 +189,6 @@ struct JSONFileTransferFormatterTests {
         #expect(json["fileSize"] == nil)
         #expect(json["fileSizeBytes"] == nil)
     }
-
-    // MARK: - Jingle Formatter Methods
 
     @Test func `format file offer is valid JSON`() throws {
         let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")

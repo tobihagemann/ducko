@@ -68,9 +68,6 @@ struct SASLAuthenticator {
         return response
     }
 
-    // MARK: - Private
-
-    /// Creates the appropriate mechanism instance for the selected name.
     private func createMechanism(
         _ name: String,
         channelBindingData: [UInt8]?
@@ -99,11 +96,7 @@ struct SASLAuthenticator {
         }
     }
 
-    /// Extracts mechanism names from stream features.
-    ///
-    /// Looks for `<mechanisms xmlns="urn:ietf:params:xml:ns:xmpp-sasl">` containing
-    /// `<mechanism>NAME</mechanism>` children.
-    /// - Note: Mechanism names are uppercased per RFC 4422 §3.1 (case-insensitive).
+    /// Extracts `<mechanism>NAME</mechanism>` children from `<mechanisms xmlns="urn:ietf:params:xml:ns:xmpp-sasl">`. Names uppercased per RFC 4422 §3.1.
     private func parseMechanisms(_ features: XMLElement) -> Set<String> {
         guard let mechanisms = features.child(named: "mechanisms", namespace: saslNamespace) else {
             return []

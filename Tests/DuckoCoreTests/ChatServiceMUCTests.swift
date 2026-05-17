@@ -3,8 +3,6 @@ import Testing
 @testable import DuckoCore
 @testable import DuckoXMPP
 
-// MARK: - Helpers
-
 private let testAccountID = UUID()
 private let testAccountJID = BareJID(localPart: "user", domainPart: "example.com")!
 private let testRoomJID = BareJID(localPart: "room", domainPart: "conference.example.com")!
@@ -103,7 +101,6 @@ enum ChatServiceMUCTests {
             let xmppMessage = makeGroupMessage(from: testRoomJID, senderNickname: "me", body: "My echo")
             await service.handleEvent(.roomMessageReceived(xmppMessage), accountID: testAccountID)
 
-            // Without a wired-up client, the message is persisted (expected for unit test scope)
             let conversations = try await store.fetchConversations(for: testAccountID)
             let messages = try await transcripts.fetchMessages(for: conversations[0].id, before: nil, limit: 50)
             #expect(messages.count == 1)

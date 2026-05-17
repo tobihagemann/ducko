@@ -12,7 +12,6 @@ import Foundation
 /// </chat>
 /// ```
 package enum AdiumXMLLogParser {
-    /// Parses an Adium XML chatlog file and returns the extracted message entries.
     static func parse(data: Data) -> [AdiumLogEntry] {
         let delegate = ParserDelegate()
         let parser = XMLParser(data: data)
@@ -158,8 +157,6 @@ private final class ParserDelegate: NSObject, XMLParserDelegate {
             }
         }
     }
-
-    // MARK: - Helpers
 
     private func parseTimestamp(_ string: String) -> Date? {
         // Adium uses ISO 8601: "2016-01-12T00:31:17+0100"

@@ -67,14 +67,9 @@ public enum XMPPEvent: Sendable {
     case omemoEncryptedMessageReceived(from: JID, decryptedBody: String?, senderDeviceID: UInt32, stanzaID: String?)
     case omemoSessionEstablished(jid: BareJID, deviceID: UInt32, identityKey: [UInt8])
     case omemoSessionAdvanced(jid: BareJID, deviceID: UInt32)
-    /// Per-message diagnostic: a send completed with at least one recipient
-    /// device skipped because its bundle was missing. Fires for both peer and
-    /// own devices (targeted own-device suppression is part of the threat
-    /// model). Per-message — one event per send when `droppedDevices` is
-    /// non-empty. Correlate by `conversation` + temporal proximity to the most
-    /// recent send; the outgoing stanza ID is intentionally omitted because
-    /// the encrypt path runs before the stanza is built. GUI consumption is a
-    /// follow-up; CLI formatters are the only render consumers in this batch.
+    /// Per-message diagnostic: an OMEMO send completed with at least one recipient device skipped (missing bundle).
+    /// Fires for peer AND own devices. The outgoing stanza ID is omitted because encrypt runs before the stanza is built —
+    /// correlate by `conversation` + temporal proximity.
     case omemoRecipientsPartial(conversation: BareJID, droppedDevices: [DroppedOMEMORecipient])
 
     /// OOB IQ (XEP-0066)

@@ -3,8 +3,6 @@ import Testing
 @testable import DuckoCore
 @testable import DuckoXMPP
 
-// MARK: - Helpers
-
 private let testAccountID = UUID()
 private let roomJID = BareJID(localPart: "room", domainPart: "conference.example.com")!
 

@@ -54,7 +54,7 @@ After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., 
 
 Integration tests live in a sibling SwiftPM package at `IntegrationTests/` so a plain `swift test` at the repo root never runs them. They run against a live XMPP server and skip automatically when credentials are not set.
 
-Credentials live in `IntegrationTests/.env.test` (git-ignored; copy `IntegrationTests/.env.test.example`). `TestCredentials` auto-loads that file on first access — no need to `source` it.
+Credentials live in `IntegrationTests/.env.test` (git-ignored; copy `IntegrationTests/.env.test.example`). `TestCredentials` auto-loads that file on first access.
 
 ```
 swift test --package-path IntegrationTests
@@ -72,7 +72,7 @@ DUCKO_RESET_FIXTURES=1 swift test --package-path IntegrationTests --filter Reset
 
 It is skipped by default and requires all four `DUCKO_TEST_*` credential pairs.
 
-**OMEMO devicelist drift is now handled automatically.** `TestHarness` runs a bootstrap probe before the first test executes; if any account's PEP devicelist exceeds `autoResetDevicelistThreshold` (32 entries) the gate triggers the same OMEMO reset that `ResetTestServerState` runs manually. The env-gated suite stays useful when fixtures drift in non-OMEMO ways — roster subscription baselines or the dave-empty invariant — because the auto-reset only touches the OMEMO devicelist path.
+`TestHarness` runs a bootstrap probe before the first test executes and auto-runs the OMEMO reset when any account's PEP devicelist crosses `autoResetDevicelistThreshold` (32 entries). The env-gated suite remains useful for non-OMEMO drift (roster subscription baselines, the dave-empty invariant) since the auto-reset only touches the OMEMO devicelist path.
 
 ## Packaging
 
@@ -139,12 +139,7 @@ SwiftFormat, SwiftLint, and Periphery are installed via Homebrew:
 
 All project-visible agent skills live under `Skills/`. `.claude/skills` and `.agents/skills` are single top-level symlinks pointing at `../Skills`, so adding a new skill is just `mkdir Skills/<name>` — nothing else to wire up.
 
-The set is a mix of:
-
-- **Ducko-original skills** — written for this repo (`create-dmg`, `ducko-cli`, `ducko-ui`, `macos-ui-testing`, `package-app`, `release`, `smoke-test-party`).
-- **Upstream-derived skills** — merged from open-source agent skills from [twostraws/SwiftUI-Agent-Skill](https://github.com/twostraws/SwiftUI-Agent-Skill) and related catalogs (`swiftui`, `swiftdata`, `swift-concurrency`, `swift-testing`, `swift-language`, `swift-architecture`, `swift-security`, `swiftui-performance-audit`, `accessibility`, `writing-for-interfaces`, `macos-spm-app-packaging`).
-
-See `Skills/ATTRIBUTION.md` for per-skill upstream sources and MIT copyright notices.
+The set is a mix of Ducko-original skills written for this repo and upstream-derived skills merged from open-source catalogs. See `Skills/ATTRIBUTION.md` for per-skill upstream sources and MIT copyright notices.
 
 ## Code Conventions
 
@@ -154,5 +149,5 @@ See `Skills/ATTRIBUTION.md` for per-skill upstream sources and MIT copyright not
 - **Testing**: use Swift Testing (`import Testing`, `@Test`, `#expect`, `#require`), not XCTest. Struct-based suites, parameterized tests via `@Test(arguments:)`.
 - **Concurrency**: value types (struct/enum) are automatically `Sendable`. Never use `@unchecked Sendable`. Use actors for mutable shared state.
 - **libxml2 / CLibxml2**: DuckoXMPP uses libxml2 via a `CLibxml2` system library target (`Sources/CLibxml2/`). For C callbacks that need a back-reference to a Swift class, use the `Unmanaged.passUnretained(self).toOpaque()` pattern — do not use NSObject or `@objc`.
-- **CryptoKit**: Does not re-export Foundation on macOS 26. Safe to import alongside `XMLElement` without naming conflicts. `DataProtocol` is defined in Foundation — CryptoKit's `HashFunction.hash(data:)` requires it but importing CryptoKit alone does not bring `DataProtocol` into scope. In DuckoXMPP, use `[UInt8]` instead of `some DataProtocol` for function parameters.
+- **CryptoKit**: On macOS 26 it does not re-export Foundation, so `some DataProtocol` is out of scope in DuckoXMPP. Use `[UInt8]` for parameters that feed `HashFunction.hash(data:)`.
 - **Exhaustive switches**: Never use `default:` when switching on project-defined enums. List all cases explicitly so the compiler catches new cases at build time.

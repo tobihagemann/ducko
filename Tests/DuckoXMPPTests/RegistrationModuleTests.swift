@@ -59,7 +59,6 @@ struct RegistrationModuleTests {
     func `FormType cases`() {
         let legacy = RegistrationModule.FormType.legacy
         let dataForm = RegistrationModule.FormType.dataForm
-        // Verify they're distinct
         switch legacy {
         case .legacy: break
         case .dataForm: Issue.record("Expected legacy")

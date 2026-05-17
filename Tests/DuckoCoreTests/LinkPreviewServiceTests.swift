@@ -29,8 +29,6 @@ enum LinkPreviewServiceTests {
     }
 }
 
-// MARK: - Test Helpers
-
 private struct StubLinkPreviewFetcher: LinkPreviewFetcher {
     func fetchPreview(for url: URL) async throws -> LinkPreview? {
         LinkPreview(

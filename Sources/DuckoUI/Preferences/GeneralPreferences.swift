@@ -39,8 +39,6 @@ final class GeneralPreferences {
         self.launchAtLoginEnabled = Self.readLaunchAtLogin()
     }
 
-    // MARK: - Private
-
     private static func readLaunchAtLogin() -> Bool {
         #if DEBUG
             return false

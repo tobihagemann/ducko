@@ -1356,7 +1356,6 @@ extension DuckoCLI {
                 try await env.accountService.connect(accountID: selectedAccount.id, password: password)
                 try await waitForConnected(accountID: selectedAccount.id, environment: env)
 
-                // Look up existing trust record for fingerprint
                 let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
                 guard let device = devices.first(where: { $0.deviceID == deviceID }) else {
                     print("Device \(deviceID) not found for \(jid).")
@@ -1504,7 +1503,6 @@ extension DuckoCLI {
                     return
                 }
 
-                // Print discovery summary
                 let totalFiles = sources.reduce(0) { $0 + $1.fileCount }
                 print("\nDiscovered \(sources.count) account(s), \(totalFiles) log file(s):\n")
                 for source in sources {
@@ -2453,7 +2451,6 @@ private func handleWhoCommand(formatter: any CLIFormatter, environment: AppEnvir
         (environment.rosterService.groups, environment.presenceService.contactPresences)
     }
 
-    // Deduplicate contacts that appear in multiple groups
     var seen = Set<String>()
     let uniqueContacts = groups.flatMap(\.contacts).filter { seen.insert($0.jid.description).inserted }
     let onlineContacts = uniqueContacts
@@ -2538,7 +2535,6 @@ private func handleAvatarREPLCommand(_ input: String, context: REPLContext) asyn
     let args = input.dropFirst("/avatar".count).trimmingCharacters(in: .whitespaces)
 
     if args.isEmpty {
-        // Show own avatar info
         let hash = await MainActor.run { context.environment.avatarService.ownAvatarHash }
         if let hash {
             print("Own avatar hash: \(hash)")
@@ -2775,8 +2771,6 @@ private func applyPresence(
     }
 }
 
-// MARK: - Helpers
-
 private func resolveAccount(_ accountIDString: String?, environment: AppEnvironment) async throws -> DuckoCore.Account {
     try await environment.accountService.loadAccounts()
     let accounts = await MainActor.run { environment.accountService.accounts }
@@ -2820,5 +2814,5 @@ private func waitForRosterLoaded(environment: AppEnvironment) async throws {
         }
         try await Task.sleep(for: .milliseconds(200))
     }
-    // Empty roster — timeout expires gracefully
+    // Empty roster — timeout expires gracefully.
 }

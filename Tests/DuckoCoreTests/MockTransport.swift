@@ -52,8 +52,6 @@ actor MockTransport: XMPPTransport {
         receivedContinuation.finish()
     }
 
-    // MARK: - Test Helpers
-
     func waitForSent(count: Int) async {
         if sentBytes.count >= count { return }
         await withCheckedContinuation { continuation in

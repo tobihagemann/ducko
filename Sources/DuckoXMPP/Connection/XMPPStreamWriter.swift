@@ -21,12 +21,10 @@ enum XMPPStreamWriter {
         return Array(xml.utf8)
     }
 
-    /// Serializes an ``XMLElement`` stanza to UTF-8 bytes.
     static func stanza(_ element: XMLElement) -> [UInt8] {
         Array(element.xmlString.utf8)
     }
 
-    /// Generates the closing `</stream:stream>` tag.
     static func streamClosing() -> [UInt8] {
         Array("</stream:stream>".utf8)
     }

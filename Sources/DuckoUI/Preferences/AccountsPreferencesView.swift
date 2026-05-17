@@ -112,8 +112,6 @@ struct AccountsPreferencesView: View {
         }
     }
 
-    // MARK: - Helpers
-
     private func connectionIndicator(for accountID: UUID) -> some View {
         let state = environment.accountService.connectionStates[accountID]
         let color: Color = switch state {

@@ -4,8 +4,6 @@ import Testing
 @testable import DuckoCore
 
 enum AdiumKeychainReaderTests {
-    // MARK: - Helpers
-
     private static func makeAccount(service: String = "Jabber", uid: String) -> AdiumAccount {
         AdiumAccount(
             id: "test-\(uid)",

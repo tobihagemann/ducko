@@ -14,59 +14,36 @@ public final class OMEMOService {
     private let omemoStore: any OMEMOStore
     private weak var accountService: AccountService?
     private weak var chatService: ChatService?
-    /// Per-account seen-device classification cache surfaced to `OMEMOModule`
-    /// via `SeenDeviceClassificationProviding`. Lives on the service so it
-    /// outlives module reconnects (each reconnect builds a fresh module);
-    /// without that, the two-stale healthy-observation gate in
-    /// `pruneStaleBundles` would always find an empty cache and never
-    /// auto-retract. Keyed by `UUID.uuidString` because the protocol takes
-    /// opaque `String`.
+    /// Per-account seen-device classification cache (canonical home).
+    ///
+    /// Lives here (not on `OMEMOModule`) so it survives reconnects — modules are rebuilt per reconnect.
+    /// Without that, the two-stale gate in `pruneStaleBundles` would always start empty and never auto-retract.
+    /// Keyed by `UUID.uuidString` because `SeenDeviceClassificationProviding` takes opaque `String`.
     private var seenDeviceCacheByAccount: [String: [UInt32: SeenDeviceRecord]] = [:]
-    /// Tracks whether the persistent rows for an account have been read into
-    /// the in-memory map at least once. A cache miss before the sentinel is
-    /// set must hit the store; a cache miss after means the entry was purged
-    /// or never persisted.
+    /// True once persistent rows for an account have been loaded into memory. Cache miss before the sentinel → hit the store; after → purged or never persisted.
     private var seenDeviceLoadedAccounts: Set<String> = []
-    /// In-flight load tasks per account so two concurrent first-reads share
-    /// a single store round-trip instead of racing each other. Swallows
-    /// store errors per protocol contract — the result type carries the
-    /// loaded snapshot or an empty map on failure.
+    /// In-flight load coalescing — two concurrent first-reads share one store round-trip. Store errors absorbed (protocol contract); failure → empty map.
     private var seenDevicePendingLoads: [String: Task<[UInt32: SeenDeviceRecord], Never>] = [:]
-    /// Bumped on every `clearSeenDevicesAbsent`, `replaceSeenDevices`, or
-    /// `purgeSeenDeviceClassifications` for an account. The first-load path
-    /// captures the generation before awaiting the store; if it changed
-    /// during the await, an explicit clear/replace ran and the loaded
-    /// snapshot must NOT be re-merged into the cache (it would resurrect
-    /// records the clear deliberately removed).
+    /// Load-generation counter. Bumped on every `clearSeenDevicesAbsent` / `replaceSeenDevices` / `purgeSeenDeviceClassifications`.
+    /// The first-load path captures the generation before awaiting the store; if it changed during the await,
+    /// the loaded snapshot must NOT be merged — it would resurrect rows the explicit op deliberately removed.
     private var seenDeviceLoadGeneration: [String: UInt64] = [:]
-    /// Maps the opaque accountID (`UUID.uuidString`) used in the provider
-    /// protocol back to the wire `accountJID` string used by `OMEMOStore`.
-    /// Captured at module-build time so provider calls don't need a
-    /// UUID→JID lookup via the weakly-held `accountService`.
+    /// Maps the opaque accountID (`UUID.uuidString`) to the wire `accountJID` used by `OMEMOStore`.
+    /// Captured at module-build time so provider calls don't traverse the weakly-held `accountService`.
     private var accountJIDsByAccountID: [String: String] = [:]
-    /// In-flight flag for the emergency-retract path. Held across the
-    /// entire publish/retract/cleanup phase (not just the closure await)
-    /// so a second prune entering after the new module rebuild — should a
-    /// reconnect race the retract — sees the flag and bails cleanly.
+    /// In-flight flag for the emergency-retract path. Held across the entire publish/retract/cleanup phase
+    /// (not just the closure await) so a second prune after a mid-retract module rebuild bails cleanly.
     private var emergencyRetractInFlightAccounts: Set<String> = []
 
-    /// UI-supplied closure prompting the user before the emergency-retract
-    /// path publishes a singleton devicelist and retracts orphan bundles.
-    /// Default `nil` preserves the pre-emergency-retract bail behavior.
-    /// `@Sendable` end-to-end; UI callers hop to `MainActor` inside the
-    /// closure if needed. Inlined here (rather than re-exporting the
-    /// `package` typealias from DuckoXMPP) so the property can be `public`.
+    /// UI-supplied confirmation closure before the emergency-retract path publishes a singleton devicelist.
+    /// Default `nil` preserves the pre-feature bail behavior. `@Sendable`; callers hop to `MainActor` inside.
     public var emergencyRetractConfirmation: (@Sendable (_ deviceCount: Int, _ ownDeviceID: UInt32) async -> Bool)?
 
     public init(omemoStore: any OMEMOStore) {
         self.omemoStore = omemoStore
     }
 
-    /// Test-only hook: pre-populates the `accountID → accountJID` map so the
-    /// classification-provider methods can locate the persistence-side JID
-    /// without driving the full `buildModule` flow. Production callers use
-    /// `buildModule(for:accountID:pepModule:)`, which installs the mapping
-    /// as a side-effect of wiring the provider.
+    /// Test-only: pre-populates `accountID → accountJID` so provider methods work without driving `buildModule`.
     package func installAccountJIDForTesting(_ accountJID: String, accountID: String) async {
         accountJIDsByAccountID[accountID] = accountJID
     }
@@ -81,10 +58,7 @@ public final class OMEMOService {
         chatService = service
     }
 
-    /// Drops the seen-device classification entry for `accountID` so it does
-    /// not survive into a future re-creation of the account. Called by
-    /// `AccountService.deleteAccount` to keep the in-memory map bounded and
-    /// to wipe persisted rows alongside it.
+    /// Drops the seen-device classification entry + persisted rows for `accountID`. Called by `AccountService.deleteAccount`.
     func purgeSeenDeviceClassifications(accountID: UUID) {
         let key = accountID.uuidString
         let accountJID = accountJIDsByAccountID[key]
@@ -109,11 +83,7 @@ public final class OMEMOService {
         let jidString = accountJID.description
 
         wireIdentityKeyValidator(on: module, accountJID: jidString)
-        // `pruneStaleBundles` uses these to gate auto-retract on a two-stale
-        // healthy-observation lineage and to recover from over-cap
-        // accumulation. The cache and in-flight guard live on the service so
-        // they survive reconnects (modules are rebuilt per reconnect; the
-        // service is held by `AppEnvironment` and outlives them).
+        // Wire pruneStaleBundles' service-side dependencies. See `seenDeviceCacheByAccount` for the reconnect-survival rationale.
         let accountIDKey = accountID.uuidString
         accountJIDsByAccountID[accountIDKey] = jidString
         module.configureSeenDeviceClassificationProvider(self, accountID: accountIDKey)
@@ -214,12 +184,9 @@ public final class OMEMOService {
 
     // MARK: - Encryption
 
-    /// Resolution returned by `shouldEncrypt`. Distinguishes the three
-    /// "don't send encrypted" cases so callers can fail closed when the
-    /// user intended encryption but no recipient device qualifies. The
-    /// names describe what the *local trust store* tells us, not the
-    /// peer's actual state — we may simply not have received the peer's
-    /// devicelist yet.
+    /// Resolution from `shouldEncrypt`. Names describe what the *local trust store* says, not the peer's actual state
+    /// (the peer's devicelist may not have been received yet). Callers fail-closed on the three "don't encrypt" cases
+    /// when the conversation has encryption enabled.
     public enum EncryptionResolution: Sendable {
         /// Encryption authorized; encrypt to these recipient device IDs.
         case proceed(trustedDeviceIDs: [UInt32])
@@ -231,18 +198,11 @@ public final class OMEMOService {
         case noLocalDevicesForPeer
         /// Local trust store has peer devices but none are trusted.
         case noTrustedDevicesForPeer
-        /// Conversation has encryption enabled but the OMEMO service is
-        /// not wired (only reachable in tests; production wires it at app
-        /// start). Distinguishes from `.proceed` so callers can throw
-        /// `omemoServiceUnavailable` without an additional `omemoService ==
-        /// nil` check at every dispatch site.
+        /// Service not wired (tests only; production wires at app start). Distinct from `.proceed` so callers throw `omemoServiceUnavailable` without a nil check.
         case serviceUnavailable
     }
 
-    /// Resolves the encryption decision for an outgoing 1:1 message.
-    /// Callers should treat `.noLocalDevicesForPeer` and
-    /// `.noTrustedDevicesForPeer` as throw conditions (fail closed) when the
-    /// conversation is configured for encryption.
+    /// Resolves encryption for a 1:1 send. Callers treat `.noLocalDevicesForPeer` / `.noTrustedDevicesForPeer` as throw conditions when the conversation has encryption enabled.
     func shouldEncrypt(jid: BareJID, accountID: UUID, conversationEncryptionEnabled: Bool) async -> EncryptionResolution {
         guard conversationEncryptionEnabled else { return .userDisabled }
         guard let accountJID = accountJIDString(for: accountID) else {
@@ -260,7 +220,6 @@ public final class OMEMOService {
         return .proceed(trustedDeviceIDs: trusted)
     }
 
-    /// Encrypts a message body and returns the OMEMO stanza elements.
     func encryptMessage(
         body: String,
         to jid: BareJID,
@@ -283,7 +242,6 @@ public final class OMEMOService {
             recipientDeviceIDs: trustedDeviceIDs, ownDeviceIDs: ownDeviceIDs
         )
 
-        // Persist updated sessions
         await saveModuleSessions(module: omemoModule, accountID: accountID)
 
         return elements
@@ -478,7 +436,6 @@ public final class OMEMOService {
         )
         try? await omemoStore.saveSession(session)
 
-        // Store fingerprint from identity key
         let fingerprint = omemoFingerprint(from: identityKey)
         let existing = try? await omemoStore.loadTrust(
             accountJID: accountJID, peerJID: jid.description, deviceID: deviceID
@@ -515,18 +472,11 @@ public final class OMEMOService {
             accountJID: accountJID
         )
 
-        // Check if pre-key replenishment is needed
         await replenishPreKeysIfNeeded(accountJID: accountJID, module: omemoModule)
     }
 
-    /// First-time identity persistence + consumed-pre-key sync.
-    ///
-    /// Split out from ``handleConnected(accountID:)`` so unit tests can drive
-    /// the polling and persistence branches via a stub
-    /// ``OMEMOIdentityProviding`` and a short ``pollTimeout``, bypassing the
-    /// 5 s real-time wait and the 25-pre-key replenishment trigger. Production
-    /// `handleConnected` calls this with the live module and then runs
-    /// replenishment separately.
+    /// First-time identity persistence + consumed-pre-key sync. Extracted so tests can drive the polling/persistence
+    /// branches via a stub `OMEMOIdentityProviding` and a short `pollTimeout` (bypassing the 5s real wait).
     package func handleConnectedFirstTimePersistence(
         provider: any OMEMOIdentityProviding,
         accountJID: String,
@@ -564,7 +514,6 @@ public final class OMEMOService {
                 )
                 try? await omemoStore.saveIdentity(stored)
 
-                // Persist pre-keys
                 let preKeys = identityData.preKeys.map {
                     OMEMOStoredPreKey(
                         accountJID: accountJID, keyID: $0.keyID,
@@ -573,7 +522,6 @@ public final class OMEMOService {
                 }
                 try? await omemoStore.savePreKeys(preKeys)
 
-                // Persist signed pre-key
                 let spk = OMEMOStoredSignedPreKey(
                     accountJID: accountJID,
                     keyID: identityData.signedPreKeyID,
@@ -593,8 +541,6 @@ public final class OMEMOService {
             try? await omemoStore.consumePreKey(id: keyID, accountJID: accountJID)
         }
     }
-
-    // MARK: - Private Helpers
 
     private func saveModuleSessions(module: OMEMOModule, accountID: UUID) async {
         guard let accountJID = accountJIDString(for: accountID) else { return }
@@ -733,21 +679,14 @@ extension OMEMOService: SeenDeviceClassificationProviding {
         seenDevicePendingLoads[accountID] = task
         let loaded = await task.value
         seenDevicePendingLoads.removeValue(forKey: accountID)
-        // Generation check: if a `clearSeenDevicesAbsent`,
-        // `replaceSeenDevices`, or `purgeSeenDeviceClassifications` ran
-        // during the await, those handlers intentionally removed rows from
-        // the cache. Re-merging the loaded snapshot would resurrect the
-        // deletions and re-open the bypass-defense (or undo the emergency
-        // replace). Bail with whatever the explicit operation produced.
+        // Generation check: a clear/replace/purge during the await deliberately removed rows. Re-merging the loaded
+        // snapshot would resurrect deletions and re-open the bypass-defense. Bail with whatever the explicit op produced.
         guard seenDeviceLoadGeneration[accountID, default: 0] == generationBeforeAwait else {
             return seenDeviceCacheByAccount[accountID] ?? [:]
         }
-        // Merge per-ID: rows added by a concurrent `mergeSeenDevices` win
-        // (fresher post-load data); the loaded snapshot fills the gaps.
-        // Wholesale-discarding the snapshot would lose persisted rows for
-        // devices not in the concurrent merge, and a subsequent
-        // `clearSeenDevicesAbsent` would then delete them from the store,
-        // re-opening the bypass.
+        // Merge per-ID: concurrent `mergeSeenDevices` rows win (fresher); the loaded snapshot fills gaps.
+        // Wholesale-discard would lose persisted rows for un-merged devices; a subsequent `clearSeenDevicesAbsent`
+        // would then delete them from the store, re-opening the bypass.
         var current = seenDeviceCacheByAccount[accountID] ?? [:]
         for (deviceID, record) in loaded where current[deviceID] == nil {
             current[deviceID] = record
@@ -801,10 +740,7 @@ extension OMEMOService: SeenDeviceClassificationProviding {
     package func replaceSeenDevices(_ records: [UInt32: SeenDeviceRecord], accountID: String) async {
         seenDeviceCacheByAccount[accountID] = records
         seenDeviceLoadedAccounts.insert(accountID)
-        // Bump the load generation so an in-flight first-load that resumes
-        // after this replace does NOT re-merge the loaded snapshot and
-        // overwrite the explicit baseline (e.g. the emergency-retract
-        // singleton).
+        // Bump generation — see `loadSeenDevices` for the race-guard semantics.
         seenDeviceLoadGeneration[accountID, default: 0] &+= 1
         guard let accountJID = accountJIDsByAccountID[accountID] else { return }
         let rows = records.values.map {

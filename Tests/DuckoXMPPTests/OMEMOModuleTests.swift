@@ -550,23 +550,15 @@ enum OMEMOModuleTests {
     }
 
     struct PruneStaleBundlesTests {
-        /// Backwards-compatible stub for tests that thought of the gate as
-        /// "previously seen → retract on stale". Under the new gate the
-        /// equivalent state is `.healthy` recorded at a prior cycle
-        /// (`hasObservedHealthy: true`) — so the "initial" set seeds those
-        /// devices with a healthy lineage. Tests that want the new
-        /// `hasObservedHealthy: false` state seed via empty initial.
+        /// Stub provider that seeds devices in `hasObservedHealthy: true` so
+        /// prune trips the two-stale gate on the next `.stale` classification.
+        /// Pass `initial: []` (or use `seed:`) for the never-healthy lineage.
         actor StubSeenDeviceClassificationProvider: SeenDeviceClassificationProviding {
             private var cache: [UInt32: SeenDeviceRecord]
             private(set) var mergeUpdates: [[UInt32: SeenDeviceRecord]] = []
             private(set) var clearAbsentCalls: [Set<UInt32>] = []
             private(set) var replaceCalls: [[UInt32: SeenDeviceRecord]] = []
 
-            /// Seeds devices in the one-strike-from-retract state so the
-            /// existing tests (which only run one prune cycle) still trip
-            /// the new two-stale gate on the upcoming `.stale`
-            /// classification. Tests that want a never-healthy lineage
-            /// pass the `seed:` initializer with explicit records.
             init(initial: Set<UInt32> = []) {
                 var seed: [UInt32: SeenDeviceRecord] = [:]
                 for id in initial {
@@ -610,12 +602,7 @@ enum OMEMOModuleTests {
             }
 
             /// Returns the device-ID set after the most recent persistence
-            /// operation, or `nil` if no operation has run yet. Compatibility
-            /// shim for tests written against the old
-            /// `Set<UInt32>?`-returning `updatePreviouslySeenDeviceIDs`
-            /// semantics: the new cache stores per-device records but the
-            /// "what's in the cache right now" set still serves the same
-            /// assertions about pruning's final membership.
+            /// operation, or `nil` if no operation has run yet.
             var lastUpdate: Set<UInt32>? {
                 guard !mergeUpdates.isEmpty || !clearAbsentCalls.isEmpty || !replaceCalls.isEmpty else {
                     return nil
@@ -671,9 +658,7 @@ enum OMEMOModuleTests {
                 expectedRetracts: [99]
             )
 
-            // After retract: 99 was removed from the cache, and ownDeviceID
-            // is never recorded (only probed peer IDs get records). The
-            // cache is empty post-trim.
+            // After retract: 99 was removed from the cache; ownDeviceID is never recorded (only probed peer IDs).
             let last = await stub.lastUpdate
             #expect(last == Set([]))
 
@@ -789,10 +774,7 @@ enum OMEMOModuleTests {
                 expectedRetracts: [99]
             )
 
-            // After retract: 99 was retracted and dropped from the cache; 100
-            // is first-stale-no-prior-healthy and stays for next reconnect.
-            // ownDeviceID is never recorded (only probed peer IDs get
-            // records).
+            // 99 was retracted and dropped; 100 is first-stale-no-prior-healthy and stays for the next reconnect.
             let last = await stub.lastUpdate
             #expect(last == Set([100]))
 
@@ -907,13 +889,10 @@ enum OMEMOModuleTests {
             let total = await mock.sentBytes.count
             #expect(total == 7)
 
-            // New semantics: the over-cap path does NOT touch the cache.
-            // The attacker-provided list is untrustworthy, so preserving
-            // whatever the cache already holds is the safer default.
-            // Without a wired emergency-retract closure the prune simply
-            // bails — recovery flows through the closure path tested
-            // separately. Suppress unused-variable warning on ownDeviceID:
-            _ = ownDeviceID
+            // Over-cap path does NOT touch the cache (attacker-provided list is untrustworthy; preserving prior
+            // cache is the safer default). Without a wired emergency-retract closure the prune bails — recovery is
+            // covered by the closure-path test.
+            _ = ownDeviceID // unused after cap-path bails
             let last = await stub.lastUpdate
             #expect(last == nil)
 

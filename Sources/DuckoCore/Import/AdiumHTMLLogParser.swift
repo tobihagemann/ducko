@@ -50,13 +50,7 @@ package enum AdiumHTMLLogParser {
 
     // MARK: - Public API
 
-    /// Parses an Adium HTML log file.
-    ///
-    /// - Parameters:
-    ///   - data: The file content as UTF-8 data.
-    ///   - fileDate: The date extracted from the filename (used as the base date for time-only timestamps).
-    ///   - accountUID: The account UID from the directory structure (reserved for future outgoing detection).
-    /// - Returns: Parsed log entries.
+    /// Parses an Adium HTML log file. `fileDate` (from the filename) is the base for time-only timestamps.
     static func parse(data: Data, fileDate: Date, accountUID _: String) -> [AdiumLogEntry] {
         guard let content = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) else {
             return []
@@ -106,8 +100,6 @@ package enum AdiumHTMLLogParser {
         let dateString = String(filename[filename.index(after: openParen) ..< closeParen])
         return fileDateFormatter.date(from: dateString)
     }
-
-    // MARK: - Private
 
     private static func parseMessageDiv(scanner: Scanner, fileDate: Date, isSend _: Bool) -> AdiumLogEntry? {
         guard scanner.scanUpToString("<span class=\"timestamp\">") != nil || true,

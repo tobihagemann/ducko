@@ -224,8 +224,6 @@ public enum MessageStylingParser {
         return nil
     }
 
-    // MARK: - Helpers
-
     /// Reconstructs plain text spans that were skipped during character-by-character scanning.
     private static func coalescePlain(_ spans: [StyledSpan], originalText: String) -> [StyledSpan] {
         guard !spans.isEmpty else { return [.plain(originalText)] }

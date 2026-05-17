@@ -12,12 +12,10 @@ struct RegistrationFormSheet: View {
     @State private var isSubmitting = false
     @State private var submitSuccess = false
 
-    // Legacy form fields
     @State private var username = ""
     @State private var password = ""
     @State private var email = ""
 
-    /// Data form fields
     @State private var dataFormFields: [RoomConfigField] = []
 
     var body: some View {

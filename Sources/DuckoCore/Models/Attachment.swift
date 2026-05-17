@@ -24,8 +24,6 @@ public struct Attachment: Sendable, Identifiable, Codable {
         self.oobDescription = oobDescription
     }
 
-    // MARK: - Computed Helpers
-
     public var isImage: Bool {
         mimeType?.hasPrefix("image/") == true
     }

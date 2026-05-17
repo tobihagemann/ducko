@@ -1,8 +1,5 @@
-/// Orchestrates transport, XML stream parser, and event delivery for an XMPP connection.
-///
-/// Owns a single unified ``events`` stream that survives parser resets across TLS upgrades.
-/// On ``upgradeTLS(serverName:)``, the current parser is closed and a fresh one is created
-/// — matching XMPP's "new stream" semantics.
+/// Owns transport, XML parser, and the unified `events` stream. Parser is replaced on TLS upgrade
+/// (XMPP "new stream" semantics) but `events` survives across resets.
 actor XMPPConnection {
     private let transport: any XMPPTransport
     private var parser: XMPPStreamParser
@@ -59,16 +56,12 @@ actor XMPPConnection {
 
     // MARK: - TLS
 
-    /// Upgrades the transport to TLS and resets the parser.
-    ///
-    /// The receive task continues running. Parser access is actor-isolated,
-    /// so queued `feedParser` calls will execute against the new parser after the swap.
+    /// Upgrades transport to TLS and resets the parser. Receive task keeps running; actor isolation ensures queued `feedParser` calls land on the post-swap parser.
     func upgradeTLS(serverName: String) async throws {
         resetStream()
         try await transport.upgradeTLS(serverName: serverName)
     }
 
-    /// Returns TLS info from the transport, if available.
     var tlsInfo: TLSInfo? {
         get async {
             if let posix = transport as? POSIXTransport {
@@ -78,7 +71,6 @@ actor XMPPConnection {
         }
     }
 
-    /// Returns channel binding data from the transport, if available.
     var channelBindingData: [UInt8]? {
         get async {
             await transport.channelBindingData()
@@ -87,9 +79,7 @@ actor XMPPConnection {
 
     // MARK: - Stream Reset
 
-    /// Resets the parser for a new XMPP stream (e.g. after SASL authentication).
-    ///
-    /// The receive task continues running — only the parser is replaced.
+    /// Resets the parser for a new XMPP stream (e.g. after SASL). Receive task continues.
     func resetStream() {
         _ = parser.close()
         parser = XMPPStreamParser()
@@ -97,7 +87,6 @@ actor XMPPConnection {
 
     // MARK: - Sending
 
-    /// Send raw bytes over the transport.
     func send(_ bytes: [UInt8]) async throws {
         try await transport.send(bytes)
     }
@@ -118,8 +107,6 @@ actor XMPPConnection {
         await transport.disconnect()
         eventContinuation.finish()
     }
-
-    // MARK: - Private
 
     private func startReceiving() {
         let receivedData = transport.receivedData

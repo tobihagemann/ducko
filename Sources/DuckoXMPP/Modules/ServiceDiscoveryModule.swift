@@ -8,7 +8,6 @@ private let log = Logger(label: "im.ducko.xmpp.disco")
 public final class ServiceDiscoveryModule: XMPPModule, Sendable {
     // MARK: - Types
 
-    /// A service discovery identity.
     public struct Identity: Hashable, Sendable {
         public let category: String
         public let type: String
@@ -102,7 +101,6 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
             var query = XMLElement(name: "query", namespace: XMPPNamespaces.discoInfo)
             if let requestedNode { query.setAttribute("node", value: requestedNode) }
 
-            // Add identity
             var identityElement = XMLElement(name: "identity")
             identityElement.setAttribute("category", value: identity.category)
             identityElement.setAttribute("type", value: identity.type)
@@ -114,7 +112,6 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
             }
             query.addChild(identityElement)
 
-            // Add all registered features
             let allFeatures = context.availableFeatures()
             for feature in allFeatures.sorted() {
                 let featureElement = XMLElement(name: "feature", attributes: ["var": feature])

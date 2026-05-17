@@ -901,8 +901,6 @@ struct JSONFormatter: CLIFormatter {
         }
     }
 
-    // MARK: - Private
-
     private func encode(_ value: some Encodable) -> String {
         guard let data = try? encoder.encode(value),
               let string = String(data: data, encoding: .utf8)

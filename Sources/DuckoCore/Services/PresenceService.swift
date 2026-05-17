@@ -63,9 +63,7 @@ public final class PresenceService {
 
     // MARK: - Public API
 
-    /// Sets the local presence and broadcasts on an already-connected
-    /// account. Use ``applyPresence(_:message:accountID:connect:disconnect:)``
-    /// when the account may be offline and a reconnect is required.
+    /// Broadcasts on an already-connected account. Use `applyPresence` when reconnect may be needed.
     public func setPresence(_ status: PresenceStatus, message: String?, accountID: UUID) async {
         myPresence = status
         myStatusMessage = message
@@ -81,12 +79,9 @@ public final class PresenceService {
         try await presenceModule.sendDirectedPresence(to: jid, show: currentShow, status: myStatusMessage)
     }
 
-    /// Updates `myPresence` and `myStatusMessage` before any awaits so views
-    /// observing them reflect the new state immediately. `connect` runs only
-    /// when the account is actually disconnected — read from
-    /// `AccountService.connectionStates` rather than from `myPresence`,
-    /// because callers may have already mutated `myPresence` synchronously
-    /// (e.g. through a `Picker` selection binding) before this method runs.
+    /// Updates `myPresence` / `myStatusMessage` synchronously (views see the change before any await). Reads
+    /// `AccountService.connectionStates` rather than `myPresence` to decide reconnect — a `Picker` binding may have
+    /// already mutated `myPresence`.
     public func applyPresence(
         _ status: PresenceStatus,
         message: String?,
@@ -114,9 +109,7 @@ public final class PresenceService {
         pendingRequestsByAccount[accountID]?.removeAll { $0 == jid }
     }
 
-    /// Marks the local presence as offline. Does NOT disconnect the
-    /// transport — the caller is responsible for `AccountService.disconnect`
-    /// so the server emits the unavailable presence stanza.
+    /// Marks local presence offline only. Caller must invoke `AccountService.disconnect` so the server sees the unavailable stanza.
     public func goOffline(accountID _: UUID) {
         myPresence = .offline
         myStatusMessage = nil
@@ -193,19 +186,12 @@ public final class PresenceService {
         idleMonitorTask = nil
     }
 
-    // MARK: - Private
-
     private func isAccountDisconnected(accountID: UUID) -> Bool {
         Self.isDisconnected(state: accountService?.connectionStates[accountID])
     }
 
-    /// Pure classification of a connection state into "needs reconnect"
-    /// vs "already up". `nil` (no service wired) is treated as
-    /// disconnected so a test harness without `AccountService` still
-    /// exercises the connect path, and `.error` is treated as
-    /// disconnected so a re-pick of an online status retries the
-    /// connection. Internal so it is reachable from tests via
-    /// `@testable import`.
+    /// Classifies a connection state for reconnect. `nil` (no service wired) and `.error` both count as disconnected
+    /// so test harnesses without `AccountService` and error-state retries exercise the connect path.
     nonisolated static func isDisconnected(state: AccountService.ConnectionState?) -> Bool {
         guard let state else { return true }
         return switch state {

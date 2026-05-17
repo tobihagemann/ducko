@@ -2,13 +2,7 @@ import CommonCrypto
 
 /// AES-256-CBC encryption and decryption with PKCS#7 padding via CommonCrypto.
 enum OMEMOAESCBC {
-    /// Encrypts plaintext with AES-256-CBC and PKCS#7 padding.
-    ///
-    /// - Parameters:
-    ///   - plaintext: Data to encrypt.
-    ///   - key: 32-byte AES-256 key.
-    ///   - iv: 16-byte initialization vector.
-    /// - Returns: Ciphertext bytes.
+    /// AES-256-CBC + PKCS#7. Requires 32-byte `key` and 16-byte `iv` (throws `invalidKeyLength`/`invalidIVLength`).
     static func encrypt(plaintext: [UInt8], key: [UInt8], iv: [UInt8]) throws -> [UInt8] {
         guard key.count == kCCKeySizeAES256 else { throw OMEMOCryptoError.invalidKeyLength }
         guard iv.count == kCCBlockSizeAES128 else { throw OMEMOCryptoError.invalidIVLength }
@@ -35,13 +29,7 @@ enum OMEMOAESCBC {
         return Array(output.prefix(numBytesEncrypted))
     }
 
-    /// Decrypts AES-256-CBC ciphertext with PKCS#7 padding removal.
-    ///
-    /// - Parameters:
-    ///   - ciphertext: Data to decrypt.
-    ///   - key: 32-byte AES-256 key.
-    ///   - iv: 16-byte initialization vector.
-    /// - Returns: Plaintext bytes.
+    /// AES-256-CBC + PKCS#7 strip. Same key/IV size invariants as `encrypt`. Callers MUST verify MAC before calling (see `OMEMOMessageCrypto.decrypt`).
     static func decrypt(ciphertext: [UInt8], key: [UInt8], iv: [UInt8]) throws -> [UInt8] {
         guard key.count == kCCKeySizeAES256 else { throw OMEMOCryptoError.invalidKeyLength }
         guard iv.count == kCCBlockSizeAES128 else { throw OMEMOCryptoError.invalidIVLength }

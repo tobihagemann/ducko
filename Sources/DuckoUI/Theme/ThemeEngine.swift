@@ -74,8 +74,6 @@ public final class ThemeEngine {
         return current.incomingTextColor.resolved(for: colorScheme)
     }
 
-    // MARK: - Private
-
     private func startWatchingUserThemes() {
         let themesDir = BuildEnvironment.appSupportDirectory.appendingPathComponent("Themes", isDirectory: true)
         try? FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)

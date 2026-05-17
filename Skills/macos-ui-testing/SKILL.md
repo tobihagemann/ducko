@@ -7,8 +7,6 @@ description: "Background-safe macOS app UI testing using Peekaboo CLI and osascr
 
 Run the `/peekaboo` skill first to load full Peekaboo CLI reference. This skill adds background-safe patterns on top.
 
-Test and interact with running macOS applications without stealing focus. Combine Peekaboo CLI for reading UI state and element-targeted clicks with osascript for background-safe text input and value reading.
-
 ## Background Safety Rules
 
 Simulated keystrokes (`peekaboo type`, `peekaboo paste`, `peekaboo hotkey`) go to the **frontmost app**, not the target app. Always use background-safe alternatives.

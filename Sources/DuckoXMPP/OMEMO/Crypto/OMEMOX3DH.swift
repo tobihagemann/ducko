@@ -100,8 +100,6 @@ enum OMEMOX3DH {
         return edPublicKey.isValidSignature(signature, for: signedPreKeyPublic)
     }
 
-    // MARK: - Private
-
     /// Performs the 3 or 4 DH operations for the initiator side.
     private static func performDHOperations(
         ourIdentityKey: Curve25519.KeyAgreement.PrivateKey,

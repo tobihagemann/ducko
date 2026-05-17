@@ -12,30 +12,22 @@ enum HSLuvColor {
         var z: Double
     }
 
-    /// Converts HSLuv coordinates to sRGB.
-    /// - Parameters:
-    ///   - hue: Hue angle in degrees (0..<360)
-    ///   - saturation: Saturation (0...100)
-    ///   - lightness: Lightness (0...100)
-    /// - Returns: sRGB values, each in 0...1
+    /// HSLuv → sRGB. `hue` 0..<360°, `saturation` 0...100, `lightness` 0...100; result in 0...1.
     static func toRGB(hue: Double, saturation: Double, lightness: Double) -> (r: Double, g: Double) {
         let rgb = toAllRGB(hue: hue, saturation: saturation, lightness: lightness)
         return (clamp01(rgb.x), clamp01(rgb.y))
     }
 
-    /// The blue component of an HSLuv→sRGB conversion.
     static func toBlue(hue: Double, saturation: Double, lightness: Double) -> Double {
         let rgb = toAllRGB(hue: hue, saturation: saturation, lightness: lightness)
         return clamp01(rgb.z)
     }
 
-    /// Creates a SwiftUI `Color` from HSLuv coordinates.
     static func color(hue: Double, saturation: Double, lightness: Double) -> Color {
         let rgb = toAllRGB(hue: hue, saturation: saturation, lightness: lightness)
         return Color(red: clamp01(rgb.x), green: clamp01(rgb.y), blue: clamp01(rgb.z))
     }
 
-    /// Full HSLuv→sRGB pipeline returning all three components.
     private static func toAllRGB(hue: Double, saturation: Double, lightness: Double) -> Vec3 {
         if lightness > 99.9999999 { return Vec3(x: 1, y: 1, z: 1) }
         if lightness < 0.00000001 { return Vec3(x: 0, y: 0, z: 0) }
@@ -148,8 +140,6 @@ enum HSLuvColor {
 
         return bounds
     }
-
-    // MARK: - Helpers
 
     private static func clamp01(_ value: Double) -> Double {
         min(1, max(0, value))

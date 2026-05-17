@@ -10,7 +10,6 @@ struct XMPPRegistrationClientTests {
         let err4 = XMPPRegistrationClient.RegistrationClientError.registrationFailed("conflict")
         let err5 = XMPPRegistrationClient.RegistrationClientError.unexpectedResponse
 
-        // Verify all cases compile and are distinct
         switch err1 {
         case let .connectionFailed(msg): #expect(msg == "timeout")
         case .tlsNegotiationFailed, .registrationNotSupported, .registrationFailed, .unexpectedResponse:

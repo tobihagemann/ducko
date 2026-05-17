@@ -2,8 +2,6 @@ import Testing
 @testable import DuckoCore
 @testable import DuckoXMPP
 
-// MARK: - Helpers
-
 private let filterContext = FilterContext(
     accountJID: BareJID(localPart: "user", domainPart: "example.com")!
 )

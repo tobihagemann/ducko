@@ -3,8 +3,6 @@ import Testing
 @testable import DuckoCore
 @testable import DuckoXMPP
 
-// MARK: - Helpers
-
 private struct TestError: Error {}
 
 private let contactJID = BareJID(localPart: "contact", domainPart: "example.com")!

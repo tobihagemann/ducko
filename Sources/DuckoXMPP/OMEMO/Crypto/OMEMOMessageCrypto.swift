@@ -1,17 +1,8 @@
 import CryptoKit
 
-/// OMEMO message envelope encryption and decryption.
-///
-/// Derives AES key + HMAC key + IV from a message key, encrypts/decrypts
-/// the payload with AES-256-CBC, and computes/verifies a truncated HMAC.
+/// OMEMO message envelope: HKDF → (AES-256-CBC, HMAC-SHA256/16) with AD-bound MAC over `AD ‖ ciphertext`.
 enum OMEMOMessageCrypto {
-    /// Encrypts a plaintext message using the given message key.
-    ///
-    /// - Parameters:
-    ///   - plaintext: The message to encrypt.
-    ///   - messageKey: 32-byte key from the Double Ratchet chain.
-    ///   - associatedData: AD for HMAC authentication (not encrypted).
-    /// - Returns: Encrypted payload with ciphertext and truncated HMAC.
+    /// Encrypts with a 32-byte `messageKey` from the Double Ratchet chain. `associatedData` is authenticated, not encrypted.
     static func encrypt(
         plaintext: [UInt8],
         messageKey: [UInt8],
@@ -23,13 +14,7 @@ enum OMEMOMessageCrypto {
         return OMEMOEncryptedPayload(ciphertext: ciphertext, truncatedHMAC: hmac)
     }
 
-    /// Decrypts an encrypted payload, verifying the HMAC first.
-    ///
-    /// - Parameters:
-    ///   - payload: The encrypted payload to decrypt.
-    ///   - messageKey: 32-byte key from the Double Ratchet chain.
-    ///   - associatedData: AD that was used during encryption.
-    /// - Returns: Decrypted plaintext bytes.
+    /// Verifies HMAC (constant-time) BEFORE AES-CBC decrypt. Throws `hmacVerificationFailed` on tag mismatch.
     static func decrypt(
         payload: OMEMOEncryptedPayload,
         messageKey: [UInt8],
@@ -49,8 +34,6 @@ enum OMEMOMessageCrypto {
 
         return try OMEMOAESCBC.decrypt(ciphertext: payload.ciphertext, key: keys.aesKey, iv: keys.iv)
     }
-
-    // MARK: - Private
 
     /// Derives AES key (32), HMAC key (32), and IV (16) from a message key.
     private static func deriveMessageKeys(_ messageKey: [UInt8]) -> MessageKeys {

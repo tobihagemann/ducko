@@ -159,7 +159,6 @@ public protocol OMEMOStore: Sendable {
 
     // MARK: - Seen Devices
 
-    /// Reads all seen-device classification rows for `accountJID`.
     func loadSeenDevices(for accountJID: String) async throws -> [OMEMOStoredSeenDevice]
 
     /// Per-row upsert by `(accountJID, deviceID)`. Rows not in `devices` are

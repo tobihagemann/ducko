@@ -210,22 +210,18 @@ actor SOCKS5Connection {
         fd: Int32,
         destinationAddress: String
     ) throws {
-        // Send greeting
         try sendAll(fd: fd, data: greetingBytes)
 
-        // Read greeting response (2 bytes)
         let greetingResponse = try recvAll(fd: fd, count: 2)
         try validateGreetingResponse(greetingResponse)
 
-        // Send CONNECT request
         let request = connectRequest(destinationAddress: destinationAddress)
         try sendAll(fd: fd, data: request)
 
-        // Read CONNECT response header (5 bytes: VER, REP, RSV, ATYP, first addr byte)
+        // CONNECT response header: VER, REP, RSV, ATYP, first addr byte
         let header = try recvAll(fd: fd, count: 5)
         try validateConnectResponse(header)
 
-        // Read remaining bytes based on address type
         let remaining = connectResponseRemainingBytes(header)
         if remaining > 0 {
             _ = try recvAll(fd: fd, count: remaining)

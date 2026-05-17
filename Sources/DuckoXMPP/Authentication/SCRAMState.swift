@@ -128,7 +128,6 @@ struct SCRAMState<H: HashFunction> where H.Digest: Sendable {
 
         let attrs = parseAttributes(serverFinalMessage)
 
-        // Check for error
         if let error = attrs["e"] {
             return .failure(.malformedChallenge(error))
         }
@@ -146,8 +145,6 @@ struct SCRAMState<H: HashFunction> where H.Digest: Sendable {
         phase = .completed
         return .success(())
     }
-
-    // MARK: - Private
 
     private enum Phase {
         case initial

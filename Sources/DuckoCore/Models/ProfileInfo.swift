@@ -93,8 +93,6 @@ public struct ProfileInfo: Sendable {
         }
     }
 
-    // MARK: - Init
-
     public init(
         fullName: String? = nil,
         nickname: String? = nil,

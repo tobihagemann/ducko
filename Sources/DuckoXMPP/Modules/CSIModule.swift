@@ -39,8 +39,6 @@ public final class CSIModule: XMPPModule, Sendable {
         }
     }
 
-    // MARK: - Private
-
     private func detectServerSupport() {
         guard let context = state.withLock({ $0.context }) else { return }
 

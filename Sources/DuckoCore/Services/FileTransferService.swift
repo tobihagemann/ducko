@@ -408,7 +408,6 @@ public final class FileTransferService {
         let offer = incomingOffers.first { $0.sid == sid }
         guard let offer else { return }
 
-        // Compute effective transfer size when a range is specified
         let expectedSize: Int64
         if let range {
             let offset = range.offset ?? 0

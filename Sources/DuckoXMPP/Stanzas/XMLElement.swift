@@ -71,8 +71,6 @@ public struct XMLElement: Hashable, Sendable {
         attributes[name] = value
     }
 
-    // MARK: - Child Text Helpers
-
     /// Returns the text content of the first child element with the given name.
     public func childText(named name: String) -> String? {
         child(named: name)?.textContent

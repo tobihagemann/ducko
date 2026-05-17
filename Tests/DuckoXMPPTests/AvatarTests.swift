@@ -87,7 +87,6 @@ enum AvatarTests {
             let mock = MockTransport()
             let (client, _) = try await makePresenceClient(mock: mock)
 
-            // Send a presence without vcard-temp:x:update
             await mock.simulateReceive("""
             <presence from='bob@example.com/laptop'>
             <show>away</show>

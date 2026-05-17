@@ -11,8 +11,6 @@ import Security
 /// GTalk accounts use OAuth2 and store refresh tokens as generic passwords instead.
 /// The reader returns nil for these — correct graceful degradation.
 public enum AdiumKeychainReader {
-    /// Attempts to read the password for an Adium account from the macOS Keychain.
-    ///
     /// Returns nil if the entry is not found or the user denied access.
     public static func password(for account: AdiumAccount) -> String? {
         // Adium's custom protocol marker 'AdIM' as a FourCharCode (0x4164494d).
@@ -33,9 +31,6 @@ public enum AdiumKeychainReader {
 
     // MARK: - Key Construction
 
-    /// Builds the keychain server name: `"{service}.{compactedUID}"`.
-    ///
-    /// Uses the service ID as-is (preserving original casing from Adium's plist).
     static func keychainServerName(for account: AdiumAccount) -> String {
         "\(account.service).\(compactedString(account.uid))"
     }
