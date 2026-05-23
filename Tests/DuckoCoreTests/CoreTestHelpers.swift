@@ -1,4 +1,5 @@
 import DuckoCore
+import DuckoTestSupport
 import Foundation
 
 // Helpers shared across every DuckoCoreTests file that drives a real

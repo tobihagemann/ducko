@@ -1,31 +1,33 @@
 import DuckoCore
 import Foundation
 
-actor MockTranscriptStore: TranscriptStore {
-    var messages: [ChatMessage] = []
-    var amendments: [(amendment: TranscriptAmendment, conversationID: UUID)] = []
+public actor MockTranscriptStore: TranscriptStore {
+    public var messages: [ChatMessage] = []
+    public var amendments: [(amendment: TranscriptAmendment, conversationID: UUID)] = []
 
-    func addMessage(_ message: ChatMessage) {
+    public init() {}
+
+    public func addMessage(_ message: ChatMessage) {
         messages.append(message)
     }
 
     // MARK: - Write
 
-    func appendMessage(_ message: ChatMessage) async throws {
+    public func appendMessage(_ message: ChatMessage) async throws {
         messages.append(message)
     }
 
-    func appendMessages(_ messages: [ChatMessage]) async throws {
+    public func appendMessages(_ messages: [ChatMessage]) async throws {
         self.messages.append(contentsOf: messages)
     }
 
-    func appendAmendment(_ amendment: TranscriptAmendment, conversationID: UUID) async throws {
+    public func appendAmendment(_ amendment: TranscriptAmendment, conversationID: UUID) async throws {
         amendments.append((amendment, conversationID))
     }
 
     // MARK: - Read
 
-    func fetchMessages(for conversationID: UUID, before: Date?, limit: Int) async throws -> [ChatMessage] {
+    public func fetchMessages(for conversationID: UUID, before: Date?, limit: Int) async throws -> [ChatMessage] {
         var filtered = messages.filter { $0.conversationID == conversationID }
         if let before {
             filtered = filtered.filter { $0.timestamp < before }
@@ -35,7 +37,7 @@ actor MockTranscriptStore: TranscriptStore {
         return result
     }
 
-    func fetchMessages(for conversationID: UUID, on date: Date) async throws -> [ChatMessage] {
+    public func fetchMessages(for conversationID: UUID, on date: Date) async throws -> [ChatMessage] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
         var filtered = messages.filter {
@@ -47,7 +49,7 @@ actor MockTranscriptStore: TranscriptStore {
 
     // MARK: - Lookup
 
-    func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage? {
+    public func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage? {
         let match = messages.first { $0.stanzaID == stanzaID && $0.conversationID == conversationID }
         guard var message = match else { return nil }
         message = applyAmendments(to: [message]).first ?? message
@@ -55,22 +57,22 @@ actor MockTranscriptStore: TranscriptStore {
     }
 
     // periphery:ignore - protocol conformance for MUC moderation serverID lookup
-    func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage? {
+    public func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage? {
         let match = messages.first { $0.serverID == serverID && $0.conversationID == conversationID }
         guard var message = match else { return nil }
         message = applyAmendments(to: [message]).first ?? message
         return message
     }
 
-    func messageExists(stanzaID: String, conversationID: UUID) async throws -> Bool {
+    public func messageExists(stanzaID: String, conversationID: UUID) async throws -> Bool {
         messages.contains { $0.stanzaID == stanzaID && $0.conversationID == conversationID }
     }
 
-    func messageExists(serverID: String, conversationID: UUID) async throws -> Bool {
+    public func messageExists(serverID: String, conversationID: UUID) async throws -> Bool {
         messages.contains { $0.serverID == serverID && $0.conversationID == conversationID }
     }
 
-    func messageExists(stanzaID: String, fromJID: String, conversationID: UUID) async throws -> Bool {
+    public func messageExists(stanzaID: String, fromJID: String, conversationID: UUID) async throws -> Bool {
         // Match FileTranscriptStore: outgoing rows store `fromJID` as the
         // recipient, so an unfiltered match would shadow fresh inbound stanzas.
         messages.contains {
@@ -83,7 +85,7 @@ actor MockTranscriptStore: TranscriptStore {
 
     // MARK: - Search
 
-    func searchMessages(query: String, conversationID: UUID?, before: Date?, after: Date?, limit: Int) async throws -> [ChatMessage] {
+    public func searchMessages(query: String, conversationID: UUID?, before: Date?, after: Date?, limit: Int) async throws -> [ChatMessage] {
         var results = applyAmendments(to: messages)
         results = results.filter { $0.body.localizedStandardContains(query) }
         if let conversationID {
@@ -100,7 +102,7 @@ actor MockTranscriptStore: TranscriptStore {
 
     // MARK: - Stats
 
-    func messageDateCounts(for conversationID: UUID) async throws -> [(date: Date, count: Int)] {
+    public func messageDateCounts(for conversationID: UUID) async throws -> [(date: Date, count: Int)] {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = .gmt
         var counts: [Date: Int] = [:]
@@ -111,11 +113,11 @@ actor MockTranscriptStore: TranscriptStore {
         return counts.map { ($0.key, $0.value) }.sorted { $0.date > $1.date }
     }
 
-    func messageCount(for conversationID: UUID) async throws -> Int {
+    public func messageCount(for conversationID: UUID) async throws -> Int {
         messages.count(where: { $0.conversationID == conversationID })
     }
 
-    func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
+    public func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
         let convMessages = messages.filter { $0.conversationID == conversationID }
         guard let earliest = convMessages.min(by: { $0.timestamp < $1.timestamp })?.timestamp,
               let latest = convMessages.max(by: { $0.timestamp < $1.timestamp })?.timestamp else {
@@ -126,13 +128,12 @@ actor MockTranscriptStore: TranscriptStore {
 
     // MARK: - Lifecycle
 
-    func deleteTranscripts(for conversationID: UUID) async throws {
+    public func deleteTranscripts(for conversationID: UUID) async throws {
         messages.removeAll { $0.conversationID == conversationID }
         // Conversation-targeted amendments are kept (orphaned but harmless) for mock simplicity.
-        amendments.removeAll { _ in false }
     }
 
-    func writeMetadata(_ metadata: TranscriptMetadata, for conversationID: UUID) async throws {}
+    public func writeMetadata(_ metadata: TranscriptMetadata, for conversationID: UUID) async throws {}
 
     // MARK: - Amendment Application
 

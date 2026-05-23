@@ -31,7 +31,8 @@ let package = Package(
             "DuckoXMPP",
             .product(name: "Logging", package: "swift-log")
         ]),
-        .testTarget(name: "DuckoCoreTests", dependencies: ["DuckoCore"]),
+        .target(name: "DuckoTestSupport", dependencies: ["DuckoCore"], path: "Sources/DuckoTestSupport"),
+        .testTarget(name: "DuckoCoreTests", dependencies: ["DuckoCore", "DuckoTestSupport"]),
 
         .target(name: "DuckoData", dependencies: ["DuckoCore"]),
         .testTarget(name: "DuckoDataTests", dependencies: ["DuckoData"]),
@@ -40,7 +41,7 @@ let package = Package(
             "DuckoCore",
             .product(name: "Logging", package: "swift-log")
         ], resources: [.copy("Resources/Themes")]),
-        .testTarget(name: "DuckoUITests", dependencies: ["DuckoUI"]),
+        .testTarget(name: "DuckoUITests", dependencies: ["DuckoUI", "DuckoTestSupport"]),
 
         .executableTarget(
             name: "DuckoApp",

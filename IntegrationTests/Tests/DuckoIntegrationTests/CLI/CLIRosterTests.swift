@@ -1,3 +1,4 @@
+import DuckoXMPP
 import Foundation
 import Testing
 
@@ -73,6 +74,59 @@ extension DuckoIntegrationTests.CLILayer {
                 let listed = try await cli.run(["roster", "list", "--output", "plain"])
                 #expect(listed.exitCode == 0)
                 #expect(!listed.stdout.contains(dave.jid))
+            }
+        }
+
+        @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials missing"))
+        @MainActor func `REPL /deny revokes a subscription request from a peer`() async throws {
+            // Hybrid harness: dave runs in-process so the harness can drive
+            // RosterModule.subscribe directly and observe alice's revocation
+            // event; alice runs in a child CLI process so `/deny` exercises
+            // the actual REPL surface end-to-end.
+            try await TestHarness.withHarness { harness in
+                try await harness.setUp(accounts: ["dave": TestCredentials.dave])
+
+                let dave = try #require(harness.accounts["dave"])
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
+                let daveJID = try harness.jid(for: TestCredentials.dave)
+                let daveRoster = try await harness.module(RosterModule.self, for: "dave")
+
+                // `addCleanup` is `@MainActor`-isolated; the `sending`
+                // `CLIProcess.withProcess` closure body is not.
+                // Register before any mutation so a partial-failure path
+                // still scrubs Dave's roster.
+                harness.addCleanup { try? await daveRoster.removeContact(jid: aliceJID) }
+
+                try await CLIProcess.withProcess { aliceCLI in
+                    let aliceREPL = try await REPLSession.start(cli: aliceCLI, credentials: TestCredentials.alice)
+                    await aliceCLI.addCleanup { await aliceREPL.terminate() }
+                    await aliceCLI.addCleanup {
+                        try? await aliceREPL.send("/remove \(daveJID)")
+                    }
+
+                    // Dave subscribes to alice.
+                    try await daveRoster.subscribe(to: aliceJID)
+
+                    // Alice sees the subscription request prompt on stdout.
+                    _ = try await aliceREPL.waitForOutput(
+                        containing: "Subscription request from \(daveJID)",
+                        timeout: TestTimeout.subscriptionRequestProbe
+                    )
+
+                    // Alice denies via REPL.
+                    try await aliceREPL.send("/deny \(daveJID)")
+                    _ = try await aliceREPL.waitForOutput(
+                        containing: "Denied subscription from \(daveJID)"
+                    )
+
+                    // Dave sees the revocation.
+                    _ = try await dave.waitForEvent { event in
+                        if case let .presenceSubscriptionRevoked(from) = event, from == aliceJID {
+                            return true
+                        }
+                        return false
+                    }
+                }
             }
         }
     }

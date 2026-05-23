@@ -26,33 +26,8 @@ final class ConnectedAccount {
         matching predicate: @Sendable @escaping (XMPPEvent) -> Bool,
         timeout: Duration = TestTimeout.event
     ) async throws -> XMPPEvent {
-        let waiterID = UUID()
-        let accountID = accountID
-        let router = router
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<XMPPEvent, any Error>) in
-                let deliver: @MainActor (XMPPEvent) -> Bool = { event in
-                    if predicate(event) {
-                        continuation.resume(returning: event)
-                        return true
-                    }
-                    return false
-                }
-                let cancel: @MainActor (TestHarnessError) -> Void = { error in
-                    continuation.resume(throwing: error)
-                }
-                router.register(
-                    accountID: accountID,
-                    id: waiterID,
-                    deliver: deliver,
-                    cancel: cancel,
-                    timeout: timeout
-                )
-            }
-        } onCancel: {
-            Task { @MainActor [router] in
-                router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
-            }
+        try await waitForRouter(timeout: timeout) { event in
+            predicate(event) ? event : nil
         }
     }
 
@@ -67,34 +42,7 @@ final class ConnectedAccount {
         extracting extract: @Sendable @escaping (XMPPEvent) -> T?,
         timeout: Duration = TestTimeout.event
     ) async throws -> T {
-        let waiterID = UUID()
-        let accountID = accountID
-        let router = router
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
-                let deliver: @MainActor (XMPPEvent) -> Bool = { event in
-                    if let extracted = extract(event) {
-                        continuation.resume(returning: extracted)
-                        return true
-                    }
-                    return false
-                }
-                let cancel: @MainActor (TestHarnessError) -> Void = { error in
-                    continuation.resume(throwing: error)
-                }
-                router.register(
-                    accountID: accountID,
-                    id: waiterID,
-                    deliver: deliver,
-                    cancel: cancel,
-                    timeout: timeout
-                )
-            }
-        } onCancel: {
-            Task { @MainActor [router] in
-                router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
-            }
-        }
+        try await waitForRouter(timeout: timeout, deliver: extract)
     }
 
     // periphery:ignore - reserved for multi-event protocol tests
@@ -103,35 +51,10 @@ final class ConnectedAccount {
         until predicate: @Sendable @escaping (XMPPEvent) -> Bool,
         timeout: Duration = TestTimeout.event
     ) async throws -> [XMPPEvent] {
-        let waiterID = UUID()
-        let accountID = accountID
-        let router = router
-        let box = CollectorBox()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<[XMPPEvent], any Error>) in
-                let deliver: @MainActor (XMPPEvent) -> Bool = { event in
-                    box.collected.append(event)
-                    if predicate(event) {
-                        continuation.resume(returning: box.collected)
-                        return true
-                    }
-                    return false
-                }
-                let cancel: @MainActor (TestHarnessError) -> Void = { error in
-                    continuation.resume(throwing: error)
-                }
-                router.register(
-                    accountID: accountID,
-                    id: waiterID,
-                    deliver: deliver,
-                    cancel: cancel,
-                    timeout: timeout
-                )
-            }
-        } onCancel: {
-            Task { @MainActor [router] in
-                router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
-            }
+        var collected: [XMPPEvent] = []
+        return try await waitForRouter(timeout: timeout) { event in
+            collected.append(event)
+            return predicate(event) ? collected : nil
         }
     }
 
@@ -153,12 +76,43 @@ final class ConnectedAccount {
         if await condition() { return }
         throw TestHarnessError.timeout
     }
-}
 
-/// Mutable accumulator captured by `collectEvents`'s `deliver`/`cancel`
-/// closures. Reference type so the two closures share state. Freed when the
-/// router drops the waiter (success, timeout, caller cancel, or teardown).
-@MainActor
-private final class CollectorBox {
-    var collected: [XMPPEvent] = []
+    // MARK: - Internal helpers
+
+    /// Owns the install/cancel scaffold shared by the three `waitForEvent` /
+    /// `collectEvents` shapes. `deliver` returns non-nil to hand off the
+    /// value and drop the waiter (single signal — the helper resumes the
+    /// continuation, callers can't accidentally leak it or trigger a
+    /// double-resume).
+    private func waitForRouter<T: Sendable>(
+        timeout: Duration,
+        deliver: @MainActor @escaping (XMPPEvent) -> T?
+    ) async throws -> T {
+        let waiterID = UUID()
+        let accountID = accountID
+        let router = router
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+                let routerDeliver: @MainActor (XMPPEvent) -> Bool = { event in
+                    guard let value = deliver(event) else { return false }
+                    continuation.resume(returning: value)
+                    return true
+                }
+                let cancel: @MainActor (TestHarnessError) -> Void = { error in
+                    continuation.resume(throwing: error)
+                }
+                router.register(
+                    accountID: accountID,
+                    id: waiterID,
+                    deliver: routerDeliver,
+                    cancel: cancel,
+                    timeout: timeout
+                )
+            }
+        } onCancel: {
+            Task { @MainActor [router] in
+                router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
+            }
+        }
+    }
 }

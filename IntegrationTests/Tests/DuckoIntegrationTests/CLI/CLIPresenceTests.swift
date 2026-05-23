@@ -134,5 +134,50 @@ extension DuckoIntegrationTests.CLILayer {
                 }
             }
         }
+
+        @Test
+        @MainActor func `REPL /status with no args echoes current presence`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                let aliceREPL = try await REPLSession.start(cli: cli, credentials: alice)
+                await cli.addCleanup { await aliceREPL.terminate() }
+
+                // Set a unique status+message first so the no-arg echo proves
+                // it really read the current value (not just any default).
+                let marker = "marker-\(UUID().uuidString.prefix(8))"
+                try await aliceREPL.send("/status away \(marker)")
+                // Wait for the formatted setup response (": <marker>" only
+                // appears in the formatter output, not the PTY echo of the
+                // user's input) — capturing the cursor before the setup
+                // response drained would let the post-cursor wait below match
+                // the warm-up output instead of the no-arg /status response.
+                _ = try await aliceREPL.waitForOutput(containing: ": \(marker)")
+
+                let cursor = await aliceREPL.cursor()
+                try await aliceREPL.send("/status")
+                _ = try await aliceREPL.waitForOutput(
+                    containingAnyOf: [marker],
+                    after: cursor
+                )
+            }
+        }
+
+        @Test
+        @MainActor func `REPL /status rejects an unknown presence value`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                let aliceREPL = try await REPLSession.start(cli: cli, credentials: alice)
+                await cli.addCleanup { await aliceREPL.terminate() }
+
+                let cursor = await aliceREPL.cursor()
+                try await aliceREPL.send("/status bogus-status")
+                // `CLIError.invalidPresenceStatus` prefixes the unknown value
+                // with "Invalid presence status: " (see `CLIError`).
+                _ = try await aliceREPL.waitForOutput(
+                    containingAnyOf: ["Invalid presence status: bogus-status"],
+                    after: cursor
+                )
+            }
+        }
     }
 }

@@ -50,6 +50,8 @@ Note: `swift build` only compiles executable and library targets. Use `swift bui
 
 After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., `.build/debug/DuckoCLI`).
 
+`Sources/DuckoTestSupport/` is a regular library target that hosts shared test mocks (`MockPersistenceStore`, `MockTranscriptStore`, `NullCredentialStore`). Multiple test targets (`DuckoCoreTests`, `DuckoUITests`) depend on it via plain `import DuckoTestSupport`. Add new shared fakes here when more than one test target needs them — single-target fakes stay in the target's own folder.
+
 ### Integration Tests
 
 Integration tests live in a sibling SwiftPM package at `IntegrationTests/` so a plain `swift test` at the repo root never runs them. They run against a live XMPP server and skip automatically when credentials are not set.

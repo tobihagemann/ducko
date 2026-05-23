@@ -270,11 +270,26 @@ actor REPLSession {
     }
 }
 
-private actor OutputBuffer {
+actor OutputBuffer {
+    /// Cap on retained characters: enough for the longest assertion snapshot
+    /// and the timeout-warning diagnostic, small enough that long-running
+    /// REPL pollers don't grow memory linearly nor pay O(buffer-size) per
+    /// substring scan.
+    static let maxRetained = 64 * 1024
+
     private var contents = ""
+    /// Characters dropped from the head so `cursor()` keeps returning a
+    /// monotonic logical index — callers compare cursors taken across
+    /// trim events.
+    private var droppedCount = 0
 
     func append(_ chunk: String) {
         contents.append(chunk)
+        let overflow = contents.count - Self.maxRetained
+        guard overflow > 0 else { return }
+        let dropIndex = contents.index(contents.startIndex, offsetBy: overflow)
+        contents.removeSubrange(contents.startIndex ..< dropIndex)
+        droppedCount += overflow
     }
 
     func snapshot() -> String {
@@ -282,7 +297,7 @@ private actor OutputBuffer {
     }
 
     func cursor() -> Int {
-        contents.count
+        droppedCount + contents.count
     }
 
     func snapshotIfContains(_ substring: String) -> String? {
@@ -294,10 +309,12 @@ private actor OutputBuffer {
     }
 
     func snapshotIfContainsAny(_ substrings: [String], after cursor: Int) -> String? {
-        // Use Character-count cursor (matches `cursor()`'s return value) so
-        // emoji and multi-byte sequences in the buffer don't shift the index.
-        guard contents.count > cursor else { return nil }
-        let suffix = contents.suffix(contents.count - cursor)
+        // Cursor is a logical Character index including the dropped prefix
+        // so emoji and multi-byte sequences don't shift the index. Translate
+        // back into the retained tail.
+        let effective = max(cursor - droppedCount, 0)
+        guard contents.count > effective else { return nil }
+        let suffix = contents.suffix(contents.count - effective)
         return substrings.contains(where: { suffix.contains($0) }) ? contents : nil
     }
 }

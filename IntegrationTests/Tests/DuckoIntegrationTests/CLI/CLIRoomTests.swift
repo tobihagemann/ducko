@@ -196,9 +196,10 @@ extension DuckoIntegrationTests.CLILayer {
             }
         }
 
-        @Test(.disabled("REPL has no /kick command; chatService.kickOccupant is unexposed — see plan §Risk: Kick gap"))
+        @Test(.disabled("Pending two-process implementation."))
         @MainActor func `alice kicks bob from the room`() {
-            // Implementation deferred until /kick or chatService.kickOccupant exposure lands.
+            // Mirror the two-process room-admin pattern used by the
+            // adjacent enabled tests.
         }
 
         @Test

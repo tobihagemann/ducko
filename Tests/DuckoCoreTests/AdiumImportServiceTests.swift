@@ -1,3 +1,4 @@
+import DuckoTestSupport
 import DuckoXMPP
 import Foundation
 import os

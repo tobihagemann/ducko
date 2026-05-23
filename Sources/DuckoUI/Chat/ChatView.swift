@@ -33,6 +33,8 @@ struct ChatView: View {
 
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
+                    LoadHistoryErrorBanner(windowState: windowState)
+
                     MessageListView(windowState: windowState)
 
                     if isPartnerTyping {

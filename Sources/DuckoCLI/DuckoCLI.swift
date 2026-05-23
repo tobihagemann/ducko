@@ -1634,6 +1634,7 @@ private func printREPLHelp() {
     print("  /nick <nickname>         Change nickname in current room")
     print("  /destroy [reason]        Destroy current room")
     print("  /voice grant|revoke <n>  Grant/revoke voice")
+    print("  /kick <nick> [reason]    Kick occupant from current room")
     print("  /affiliations [type]     List affiliations")
     print("  /config                  Show room config")
     print("  /moderate [reason]       Moderate last message in room")
@@ -2015,6 +2016,7 @@ private func dispatchRoomREPLCommand(
     } else if input == "/nick" || input.hasPrefix("/nick ")
         || input == "/destroy" || input.hasPrefix("/destroy ")
         || input == "/voice" || input.hasPrefix("/voice ")
+        || input == "/kick" || input.hasPrefix("/kick ")
         || input == "/affiliations" || input.hasPrefix("/affiliations ")
         || input == "/config"
         || input == "/moderate" || input.hasPrefix("/moderate ") {
@@ -2131,6 +2133,8 @@ private func dispatchRoomAdminREPLCommand(
         return await handleDestroyREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     } else if input == "/voice" || input.hasPrefix("/voice ") {
         return await handleVoiceREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/kick" || input.hasPrefix("/kick ") {
+        return await handleKickREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     } else if input == "/affiliations" || input.hasPrefix("/affiliations ") {
         return await handleAffiliationsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     } else if input == "/config" {
@@ -2210,6 +2214,35 @@ private func handleVoiceREPLCommand(
         default:
             print("Usage: /voice grant|revoke <nickname>")
         }
+    } catch {
+        print(formatter.formatError(error))
+    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+}
+
+private func handleKickREPLCommand(
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    accountID: UUID, currentRoom: String?
+) async -> REPLDispatchResult {
+    let args = input.dropFirst("/kick".count).trimmingCharacters(in: .whitespaces)
+    let parts = args.split(separator: " ", maxSplits: 1)
+    guard let nickname = parts.first, !nickname.isEmpty else {
+        print("Usage: /kick <nickname> [reason]")
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    guard let roomJID = currentRoom else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    }
+    let reason = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+    do {
+        try await environment.chatService.kickOccupant(
+            nickname: String(nickname),
+            fromRoomJIDString: roomJID,
+            reason: reason.isEmpty ? nil : reason,
+            accountID: accountID
+        )
+        print("Kicked \(nickname) from \(roomJID).")
     } catch {
         print(formatter.formatError(error))
     }

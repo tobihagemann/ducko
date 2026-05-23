@@ -880,18 +880,9 @@ actor AppAccessor {
     /// press is asynchronous and the sheet's animation can race a follow-up
     /// `activateWindow`.
     func waitForSheetDismissed(timeout: Duration = TestTimeout.uiElement) async throws {
-        guard let pid = process?.processIdentifier else { return }
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            let app = AXUIElementCreateApplication(pid)
-            if findDescendant(in: app, role: kAXSheetRole, where: { _ in true }) == nil {
-                return
-            }
-            try await Task.sleep(for: .milliseconds(50))
+        try await pollUntilApplicationDescendantAbsent(timeout: timeout) { app in
+            findDescendant(in: app, role: kAXSheetRole, where: { _ in true })
         }
-        let app = AXUIElementCreateApplication(pid)
-        if findDescendant(in: app, role: kAXSheetRole, where: { _ in true }) == nil { return }
-        throw TestHarnessError.timeout
     }
 
     /// Activates Ducko, raises the named window, makes it main, and points
@@ -1160,22 +1151,11 @@ actor AppAccessor {
     private func waitForShownContextMenu(
         timeout: Duration = TestTimeout.uiElement
     ) async throws -> AXUIElement {
-        guard let pid = process?.processIdentifier else {
-            throw TestHarnessError.elementNotFound(identifier: "context-menu")
-        }
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        // Inlined poll: capturing `AXUIElementCreateApplication(pid)` through
-        // a closure for `pollUntil` trips strict-concurrency `sending` checks
-        // (`AXUIElement` is non-Sendable). Each iteration re-creates the
-        // application reference so nothing crosses an isolation boundary.
-        while ContinuousClock.now < deadline {
-            let app = AXUIElementCreateApplication(pid)
-            if let menu = findContextMenu(in: app) { return menu }
-            try await Task.sleep(for: .milliseconds(50))
-        }
-        let app = AXUIElementCreateApplication(pid)
-        if let menu = findContextMenu(in: app) { return menu }
-        throw TestHarnessError.elementNotFound(identifier: "context-menu")
+        try await pollForApplicationDescendantPresent(
+            timeout: timeout,
+            identifier: "context-menu",
+            find: findContextMenu
+        )
     }
 
     /// Polls until no context-menu `kAXMenuRole` descendant remains under
@@ -1187,15 +1167,52 @@ actor AppAccessor {
     private func waitForContextMenuDismissed(
         timeout: Duration = TestTimeout.uiElement
     ) async throws {
+        try await pollUntilApplicationDescendantAbsent(timeout: timeout, find: findContextMenu)
+    }
+
+    /// Polls the application AX root every 50 ms until `find` returns a value,
+    /// then runs one final probe after the deadline. `find` re-creates AX
+    /// references inside the closure each iteration so the non-Sendable
+    /// `AXUIElement` never crosses an isolation boundary — only `pid_t`
+    /// (`Sendable`) is captured. Throws `elementNotFound(identifier:)` on
+    /// timeout or if the process has exited.
+    private func pollForApplicationDescendantPresent(
+        timeout: Duration,
+        identifier: String,
+        find: (AXUIElement) -> AXUIElement?
+    ) async throws -> AXUIElement {
+        guard let pid = process?.processIdentifier else {
+            throw TestHarnessError.elementNotFound(identifier: identifier)
+        }
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            let app = AXUIElementCreateApplication(pid)
+            if let match = find(app) { return match }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        let app = AXUIElementCreateApplication(pid)
+        if let match = find(app) { return match }
+        throw TestHarnessError.elementNotFound(identifier: identifier)
+    }
+
+    /// Polls the application AX root every 50 ms until `find` returns `nil`,
+    /// then runs one final probe after the deadline. Same isolation-safety
+    /// shape as `pollForApplicationDescendantPresent`. Treats a missing
+    /// process as already-satisfied (nothing to dismiss if there's no app),
+    /// so concurrent teardown does not surface as a spurious timeout.
+    private func pollUntilApplicationDescendantAbsent(
+        timeout: Duration,
+        find: (AXUIElement) -> AXUIElement?
+    ) async throws {
         guard let pid = process?.processIdentifier else { return }
         let deadline = ContinuousClock.now.advanced(by: timeout)
         while ContinuousClock.now < deadline {
             let app = AXUIElementCreateApplication(pid)
-            if findContextMenu(in: app) == nil { return }
+            if find(app) == nil { return }
             try await Task.sleep(for: .milliseconds(50))
         }
         let app = AXUIElementCreateApplication(pid)
-        if findContextMenu(in: app) == nil { return }
+        if find(app) == nil { return }
         throw TestHarnessError.timeout
     }
 

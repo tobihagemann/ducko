@@ -19,8 +19,8 @@ public final class ChatWindowState {
 
     // MARK: - Send Error
 
-    /// Last send-side error surfaced to the composer; cleared via `clearSendError()` or transparently on next successful send.
-    var lastSendError: ChatService.ChatServiceError?
+    /// Last send-side error message surfaced to the composer; cleared via `clearSendError()` or transparently on next successful send.
+    var lastSendError: String?
     /// Body the user typed when the send threw, so `MessageInputView` can
     /// restore the composer text after a failed send. The composer clears
     /// `text` optimistically; this lets us put it back.
@@ -49,6 +49,8 @@ public final class ChatWindowState {
 
     var isLoadingOlder = false
     var hasReachedEnd = false
+    /// Set when fetching older messages fails.
+    var lastLoadHistoryError: String?
 
     // MARK: - Search
 
@@ -141,9 +143,8 @@ public final class ChatWindowState {
             lastSendError = nil
             lastFailedSendBody = nil
         } catch let error as ChatService.ChatServiceError {
-            // Capture the typed error so the composer banner can render the
-            // localized message and the composer can restore the typed body.
-            lastSendError = error
+            // Typed failures surface to the composer and let it restore the body.
+            lastSendError = error.localizedDescription
             lastFailedSendBody = body
             log.warning("Send failed: \(error.localizedDescription)")
         } catch {
@@ -259,9 +260,15 @@ public final class ChatWindowState {
             } else {
                 messages = older + messages
             }
+            lastLoadHistoryError = nil
         } catch {
             log.warning("Failed to load older messages: \(error)")
+            lastLoadHistoryError = error.localizedDescription
         }
+    }
+
+    func clearLoadHistoryError() {
+        lastLoadHistoryError = nil
     }
 
     // MARK: - Search
