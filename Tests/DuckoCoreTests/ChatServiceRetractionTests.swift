@@ -161,4 +161,84 @@ enum ChatServiceRetractionTests {
             #expect(bodyIsEmpty)
         }
     }
+
+    struct OutgoingGuard {
+        @Test
+        @MainActor
+        func `retractMessage rejects message that is not outgoing`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let conversationID = UUID()
+            await store.addConversation(Conversation(
+                id: conversationID, accountID: testAccountID, jid: contactJID,
+                type: .chat, isPinned: false, isMuted: false, unreadCount: 0, createdAt: Date()
+            ))
+            let incoming = ChatMessage(
+                id: UUID(), conversationID: conversationID, stanzaID: "msg-from-peer",
+                fromJID: contactJID.description, body: "from peer",
+                timestamp: Date(), isOutgoing: false,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+            await transcripts.addMessage(incoming)
+
+            await expectNotOutgoingMessage {
+                try await service.retractMessage(
+                    original: incoming, to: contactJID, accountID: testAccountID
+                )
+            }
+        }
+
+        @Test
+        @MainActor
+        func `retractMessage rejects outgoing message without stanzaID`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let conversationID = UUID()
+            await store.addConversation(Conversation(
+                id: conversationID, accountID: testAccountID, jid: contactJID,
+                type: .chat, isPinned: false, isMuted: false, unreadCount: 0, createdAt: Date()
+            ))
+            let outgoingNoStanza = ChatMessage(
+                id: UUID(), conversationID: conversationID, stanzaID: nil,
+                fromJID: contactJID.description, body: "never sent",
+                timestamp: Date(), isOutgoing: true,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+
+            await expectNotOutgoingMessage {
+                try await service.retractMessage(
+                    original: outgoingNoStanza, to: contactJID, accountID: testAccountID
+                )
+            }
+        }
+
+        @Test
+        @MainActor
+        func `retractMessage rejects message from a different conversation`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let conversationID = UUID()
+            await store.addConversation(Conversation(
+                id: conversationID, accountID: testAccountID, jid: contactJID,
+                type: .chat, isPinned: false, isMuted: false, unreadCount: 0, createdAt: Date()
+            ))
+            // Mismatched destination must fail closed — see sendCorrection counterpart.
+            let foreignOutgoing = ChatMessage(
+                id: UUID(), conversationID: UUID(), stanzaID: "ducko-99",
+                fromJID: contactJID.description, body: "wrong conversation",
+                timestamp: Date(), isOutgoing: true,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+            #expect(foreignOutgoing.conversationID != conversationID)
+
+            await expectNotOutgoingMessage {
+                try await service.retractMessage(
+                    original: foreignOutgoing, to: contactJID, accountID: testAccountID
+                )
+            }
+        }
+    }
 }

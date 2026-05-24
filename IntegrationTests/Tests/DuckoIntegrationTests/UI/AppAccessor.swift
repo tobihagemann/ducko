@@ -1236,15 +1236,21 @@ actor AppAccessor {
     }
 
     /// Polls `readValue(identifier:)` until it equals `expected`. Absorbs
-    /// transient `elementNotFound` (SwiftUI re-renders the popup briefly when
-    /// the binding commits).
-    private func waitForValue(_ expected: String, identifier: String) async throws {
-        try await pollUntil(timeout: TestTimeout.uiElement) {
-            do {
-                return try self.readValue(identifier: identifier) == expected
-            } catch TestHarnessError.elementNotFound {
-                return false
+    /// transient `elementNotFound` during SwiftUI binding commits. Use as
+    /// a precondition gate before `clearAndType` when an `.onChange`
+    /// pre-fills the field.
+    func waitForValue(_ expected: String, identifier: String) async throws {
+        do {
+            try await pollUntil(timeout: TestTimeout.uiElement) {
+                do {
+                    return try self.readValue(identifier: identifier) == expected
+                } catch TestHarnessError.elementNotFound {
+                    return false
+                }
             }
+        } catch TestHarnessError.timeout {
+            log.debug("waitForValue timeout (\(TestTimeout.uiElement)) for identifier '\(identifier)'")
+            throw TestHarnessError.timeout
         }
     }
 

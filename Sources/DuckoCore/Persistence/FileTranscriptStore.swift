@@ -15,6 +15,11 @@ public actor FileTranscriptStore: TranscriptStore {
     /// In-memory index mapping serverID → (conversationID, date string) for single-file lookups in findMessage/messageExists.
     private var serverIndex: [String: (UUID, String)] = [:]
 
+    /// In-memory index of message UUID → (conversationID, date string). Authoritative
+    /// for amendment routing; disambiguates per-session `ducko-N` counter collisions
+    /// within a single per-day file.
+    private var uuidIndex: [UUID: (UUID, String)] = [:]
+
     private static let newline = Data("\n".utf8)
 
     /// Creates a store using the default transcripts directory under `BuildEnvironment.appSupportDirectory`.
@@ -41,12 +46,7 @@ public actor FileTranscriptStore: TranscriptStore {
         let fileURL = transcriptFileURL(conversationID: message.conversationID, dateString: dateString)
         let record = TranscriptRecord.from(message)
         try appendRecord(record, to: fileURL, conversationID: message.conversationID)
-        if let sid = message.stanzaID {
-            stanzaIndex[sid] = (message.conversationID, dateString)
-        }
-        if let srvid = message.serverID {
-            serverIndex[srvid] = (message.conversationID, dateString)
-        }
+        indexEntry(id: message.id, stanzaID: message.stanzaID, serverID: message.serverID, conversationID: message.conversationID, dateString: dateString)
     }
 
     public func appendMessages(_ messages: [ChatMessage]) async throws {
@@ -75,12 +75,7 @@ public actor FileTranscriptStore: TranscriptStore {
             for message in group.messages {
                 let record = TranscriptRecord.from(message)
                 try writeRecord(record, to: handle)
-                if let sid = message.stanzaID {
-                    stanzaIndex[sid] = (group.key.0, group.key.1)
-                }
-                if let srvid = message.serverID {
-                    serverIndex[srvid] = (group.key.0, group.key.1)
-                }
+                indexEntry(id: message.id, stanzaID: message.stanzaID, serverID: message.serverID, conversationID: group.key.0, dateString: group.key.1)
             }
         }
     }
@@ -96,7 +91,10 @@ public actor FileTranscriptStore: TranscriptStore {
         // would leave a dangling amendment record that may later attach to an
         // unrelated message with a colliding stanzaID.
         guard let dateString = resolveAmendmentDate(amendment: amendment, conversationID: conversationID) else {
-            log.warning("Amendment target not found in conversation \(conversationID): stanzaID=\(amendment.targetStanzaID ?? "nil") serverID=\(amendment.targetServerID ?? "nil")")
+            // Privacy policy: identifiers only at debug. Warning carries
+            // action so missing-target rates stay observable.
+            log.warning("Amendment target not found (action=\(amendment.action.rawValue))")
+            log.debug("Amendment target not found in conversation \(conversationID): messageID=\(amendment.targetMessageID?.uuidString ?? "nil") stanzaID=\(amendment.targetStanzaID ?? "nil") serverID=\(amendment.targetServerID ?? "nil")")
             return
         }
         let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateString)
@@ -107,17 +105,24 @@ public actor FileTranscriptStore: TranscriptStore {
     /// Locates the date file containing the amendment's target message within `conversationID`.
     /// Returns nil if the target cannot be found in the indexes or by scanning the conversation's files.
     private func resolveAmendmentDate(amendment: TranscriptAmendment, conversationID: UUID) -> String? {
-        if let sid = amendment.targetStanzaID,
-           let (indexedConv, indexedDate) = stanzaIndex[sid],
-           indexedConv == conversationID {
-            return indexedDate
+        // UUID is authoritative — never fall through to stanzaID/serverID,
+        // which can collide on `ducko-N` and leave a dangling record in
+        // the wrong file.
+        if amendment.targetMessageID != nil {
+            if let date = scopedDate(uuidIndex, key: amendment.targetMessageID, conversationID: conversationID) { return date }
+            return scanConversationForTarget(amendment: amendment, conversationID: conversationID)
         }
-        if let srvid = amendment.targetServerID,
-           let (indexedConv, indexedDate) = serverIndex[srvid],
-           indexedConv == conversationID {
-            return indexedDate
-        }
+        if let date = scopedDate(stanzaIndex, key: amendment.targetStanzaID, conversationID: conversationID) { return date }
+        if let date = scopedDate(serverIndex, key: amendment.targetServerID, conversationID: conversationID) { return date }
         return scanConversationForTarget(amendment: amendment, conversationID: conversationID)
+    }
+
+    /// Returns the indexed date only when the entry is scoped to `conversationID`.
+    /// Filters cross-conversation collisions so the caller falls through to a
+    /// per-conversation scan.
+    private func scopedDate<K: Hashable>(_ index: [K: (UUID, String)], key: K?, conversationID: UUID) -> String? {
+        guard let key, let (indexedConv, date) = index[key], indexedConv == conversationID else { return nil }
+        return date
     }
 
     /// Scans the given conversation's transcript files for the amendment's target message.
@@ -132,27 +137,34 @@ public actor FileTranscriptStore: TranscriptStore {
                       let record = try? decoder.decode(TranscriptRecord.self, from: Data(line)),
                       case let .message(entry) = record
                 else { continue }
-
-                let matches: Bool = if let sid = amendment.targetStanzaID {
-                    entry.stanzaID == sid
-                } else if let srvid = amendment.targetServerID {
-                    entry.serverID == srvid
-                } else {
-                    false
-                }
-
-                if matches {
-                    if let sid = entry.stanzaID {
-                        stanzaIndex[sid] = (conversationID, dateString)
-                    }
-                    if let srvid = entry.serverID {
-                        serverIndex[srvid] = (conversationID, dateString)
-                    }
+                if amendmentMatches(amendment, entry: entry) {
+                    indexEntry(id: entry.id, stanzaID: entry.stanzaID, serverID: entry.serverID, conversationID: conversationID, dateString: dateString)
                     return dateString
                 }
             }
         }
         return nil
+    }
+
+    /// Returns true when `entry` matches the amendment's target.
+    /// UUID is authoritative when present; no fallback to stanzaID/serverID.
+    private func amendmentMatches(_ amendment: TranscriptAmendment, entry: TranscriptRecord.MessageEntry) -> Bool {
+        if let uuid = amendment.targetMessageID { return entry.id == uuid }
+        if let sid = amendment.targetStanzaID { return entry.stanzaID == sid }
+        if let srvid = amendment.targetServerID { return entry.serverID == srvid }
+        return false
+    }
+
+    /// Populates the uuid/stanza/server indexes for a single message;
+    /// shared by write, scan, and read paths.
+    private func indexEntry(id: UUID, stanzaID: String?, serverID: String?, conversationID: UUID, dateString: String) {
+        uuidIndex[id] = (conversationID, dateString)
+        if let stanzaID {
+            stanzaIndex[stanzaID] = (conversationID, dateString)
+        }
+        if let serverID {
+            serverIndex[serverID] = (conversationID, dateString)
+        }
     }
 
     // MARK: - Read
@@ -189,6 +201,19 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     // MARK: - Lookup
+
+    public func findMessage(id: UUID, conversationID: UUID) async throws -> ChatMessage? {
+        // Fast path: uuid index points at the file containing this message.
+        if let (indexedConv, dateString) = uuidIndex[id], indexedConv == conversationID {
+            let fileURL = transcriptFileURL(conversationID: conversationID, dateString: dateString)
+            let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
+            if let match = messages.first(where: { $0.id == id }) {
+                return match
+            }
+        }
+        // Slow path: scan all date files for the matching UUID.
+        return try findMessage(in: conversationID) { $0.id == id }
+    }
 
     public func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage? {
         // Fast path: check stanza index to read only one file. Verify the indexed
@@ -328,6 +353,7 @@ public actor FileTranscriptStore: TranscriptStore {
         }
         stanzaIndex = stanzaIndex.filter { $0.value.0 != conversationID }
         serverIndex = serverIndex.filter { $0.value.0 != conversationID }
+        uuidIndex = uuidIndex.filter { $0.value.0 != conversationID }
     }
 
     public func writeMetadata(_ metadata: TranscriptMetadata, for conversationID: UUID) async throws {
@@ -451,14 +477,9 @@ public actor FileTranscriptStore: TranscriptStore {
                         msg.isDelivered = !msg.isOutgoing
                         messages[msg.id] = msg
                         messageOrder.append(msg.id)
-                        if let sid = msg.stanzaID {
-                            stanzaToID[sid] = msg.id
-                            stanzaIndex[sid] = (conversationID, dateString)
-                        }
-                        if let srvid = msg.serverID {
-                            serverToID[srvid] = msg.id
-                            serverIndex[srvid] = (conversationID, dateString)
-                        }
+                        indexEntry(id: msg.id, stanzaID: msg.stanzaID, serverID: msg.serverID, conversationID: conversationID, dateString: dateString)
+                        if let sid = msg.stanzaID { stanzaToID[sid] = msg.id }
+                        if let srvid = msg.serverID { serverToID[srvid] = msg.id }
                     }
                 case .amendment:
                     if let amendment = record.toAmendment() {
@@ -482,7 +503,14 @@ public actor FileTranscriptStore: TranscriptStore {
         serverToID: [String: UUID]
     ) {
         for amendment in amendments {
-            let targetID: UUID? = if let sid = amendment.targetStanzaID {
+            // UUID-bearing amendments fail closed: stanzaID/serverID fallback
+            // would re-introduce the `ducko-N` collision risk this field
+            // exists to prevent. Legacy amendments without a UUID (carbon
+            // receipts, chat markers, message errors) still resolve via
+            // stanzaID/serverID.
+            let targetID: UUID? = if let uuid = amendment.targetMessageID {
+                messages[uuid] != nil ? uuid : nil
+            } else if let sid = amendment.targetStanzaID {
                 stanzaToID[sid]
             } else if let srvid = amendment.targetServerID {
                 serverToID[srvid]

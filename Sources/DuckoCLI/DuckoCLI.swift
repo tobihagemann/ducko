@@ -2644,12 +2644,12 @@ private func handleRetractREPLCommand(_ input: String, context: REPLContext) asy
         let isGroupchat = lastOutgoing.type == "groupchat"
         if isGroupchat {
             try await context.environment.chatService.retractGroupMessage(
-                stanzaID: stanzaID, inRoomJIDString: jidString,
+                original: lastOutgoing, inRoomJIDString: jidString,
                 accountID: context.accountID
             )
         } else {
             try await context.environment.chatService.retractMessage(
-                stanzaID: stanzaID, toJIDString: jidString,
+                original: lastOutgoing, toJIDString: jidString,
                 accountID: context.accountID
             )
         }
@@ -2686,12 +2686,12 @@ private func handleEditREPLCommand(_ input: String, context: REPLContext) async 
         let isGroupchat = lastOutgoing.type == "groupchat"
         if isGroupchat {
             try await context.environment.chatService.sendGroupCorrection(
-                originalStanzaID: stanzaID, newBody: newBody,
-                inRoomJIDString: jidString, accountID: context.accountID
+                original: lastOutgoing, inRoomJIDString: jidString,
+                newBody: newBody, accountID: context.accountID
             )
         } else {
             try await context.environment.chatService.sendCorrection(
-                toJIDString: jidString, originalStanzaID: stanzaID,
+                original: lastOutgoing, toJIDString: jidString,
                 newBody: newBody, accountID: context.accountID
             )
         }

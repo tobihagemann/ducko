@@ -104,7 +104,7 @@ public final class ChatService {
             // Append a local retract amendment so the ghost doesn't linger in the
             // transcript. The retract is local-only — it has no effect on the server.
             try? await transcripts.appendAmendment(
-                TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
+                TranscriptAmendment(action: .retract, targetMessageID: message.id, targetStanzaID: stanzaID, timestamp: Date()),
                 conversationID: conversation.id
             )
             await messagesChanged(in: conversation.id)
@@ -257,15 +257,26 @@ public final class ChatService {
 
     // MARK: - Corrections
 
+    /// Sends an XEP-0308 correction for `original` and appends the matching
+    /// local edit amendment. Caller passes the already-resolved `ChatMessage`
+    /// so the service never re-resolves by stanzaID — per-session `ducko-N`
+    /// counters can collide with peers or with MAM-imported messages of
+    /// prior sessions, and a re-lookup may pick an incoming row instead.
     public func sendCorrection(
+        original: ChatMessage,
         to jid: BareJID,
-        originalStanzaID: String,
         newBody: String,
         accountID: UUID
     ) async throws {
+        guard original.isOutgoing, let originalStanzaID = original.stanzaID else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
-        guard let original = try? await transcripts.findMessage(stanzaID: originalStanzaID, conversationID: conversation.id),
-              original.isOutgoing else {
+        // Reject mismatched destination — a caller that passes a message
+        // from conversation A while addressing JID B would otherwise route
+        // the network stanza to B while writing the local amendment under A,
+        // splitting the transcript from the wire.
+        guard original.conversationID == conversation.id else {
             throw ChatServiceError.notOutgoingMessage
         }
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
@@ -302,30 +313,32 @@ public final class ChatService {
             throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
         }
         try await transcripts.appendAmendment(
-            TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
+            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
             conversationID: conversation.id
         )
         await messagesChanged(in: conversation.id)
     }
 
     public func sendCorrection(
+        original: ChatMessage,
         toJIDString jidString: String,
-        originalStanzaID: String,
         newBody: String,
         accountID: UUID
     ) async throws {
         guard let jid = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
-        try await sendCorrection(to: jid, originalStanzaID: originalStanzaID, newBody: newBody, accountID: accountID)
+        try await sendCorrection(original: original, to: jid, newBody: newBody, accountID: accountID)
     }
 
     // MARK: - Group Corrections
 
-    public func sendGroupCorrection(originalStanzaID: String, newBody: String, in room: BareJID, accountID: UUID) async throws {
+    public func sendGroupCorrection(original: ChatMessage, in room: BareJID, newBody: String, accountID: UUID) async throws {
+        guard original.isOutgoing, let originalStanzaID = original.stanzaID else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
-        guard let original = try? await transcripts.findMessage(stanzaID: originalStanzaID, conversationID: conversation.id),
-              original.isOutgoing else {
+        guard original.conversationID == conversation.id else {
             throw ChatServiceError.notOutgoingMessage
         }
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
@@ -338,25 +351,27 @@ public final class ChatService {
             additionalElements: [replaceElement]
         )
         try await transcripts.appendAmendment(
-            TranscriptAmendment(action: .edit, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
+            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
             conversationID: conversation.id
         )
         await messagesChanged(in: conversation.id)
     }
 
-    public func sendGroupCorrection(originalStanzaID: String, newBody: String, inRoomJIDString roomJIDString: String, accountID: UUID) async throws {
+    public func sendGroupCorrection(original: ChatMessage, inRoomJIDString roomJIDString: String, newBody: String, accountID: UUID) async throws {
         guard let room = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        try await sendGroupCorrection(originalStanzaID: originalStanzaID, newBody: newBody, in: room, accountID: accountID)
+        try await sendGroupCorrection(original: original, in: room, newBody: newBody, accountID: accountID)
     }
 
     // MARK: - Retractions
 
-    public func retractMessage(stanzaID: String, to jid: BareJID, accountID: UUID) async throws {
+    public func retractMessage(original: ChatMessage, to jid: BareJID, accountID: UUID) async throws {
+        guard original.isOutgoing, let stanzaID = original.stanzaID else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
-        guard let original = try? await transcripts.findMessage(stanzaID: stanzaID, conversationID: conversation.id),
-              original.isOutgoing else {
+        guard original.conversationID == conversation.id else {
             throw ChatServiceError.notOutgoingMessage
         }
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
@@ -389,30 +404,32 @@ public final class ChatService {
             throw ChatServiceError.omemoNoTrustedDevices(conversationJID: jid)
         }
         try await transcripts.appendAmendment(
-            TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
+            TranscriptAmendment(action: .retract, targetMessageID: original.id, targetStanzaID: stanzaID, timestamp: Date()),
             conversationID: conversation.id
         )
         await messagesChanged(in: conversation.id)
     }
 
-    public func retractMessage(stanzaID: String, toJIDString jidString: String, accountID: UUID) async throws {
+    public func retractMessage(original: ChatMessage, toJIDString jidString: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else {
             throw ChatServiceError.invalidJID(jidString)
         }
-        try await retractMessage(stanzaID: stanzaID, to: jid, accountID: accountID)
+        try await retractMessage(original: original, to: jid, accountID: accountID)
     }
 
-    public func retractGroupMessage(stanzaID: String, inRoomJIDString roomJIDString: String, accountID: UUID) async throws {
+    public func retractGroupMessage(original: ChatMessage, inRoomJIDString roomJIDString: String, accountID: UUID) async throws {
         guard let room = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
-        try await retractGroupMessage(stanzaID: stanzaID, in: room, accountID: accountID)
+        try await retractGroupMessage(original: original, in: room, accountID: accountID)
     }
 
-    public func retractGroupMessage(stanzaID: String, in room: BareJID, accountID: UUID) async throws {
+    public func retractGroupMessage(original: ChatMessage, in room: BareJID, accountID: UUID) async throws {
+        guard original.isOutgoing, let stanzaID = original.stanzaID else {
+            throw ChatServiceError.notOutgoingMessage
+        }
         let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
-        guard let original = try? await transcripts.findMessage(stanzaID: stanzaID, conversationID: conversation.id),
-              original.isOutgoing else {
+        guard original.conversationID == conversation.id else {
             throw ChatServiceError.notOutgoingMessage
         }
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
@@ -426,7 +443,7 @@ public final class ChatService {
             additionalElements: [retractElement, fallbackElement]
         )
         try await transcripts.appendAmendment(
-            TranscriptAmendment(action: .retract, targetStanzaID: stanzaID, timestamp: Date()),
+            TranscriptAmendment(action: .retract, targetMessageID: original.id, targetStanzaID: stanzaID, timestamp: Date()),
             conversationID: conversation.id
         )
         await messagesChanged(in: conversation.id)
@@ -1346,7 +1363,7 @@ public final class ChatService {
         guard await verifySender(from: from, original: original, action: "correction", accountID: accountID) else { return }
 
         try? await transcripts.appendAmendment(
-            TranscriptAmendment(action: .edit, targetStanzaID: originalID, timestamp: Date(), body: newBody),
+            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalID, timestamp: Date(), body: newBody),
             conversationID: conversationID
         )
         await messagesChanged(in: conversationID)
@@ -1359,7 +1376,7 @@ public final class ChatService {
         guard await verifySender(from: from, original: original, action: "retraction", accountID: accountID) else { return }
 
         try? await transcripts.appendAmendment(
-            TranscriptAmendment(action: .retract, targetStanzaID: originalID, timestamp: Date()),
+            TranscriptAmendment(action: .retract, targetMessageID: original.id, targetStanzaID: originalID, timestamp: Date()),
             conversationID: conversationID
         )
         await messagesChanged(in: conversationID)

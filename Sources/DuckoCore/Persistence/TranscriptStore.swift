@@ -14,6 +14,10 @@ public protocol TranscriptStore: Sendable {
 
     // MARK: - Lookup
 
+    /// Locates a message by locally-assigned UUID. Unlike `findMessage(stanzaID:)`,
+    /// the UUID is unique per persisted message and survives MAM-imported
+    /// `ducko-N` counter duplicates from prior sessions.
+    func findMessage(id: UUID, conversationID: UUID) async throws -> ChatMessage?
     func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage?
     // periphery:ignore - used by MUC moderation (XEP-0425) serverID lookup path
     func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage?

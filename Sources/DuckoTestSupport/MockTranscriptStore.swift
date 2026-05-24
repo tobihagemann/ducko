@@ -49,6 +49,13 @@ public actor MockTranscriptStore: TranscriptStore {
 
     // MARK: - Lookup
 
+    public func findMessage(id: UUID, conversationID: UUID) async throws -> ChatMessage? {
+        let match = messages.first { $0.id == id && $0.conversationID == conversationID }
+        guard var message = match else { return nil }
+        message = applyAmendments(to: [message]).first ?? message
+        return message
+    }
+
     public func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage? {
         let match = messages.first { $0.stanzaID == stanzaID && $0.conversationID == conversationID }
         guard var message = match else { return nil }
@@ -141,9 +148,19 @@ public actor MockTranscriptStore: TranscriptStore {
         var result = messages
         for (amendment, conversationID) in amendments {
             for index in result.indices where result[index].conversationID == conversationID {
-                let matchesStanza = amendment.targetStanzaID != nil && result[index].stanzaID == amendment.targetStanzaID
-                let matchesServer = amendment.targetServerID != nil && result[index].serverID == amendment.targetServerID
-                guard matchesStanza || matchesServer else { continue }
+                // Mirror FileTranscriptStore precedence: UUID authoritative,
+                // then stanzaID, then serverID. A plain OR would let a stale
+                // stanzaID override the UUID intent.
+                let matches: Bool = if amendment.targetMessageID != nil {
+                    result[index].id == amendment.targetMessageID
+                } else if amendment.targetStanzaID != nil {
+                    result[index].stanzaID == amendment.targetStanzaID
+                } else if amendment.targetServerID != nil {
+                    result[index].serverID == amendment.targetServerID
+                } else {
+                    false
+                }
+                guard matches else { continue }
 
                 switch amendment.action {
                 case .edit:

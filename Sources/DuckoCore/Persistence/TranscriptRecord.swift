@@ -26,6 +26,7 @@ enum TranscriptRecord: Codable {
 
     struct AmendmentEntry: Codable {
         var action: TranscriptAmendment.Action
+        var targetMessageID: UUID?
         var targetStanzaID: String?
         var targetServerID: String?
         var timestamp: Date?
@@ -89,6 +90,7 @@ enum TranscriptRecord: Codable {
     static func from(_ amendment: TranscriptAmendment) -> TranscriptRecord {
         .amendment(AmendmentEntry(
             action: amendment.action,
+            targetMessageID: amendment.targetMessageID,
             targetStanzaID: amendment.targetStanzaID,
             targetServerID: amendment.targetServerID,
             timestamp: amendment.timestamp,
@@ -123,6 +125,7 @@ enum TranscriptRecord: Codable {
         guard case let .amendment(entry) = self else { return nil }
         return TranscriptAmendment(
             action: entry.action,
+            targetMessageID: entry.targetMessageID,
             targetStanzaID: entry.targetStanzaID,
             targetServerID: entry.targetServerID,
             timestamp: entry.timestamp ?? Date(),

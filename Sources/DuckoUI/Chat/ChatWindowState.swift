@@ -108,11 +108,11 @@ public final class ChatWindowState {
         guard let accountID = environment.accountService.accounts.first?.id else { return }
 
         do {
-            if isGroupchat, let editing = editingMessage, let stanzaID = editing.stanzaID {
+            if isGroupchat, let editing = editingMessage {
                 try await environment.chatService.sendGroupCorrection(
-                    originalStanzaID: stanzaID,
-                    newBody: body,
+                    original: editing,
                     inRoomJIDString: jidString,
+                    newBody: body,
                     accountID: accountID
                 )
             } else if isGroupchat {
@@ -122,10 +122,10 @@ public final class ChatWindowState {
                     roomJIDString: conv.jid.description,
                     nickname: nick, body: body, accountID: accountID
                 )
-            } else if let editing = editingMessage, let stanzaID = editing.stanzaID {
+            } else if let editing = editingMessage {
                 try await environment.chatService.sendCorrection(
+                    original: editing,
                     toJIDString: jidString,
-                    originalStanzaID: stanzaID,
                     newBody: body,
                     accountID: accountID
                 )
@@ -190,14 +190,16 @@ public final class ChatWindowState {
     // MARK: - Retraction
 
     func retractMessage(_ message: ChatMessage) async {
+        // Preflight skip when the bubble has no stanzaID — never reached
+        // the server, so retraction is a no-op even with the service guard.
         guard let accountID = environment.accountService.accounts.first?.id,
-              let stanzaID = message.stanzaID else { return }
+              message.stanzaID != nil else { return }
 
         do {
             if isGroupchat {
-                try await environment.chatService.retractGroupMessage(stanzaID: stanzaID, inRoomJIDString: jidString, accountID: accountID)
+                try await environment.chatService.retractGroupMessage(original: message, inRoomJIDString: jidString, accountID: accountID)
             } else {
-                try await environment.chatService.retractMessage(stanzaID: stanzaID, toJIDString: jidString, accountID: accountID)
+                try await environment.chatService.retractMessage(original: message, toJIDString: jidString, accountID: accountID)
             }
             await refreshMessages()
         } catch {

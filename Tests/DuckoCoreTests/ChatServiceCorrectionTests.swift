@@ -151,4 +151,73 @@ enum ChatServiceCorrectionTests {
             #expect(messages[0].editedAt == nil)
         }
     }
+
+    struct OutgoingGuard {
+        @Test
+        @MainActor
+        func `sendCorrection rejects message that is not outgoing`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            _ = await seedContactConversation(store: store, transcripts: transcripts)
+
+            let incoming = ChatMessage(
+                id: UUID(), conversationID: UUID(), stanzaID: "msg-original",
+                fromJID: contactJID.description, body: "Original text",
+                timestamp: Date(), isOutgoing: false,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+            await expectNotOutgoingMessage {
+                try await service.sendCorrection(
+                    original: incoming, to: contactJID, newBody: "edited", accountID: testAccountID
+                )
+            }
+        }
+
+        @Test
+        @MainActor
+        func `sendCorrection rejects outgoing message without stanzaID`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            _ = await seedContactConversation(store: store, transcripts: transcripts)
+
+            let outgoingNoStanza = ChatMessage(
+                id: UUID(), conversationID: UUID(), stanzaID: nil,
+                fromJID: contactJID.description, body: "Never sent",
+                timestamp: Date(), isOutgoing: true,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+            await expectNotOutgoingMessage {
+                try await service.sendCorrection(
+                    original: outgoingNoStanza, to: contactJID, newBody: "edited", accountID: testAccountID
+                )
+            }
+        }
+
+        @Test
+        @MainActor
+        func `sendCorrection rejects message from a different conversation`() async {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let conversationID = await seedContactConversation(store: store, transcripts: transcripts)
+
+            // Mismatched destination must fail closed — otherwise a network
+            // correction would be routed to `contactJID` while the local
+            // amendment would be written under a foreign conversation.
+            let foreignOutgoing = ChatMessage(
+                id: UUID(), conversationID: UUID(), stanzaID: "ducko-99",
+                fromJID: contactJID.description, body: "From another conversation",
+                timestamp: Date(), isOutgoing: true,
+                isDelivered: false, isEdited: false, type: "chat"
+            )
+            #expect(foreignOutgoing.conversationID != conversationID)
+            await expectNotOutgoingMessage {
+                try await service.sendCorrection(
+                    original: foreignOutgoing, to: contactJID, newBody: "edited", accountID: testAccountID
+                )
+            }
+        }
+    }
 }

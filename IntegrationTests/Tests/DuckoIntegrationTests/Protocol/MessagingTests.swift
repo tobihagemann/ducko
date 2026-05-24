@@ -289,11 +289,12 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 })
                 let capturedID = try #require(receivedMessage.id)
 
-                // Alice sends a correction via service (looks up transcript store).
                 let updatedBody = "msg-\(UUID().uuidString.prefix(8))"
+                let aliceConvForCorrection = try await harness.environment.chatService.openConversation(for: bobJID, accountID: alice.accountID)
+                let original = try #require(try await harness.environment.transcripts.findMessage(stanzaID: capturedID, conversationID: aliceConvForCorrection.id))
                 try await harness.environment.chatService.sendCorrection(
+                    original: original,
                     to: bobJID,
-                    originalStanzaID: capturedID,
                     newBody: updatedBody,
                     accountID: alice.accountID
                 )
@@ -344,9 +345,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 })
                 let capturedID = try #require(receivedMessage.id)
 
-                // Alice retracts via service.
+                let aliceConvForRetract = try await harness.environment.chatService.openConversation(for: bobJID, accountID: alice.accountID)
+                let originalToRetract = try #require(try await harness.environment.transcripts.findMessage(stanzaID: capturedID, conversationID: aliceConvForRetract.id))
                 try await harness.environment.chatService.retractMessage(
-                    stanzaID: capturedID,
+                    original: originalToRetract,
                     to: bobJID,
                     accountID: alice.accountID
                 )

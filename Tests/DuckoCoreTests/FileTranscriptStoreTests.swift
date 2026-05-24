@@ -314,6 +314,97 @@ enum FileTranscriptStoreTests {
             #expect(targetB.body == "bob's msg")
             #expect(targetB.isEdited == false)
         }
+
+        @Test
+        func `Amendment with targetMessageID routes around stanzaID collision within one conversation`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            // Two messages in the SAME conversation share a stanzaID — possible after
+            // MAM imports a historical message whose per-session counter (`ducko-N`)
+            // happens to match a local-send's counter from a later session.
+            let historical = makeMessage(stanzaID: "ducko-12", body: "historical")
+            let local = makeMessage(stanzaID: "ducko-12", body: "current send")
+            try await store.appendMessage(historical)
+            try await store.appendMessage(local)
+
+            // Amendment carries the UUID of the local send — must apply to that
+            // specific message even though the historical entry was written first
+            // (and would win a stanzaID-only resolution that picks last-write).
+            try await store.appendAmendment(TranscriptAmendment(
+                action: .edit, targetMessageID: local.id, targetStanzaID: "ducko-12", timestamp: Date(), body: "edited"
+            ), conversationID: testConversationID)
+
+            let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
+            let editedLocal = try #require(fetched.first { $0.id == local.id })
+            let untouchedHistorical = try #require(fetched.first { $0.id == historical.id })
+
+            #expect(editedLocal.body == "edited")
+            #expect(editedLocal.isEdited == true)
+            #expect(untouchedHistorical.body == "historical")
+            #expect(untouchedHistorical.isEdited == false)
+        }
+
+        @Test
+        func `UUID-bearing amendment survives store restart`() async throws {
+            // Second instance has an empty in-memory uuidIndex — routing must
+            // rehydrate from the on-disk `targetMessageID`.
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("transcript-test-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let store1 = FileTranscriptStore(baseDirectory: dir)
+            let msg = makeMessage(stanzaID: "cold-sid", body: "original")
+            try await store1.appendMessage(msg)
+
+            let store2 = FileTranscriptStore(baseDirectory: dir)
+            try await store2.appendAmendment(TranscriptAmendment(
+                action: .edit, targetMessageID: msg.id, targetStanzaID: "cold-sid", timestamp: Date(), body: "edited via UUID"
+            ), conversationID: testConversationID)
+
+            // A third instance proves the targetMessageID round-tripped through JSONL.
+            let store3 = FileTranscriptStore(baseDirectory: dir)
+            let fetched = try await store3.fetchMessages(for: testConversationID, before: nil, limit: 50)
+            let target = try #require(fetched.first { $0.id == msg.id })
+            #expect(target.body == "edited via UUID")
+            #expect(target.isEdited == true)
+        }
+
+        @Test
+        func `UUID-bearing amendment fails closed when target UUID is absent from file`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            // Fail-closed contract: no fallback to stanzaID. The amendment
+            // must be ignored AND must not write a dangling JSONL record.
+            let messageA = makeMessage(stanzaID: "shared-sid", body: "A's body")
+            let messageB = makeMessage(stanzaID: "shared-sid", body: "B's body")
+            try await store.appendMessage(messageA)
+            try await store.appendMessage(messageB)
+
+            let phantomUUID = UUID()
+            try await store.appendAmendment(TranscriptAmendment(
+                action: .edit, targetMessageID: phantomUUID, targetStanzaID: "shared-sid", timestamp: Date(), body: "should not apply"
+            ), conversationID: testConversationID)
+
+            let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
+            let resolvedA = try #require(fetched.first { $0.id == messageA.id })
+            let resolvedB = try #require(fetched.first { $0.id == messageB.id })
+            #expect(resolvedA.body == "A's body")
+            #expect(resolvedA.isEdited == false)
+            #expect(resolvedB.body == "B's body")
+            #expect(resolvedB.isEdited == false)
+
+            // Confirm no amend record written — a silently-routed amendment
+            // would re-surface on a cold-read in another store instance.
+            let convDir = dir.appendingPathComponent(testConversationID.uuidString)
+            let dateFiles = try FileManager.default.contentsOfDirectory(at: convDir, includingPropertiesForKeys: nil)
+                .filter { $0.pathExtension == "jsonl" }
+            for fileURL in dateFiles {
+                let raw = try String(contentsOf: fileURL, encoding: .utf8)
+                #expect(!raw.contains("\"type\":\"amend\""), "Unexpected amendment record in \(fileURL.lastPathComponent)")
+            }
+        }
     }
 
     struct Lookup {
@@ -331,6 +422,53 @@ enum FileTranscriptStoreTests {
 
             let notFound = try await store.findMessage(stanzaID: "nonexistent", conversationID: testConversationID)
             #expect(notFound == nil)
+        }
+
+        @Test
+        func `Find message by UUID disambiguates colliding stanzaID`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            // stanzaID-only lookup is ambiguous when `ducko-N` collides;
+            // UUID lookup must return the exact named message.
+            let historical = makeMessage(stanzaID: "ducko-12", fromJID: "peer@example.com", body: "peer msg", isOutgoing: false)
+            let local = makeMessage(stanzaID: "ducko-12", fromJID: "peer@example.com", body: "our msg", isOutgoing: true)
+            try await store.appendMessage(historical)
+            try await store.appendMessage(local)
+
+            let foundLocal = try await store.findMessage(id: local.id, conversationID: testConversationID)
+            #expect(foundLocal?.id == local.id)
+            #expect(foundLocal?.isOutgoing == true)
+            #expect(foundLocal?.body == "our msg")
+
+            let foundHistorical = try await store.findMessage(id: historical.id, conversationID: testConversationID)
+            #expect(foundHistorical?.id == historical.id)
+            #expect(foundHistorical?.isOutgoing == false)
+            #expect(foundHistorical?.body == "peer msg")
+
+            let notFound = try await store.findMessage(id: UUID(), conversationID: testConversationID)
+            #expect(notFound == nil)
+        }
+
+        @Test
+        func `Find message by UUID rejects cross-conversation hits`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            // A message indexed under convA must not be returned when the
+            // caller asks for it under convB — UUIDs are unique globally but
+            // the API requires conversation scoping so a future refactor
+            // can't loosen the guard without a test failure.
+            let convA = UUID()
+            let convB = UUID()
+            let msg = makeMessage(conversationID: convA, stanzaID: "s-cross", body: "alice's msg")
+            try await store.appendMessage(msg)
+
+            let foundInA = try await store.findMessage(id: msg.id, conversationID: convA)
+            #expect(foundInA?.id == msg.id)
+
+            let foundInB = try await store.findMessage(id: msg.id, conversationID: convB)
+            #expect(foundInB == nil)
         }
 
         @Test
@@ -456,6 +594,27 @@ enum FileTranscriptStoreTests {
             #expect(decoded.type == "chat")
             #expect(decoded.displayName == "Alice")
             #expect(decoded.occupantNickname == nil)
+        }
+
+        @Test
+        func `Delete clears uuidIndex so post-delete amendments cannot route`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            let msg = makeMessage(stanzaID: "indexed-sid", body: "to be deleted")
+            try await store.appendMessage(msg)
+            try await store.deleteTranscripts(for: testConversationID)
+
+            // Try to route an amendment by the now-deleted message's UUID.
+            // resolveAmendmentDate must not return a stale uuidIndex hit —
+            // otherwise the amendment would recreate JSONL after deletion,
+            // weakening the deletion boundary.
+            try await store.appendAmendment(TranscriptAmendment(
+                action: .edit, targetMessageID: msg.id, timestamp: Date(), body: "ghost"
+            ), conversationID: testConversationID)
+
+            let fetched = try await store.fetchMessages(for: testConversationID, before: nil, limit: 50)
+            #expect(fetched.isEmpty)
         }
     }
 

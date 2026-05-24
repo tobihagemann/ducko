@@ -174,6 +174,9 @@ extension DuckoIntegrationTests.UILayer {
                 try await app.contextMenuItem(title: "Edit")
 
                 try await app.waitForElement(identifier: "message-field", timeout: TestTimeout.uiElement)
+                // MessageInputView's `.onChange(of: editingMessage?.id)` pre-fills the composer;
+                // wait for it so a delayed dispatch can't clobber the typed replacement.
+                try await app.waitForValue(body, identifier: "message-field")
                 let editedBody = "\(body) (edited)"
                 try await app.clearAndType(editedBody, intoIdentifier: "message-field")
                 try await app.pressReturn(intoIdentifier: "message-field")
