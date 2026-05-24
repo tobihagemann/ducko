@@ -380,6 +380,10 @@ public final class OMEMOService {
         let senderJID = from.bareJID
         guard let chatService else { return }
 
+        // Capture the arrival tick now, before the first await, so the resource lock learned below advances in
+        // arrival order even if this handler interleaves with another inbound's handler on the MainActor.
+        let lockSequence = chatService.nextLockSequence()
+
         // Determine if this is our own message echoed back (carbon/MAM)
         let ownJID = accountService?.accounts.first(where: { $0.id == accountID })?.jid
         let isOutgoing = ownJID != nil && senderJID == ownJID
@@ -408,6 +412,13 @@ public final class OMEMOService {
             isEncrypted: true
         )
 
+        // RFC 6121 §5.1 resource lock — learn the peer's resource from the live encrypted inbound, mirroring
+        // the plaintext path in ChatService. Own-message echoes (carbon/MAM) still persist below but must not
+        // move the lock (gated on `!isOutgoing`), and a nil body is a failed/unauthenticated decrypt that must
+        // not steer routing (gated on `decryptedBody != nil`).
+        if !isOutgoing, decryptedBody != nil {
+            chatService.learnResourceLock(from: from, accountID: accountID, sequence: lockSequence)
+        }
         await chatService.persistEncryptedMessage(message, in: conversation, accountID: accountID)
 
         // Persist session state after decryption (ratchet may have advanced)

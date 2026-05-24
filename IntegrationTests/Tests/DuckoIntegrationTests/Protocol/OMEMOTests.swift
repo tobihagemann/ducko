@@ -163,6 +163,47 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
+        @Test(.timeLimit(.minutes(2))) @MainActor func `Encrypted send targets Bob's locked full JID`() async throws {
+            try await TestHarness.withHarness { harness in
+                try await Self.setUpAliceBobWithTOFU(harness: harness)
+                let ctx = try await Self.primeBobForEncryption(harness: harness)
+                let aliceJID = try harness.jid(for: TestCredentials.alice)
+                let bobJID = ctx.bobJID
+
+                // Bob messages Alice first (plaintext) so Alice's ChatService locks Bob's bound resource (RFC 6121 §5.1).
+                let lockBody = "lock-\(UUID().uuidString.prefix(8))"
+                try await harness.environment.chatService.sendMessage(to: aliceJID, body: lockBody, accountID: ctx.bob.accountID)
+
+                // learnResourceLock runs in the same handler invocation immediately before persistAndNotify, so a
+                // persisted inbound from Bob implies the lock is set. Wait for that before Alice replies.
+                let aliceBobConversation = try await harness.environment.chatService.openConversation(for: bobJID, accountID: ctx.alice.accountID)
+                try await ctx.alice.waitForCondition {
+                    let messages = await harness.environment.chatService.loadMessages(for: aliceBobConversation.id)
+                    return messages.contains { !$0.isOutgoing && $0.body == lockBody }
+                }
+
+                // Alice's encrypted reply must be addressed to Bob's full (locked) JID. Prosody preserves the
+                // `to` it was sent, so a resource-qualified `to` on the encrypted stanza Bob receives proves the
+                // lock drove the routing — while OMEMO device resolution stays on the bare JID (covered by the
+                // round-trip tests above).
+                let body = "omemo-locked-\(UUID().uuidString.prefix(8))"
+                try await harness.environment.chatService.sendMessage(to: bobJID, body: body, accountID: ctx.alice.accountID)
+
+                let receivedTo = try await ctx.bob.waitForEvent(
+                    extracting: { event -> JID? in
+                        guard case let .messageReceived(message) = event,
+                              message.element.child(named: "encrypted", namespace: XMPPNamespaces.omemo) != nil,
+                              message.to?.bareJID == bobJID else { return nil }
+                        return message.to
+                    },
+                    timeout: TestTimeout.omemoSession
+                )
+
+                let isFullJID = if case .full = receivedTo { true } else { false }
+                #expect(isFullJID)
+            }
+        }
+
         @Test(.timeLimit(.minutes(2))) @MainActor func `Service trust device transitions through trust levels`() async throws {
             try await TestHarness.withHarness { harness in
                 try await Self.setUpAliceBobWithTOFU(harness: harness)

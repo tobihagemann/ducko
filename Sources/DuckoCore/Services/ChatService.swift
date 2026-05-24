@@ -43,7 +43,16 @@ public final class ChatService {
     private let filterPipeline: MessageFilterPipeline
     private weak var accountService: AccountService?
     private weak var omemoService: OMEMOService?
-    private var typingDebounce: [BareJID: Task<Void, Never>] = [:]
+    private var typingDebounce: [UUID: [BareJID: Task<Void, Never>]] = [:]
+    /// Per-account map of the peer's most-recently-seen full-JID resource for live 1:1 chats
+    /// (RFC 6121 §5.1 resource locking). Account-scoped — the same bare peer JID can exist under
+    /// multiple accounts. Internal routing state, not observed UI state, so kept `private`.
+    private var lockedResourcesByAccount: [UUID: [BareJID: String]] = [:]
+    /// Arrival sequence (from `nextLockSequence`) of the inbound that currently owns each peer's lock.
+    /// Guards against an arrival-older message overwriting a newer lock when the per-event handler Tasks
+    /// resume on the MainActor out of order.
+    private var lockSequenceByPeer: [UUID: [BareJID: UInt64]] = [:]
+    private var nextInboundLockSequence: UInt64 = 0
     /// Registry of pending room-join waiters keyed by `(accountID, room)`.
     private(set) var roomJoinNotifiers: [RoomJoinKey: RoomJoinNotifier] = [:]
 
@@ -61,6 +70,67 @@ public final class ChatService {
 
     func setOMEMOService(_ service: OMEMOService) {
         omemoService = service
+    }
+
+    // MARK: - Resource Locking (RFC 6121 §5.1)
+
+    /// Resolves the recipient for a 1:1 send: the locked full JID when a resource is locked for `jid`,
+    /// otherwise the bare JID. Single decision point for full-vs-bare so the fallback rule lives in one place.
+    private func recipientJID(for jid: BareJID, accountID: UUID) -> JID {
+        guard let resource = lockedResourcesByAccount[accountID]?[jid],
+              let fullJID = FullJID(bareJID: jid, resourcePart: resource) else {
+            return .bare(jid)
+        }
+        return .full(fullJID)
+    }
+
+    /// Releases the lock for `jid`, so subsequent sends fall back to the bare JID.
+    private func clearLock(for jid: BareJID, accountID: UUID) {
+        lockedResourcesByAccount[accountID]?.removeValue(forKey: jid)
+    }
+
+    /// Drops every lock for `accountID`. Peer-resource locks are meaningless once our own session ends.
+    private func clearLocks(accountID: UUID) {
+        lockedResourcesByAccount.removeValue(forKey: accountID)
+        lockSequenceByPeer.removeValue(forKey: accountID)
+    }
+
+    /// Returns a monotonic arrival tick. Captured synchronously at an inbound handler's entry (before any
+    /// await) so `learnResourceLock` can reject out-of-order learns when interleaved per-event Tasks resume
+    /// on the MainActor in a different order than the messages arrived. Internal so `OMEMOService` can call it.
+    func nextLockSequence() -> UInt64 {
+        defer { nextInboundLockSequence &+= 1 }
+        return nextInboundLockSequence
+    }
+
+    /// Learns the peer's resource from an accepted live 1:1 inbound message (plaintext or OMEMO).
+    /// A full `from` locks (re-locking when the resource differs; `FullJID` guarantees a non-empty resource);
+    /// a bare `from` releases the lock (RFC 6121 §5.1: a message from the bare JID releases it). `sequence` is
+    /// the inbound's arrival tick — an arrival-older learn (lower sequence) is dropped so it can't overwrite a
+    /// newer lock. Internal so `OMEMOService` can call it, mirroring `persistEncryptedMessage`.
+    func learnResourceLock(from: JID, accountID: UUID, sequence: UInt64) {
+        // A groupchat/MUC sender (room@conference/nick) must never move the 1:1 lock. The plaintext path
+        // routes room messages to separate handlers, but the OMEMO event carries no message type, so guard
+        // here with the same groupchat-conversation check `shouldSkipRawMessage` uses.
+        let bareJID = from.bareJID
+        if openConversations.contains(where: { $0.jid == bareJID && $0.type == .groupchat }) { return }
+        if let owning = lockSequenceByPeer[accountID]?[bareJID], sequence < owning { return }
+        lockSequenceByPeer[accountID, default: [:]][bareJID] = sequence
+        switch from {
+        case let .full(fullJID):
+            lockedResourcesByAccount[accountID, default: [:]][bareJID] = fullJID.resourcePart
+        case .bare:
+            clearLock(for: bareJID, accountID: accountID)
+        }
+    }
+
+    /// RFC 6121 §5.1: releases the lock when the *locked* resource goes unavailable. Available presence does
+    /// not move the lock; an unavailable presence from a non-locked resource is ignored.
+    private func handlePresenceForResourceLock(from: JID, presence: XMPPPresence, accountID: UUID) {
+        guard presence.presenceType == .unavailable, case let .full(fullJID) = from else { return }
+        if lockedResourcesByAccount[accountID]?[fullJID.bareJID] == fullJID.resourcePart {
+            clearLock(for: fullJID.bareJID, accountID: accountID)
+        }
     }
 
     // MARK: - Public API
@@ -144,7 +214,7 @@ public final class ChatService {
     /// `omemoService`) because `trustedDeviceIDsForSend` only returns nil on intentional `.userDisabled` —
     /// folding `omemoService` into the optional-binding would silently downgrade to plaintext when the service is unwired.
     private func dispatchSend(_ context: SendDispatchContext) async throws {
-        let recipient = JID.bare(context.jid)
+        let recipient = recipientJID(for: context.jid, accountID: context.accountID)
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
         guard let trustedDeviceIDs = context.trustedDeviceIDs else {
             try await context.chatModule.sendMessage(
@@ -235,13 +305,13 @@ public final class ChatService {
         guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let module = await client.module(ofType: ChatStatesModule.self) else { return }
 
-        typingDebounce[jid]?.cancel()
-        try? await module.sendChatState(.composing, to: .bare(jid))
-        typingDebounce[jid] = Task { [weak self] in
+        typingDebounce[accountID]?[jid]?.cancel()
+        try? await module.sendChatState(.composing, to: recipientJID(for: jid, accountID: accountID))
+        typingDebounce[accountID, default: [:]][jid] = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
-            guard !Task.isCancelled else { return }
-            try? await module.sendChatState(.paused, to: .bare(jid))
-            self?.typingDebounce[jid] = nil
+            guard !Task.isCancelled, let self else { return }
+            try? await module.sendChatState(.paused, to: recipientJID(for: jid, accountID: accountID))
+            typingDebounce[accountID]?[jid] = nil
         }
     }
 
@@ -299,12 +369,12 @@ public final class ChatService {
             let replaceElement = DuckoXMPP.XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": originalStanzaID])
             let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
             try await chatModule.sendMessage(
-                to: .bare(jid), body: elements.fallbackBody, id: client.generateID(),
+                to: recipientJID(for: jid, accountID: accountID), body: elements.fallbackBody, id: client.generateID(),
                 includeChatState: chatStatesEnabled,
                 additionalElements: [elements.encrypted, elements.encryption, storeHint, replaceElement]
             )
         case .userDisabled:
-            try await chatModule.sendCorrection(to: .bare(jid), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
+            try await chatModule.sendCorrection(to: recipientJID(for: jid, accountID: accountID), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
         case .noLocalDevicesForPeer:
             throw ChatServiceError.omemoNoLocalDevices(conversationJID: jid)
         case .noTrustedDevicesForPeer:
@@ -390,12 +460,12 @@ public final class ChatService {
             let fallbackElement = DuckoXMPP.XMLElement(name: "fallback", namespace: XMPPNamespaces.fallbackIndication, attributes: ["for": XMPPNamespaces.messageRetract])
             let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
             try await chatModule.sendMessage(
-                to: .bare(jid), body: elements.fallbackBody, id: client.generateID(),
+                to: recipientJID(for: jid, accountID: accountID), body: elements.fallbackBody, id: client.generateID(),
                 includeChatState: false,
                 additionalElements: [elements.encrypted, elements.encryption, storeHint, retractElement, fallbackElement]
             )
         case .userDisabled:
-            try await chatModule.sendRetraction(to: .bare(jid), originalID: stanzaID)
+            try await chatModule.sendRetraction(to: recipientJID(for: jid, accountID: accountID), originalID: stanzaID)
         case .noLocalDevicesForPeer:
             throw ChatServiceError.omemoNoLocalDevices(conversationJID: jid)
         case .serviceUnavailable:
@@ -546,13 +616,13 @@ public final class ChatService {
             )
             let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
             try await context.chatModule.sendMessage(
-                to: .bare(context.jid), body: elements.fallbackBody, id: context.stanzaID,
+                to: recipientJID(for: context.jid, accountID: context.accountID), body: elements.fallbackBody, id: context.stanzaID,
                 requestReceipt: true, markable: true, includeChatState: chatStatesEnabled,
                 additionalElements: [elements.encrypted, elements.encryption, storeHint, replyElement]
             )
         case .userDisabled:
             try await context.chatModule.sendReply(
-                to: .bare(context.jid),
+                to: recipientJID(for: context.jid, accountID: context.accountID),
                 body: context.filteredBody, replyToID: context.replyToStanzaID,
                 replyToJID: .bare(context.jid), id: context.stanzaID,
                 includeChatState: chatStatesEnabled
@@ -589,7 +659,9 @@ public final class ChatService {
         guard ChatPreferences.shared.enableDisplayedMarkers else { return }
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let module = await client.module(ofType: ReceiptsModule.self) else { return }
-        try await module.sendDisplayedMarker(to: .bare(jid), messageID: messageStanzaID, messageType: messageType)
+        // Resolve the locked full JID only for 1:1 chat markers; groupchat markers stay addressed to the room.
+        let recipient: JID = messageType == .chat ? recipientJID(for: jid, accountID: accountID) : .bare(jid)
+        try await module.sendDisplayedMarker(to: recipient, messageID: messageStanzaID, messageType: messageType)
     }
 
     // MARK: - Private: Displayed Markers
@@ -1153,14 +1225,14 @@ public final class ChatService {
             await handleChatMarker(messageID: messageID, type: markerType, from: from, accountID: accountID)
         case let .chatStateChanged(from, chatState):
             handleChatStateChanged(from: from, state: chatState)
-        case .messageCorrected, .messageRetracted:
-            await handleMessageUpdateEvent(event, accountID: accountID)
-        case .messageModerated, .messageError:
+        case .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             await handleMessageUpdateEvent(event, accountID: accountID)
         case .rosterLoaded:
             Task { [weak self] in
                 await self?.syncRecentHistory(accountID: accountID)
             }
+        case let .presenceUpdated(from, presence):
+            handlePresenceForResourceLock(from: from, presence: presence, accountID: accountID)
         case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
              .roomOccupantNickChanged, .roomSubjectChanged,
              .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
@@ -1169,7 +1241,7 @@ public final class ChatService {
         case .connected, .streamResumed, .authenticationFailed,
              .presenceReceived, .iqReceived,
              .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
+             .presenceSubscriptionRequest,
              .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .archivedMessagesLoaded,
              .pepItemsPublished, .pepItemsRetracted,
@@ -1205,6 +1277,7 @@ public final class ChatService {
         case let .mucSelfPingFailed(room, reason):
             await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
         case .disconnected:
+            clearLocks(accountID: accountID)
             // Drop room state owned by the disconnecting account only — a
             // global `removeAll` would erase rooms belonging to other still-
             // connected accounts in a multi-account session.
@@ -1861,11 +1934,16 @@ public final class ChatService {
         let oobAttachments = parseOOBAttachments(from: xmppMessage.element)
 
         guard xmppMessage.messageType == .chat || xmppMessage.messageType == .normal,
-              let fromJID = xmppMessage.from?.bareJID else { return }
+              let from = xmppMessage.from else { return }
+        let fromJID = from.bareJID
 
         // Accept messages with body or OOB attachments
         let body = xmppMessage.body ?? oobAttachments.first?.url
         guard let body else { return }
+
+        // Capture the arrival tick now, before the first await, so the resource lock learned below advances in
+        // arrival order even if this handler interleaves with another inbound's handler on the MainActor.
+        let lockSequence = nextLockSequence()
 
         let stanzaID = xmppMessage.id
         // XEP-0359 mod_mam stanza-id — preferred dedup key (globally unique within the user's archive,
@@ -1907,6 +1985,10 @@ public final class ChatService {
             replyToID: replyToID,
             attachments: oobAttachments
         )
+        // RFC 6121 §5.1: lock the conversation to the peer's most recent full resource. Placed after every
+        // accept guard so bodyless chat-state-only, duplicate, or stream-replayed stanzas can't move the lock.
+        // Only accepted live 1:1 inbound moves the lock — MAM ingest, carbons, and MUC PMs are deliberately excluded.
+        learnResourceLock(from: from, accountID: accountID, sequence: lockSequence)
         await persistAndNotify(message, in: conversation, accountID: accountID)
     }
 
