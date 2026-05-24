@@ -12,6 +12,7 @@ enum TestHarnessError: Error, Equatable, CustomStringConvertible {
     case appBundleNotDebug(path: String)
     case axTrustMissing
     case elementNotFound(identifier: String)
+    case axActionFailed(identifier: String, action: String, axError: Int32)
 
     var description: String {
         switch self {
@@ -35,6 +36,8 @@ enum TestHarnessError: Error, Equatable, CustomStringConvertible {
         case .axTrustMissing: "TestHarnessError.axTrustMissing"
         case let .elementNotFound(identifier):
             "TestHarnessError.elementNotFound(\(Self.redactJIDs(in: identifier)))"
+        case let .axActionFailed(identifier, action, axError):
+            "TestHarnessError.axActionFailed(\(Self.redactJIDs(in: identifier)), action: \(action), axError: \(axError))"
         }
     }
 

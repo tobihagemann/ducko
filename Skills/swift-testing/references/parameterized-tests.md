@@ -157,6 +157,7 @@ func apiEndpoint(testCase: APITestCase) async throws {
 3. **Avoid Cartesian products**: Use zip for paired data
 4. **Group related cases**: Create structs for complex scenarios
 5. **Make test data Sendable**: Required for parallel execution
+6. **Keep sensitive fields out of arguments**: Swift Testing reflects argument values into test names, test reports, and CI logs. Passing a `Sendable` struct that contains a password, token, or other secret leaks the secret into reflection-based displays. For cases like XMPP `Credential`-style structs, pass an opaque label/ID as the argument and look up the secret inside the test body — or implement `CustomTestStringConvertible` to strip the sensitive fields from the displayed name.
 
 ```swift
 // GOOD: Clear, paired test cases

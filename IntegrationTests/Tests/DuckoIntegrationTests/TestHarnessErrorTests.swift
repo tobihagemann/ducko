@@ -72,6 +72,48 @@ enum TestHarnessErrorTests {
             #expect(!err.description.contains("alice@example.org"))
         }
 
+        @Test func `axActionFailed description includes redacted identifier, action, and axError`() {
+            let err = TestHarnessError.axActionFailed(
+                identifier: "chat-bubble-bob@example.com",
+                action: "AXPress",
+                axError: -25204
+            )
+            #expect(
+                err.description
+                    == "TestHarnessError.axActionFailed(chat-bubble-<jid>, action: AXPress, axError: -25204)"
+            )
+        }
+
+        @Test func `axActionFailed description redacts JID embedded in identifier`() {
+            let err = TestHarnessError.axActionFailed(
+                identifier: "contact-row-alice@example.org",
+                action: "AXPress",
+                axError: -25200
+            )
+            #expect(err.description.contains("<jid>"))
+            #expect(!err.description.contains("alice@example.org"))
+        }
+
+        @Test func `axActionFailed round-trips through Equatable`() {
+            let lhs = TestHarnessError.axActionFailed(
+                identifier: "search-contacts",
+                action: "AXPress",
+                axError: -25204
+            )
+            let rhs = TestHarnessError.axActionFailed(
+                identifier: "search-contacts",
+                action: "AXPress",
+                axError: -25204
+            )
+            let different = TestHarnessError.axActionFailed(
+                identifier: "search-contacts",
+                action: "AXPress",
+                axError: -25205
+            )
+            #expect(lhs == rhs)
+            #expect(lhs != different)
+        }
+
         @Test func `nonZeroExit signal vs exit is disambiguated in description`() {
             let exitErr = TestHarnessError.nonZeroExit(
                 code: 13, reason: .exit, stdout: "", stderr: ""

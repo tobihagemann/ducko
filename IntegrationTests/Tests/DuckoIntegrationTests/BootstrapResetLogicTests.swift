@@ -76,7 +76,7 @@ extension DuckoIntegrationTests {
 /// Isolated as an `actor` so a future migration to parallel test execution
 /// (today gated by `.serialized` on the root suite) keeps the recorder
 /// concurrency-safe.
-actor ResetTracker {
+private actor ResetTracker {
     private(set) var calls: [String] = []
 
     func record(_ label: String) {

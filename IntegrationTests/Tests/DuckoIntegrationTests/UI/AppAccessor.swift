@@ -479,17 +479,26 @@ actor AppAccessor {
     }
 
     /// Resolves `identifier`, focuses it, and either sets `kAXValueAttribute`
-    /// or falls back to per-character keystrokes. The fallback covers
-    /// SwiftUI `TextField`s that ignore `kAXSetValueAction`.
+    /// or falls back to per-character keystrokes via `mapSetterError`. The
+    /// fallback covers SwiftUI `TextField`s that ignore `kAXSetValueAction`.
     func type(_ text: String, intoIdentifier identifier: String) async throws {
-        let element = try resolveElement(identifier: identifier)
-        Self.setFocused(element, identifier: identifier)
-        let setErr = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString)
-        if setErr == .success {
-            return
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.resolveElement(identifier: identifier)
+            Self.setFocused(element, identifier: identifier)
+            switch Self.mapSetterError(
+                AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString),
+                identifier: identifier
+            ) {
+            case .done:
+                return
+            case let .error(error):
+                throw error
+            case .needsFallback:
+                break
+            }
+            await self.ensureFrontmost()
+            Self.synthesizeKeystrokes(for: text)
         }
-        await ensureFrontmost()
-        Self.synthesizeKeystrokes(for: text)
     }
 
     /// Search-field-aware variant: tries the kebab identifier first, then
@@ -505,30 +514,42 @@ actor AppAccessor {
                 // fall through to role-based traversal
             }
         }
-        guard let pid = process?.processIdentifier else {
-            throw TestHarnessError.elementNotFound(identifier: identifier ?? "search-contacts")
+        let fallbackIdentifier = identifier ?? "search-contacts"
+        try await retryOnStaleElement(identifier: fallbackIdentifier) {
+            guard let pid = self.process?.processIdentifier else {
+                throw TestHarnessError.elementNotFound(identifier: fallbackIdentifier)
+            }
+            let appElement = AXUIElementCreateApplication(pid)
+            guard let toolbar = self.findDescendant(in: appElement, role: kAXToolbarRole, where: { _ in true }),
+                  let field = self.findDescendant(in: toolbar, role: kAXTextFieldRole, where: { _ in true }) else {
+                throw TestHarnessError.elementNotFound(identifier: fallbackIdentifier)
+            }
+            Self.setFocused(field, identifier: fallbackIdentifier)
+            switch Self.mapSetterError(
+                AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, text as CFString),
+                identifier: fallbackIdentifier
+            ) {
+            case .done:
+                return
+            case let .error(error):
+                throw error
+            case .needsFallback:
+                break
+            }
+            await self.ensureFrontmost()
+            Self.synthesizeKeystrokes(for: text)
         }
-        let appElement = AXUIElementCreateApplication(pid)
-        guard let toolbar = findDescendant(in: appElement, role: kAXToolbarRole, where: { _ in true }),
-              let field = findDescendant(in: toolbar, role: kAXTextFieldRole, where: { _ in true }) else {
-            throw TestHarnessError.elementNotFound(identifier: identifier ?? "search-contacts")
-        }
-        Self.setFocused(field, identifier: identifier ?? "search-contacts")
-        let setErr = AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, text as CFString)
-        if setErr == .success {
-            return
-        }
-        await ensureFrontmost()
-        Self.synthesizeKeystrokes(for: text)
     }
 
     /// Focuses `identifier` and synthesizes a hardware Return keystroke.
     /// `kAXConfirmAction` is not used because SwiftUI's `.onKeyPress(.return)`
     /// handlers only fire on real keystroke events.
     func pressReturn(intoIdentifier identifier: String) async throws {
-        let element = try resolveElement(identifier: identifier)
-        Self.setFocused(element, identifier: identifier)
-        try await pressKey(CGKeyCode(kVK_Return), modifiers: [])
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.resolveElement(identifier: identifier)
+            Self.setFocused(element, identifier: identifier)
+            try await self.pressKey(CGKeyCode(kVK_Return), modifiers: [])
+        }
     }
 
     /// Clears `identifier`'s current contents and types `text`, all via
@@ -590,17 +611,19 @@ actor AppAccessor {
         withSubstring substring: String,
         underIdentifier identifier: String
     ) async throws -> Bool {
-        let container = try resolveElement(identifier: identifier)
-        let match = findDescendant(in: container, role: role) { element in
-            var value: AnyObject?
-            var err = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
-            if err != .success || (value as? String) == nil {
-                err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+        try await retryOnStaleElement(identifier: identifier) {
+            let container = try self.resolveElement(identifier: identifier)
+            let match = self.findDescendant(in: container, role: role) { element in
+                var value: AnyObject?
+                var err = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+                if err != .success || (value as? String) == nil {
+                    err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+                }
+                guard err == .success, let stringValue = value as? String else { return false }
+                return stringValue.contains(substring)
             }
-            guard err == .success, let stringValue = value as? String else { return false }
-            return stringValue.contains(substring)
+            return match != nil
         }
-        return match != nil
     }
 
     /// Resolves `identifier` as a segmented picker / button group and clicks
@@ -609,16 +632,22 @@ actor AppAccessor {
     /// `Picker(.segmented)` on macOS 26 publishes the segment label only via
     /// the description attribute, with title returning `missing value`.
     func clickSegment(title: String, identifier: String) async throws {
-        let picker = try resolveElement(identifier: identifier)
-        let match = findDescendant(
-            in: picker,
-            roles: [kAXRadioButtonRole, kAXButtonRole],
-            where: { candidate in segmentLabel(of: candidate) == title }
-        )
-        guard let segment = match else {
-            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/segment[\(title)]")
+        // Full-body wrap: `retryOnStaleElement` rethrows the most recently
+        // caught `elementNotFound`, so the qualified
+        // `"\(identifier)/segment[\(title)]"` thrown by the inner predicate
+        // (or by `perform` on `.invalidUIElement`) survives exhaustion.
+        try await retryOnStaleElement(identifier: identifier) {
+            let picker = try self.resolveElement(identifier: identifier)
+            let match = self.findDescendant(
+                in: picker,
+                roles: [kAXRadioButtonRole, kAXButtonRole],
+                where: { candidate in self.segmentLabel(of: candidate) == title }
+            )
+            guard let segment = match else {
+                throw TestHarnessError.elementNotFound(identifier: "\(identifier)/segment[\(title)]")
+            }
+            try self.perform(action: kAXPressAction, on: segment, identifier: "\(identifier)/segment[\(title)]")
         }
-        try perform(action: kAXPressAction, on: segment, identifier: identifier)
     }
 
     /// Resolves `identifier`, normalizes to the nearest `kAXTabGroupRole`
@@ -636,32 +665,38 @@ actor AppAccessor {
     /// than as `NSTabView`, so no `kAXTabGroupRole` exists — the toolbar
     /// fallback locates the tab button by label there.
     func clickTab(title: String, identifier: String) async throws {
-        let resolved = try resolveElement(identifier: identifier)
-        let tabGroup = elementRole(of: resolved) == kAXTabGroupRole
-            ? resolved
-            : findDescendant(in: resolved, role: kAXTabGroupRole, where: { _ in true })
-            ?? findAncestor(from: resolved, role: kAXTabGroupRole)
-        if let tabGroup {
-            var tabsValue: AnyObject?
-            let err = AXUIElementCopyAttributeValue(tabGroup, kAXTabsAttribute as CFString, &tabsValue)
-            if err == .success,
-               let tabs = tabsValue as? [AXUIElement],
-               let tab = tabs.first(where: { segmentLabel(of: $0) == title }) {
-                try perform(action: kAXPressAction, on: tab, identifier: "\(identifier)/tab[\(title)]")
+        // Full-body wrap: `retryOnStaleElement` rethrows the most recently
+        // caught `elementNotFound`, so the qualified
+        // `"\(identifier)/tab[\(title)]"` thrown by the inner branches (and
+        // by `perform` on `.invalidUIElement`) survives exhaustion.
+        try await retryOnStaleElement(identifier: identifier) {
+            let resolved = try self.resolveElement(identifier: identifier)
+            let tabGroup = self.elementRole(of: resolved) == kAXTabGroupRole
+                ? resolved
+                : self.findDescendant(in: resolved, role: kAXTabGroupRole, where: { _ in true })
+                ?? self.findAncestor(from: resolved, role: kAXTabGroupRole)
+            if let tabGroup {
+                var tabsValue: AnyObject?
+                let err = AXUIElementCopyAttributeValue(tabGroup, kAXTabsAttribute as CFString, &tabsValue)
+                if err == .success,
+                   let tabs = tabsValue as? [AXUIElement],
+                   let tab = tabs.first(where: { self.segmentLabel(of: $0) == title }) {
+                    try self.perform(action: kAXPressAction, on: tab, identifier: "\(identifier)/tab[\(title)]")
+                    return
+                }
+            }
+            if let window = self.findAncestor(from: resolved, role: kAXWindowRole),
+               let toolbar = self.findDescendant(in: window, role: kAXToolbarRole, where: { _ in true }),
+               let tabButton = self.findDescendant(
+                   in: toolbar,
+                   roles: [kAXRadioButtonRole, kAXButtonRole],
+                   where: { self.segmentLabel(of: $0) == title }
+               ) {
+                try self.perform(action: kAXPressAction, on: tabButton, identifier: "\(identifier)/tab[\(title)]")
                 return
             }
+            throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
         }
-        if let window = findAncestor(from: resolved, role: kAXWindowRole),
-           let toolbar = findDescendant(in: window, role: kAXToolbarRole, where: { _ in true }),
-           let tabButton = findDescendant(
-               in: toolbar,
-               roles: [kAXRadioButtonRole, kAXButtonRole],
-               where: { segmentLabel(of: $0) == title }
-           ) {
-            try perform(action: kAXPressAction, on: tabButton, identifier: "\(identifier)/tab[\(title)]")
-            return
-        }
-        throw TestHarnessError.elementNotFound(identifier: "\(identifier)/tab[\(title)]")
     }
 
     /// Reads the human-visible label of a segmented-picker / tab segment.
@@ -824,18 +859,23 @@ actor AppAccessor {
         // (the test rendering observed the original body, not the edited
         // one, and a held-on-failure session showed the menu still open).
         // Press is therefore the canonical action here, with pick as the
-        // documented fallback for AX implementations that reject press on
-        // context-menu items. `cannotComplete` during modal menu tracking
-        // is documented-indeterminate, so we poll for menu dismissal
-        // afterward to confirm the action committed.
+        // documented fallback for AX implementations that reject press.
+        //
+        // Press is tentative: `.cannotComplete` during modal menu tracking
+        // is documented-indeterminate, so non-success flows through to the
+        // pick fallback rather than throwing. Only `.apiDisabled` is fatal
+        // on the press path. The FINAL pick failure is classified through
+        // `mapPerformError` so a genuine action-execution failure surfaces
+        // as `axActionFailed` carrying the raw AX code, not a synthetic
+        // `elementNotFound`. Menu dismissal is polled afterward to confirm
+        // the action committed.
         let pressErr = AXUIElementPerformAction(menuItem, kAXPressAction as CFString)
-        if pressErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
-        if pressErr != .success {
-            let pickErr = AXUIElementPerformAction(menuItem, kAXPickAction as CFString)
-            if pickErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
-            if pickErr != .success {
-                throw TestHarnessError.elementNotFound(identifier: identifier)
-            }
+        if let error = Self.classifyContextMenuPressPick(
+            press: pressErr,
+            pick: AXUIElementPerformAction(menuItem, kAXPickAction as CFString),
+            identifier: identifier
+        ) {
+            throw error
         }
 
         try await waitForContextMenuDismissed()
@@ -890,41 +930,50 @@ actor AppAccessor {
     /// non-key window forward before clicking buttons on a sheet attached
     /// to it.
     func activateWindow(named title: String) async throws {
-        guard let pid = process?.processIdentifier else {
-            throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
-        }
-        await Self.activateApp(pid: pid)
-        let appElement = AXUIElementCreateApplication(pid)
-        var windowsValue: AnyObject?
-        let err = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
-        guard err == .success, let windows = windowsValue as? [AXUIElement] else {
-            throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
-        }
-        for window in windows {
-            var titleValue: AnyObject?
-            let titleErr = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
-            guard titleErr == .success, let windowTitle = titleValue as? String else { continue }
-            if windowTitle == title || windowTitle.contains(title) {
-                // `kAXRaiseAction` returns `kAXErrorAttributeUnsupported`
-                // (-25205) on the Contacts window when a SwiftUI `.sheet`
-                // is attached to it (room-config save sheet) — even though
-                // `AXRaise` is in the action list and the underlying setter
-                // calls below succeed. Treat raise as best-effort and let
-                // the kAXMain / kAXFocusedWindow setters be the
-                // authoritative "make this window key" path. Translate the
-                // setter results so a silent failure on those leaves the
-                // wrong window key and downstream sheet-button clicks
-                // would fail with a misleading "elementNotFound" rather
-                // than a clear AX-routing diagnostic.
-                _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-                let mainErr = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
-                try mapWindowError(mainErr, title: title)
-                let focusedErr = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
-                try mapWindowError(focusedErr, title: title)
-                return
+        let identifier = "window[\(title)]"
+        // Full-body retry: a stale handle from `kAXWindowsAttribute` re-walks
+        // the window list.
+        try await retryOnStaleElement(identifier: identifier) {
+            guard let pid = self.process?.processIdentifier else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
             }
+            await Self.activateApp(pid: pid)
+            let appElement = AXUIElementCreateApplication(pid)
+            var windowsValue: AnyObject?
+            let err = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+            guard err == .success, let windows = windowsValue as? [AXUIElement] else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+            for window in windows {
+                var titleValue: AnyObject?
+                let titleErr = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
+                guard titleErr == .success, let windowTitle = titleValue as? String else { continue }
+                if windowTitle == title || windowTitle.contains(title) {
+                    // `kAXRaiseAction` returns `kAXErrorAttributeUnsupported`
+                    // (-25205) on the Contacts window when a SwiftUI `.sheet`
+                    // is attached to it (room-config save sheet) — even though
+                    // `AXRaise` is in the action list and the underlying setter
+                    // calls below succeed. Treat raise as best-effort and let
+                    // the kAXMain / kAXFocusedWindow setters be the
+                    // authoritative "make this window key" path. Translate the
+                    // setter results so a silent failure on those leaves the
+                    // wrong window key and downstream sheet-button clicks
+                    // would fail with a misleading "elementNotFound" rather
+                    // than a clear AX-routing diagnostic.
+                    _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+                    let mainErr = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+                    if let mainError = Self.mapPerformError(mainErr, identifier: identifier, action: kAXMainAttribute) {
+                        throw mainError
+                    }
+                    let focusedErr = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
+                    if let focusedError = Self.mapPerformError(focusedErr, identifier: identifier, action: kAXFocusedWindowAttribute) {
+                        throw focusedError
+                    }
+                    return
+                }
+            }
+            throw TestHarnessError.elementNotFound(identifier: identifier)
         }
-        throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
     }
 
     /// Walks `identifier`'s subtree post-order DFS and returns the
@@ -1038,18 +1087,117 @@ actor AppAccessor {
     }
 
     private func perform(action: String, on element: AXUIElement, identifier: String) throws {
-        let err = AXUIElementPerformAction(element, action as CFString)
-        if err == .success { return }
-        if err == .apiDisabled {
-            throw TestHarnessError.axTrustMissing
+        if let error = Self.mapPerformError(
+            AXUIElementPerformAction(element, action as CFString),
+            identifier: identifier,
+            action: action
+        ) {
+            throw error
         }
-        throw TestHarnessError.elementNotFound(identifier: identifier)
     }
 
-    private func mapWindowError(_ err: AXError, title: String) throws {
-        if err == .success { return }
-        if err == .apiDisabled { throw TestHarnessError.axTrustMissing }
-        throw TestHarnessError.elementNotFound(identifier: "window[\(title)]")
+    /// Three-state outcome of `AXUIElementSetAttributeValue` classification.
+    /// Distinct from `mapPerformError`'s `TestHarnessError?` shape because
+    /// setter callers route the default arm to a fallback action, not to
+    /// an error.
+    enum SetterOutcome: Equatable {
+        case done
+        case error(TestHarnessError)
+        case needsFallback
+    }
+
+    /// Maps an `AXError` returned by `AXUIElementSetAttributeValue` to a
+    /// `SetterOutcome`. Pure so the routing policy can be pinned by
+    /// deterministic tests without needing a real `AXUIElement`.
+    ///
+    /// Routing policy:
+    /// - `.success` → `.done` (caller returns).
+    /// - `.apiDisabled` → `.error(.axTrustMissing)`.
+    /// - `.invalidUIElement` → `.error(.elementNotFound(identifier:))`. The
+    ///   handle went stale between `resolveElement` and the setter; routing
+    ///   to `elementNotFound` keeps it retriable by the enclosing
+    ///   `retryOnStaleElement`, preserving the stale-action-between-
+    ///   resolve-and-act recovery path.
+    /// - Any other `AXError` → `.needsFallback`, because that's the
+    ///   SwiftUI-binding-mismatch case the keystroke synthesis path exists
+    ///   for (`TextField`s that ignore `kAXSetValueAction`).
+    static func mapSetterError(
+        _ err: AXError,
+        identifier: String
+    ) -> SetterOutcome {
+        switch err {
+        case .success:
+            .done
+        case .apiDisabled:
+            .error(.axTrustMissing)
+        case .invalidUIElement:
+            .error(.elementNotFound(identifier: identifier))
+        default:
+            .needsFallback
+        }
+    }
+
+    /// Maps an `AXError` returned by `AXUIElementPerformAction` or by
+    /// `AXUIElementSetAttributeValue` on window-focus setters
+    /// (`kAXMainAttribute`, `kAXFocusedWindowAttribute`) to the project's
+    /// `TestHarnessError` taxonomy. Pure so the retry-vs-fatal policy can
+    /// be pinned by deterministic tests without needing a real
+    /// `AXUIElement`. Returns `nil` on `.success`.
+    ///
+    /// Routing policy:
+    /// - `.success` → `nil` (caller returns).
+    /// - `.apiDisabled` → `axTrustMissing`.
+    /// - `.invalidUIElement` → `elementNotFound(identifier:)`. The AX handle
+    ///   was invalidated between resolve and perform (SwiftUI re-render,
+    ///   NSWindow close); routing to `elementNotFound` keeps it retriable
+    ///   by `retryOnStaleElement`, preserving the stale-action-between-
+    ///   resolve-and-act recovery path.
+    /// - Any other `AXError` → `axActionFailed(identifier:action:axError:)`,
+    ///   which is NOT retried, surfacing genuine action-execution failures
+    ///   (e.g. `.cannotComplete`, `.actionUnsupported`) instead of silently
+    ///   retrying them as if the element handle were stale.
+    static func mapPerformError(
+        _ err: AXError,
+        identifier: String,
+        action: String
+    ) -> TestHarnessError? {
+        switch err {
+        case .success:
+            nil
+        case .apiDisabled:
+            .axTrustMissing
+        case .invalidUIElement:
+            .elementNotFound(identifier: identifier)
+        default:
+            .axActionFailed(identifier: identifier, action: action, axError: err.rawValue)
+        }
+    }
+
+    /// Press-then-pick fallback classifier for `contextMenuItem`. `kAXPickAction`
+    /// only fires when `kAXPressAction` returned non-success — `@autoclosure`
+    /// keeps the pick call lazy so a successful press doesn't dispatch a
+    /// second AX action.
+    ///
+    /// Routing policy:
+    /// - press `.success` → `nil` (proceed to dismissal poll).
+    /// - press `.apiDisabled` → `axTrustMissing` (fatal; pick not attempted).
+    /// - press anything else → consult `pick` and route through
+    ///   `mapPerformError`. `.cannotComplete` during modal menu tracking is
+    ///   documented-indeterminate, so press failure is not itself fatal; the
+    ///   pick result determines whether to surface `axActionFailed`.
+    static func classifyContextMenuPressPick(
+        press: AXError,
+        pick: @autoclosure () -> AXError,
+        identifier: String
+    ) -> TestHarnessError? {
+        switch press {
+        case .success:
+            return nil
+        case .apiDisabled:
+            return .axTrustMissing
+        default:
+            return mapPerformError(pick(), identifier: identifier, action: kAXPickAction)
+        }
     }
 
     private func findDescendant(
@@ -1401,10 +1549,21 @@ actor AppAccessor {
     /// `DuckoBuildConfiguration == "debug"`. Throws
     /// `TestHarnessError.appBundleNotDebug` otherwise.
     private static func assertDebugBundle(at bundleURL: URL) throws {
-        guard let bundle = Bundle(url: bundleURL),
-              let configuration = bundle.object(forInfoDictionaryKey: "DuckoBuildConfiguration") as? String,
+        try assertDebugBundle(info: Bundle(url: bundleURL)?.infoDictionary, bundlePath: bundleURL.path)
+    }
+
+    /// Pure-core debug-bundle gate: validates `info` carries
+    /// `DuckoBuildConfiguration == "debug"` and throws
+    /// `TestHarnessError.appBundleNotDebug(path:)` for every dict-validation
+    /// failure (nil dict, missing key, wrong type, non-`"debug"` value). The
+    /// `appBundleMissing` case remains reserved for the pre-launch
+    /// executable-on-disk check; do not reclassify any dict failure as
+    /// `appBundleMissing`.
+    static func assertDebugBundle(info: [String: Any]?, bundlePath: String) throws {
+        guard let info,
+              let configuration = info["DuckoBuildConfiguration"] as? String,
               configuration == "debug" else {
-            throw TestHarnessError.appBundleNotDebug(path: bundleURL.path)
+            throw TestHarnessError.appBundleNotDebug(path: bundlePath)
         }
     }
 

@@ -60,18 +60,34 @@ enum StaleElementRetryTests {
             #expect(await attempts.count == 3)
         }
 
+        /// Pins that retry exhaustion rethrows the inner closure's identifier
+        /// (e.g. `"picker/segment[General]"`), not the outer wrapper's, so a
+        /// stable child-miss reports the qualified shape.
         @Test
-        func `retry exhaustion throws elementNotFound with the requested identifier`() async throws {
+        func `retry exhaustion rethrows the most recently caught inner identifier`() async throws {
             let attempts = AttemptCounter()
 
-            await #expect(throws: TestHarnessError.elementNotFound(identifier: "missing")) {
-                _ = try await retryOnStaleElement(identifier: "missing", backoff: .milliseconds(1)) { () async throws -> Int in
+            await #expect(throws: TestHarnessError.elementNotFound(identifier: "picker/segment[General]")) {
+                _ = try await retryOnStaleElement(identifier: "picker", backoff: .milliseconds(1)) { () async throws -> Int in
                     await attempts.bump()
-                    throw TestHarnessError.elementNotFound(identifier: "ignored-by-helper")
+                    throw TestHarnessError.elementNotFound(identifier: "picker/segment[General]")
                 }
             }
 
             #expect(await attempts.count == 3)
+        }
+
+        /// Defensive: when `maxAttempts` is zero the action never runs, so
+        /// no inner error is captured; the helper falls back to the
+        /// wrapper-supplied `identifier`. Pins the only path that uses the
+        /// outer identifier in the exhaustion message.
+        @Test
+        func `zero attempts falls back to the wrapper identifier`() async throws {
+            await #expect(throws: TestHarnessError.elementNotFound(identifier: "outer")) {
+                _ = try await retryOnStaleElement(identifier: "outer", maxAttempts: 0, backoff: .milliseconds(1)) { () async throws -> Int in
+                    1
+                }
+            }
         }
 
         @Test

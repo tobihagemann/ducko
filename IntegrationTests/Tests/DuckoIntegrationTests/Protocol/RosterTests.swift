@@ -103,6 +103,32 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
+        @Test(
+            .enabled(if: TestCredentials.isDaveAvailable, "Dave credentials not set"),
+            arguments: ["bob", "carol"]
+        )
+        @MainActor func `Peer has no baseline subscription with Dave`(
+            peerLabel: String
+        ) async throws {
+            // Swift Testing renders the parameter value in test names and
+            // reports; pass the label rather than the credential so the
+            // password field doesn't leak into reflection-based displays.
+            let peer = peerLabel == "bob" ? TestCredentials.bob : TestCredentials.carol
+
+            try await TestHarness.withHarness { harness in
+                try await harness.setUp(accounts: [
+                    peer.label: peer,
+                    "dave": TestCredentials.dave
+                ])
+
+                try await SubscriptionDance.assertNoSubscription(
+                    harness: harness,
+                    first: peer,
+                    second: TestCredentials.dave
+                )
+            }
+        }
+
         @Test(.enabled(if: TestCredentials.isDaveAvailable, "Dave credentials not set"))
         @MainActor func `Presence subscription is denied`() async throws {
             try await TestHarness.withHarness { harness in

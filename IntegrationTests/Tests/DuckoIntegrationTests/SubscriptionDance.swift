@@ -28,6 +28,18 @@ struct SubscriptionEndpoint {
     var asApprover: SubscriptionApprover {
         SubscriptionApprover(label: credential.label, jid: jid)
     }
+
+    /// Waits for `.presenceSubscriptionApproved(from: approver)`. Shared so
+    /// the predicate and timeout source live in one place.
+    @MainActor
+    func waitForApproval(from approver: BareJID) async throws {
+        _ = try await account.waitForEvent(matching: { event in
+            if case let .presenceSubscriptionApproved(from) = event, from == approver {
+                return true
+            }
+            return false
+        }, timeout: TestTimeout.event)
+    }
 }
 
 /// Minimal identity for the approver side. The approver may not run in the
@@ -49,6 +61,10 @@ enum SubscriptionDance {
     /// register cleanup there so a failure during `approve` or the fatal
     /// `presenceSubscriptionApproved` wait still triggers teardown of the
     /// just-mutated roster state.
+    /// Convenience overload that derives canonical `subscribe:` and
+    /// `awaitApproval:` closures from typed endpoints; callers only differ
+    /// in `waitForRequest:` and `approve:`. Deterministic tests use the
+    /// closure-injected base form directly.
     @MainActor
     static func subscribeAndApprove(
         requester: SubscriptionEndpoint,
@@ -57,7 +73,29 @@ enum SubscriptionDance {
         approve: () async throws -> Void,
         onMutationDetected: @MainActor () async throws -> Void = {}
     ) async throws {
-        try await requester.roster.subscribe(to: approver.jid)
+        try await subscribeAndApprove(
+            requesterLabel: requester.credential.label,
+            approverLabel: approver.label,
+            subscribe: { try await requester.roster.subscribe(to: approver.jid) },
+            waitForRequest: waitForRequest,
+            approve: approve,
+            awaitApproval: { try await requester.waitForApproval(from: approver.jid) },
+            onMutationDetected: onMutationDetected
+        )
+    }
+
+    @MainActor
+    // swiftlint:disable:next function_parameter_count
+    static func subscribeAndApprove(
+        requesterLabel: String,
+        approverLabel: String,
+        subscribe: @MainActor () async throws -> Void,
+        waitForRequest: () async throws -> Void,
+        approve: () async throws -> Void,
+        awaitApproval: @MainActor () async throws -> Void,
+        onMutationDetected: @MainActor () async throws -> Void = {}
+    ) async throws {
+        try await subscribe()
 
         let receivedRequest: Bool
         do {
@@ -68,7 +106,7 @@ enum SubscriptionDance {
         }
 
         guard receivedRequest else {
-            log.debug("Subscription \(requester.credential.label) → \(approver.label) already in place; skipping approve")
+            log.debug("Subscription \(requesterLabel) → \(approverLabel) already in place; skipping approve")
             return
         }
 
@@ -78,12 +116,7 @@ enum SubscriptionDance {
         // Fatal: we sent a real `<presence type="subscribed">`, so a missing
         // inbound `presenceSubscriptionApproved` is a regression in event
         // delivery, not a benign network blip.
-        _ = try await requester.account.waitForEvent(matching: { event in
-            if case let .presenceSubscriptionApproved(from) = event, from == approver.jid {
-                return true
-            }
-            return false
-        }, timeout: TestTimeout.event)
+        try await awaitApproval()
     }
 
     /// Asserts neither side has the other in their live-server roster.
