@@ -17,6 +17,12 @@ public final class AppEnvironment {
     public let linkPreviewService: LinkPreviewService
     public let omemoService: OMEMOService
 
+    private let filterPipeline: MessageFilterPipeline
+    private let onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)?
+    /// Per-event dispatch tasks and the one-shot filter-registration task, each keyed by a UUID and
+    /// self-removing on completion. Drained by `shutdown(within:)` so they can't race teardown.
+    private var pendingTasks: [UUID: Task<Void, Never>] = [:]
+
     public init(
         store: any PersistenceStore,
         transcripts: any TranscriptStore,
@@ -40,21 +46,6 @@ public final class AppEnvironment {
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
         let omemoService = OMEMOService(omemoStore: omemoStore ?? NoOpOMEMOStore())
 
-        accountService.onEvent = { [weak chatService, weak presenceService, weak rosterService, weak fileTransferService, weak bookmarksService, weak avatarService, weak omemoService] event, accountID in
-            Task { @MainActor in
-                await chatService?.handleEvent(event, accountID: accountID)
-                presenceService?.handleEvent(event, accountID: accountID)
-                await rosterService?.handleEvent(event, accountID: accountID)
-                fileTransferService?.handleJingleEvent(event, accountID: accountID)
-                await bookmarksService?.handleEvent(event, accountID: accountID)
-                await avatarService?.handleEvent(event, accountID: accountID)
-                await omemoService?.handleEvent(event, accountID: accountID)
-            }
-            onExternalEvent?(event, accountID)
-        }
-
-        Self.registerFilters(pipeline: pipeline, linkPreviewService: linkPreviewService)
-
         self.store = store
         self.transcripts = transcripts
         self.credentialStore = resolvedCredentialStore
@@ -68,8 +59,12 @@ public final class AppEnvironment {
         self.fileTransferService = fileTransferService
         self.linkPreviewService = linkPreviewService
         self.omemoService = omemoService
+        self.filterPipeline = pipeline
+        self.onExternalEvent = onExternalEvent
 
         wireServices()
+        wireEventDispatch()
+        registerFilters()
     }
 
     private func wireServices() {
@@ -90,6 +85,66 @@ public final class AppEnvironment {
         omemoService.setChatService(chatService)
         accountService.setOMEMOService(omemoService)
     }
+
+    /// Fans each account event out to the consuming services on a stored, self-removing task so the
+    /// per-event dispatch can be drained on shutdown. Assigned after stored-property initialization so the
+    /// closure reaches the services through `self`.
+    private func wireEventDispatch() {
+        accountService.onEvent = { [weak self] event, accountID in
+            guard let self else { return }
+            let taskID = UUID()
+            pendingTasks[taskID] = Task { @MainActor [weak self] in
+                defer { self?.pendingTasks[taskID] = nil }
+                guard let self else { return }
+                // Shutdown cancels this task; bail before fanning out so a cancelled dispatch can't spawn
+                // a child service task after `shutdown` snapshotted the drain stores.
+                if Task.isCancelled { return }
+                await chatService.handleEvent(event, accountID: accountID)
+                presenceService.handleEvent(event, accountID: accountID)
+                await rosterService.handleEvent(event, accountID: accountID)
+                fileTransferService.handleJingleEvent(event, accountID: accountID)
+                await bookmarksService.handleEvent(event, accountID: accountID)
+                await avatarService.handleEvent(event, accountID: accountID)
+                await omemoService.handleEvent(event, accountID: accountID)
+            }
+            onExternalEvent?(event, accountID)
+        }
+    }
+
+    // MARK: - Shutdown
+
+    /// Cancels and bounded-awaits the fire-and-forget service tasks spawned outside the account-teardown
+    /// path (per-event dispatch, filter registration, ChatService MAM/nick/typing-debounce tasks,
+    /// FileTransferService Jingle tasks). Does not disconnect accounts — that stays with
+    /// `AccountService.disconnectAll`.
+    public func shutdown(within deadline: Duration) async {
+        let tasks = takePendingTasks()
+            + chatService.takePendingTasks()
+            + fileTransferService.takePendingTasks()
+        for task in tasks {
+            task.cancel()
+        }
+        await runBounded(within: deadline) {
+            for task in tasks {
+                _ = await task.value
+            }
+        }
+    }
+
+    /// Returns this environment's in-flight event/filter task handles and clears the store, so
+    /// `shutdown(within:)` operates on a captured snapshot rather than the live store.
+    private func takePendingTasks() -> [Task<Void, Never>] {
+        let tasks = Array(pendingTasks.values)
+        pendingTasks.removeAll()
+        return tasks
+    }
+
+    #if DEBUG
+        /// Test seam: lets `shutdown` draining run against a task of controlled duration.
+        func registerPendingTaskForTesting(_ task: Task<Void, Never>) {
+            pendingTasks[UUID()] = task
+        }
+    #endif
 
     // MARK: - Account Teardown
 
@@ -117,13 +172,16 @@ public final class AppEnvironment {
 
     // MARK: - Filters
 
-    private static func registerFilters(pipeline: MessageFilterPipeline, linkPreviewService: LinkPreviewService) {
-        Task {
-            await pipeline.register(StylingFilter())
-            await pipeline.register(LinkDetectionFilter())
-            await pipeline.register(EmojiFilter())
-            await pipeline.register(MentionFilter())
-            await pipeline.register(LinkPreviewFilter(previewService: linkPreviewService))
+    private func registerFilters() {
+        let taskID = UUID()
+        pendingTasks[taskID] = Task { [weak self] in
+            defer { self?.pendingTasks[taskID] = nil }
+            guard let self else { return }
+            await filterPipeline.register(StylingFilter())
+            await filterPipeline.register(LinkDetectionFilter())
+            await filterPipeline.register(EmojiFilter())
+            await filterPipeline.register(MentionFilter())
+            await filterPipeline.register(LinkPreviewFilter(previewService: linkPreviewService))
         }
     }
 }

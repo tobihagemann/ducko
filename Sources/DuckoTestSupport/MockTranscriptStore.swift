@@ -63,6 +63,11 @@ public actor MockTranscriptStore: TranscriptStore {
         return message
     }
 
+    public func findMessages(stanzaID: String, conversationID: UUID) async throws -> [ChatMessage] {
+        let matched = messages.filter { $0.stanzaID == stanzaID && $0.conversationID == conversationID }
+        return applyAmendments(to: matched)
+    }
+
     // periphery:ignore - protocol conformance for MUC moderation serverID lookup
     public func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage? {
         let match = messages.first { $0.serverID == serverID && $0.conversationID == conversationID }

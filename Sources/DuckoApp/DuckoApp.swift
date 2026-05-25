@@ -30,7 +30,7 @@ struct DuckoApp: App {
             let env = AppEnvironment(store: store, transcripts: transcripts, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
             self.environment = env
             AppStateObserver(accountService: env.accountService)
-            AppDelegate.accountService = env.accountService
+            AppDelegate.environment = env
         } catch {
             fatalError("Failed to create model container: \(error)")
         }
@@ -203,7 +203,7 @@ private final class AppStateObserver {
 /// 30-90 s, which collides with the next test's bind.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    weak static var accountService: AccountService?
+    weak static var environment: AppEnvironment?
 
     /// Bound on `disconnectAll`. A stuck TCP/TLS write must not be allowed to
     /// hold AppKit's terminate-later reply forever — the user can already see
@@ -211,16 +211,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let disconnectDeadline: Duration = .seconds(3)
 
     /// Extracted so unit tests can exercise the disconnect path without an `NSApplication` host.
-    static func performShutdown(_ accountService: AccountService) async {
+    static func performShutdown(_ environment: AppEnvironment) async {
         log.info("applicationShouldTerminate fired; awaiting disconnectAll")
-        await accountService.disconnectAll(within: disconnectDeadline)
-        log.info("disconnectAll completed (or timed out); replying terminate")
+        await environment.accountService.disconnectAll(within: disconnectDeadline)
+        log.info("disconnectAll completed (or timed out); cancelling service tasks")
+        await environment.shutdown(within: disconnectDeadline)
+        log.info("service shutdown completed; replying terminate")
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let accountService = Self.accountService else { return .terminateNow }
+        guard let environment = Self.environment else { return .terminateNow }
         Task { @MainActor in
-            await Self.performShutdown(accountService)
+            await Self.performShutdown(environment)
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

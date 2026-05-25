@@ -21,6 +21,111 @@ private func makeChatService(store: MockPersistenceStore, transcripts: MockTrans
     ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
+// MARK: - MAM Ingest Helpers
+
+/// Connected ChatService bundle pre-seeded with a groupchat conversation (nickname `alice`), used to drive
+/// `fetchServerHistory` against simulated MAM archives.
+@MainActor
+private struct GroupMAMHarness {
+    let transcripts: MockTranscriptStore
+    let transport: MockTransport
+    let accountService: AccountService
+    let chatService: ChatService
+    let conversation: Conversation
+    let accountID: UUID
+}
+
+@MainActor
+private func makeGroupMAMHarness() async throws -> GroupMAMHarness {
+    let store = makeStore()
+    let transcripts = makeTranscripts()
+    let transport = MockTransport()
+    let factory = MockXMPPClientFactory(transport: transport, modules: [MAMModule()])
+    let accountService = makeAccountService(store: store, clientFactory: factory)
+    let chatService = makeChatService(store: store, transcripts: transcripts)
+    chatService.setAccountService(accountService)
+
+    let connectTask = Task { @MainActor in
+        try await accountService.createAndConnect(
+            jidString: testJIDString, password: "secret", host: "example.com", port: 5222
+        )
+    }
+    await simulateNoTLSConnect(transport)
+    let accountID = try await connectTask.value
+
+    let conversation = Conversation(
+        id: UUID(), accountID: accountID, jid: roomJID, type: .groupchat,
+        isPinned: false, isMuted: false, unreadCount: 0,
+        roomNickname: "alice", createdAt: Date()
+    )
+    try await store.upsertConversation(conversation)
+
+    return GroupMAMHarness(
+        transcripts: transcripts, transport: transport,
+        accountService: accountService, chatService: chatService,
+        conversation: conversation, accountID: accountID
+    )
+}
+
+/// Drives `fetchServerHistory(jid: roomJID)`, feeds the archive stanzas built from the captured queryid,
+/// then a complete `fin`, and returns the newly imported messages.
+@MainActor
+private func ingestArchives(
+    harness: GroupMAMHarness,
+    finCount: Int,
+    archives: (_ queryID: String) -> [String]
+) async throws -> [ChatMessage] {
+    let fetchTask = Task { @MainActor in
+        try await harness.chatService.fetchServerHistory(
+            jid: roomJID, accountID: harness.accountID, before: nil, limit: 50
+        )
+    }
+    // The connect handshake sends 4 stanzas; the MAM query IQ is the 5th.
+    await harness.transport.waitForSent(count: 5)
+    let sent = await harness.transport.sentBytes
+    let mamIQ = try #require(
+        sent.map { String(decoding: $0, as: UTF8.self) }.first { $0.contains("urn:xmpp:mam:2") }
+    )
+    let iqID = try #require(extractIQID(from: mamIQ))
+    let queryID = try #require(extractQueryID(from: mamIQ))
+
+    for archive in archives(queryID) {
+        await harness.transport.simulateReceive(archive)
+    }
+    await harness.transport.simulateReceive(
+        "<iq type='result' id='\(iqID)' from='\(roomJID.description)'>"
+            + "<fin xmlns='urn:xmpp:mam:2' complete='true'>"
+            + "<set xmlns='http://jabber.org/protocol/rsm'><count>\(finCount)</count></set></fin></iq>"
+    )
+
+    let (messages, _) = try await fetchTask.value
+    return messages
+}
+
+/// Describes a groupchat message to wrap in a MAM `<result>`, stamped with a trusted `<stanza-id by=room>`.
+private struct GroupArchiveSpec {
+    let fromNick: String
+    let serverID: String
+    let stanzaID: String
+    let body: String
+    var encrypted = false
+}
+
+private func groupArchive(queryID: String, archiveID: String, _ spec: GroupArchiveSpec) -> String {
+    let encryptedElement = spec.encrypted
+        ? "<encrypted xmlns='urn:xmpp:omemo:2'><header sid='1'/></encrypted>"
+        : ""
+    return "<message from='\(roomJID.description)'>"
+        + "<result xmlns='urn:xmpp:mam:2' queryid='\(queryID)' id='\(archiveID)'>"
+        + "<forwarded xmlns='urn:xmpp:forward:0'>"
+        + "<delay xmlns='urn:xmpp:delay' stamp='2026-02-28T10:00:00Z'/>"
+        + "<message from='\(roomJID.description)/\(spec.fromNick)' type='groupchat' id='\(spec.stanzaID)'>"
+        + "<body>\(spec.body)</body>"
+        + encryptedElement
+        + "<stanza-id xmlns='urn:xmpp:sid:0' id='\(spec.serverID)' by='\(roomJID.description)'/>"
+        + "</message></forwarded></result></message>"
+}
+
 // MARK: - Tests
 
 enum ChatServiceMAMTests {
@@ -99,6 +204,179 @@ enum ChatServiceMAMTests {
                     jid: roomJID, accountID: testAccountID, before: nil, limit: 50
                 )
             }
+        }
+    }
+
+    struct OwnMUCMAMDedup {
+        @Test
+        @MainActor
+        func `own plaintext MUC message is not double-imported on MAM replay`() async throws {
+            let harness = try await makeGroupMAMHarness()
+            await harness.transcripts.addMessage(ChatMessage(
+                id: UUID(), conversationID: harness.conversation.id, stanzaID: "S", serverID: nil,
+                fromJID: "alice", body: "hi room", timestamp: Date(),
+                isOutgoing: true, isDelivered: false, isEdited: false, type: "groupchat"
+            ))
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "alice", serverID: "R", stanzaID: "S", body: "hi room"
+                ))]
+            }
+
+            #expect(imported.isEmpty)
+            let count = await harness.transcripts.messages.count
+            #expect(count == 1)
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `own encrypted MUC message is not double-imported on MAM replay`() async throws {
+            let harness = try await makeGroupMAMHarness()
+            // The optimistic row stores plaintext; the archive carries the OMEMO fallback body. The
+            // dedup must match on stanzaID + isEncrypted, not body equality.
+            await harness.transcripts.addMessage(ChatMessage(
+                id: UUID(), conversationID: harness.conversation.id, stanzaID: "S", serverID: nil,
+                fromJID: "alice", body: "secret plaintext", timestamp: Date(),
+                isOutgoing: true, isDelivered: false, isEdited: false, type: "groupchat", isEncrypted: true
+            ))
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "alice", serverID: "R", stanzaID: "S",
+                    body: "This message is OMEMO encrypted", encrypted: true
+                ))]
+            }
+
+            #expect(imported.isEmpty)
+            let count = await harness.transcripts.messages.count
+            #expect(count == 1)
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `archived message from a different occupant with a colliding stanzaID is imported`() async throws {
+            let harness = try await makeGroupMAMHarness()
+            await harness.transcripts.addMessage(ChatMessage(
+                id: UUID(), conversationID: harness.conversation.id, stanzaID: "S", serverID: nil,
+                fromJID: "alice", body: "hi room", timestamp: Date(),
+                isOutgoing: true, isDelivered: false, isEdited: false, type: "groupchat"
+            ))
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "bob", serverID: "Rbob", stanzaID: "S", body: "hi from bob"
+                ))]
+            }
+
+            #expect(imported.count == 1)
+            #expect(imported.first?.serverID == "Rbob")
+            #expect(imported.first?.isOutgoing == false)
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `archived own message is imported when the colliding local row already has a serverID`() async throws {
+            let harness = try await makeGroupMAMHarness()
+            // A reconciled own row (serverID set) must not absorb a genuinely different own message that
+            // reused the same `ducko-N` stanzaID — the dedup targets only the un-reconciled (serverID nil) row.
+            await harness.transcripts.addMessage(ChatMessage(
+                id: UUID(), conversationID: harness.conversation.id, stanzaID: "S2", serverID: "EXISTING",
+                fromJID: "alice", body: "earlier", timestamp: Date(),
+                isOutgoing: true, isDelivered: false, isEdited: false, type: "groupchat"
+            ))
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "alice", serverID: "R2", stanzaID: "S2", body: "later"
+                ))]
+            }
+
+            #expect(imported.count == 1)
+            #expect(imported.first?.serverID == "R2")
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `archived own plaintext message with a colliding stanzaID but different body is imported`() async throws {
+            let harness = try await makeGroupMAMHarness()
+            await harness.transcripts.addMessage(ChatMessage(
+                id: UUID(), conversationID: harness.conversation.id, stanzaID: "S", serverID: nil,
+                fromJID: "alice", body: "hi room", timestamp: Date(),
+                isOutgoing: true, isDelivered: false, isEdited: false, type: "groupchat"
+            ))
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "alice", serverID: "R", stanzaID: "S", body: "a different line"
+                ))]
+            }
+
+            #expect(imported.count == 1)
+            #expect(imported.first?.serverID == "R")
+            #expect(imported.first?.body == "a different line")
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `a retracted own plaintext MUC message stays suppressed on MAM replay`() async throws {
+            let harness = try await makeGroupMAMHarness()
+            let optimisticID = UUID()
+            await harness.transcripts.addMessage(ChatMessage(
+                id: optimisticID, conversationID: harness.conversation.id, stanzaID: "S", serverID: nil,
+                fromJID: "alice", body: "hi room", timestamp: Date(),
+                isOutgoing: true, isDelivered: false, isEdited: false, type: "groupchat"
+            ))
+            // Retracting clears the body, so the replay can't be deduped by body-equality.
+            try await harness.transcripts.appendAmendment(
+                TranscriptAmendment(action: .retract, targetMessageID: optimisticID, targetStanzaID: "S", timestamp: Date()),
+                conversationID: harness.conversation.id
+            )
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "alice", serverID: "R", stanzaID: "S", body: "hi room"
+                ))]
+            }
+
+            // The replay dedups against the retracted row — it must not re-import as a fresh unretracted copy.
+            #expect(imported.isEmpty)
+            let count = await harness.transcripts.messages.count
+            #expect(count == 1)
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `a retracted own encrypted MUC message stays suppressed on MAM replay`() async throws {
+            let harness = try await makeGroupMAMHarness()
+            let optimisticID = UUID()
+            await harness.transcripts.addMessage(ChatMessage(
+                id: optimisticID, conversationID: harness.conversation.id, stanzaID: "S", serverID: nil,
+                fromJID: "alice", body: "secret plaintext", timestamp: Date(),
+                isOutgoing: true, isDelivered: false, isEdited: false, type: "groupchat", isEncrypted: true
+            ))
+            try await harness.transcripts.appendAmendment(
+                TranscriptAmendment(action: .retract, targetMessageID: optimisticID, targetStanzaID: "S", timestamp: Date()),
+                conversationID: harness.conversation.id
+            )
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "alice", serverID: "R", stanzaID: "S",
+                    body: "This message is OMEMO encrypted", encrypted: true
+                ))]
+            }
+
+            #expect(imported.isEmpty)
+            let count = await harness.transcripts.messages.count
+            #expect(count == 1)
+            await harness.accountService.disconnect(accountID: harness.accountID)
         }
     }
 }

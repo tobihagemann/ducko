@@ -738,6 +738,10 @@ final class TestHarness {
         router.cancelAllWaiters()
         accounts.removeAll()
 
+        // Cancel and bounded-await the fire-and-forget service tasks before removing tempDir,
+        // so a MAM-sync or Jingle task can't race the directory teardown.
+        await environment.shutdown(within: .seconds(5))
+
         do {
             try FileManager.default.removeItem(at: tempDir)
         } catch {

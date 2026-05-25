@@ -226,9 +226,8 @@ func simulateISRFailAndFallback(_ mock: MockTransport) async {
 
 /// Extracts the IQ `id` attribute value from a raw XML string.
 ///
-/// Mirror of `Tests/DuckoCoreTests/ChatServiceRetractionTests.swift`
-/// `extractIQID(from:)`. The two test targets cannot share helpers; keep the
-/// implementations in sync.
+/// Mirrors the DuckoCoreTests helper (`CoreTestHelpers.swift`); the two test targets cannot share
+/// helpers, so keep the implementations in sync.
 func extractIQID(from xmlString: String) -> String? {
     guard let idRange = xmlString.range(of: "id=\""),
           let endRange = xmlString[idRange.upperBound...].firstIndex(of: "\"") else {

@@ -44,6 +44,10 @@ public final class ChatService {
     private weak var accountService: AccountService?
     private weak var omemoService: OMEMOService?
     private var typingDebounce: [UUID: [BareJID: Task<Void, Never>]] = [:]
+    /// Fire-and-forget tasks (MAM sync on roster load, self-nick conversation upsert) that outlive the
+    /// call that spawned them. Drained by `AppEnvironment.shutdown(within:)` so they can't race transcript
+    /// teardown; each task removes its own handle on completion via `defer`.
+    private var pendingTasks: [UUID: Task<Void, Never>] = [:]
     /// Per-account map of the peer's most-recently-seen full-JID resource for live 1:1 chats
     /// (RFC 6121 §5.1 resource locking). Account-scoped — the same bare peer JID can exist under
     /// multiple accounts. Internal routing state, not observed UI state, so kept `private`.
@@ -71,6 +75,28 @@ public final class ChatService {
     func setOMEMOService(_ service: OMEMOService) {
         omemoService = service
     }
+
+    // MARK: - Shutdown
+
+    /// Returns the in-flight fire-and-forget task handles and clears the stores, so
+    /// `AppEnvironment.shutdown(within:)` can cancel and bounded-await a captured snapshot.
+    /// Synchronous: it neither cancels nor awaits — that is the caller's job.
+    func takePendingTasks() -> [Task<Void, Never>] {
+        var tasks = Array(pendingTasks.values)
+        pendingTasks.removeAll()
+        for perJID in typingDebounce.values {
+            tasks.append(contentsOf: perJID.values)
+        }
+        typingDebounce.removeAll()
+        return tasks
+    }
+
+    #if DEBUG
+        /// Test seam: lets `shutdown` draining run against a task of controlled duration.
+        func registerPendingTaskForTesting(_ task: Task<Void, Never>) {
+            pendingTasks[UUID()] = task
+        }
+    #endif
 
     // MARK: - Resource Locking (RFC 6121 §5.1)
 
@@ -171,15 +197,20 @@ public final class ChatService {
                 chatModule: chatModule, additionalElements: additionalElements
             ))
         } catch {
-            // Append a local retract amendment so the ghost doesn't linger in the
-            // transcript. The retract is local-only — it has no effect on the server.
-            try? await transcripts.appendAmendment(
-                TranscriptAmendment(action: .retract, targetMessageID: message.id, targetStanzaID: stanzaID, timestamp: Date()),
-                conversationID: conversation.id
-            )
-            await messagesChanged(in: conversation.id)
+            await appendFailedSendRetract(message, stanzaID: stanzaID, conversationID: conversation.id)
             throw error
         }
+    }
+
+    /// Appends a local-only retract for an optimistic message whose network send failed, so the ghost row
+    /// doesn't linger in the transcript. The retract has no server effect — the message never reached it.
+    /// Callers re-throw the original send error after calling this.
+    private func appendFailedSendRetract(_ message: ChatMessage, stanzaID: String, conversationID: UUID) async {
+        try? await transcripts.appendAmendment(
+            TranscriptAmendment(action: .retract, targetMessageID: message.id, targetStanzaID: stanzaID, timestamp: Date()),
+            conversationID: conversationID
+        )
+        await messagesChanged(in: conversationID)
     }
 
     /// Resolves encryption for `sendMessage` and converts fail-closed resolutions into typed throws.
@@ -799,10 +830,10 @@ public final class ChatService {
 
         let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
         let stanzaID = client.generateID()
-        let isEncrypted = try await encryptAndSendGroupMessage(
-            room: room, body: body, stanzaID: stanzaID,
-            conversation: conversation, mucModule: mucModule,
-            additionalElements: additionalElements
+        // Resolve encryption before persisting so a "no trusted devices" throw leaves nothing persisted
+        // (mirrors 1:1). Only the transport send sits inside the do/catch rollback below.
+        let prepared = try await prepareGroupMessage(
+            room: room, body: body, conversation: conversation, additionalElements: additionalElements
         )
 
         let message = ChatMessage(
@@ -816,9 +847,19 @@ public final class ChatService {
             isDelivered: false,
             isEdited: false,
             type: "groupchat",
-            isEncrypted: isEncrypted
+            isEncrypted: prepared.isEncrypted
         )
         try await persistMessage(message, in: conversation, accountID: accountID)
+
+        // Persist-before-send: roll back with a local retract if the send fails, so a transport error
+        // doesn't leave a ghost message that the server never received. The nickname guard in
+        // `handleRoomMessageReceived` already prevents the room's echo from double-counting this row.
+        do {
+            try await sendPreparedGroupMessage(prepared, room: room, stanzaID: stanzaID, mucModule: mucModule)
+        } catch {
+            await appendFailedSendRetract(message, stanzaID: stanzaID, conversationID: conversation.id)
+            throw error
+        }
     }
 
     public func joinRoom(jidString: String, nickname: String, password: String? = nil, accountID: UUID) async throws {
@@ -855,7 +896,6 @@ public final class ChatService {
 
         let conversation = try await findOrCreateMUCPMConversation(for: roomJID, nickname: nickname, accountID: accountID)
         let stanzaID = client.generateID()
-        try await mucModule.sendPrivateMessage(to: roomJID, nickname: nickname, body: filtered.body, id: stanzaID)
 
         let message = ChatMessage(
             id: UUID(),
@@ -871,6 +911,15 @@ public final class ChatService {
             type: "chat"
         )
         try await persistMessage(message, in: conversation, accountID: accountID)
+
+        // Persist-before-send + retract-on-failure (MUC PMs aren't echoed back to the sender, so the
+        // optimistic row is never doubled).
+        do {
+            try await mucModule.sendPrivateMessage(to: roomJID, nickname: nickname, body: filtered.body, id: stanzaID)
+        } catch {
+            await appendFailedSendRetract(message, stanzaID: stanzaID, conversationID: conversation.id)
+            throw error
+        }
     }
 
     public func openMUCPMConversation(roomJIDString: String, nickname: String, accountID: UUID) async throws -> Conversation {
@@ -1228,7 +1277,9 @@ public final class ChatService {
         case .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             await handleMessageUpdateEvent(event, accountID: accountID)
         case .rosterLoaded:
-            Task { [weak self] in
+            let taskID = UUID()
+            pendingTasks[taskID] = Task { [weak self] in
+                defer { self?.pendingTasks[taskID] = nil }
                 await self?.syncRecentHistory(accountID: accountID)
             }
         case let .presenceUpdated(from, presence):
@@ -1765,7 +1816,10 @@ public final class ChatService {
         // If self-nick changed, update conversation
         if let conversation = openConversations.first(where: { $0.jid == room && $0.type == .groupchat }),
            conversation.roomNickname == oldNickname {
-            Task {
+            let taskID = UUID()
+            pendingTasks[taskID] = Task { [weak self] in
+                defer { self?.pendingTasks[taskID] = nil }
+                guard let self else { return }
                 var updated = conversation
                 updated.roomNickname = occupant.nickname
                 try? await store.upsertConversation(updated)
@@ -1793,21 +1847,24 @@ public final class ChatService {
 
     // MARK: - Private: Group OMEMO
 
-    /// Attempts OMEMO for a group message; returns `true` if encrypted. Fail-closed when service unwired or every
-    /// occupant resolves to no-local/no-trusted. Partial trust → encrypt to trusted subset (OMEMOService emits
-    /// `.omemoRecipientsPartial` for the dropped occupants).
-    private func encryptAndSendGroupMessage(
-        room: BareJID, body: String, stanzaID: String,
-        conversation: Conversation, mucModule: MUCModule,
-        additionalElements: [DuckoXMPP.XMLElement] = []
-    ) async throws -> Bool {
-        guard conversation.encryptionEnabled else {
-            try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true, additionalElements: additionalElements)
-            return false
-        }
-        guard let accountID = conversation.accountID else {
-            try await mucModule.sendMessage(to: room, body: body, id: stanzaID, markable: true, additionalElements: additionalElements)
-            return false
+    /// Resolved group-message payload: whether OMEMO applied, the body to put on the wire (plaintext, or the
+    /// OMEMO fallback when encrypted), and the elements to attach. Built before persist so an encryption
+    /// failure throws with nothing persisted (mirrors how 1:1 resolves `trustedDeviceIDsForSend` first).
+    private struct PreparedGroupMessage {
+        let isEncrypted: Bool
+        let body: String
+        let additionalElements: [DuckoXMPP.XMLElement]
+    }
+
+    /// Resolves OMEMO for a group message and prepares the wire payload without sending. Fail-closed when the
+    /// service is unwired or every occupant resolves to no-local/no-trusted. Partial trust → encrypt to the
+    /// trusted subset (OMEMOService emits `.omemoRecipientsPartial` for the dropped occupants).
+    private func prepareGroupMessage(
+        room: BareJID, body: String,
+        conversation: Conversation, additionalElements: [DuckoXMPP.XMLElement]
+    ) async throws -> PreparedGroupMessage {
+        guard conversation.encryptionEnabled, let accountID = conversation.accountID else {
+            return PreparedGroupMessage(isEncrypted: false, body: body, additionalElements: additionalElements)
         }
         guard let omemoService else {
             throw ChatServiceError.omemoServiceUnavailable(conversationJID: room)
@@ -1852,11 +1909,37 @@ public final class ChatService {
             body: body, roomJID: room, memberJIDs: memberJIDs, accountID: accountID
         )
         let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
-        try await mucModule.sendMessage(
-            to: room, body: elements.fallbackBody, id: stanzaID, markable: true,
+        return PreparedGroupMessage(
+            isEncrypted: true,
+            body: elements.fallbackBody,
             additionalElements: [elements.encrypted, elements.encryption, storeHint] + additionalElements
         )
-        return true
+    }
+
+    /// Sends a prepared group payload. The only step that touches the transport — kept separate so callers
+    /// can persist the optimistic message before this runs and roll it back when it throws.
+    private func sendPreparedGroupMessage(
+        _ prepared: PreparedGroupMessage, room: BareJID, stanzaID: String, mucModule: MUCModule
+    ) async throws {
+        try await mucModule.sendMessage(
+            to: room, body: prepared.body, id: stanzaID, markable: true,
+            additionalElements: prepared.additionalElements
+        )
+    }
+
+    /// Prepares and sends a group message in one step, returning whether it was encrypted. Used by the
+    /// correction/retraction flows, which persist their amendment after a successful send (success-path
+    /// amendment, not persist-before-send rollback).
+    private func encryptAndSendGroupMessage(
+        room: BareJID, body: String, stanzaID: String,
+        conversation: Conversation, mucModule: MUCModule,
+        additionalElements: [DuckoXMPP.XMLElement] = []
+    ) async throws -> Bool {
+        let prepared = try await prepareGroupMessage(
+            room: room, body: body, conversation: conversation, additionalElements: additionalElements
+        )
+        try await sendPreparedGroupMessage(prepared, room: room, stanzaID: stanzaID, mucModule: mucModule)
+        return prepared.isEncrypted
     }
 
     /// Bumps the revision (so any open `ChatWindow` refreshes) and reloads `messages` only when `conversationID` matches the active one.
@@ -2277,6 +2360,7 @@ public final class ChatService {
         do {
             let conversations = try await store.fetchConversations(for: accountID)
             for conversation in conversations {
+                if Task.isCancelled { return }
                 let lastMessages = try await transcripts.fetchMessages(for: conversation.id, before: nil, limit: 1)
                 let startISO = lastMessages.first.map { $0.timestamp.formatted(.iso8601) }
 
@@ -2329,6 +2413,17 @@ public final class ChatService {
                 if try await transcripts.messageExists(serverID: trustedServerID, conversationID: conversation.id) {
                     continue
                 }
+                // Our own MUC echo is dropped by nickname in `handleRoomMessageReceived` before any
+                // serverID is recorded, so the optimistically-persisted row keeps `serverID == nil` and
+                // the serverID check above can't see it. Without this guard, the MAM copy (which carries a
+                // trusted serverID) re-imports as a second row. Match the un-reconciled optimistic row by
+                // stanzaID so the replay dedups against it.
+                if conversation.type == .groupchat, meta.isOutgoing, let stanzaID = forwarded.message.id,
+                   try await ownOptimisticGroupRowExists(
+                       stanzaID: stanzaID, archived: forwarded.message, body: body, conversation: conversation
+                   ) {
+                    continue
+                }
             } else if let stanzaID = forwarded.message.id {
                 // No trusted serverID — fall back to stanza-id-scoped dedup.
                 // Direction matters: outgoing archived rows would compare
@@ -2367,6 +2462,28 @@ public final class ChatService {
         }
 
         return newMessages.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    /// Returns true when an un-reconciled optimistic own-MUC row (`serverID == nil`) matches the archived
+    /// stanza, so a MAM replay of our own group message isn't double-imported. The sub-branch is keyed on
+    /// the *archive's* OMEMO-ness, not the candidate's: a plaintext archive matches on body equality; an
+    /// OMEMO archive matches on stanzaID + `isEncrypted`, because the optimistic row stores plaintext while
+    /// the archive carries the undecryptable fallback body. Uses the all-candidates `findMessages` query so a
+    /// `ducko-N` collision can't make `findMessage`'s first-match return an older, wrong row.
+    private func ownOptimisticGroupRowExists(
+        stanzaID: String, archived: DuckoXMPP.XMPPMessage, body: String, conversation: Conversation
+    ) async throws -> Bool {
+        let isOMEMOArchive = archived.element.child(named: "encrypted", namespace: XMPPNamespaces.omemo) != nil
+            || archived.body == omemoFallbackBody
+        let candidates = try await transcripts.findMessages(stanzaID: stanzaID, conversationID: conversation.id)
+        return candidates.contains { candidate in
+            guard candidate.isOutgoing, candidate.serverID == nil else { return false }
+            // A retracted optimistic row has its body cleared, so the body/isEncrypted disambiguation
+            // below can't recognize it. Suppress the MAM replay anyway: a stanza we retracted must stay
+            // gone, not re-import as a fresh unretracted row.
+            if candidate.isRetracted { return true }
+            return isOMEMOArchive ? candidate.isEncrypted : candidate.body == body
+        }
     }
 
     private struct MessageMeta {

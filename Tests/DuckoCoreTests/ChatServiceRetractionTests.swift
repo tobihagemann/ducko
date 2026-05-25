@@ -21,21 +21,6 @@ private func makeChatService(store: MockPersistenceStore, transcripts: MockTrans
     ChatService(store: store, transcripts: transcripts, filterPipeline: MessageFilterPipeline())
 }
 
-/// Extracts the first `id="..."` attribute value from a raw XML string.
-/// `XMLElement.xmlString` writes attributes with double quotes sorted
-/// alphabetically by key, so the outer iq's id always precedes any inner id.
-///
-/// Mirror of `Tests/DuckoXMPPTests/XMPPTestHelpers.swift` `extractIQID(from:)`.
-/// Kept per-file private because DuckoCoreTests cannot reach DuckoXMPPTests
-/// helpers; keep the two implementations in sync.
-private func extractIQID(from xmlString: String) -> String? {
-    guard let idRange = xmlString.range(of: "id=\""),
-          let endRange = xmlString[idRange.upperBound...].firstIndex(of: "\"") else {
-        return nil
-    }
-    return String(xmlString[idRange.upperBound ..< endRange])
-}
-
 // MARK: - Tests
 
 enum ChatServiceRetractionTests {

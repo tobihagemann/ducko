@@ -759,4 +759,36 @@ enum TranscriptRecordTests {
             #expect(restored?.body == "edited")
         }
     }
+
+    struct FindMessages {
+        @Test
+        func `findMessages returns all colliding-stanzaID rows across date files`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = .gmt
+            let olderDay = try #require(calendar.date(from: DateComponents(year: 2026, month: 2, day: 27, hour: 12)))
+            let newerDay = try #require(calendar.date(from: DateComponents(year: 2026, month: 2, day: 28, hour: 12)))
+
+            // Two rows with the same `ducko-N` stanzaID in different date files: an older reconciled row
+            // (serverID set) and a newer un-reconciled optimistic row (serverID nil).
+            try await store.appendMessage(makeMessage(
+                stanzaID: "ducko-7", serverID: "older-server-id", body: "older",
+                timestamp: olderDay, isOutgoing: true
+            ))
+            try await store.appendMessage(makeMessage(
+                stanzaID: "ducko-7", serverID: nil, body: "optimistic",
+                timestamp: newerDay, isOutgoing: true
+            ))
+
+            let matches = try await store.findMessages(stanzaID: "ducko-7", conversationID: testConversationID)
+
+            // A single-file / stanza-index fast path would surface only the last-written file's row;
+            // the full multi-file scan returns both, so the optimistic row is always reachable.
+            #expect(matches.count == 2)
+            #expect(matches.contains { $0.serverID == nil && $0.body == "optimistic" })
+            #expect(matches.contains { $0.serverID == "older-server-id" && $0.body == "older" })
+        }
+    }
 }

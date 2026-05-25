@@ -65,19 +65,22 @@ enum AppDelegateTests {
     struct PerformShutdown {
         @Test
         @MainActor
-        func `performShutdown returns within disconnectDeadline + slack on an empty service`() async {
-            let service = AccountService(
+        func `performShutdown returns within disconnectDeadline + slack on an empty environment`() async {
+            let tempDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let environment = AppEnvironment(
                 store: EmptyPersistenceStore(),
+                transcripts: FileTranscriptStore(baseDirectory: tempDir),
                 credentialStore: InMemoryCredentialStore()
             )
 
-            // No accounts, so `disconnectAll` is a no-op iteration. The bounded
-            // race in `disconnectAll(within:)` must still return promptly —
-            // a regression that swapped `withTaskGroup`'s wait-for-all-children
-            // back in would make this test exceed the deadline + slack.
+            // No accounts and no in-flight service tasks, so both the bounded
+            // `disconnectAll(within:)` race and `shutdown(within:)` must return
+            // promptly — a regression that swapped `withTaskGroup`'s
+            // wait-for-all-children back in would exceed the deadline + slack.
             let clock = ContinuousClock()
             let elapsed = await clock.measure {
-                await AppDelegate.performShutdown(service)
+                await AppDelegate.performShutdown(environment)
             }
             #expect(elapsed < AppDelegate.disconnectDeadline + .seconds(1))
         }

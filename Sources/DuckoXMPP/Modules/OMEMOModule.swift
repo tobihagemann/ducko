@@ -3,6 +3,10 @@ import struct os.OSAllocatedUnfairLock
 
 private let log = Logger(label: "im.ducko.xmpp.omemo")
 
+/// XEP-0384 fallback body attached to OMEMO-encrypted messages for clients that can't decrypt them.
+/// `package` so DuckoCore can detect an OMEMO archive on the MAM ingest path by body comparison.
+package let omemoFallbackBody = "This message is OMEMO encrypted"
+
 /// Implements XEP-0384 OMEMO Encryption and XEP-0380 Explicit Message Encryption.
 ///
 /// Manages device lists, bundles, session establishment (X3DH), and
@@ -421,7 +425,7 @@ public final class OMEMOModule: XMPPModule, Sendable {
         return EncryptedMessageElements(
             encrypted: encrypted,
             encryption: encryption,
-            fallbackBody: "This message is OMEMO encrypted",
+            fallbackBody: omemoFallbackBody,
             droppedRecipients: droppedRecipients
         )
     }

@@ -211,6 +211,10 @@ public final class FileTransferService {
 
     private weak var accountService: AccountService?
     private weak var chatService: ChatService?
+    /// Fire-and-forget Jingle receive/send tasks that outlive the accept/fulfill call that spawned them.
+    /// Drained by `AppEnvironment.shutdown(within:)` so they can't race teardown; each task removes its
+    /// own handle on completion via `defer`.
+    private var pendingTasks: [UUID: Task<Void, Never>] = [:]
 
     public init() {}
 
@@ -223,6 +227,23 @@ public final class FileTransferService {
     func setChatService(_ service: ChatService) {
         chatService = service
     }
+
+    // MARK: - Shutdown
+
+    /// Returns the in-flight Jingle transfer task handles and clears the store, so
+    /// `AppEnvironment.shutdown(within:)` can cancel and bounded-await a captured snapshot.
+    func takePendingTasks() -> [Task<Void, Never>] {
+        let tasks = Array(pendingTasks.values)
+        pendingTasks.removeAll()
+        return tasks
+    }
+
+    #if DEBUG
+        /// Test seam: lets `shutdown` draining run against a task of controlled duration.
+        func registerPendingTaskForTesting(_ task: Task<Void, Never>) {
+            pendingTasks[UUID()] = task
+        }
+    #endif
 
     // MARK: - Public API
 
@@ -416,7 +437,10 @@ public final class FileTransferService {
             expectedSize = offer.fileSize
         }
 
-        Task {
+        let taskID = UUID()
+        pendingTasks[taskID] = Task { [weak self] in
+            defer { self?.pendingTasks[taskID] = nil }
+            guard let self else { return }
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
                 let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: expectedSize)
@@ -457,7 +481,10 @@ public final class FileTransferService {
 
         updateTransferState(forSID: sid, state: .connectingTransport)
 
-        Task {
+        let taskID = UUID()
+        pendingTasks[taskID] = Task { [weak self] in
+            defer { self?.pendingTasks[taskID] = nil }
+            guard let self else { return }
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
                 updateTransferState(forSID: sid, state: .transferring(progress: 0))

@@ -130,29 +130,9 @@ public final class AccountService {
     /// Bounded disconnect. `XMPPClient.disconnect()` ignores cancellation, so a stuck transport write is abandoned (not preempted) past the deadline.
     /// Safe at process exit; unsafe when callers must observe teardown completion.
     public func disconnectAll(within deadline: Duration) async {
-        let work = Task { [weak self] in
+        await runBounded(within: deadline) { [weak self] in
             await self?.disconnectAll()
         }
-        let timeout = Task<Void, Never> {
-            try? await Task.sleep(for: deadline)
-        }
-        let (stream, continuation) = AsyncStream<Void>.makeStream()
-        Task {
-            _ = await work.value
-            continuation.yield()
-            continuation.finish()
-        }
-        Task {
-            _ = await timeout.value
-            continuation.yield()
-            continuation.finish()
-        }
-        for await _ in stream {
-            break
-        }
-        timeout.cancel()
-        // Don't await `work` — abandoning it is the deadline's purpose. `cancel()` only requests cooperation.
-        work.cancel()
     }
 
     public func createAccount(

@@ -19,7 +19,6 @@ public final class ProfileService {
     public private(set) var ownProfile: ProfileInfo?
 
     private weak var accountService: AccountService?
-    private var lastFetchedVCard: VCardModule.VCard?
 
     public init() {}
 
@@ -38,7 +37,6 @@ public final class ProfileService {
         do {
             let vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true)
             if let vcard {
-                lastFetchedVCard = vcard
                 ownProfile = mapVCardToProfileInfo(vcard)
             }
         } catch {
@@ -55,9 +53,16 @@ public final class ProfileService {
         }
 
         var vcard = mapProfileInfoToVCard(profile)
-        vcard.rawElement = lastFetchedVCard?.rawElement
+        // Re-fetch the current raw vCard before each publish so unmodeled XML (custom X-* fields) survives
+        // across successive publishes. "No vCard yet" — item-not-found, or nil when there's no connected
+        // context — means there is nothing to preserve; any other fetch error fails the publish rather than
+        // silently dropping unmodeled XML.
+        do {
+            if let fetched = try await vcardModule.fetchOwnVCard(forceRefresh: true) {
+                vcard.rawElement = fetched.rawElement
+            }
+        } catch let stanzaError as XMPPStanzaError where stanzaError.condition == .itemNotFound {}
         try await vcardModule.publishVCard(vcard)
-        lastFetchedVCard = nil
         ownProfile = profile
     }
 

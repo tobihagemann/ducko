@@ -19,6 +19,11 @@ public protocol TranscriptStore: Sendable {
     /// `ducko-N` counter duplicates from prior sessions.
     func findMessage(id: UUID, conversationID: UUID) async throws -> ChatMessage?
     func findMessage(stanzaID: String, conversationID: UUID) async throws -> ChatMessage?
+    /// All messages sharing `stanzaID` within the conversation. Unlike `findMessage(stanzaID:)`
+    /// (first match only), this returns every match across date files so callers can disambiguate
+    /// `ducko-N` counter collisions. Implementations must perform a full multi-file scan, not the
+    /// single-valued stanza-index fast path.
+    func findMessages(stanzaID: String, conversationID: UUID) async throws -> [ChatMessage]
     // periphery:ignore - used by MUC moderation (XEP-0425) serverID lookup path
     func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage?
     func messageExists(stanzaID: String, conversationID: UUID) async throws -> Bool

@@ -24,3 +24,23 @@ func makeAccountService(
 ) -> AccountService {
     AccountService(store: store, credentialStore: credentials, clientFactory: clientFactory)
 }
+
+/// Extracts the first `id="..."` attribute value from a raw sent-stanza XML string. `XMLElement.xmlString`
+/// sorts attributes alphabetically, so an outer iq's `id` always precedes any inner element's. Mirrors the
+/// DuckoXMPPTests helper, which can't be reached across the test-target boundary.
+func extractIQID(from xmlString: String) -> String? {
+    guard let range = xmlString.range(of: "id=\""),
+          let endRange = xmlString[range.upperBound...].firstIndex(of: "\"") else {
+        return nil
+    }
+    return String(xmlString[range.upperBound ..< endRange])
+}
+
+/// Extracts the `queryid="..."` attribute value from a raw MAM query IQ.
+func extractQueryID(from xmlString: String) -> String? {
+    guard let range = xmlString.range(of: "queryid=\""),
+          let endRange = xmlString[range.upperBound...].firstIndex(of: "\"") else {
+        return nil
+    }
+    return String(xmlString[range.upperBound ..< endRange])
+}

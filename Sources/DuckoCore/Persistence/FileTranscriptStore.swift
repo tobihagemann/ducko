@@ -230,6 +230,19 @@ public actor FileTranscriptStore: TranscriptStore {
         return try findMessage(in: conversationID) { $0.stanzaID == stanzaID }
     }
 
+    public func findMessages(stanzaID: String, conversationID: UUID) async throws -> [ChatMessage] {
+        // Full multi-file scan, not the `stanzaIndex` fast path: that index is single-valued
+        // (last-write-wins per stanzaID), so a colliding `ducko-N` would surface only the most
+        // recently written file and miss cross-file duplicates — the exact case callers need.
+        let dateFiles = try listDateFiles(for: conversationID)
+        var matches: [ChatMessage] = []
+        for (_, fileURL) in dateFiles {
+            let messages = try readAndMaterialize(fileURL: fileURL, conversationID: conversationID)
+            matches.append(contentsOf: messages.filter { $0.stanzaID == stanzaID })
+        }
+        return matches
+    }
+
     public func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage? {
         // Fast path: check server index to read only one file. Verify the indexed
         // conversationID matches for consistency with findMessage(stanzaID:).
