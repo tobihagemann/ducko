@@ -478,6 +478,10 @@ public final class OMEMOService {
         else { return }
         guard let accountJID = accountJIDString(for: accountID) else { return }
 
+        // Wait until initial presence + caps are on the wire so PEP publishes follow the server seeing
+        // this resource's caps (XEP-0163 §3.3.2). The identity poll below composes after this gate.
+        await client.awaitInitialPresenceSent()
+
         await handleConnectedFirstTimePersistence(
             provider: omemoModule,
             accountJID: accountJID

@@ -1,3 +1,4 @@
+import DuckoTestSupport
 import Testing
 
 /// Direct tests for the `awaitSentResponse` helper in `XMPPTestHelpers.swift`.

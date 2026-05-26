@@ -1636,7 +1636,7 @@ private func printREPLHelp() {
     print("  /voice grant|revoke <n>  Grant/revoke voice")
     print("  /kick <nick> [reason]    Kick occupant from current room")
     print("  /affiliations [type]     List affiliations")
-    print("  /config                  Show room config")
+    print("  /config [submit-default] Show room config or accept defaults")
     print("  /moderate [reason]       Moderate last message in room")
     print("  /sendfile [jid] <path>   Send a file")
     print("  /accept [sid]            Accept incoming file transfer")
@@ -2018,7 +2018,7 @@ private func dispatchRoomREPLCommand(
         || input == "/voice" || input.hasPrefix("/voice ")
         || input == "/kick" || input.hasPrefix("/kick ")
         || input == "/affiliations" || input.hasPrefix("/affiliations ")
-        || input == "/config"
+        || input == "/config" || input.hasPrefix("/config ")
         || input == "/moderate" || input.hasPrefix("/moderate ") {
         return await dispatchRoomAdminREPLCommand(input, context: context, currentRoom: currentRoom)
     } else if input == "/rooms" || input.hasPrefix("/rooms ") {
@@ -2053,6 +2053,10 @@ private func handleJoinREPLCommand(
         )
         let count = await MainActor.run { context.environment.chatService.participantCount(forRoomJIDString: roomJID) }
         print(context.formatter.formatRoomJoinedConfirmation(room: roomJID, nickname: nick, participantCount: count, subject: nil))
+        let isNewlyCreated = await MainActor.run { context.environment.chatService.newlyCreatedRoomJIDs.contains(roomJID) }
+        if isNewlyCreated {
+            print("Room created and locked — run /config submit-default to open it, or /config to customize.")
+        }
         return REPLDispatchResult(handled: true, updatedCurrentRoom: roomJID)
     } catch {
         print(context.formatter.formatError(error))
@@ -2137,8 +2141,8 @@ private func dispatchRoomAdminREPLCommand(
         return await handleKickREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     } else if input == "/affiliations" || input.hasPrefix("/affiliations ") {
         return await handleAffiliationsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/config" {
-        return await handleConfigREPLCommand(formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    } else if input == "/config" || input.hasPrefix("/config ") {
+        return await handleConfigREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     } else if input == "/moderate" || input.hasPrefix("/moderate ") {
         return await handleModerateREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
     }
@@ -2289,27 +2293,40 @@ private func handleAffiliationsREPLCommand(
 }
 
 private func handleConfigREPLCommand(
-    formatter: any CLIFormatter, environment: AppEnvironment,
+    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
     accountID: UUID, currentRoom: String?
 ) async -> REPLDispatchResult {
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }
-    do {
-        let fields = try await environment.chatService.getRoomConfig(jidString: roomJID, accountID: accountID)
-        let visible = fields.filter(\.isUserEditable)
-        if visible.isEmpty {
-            print("No configuration fields.")
-        } else {
-            for field in visible {
-                let label = field.label ?? field.variable
-                let value = field.values.joined(separator: ", ")
-                print("  \(label): \(value)")
+    let args = input.dropFirst("/config".count).trimmingCharacters(in: .whitespaces)
+    switch args {
+    case "":
+        do {
+            let fields = try await environment.chatService.getRoomConfig(jidString: roomJID, accountID: accountID)
+            let visible = fields.filter(\.isUserEditable)
+            if visible.isEmpty {
+                print("No configuration fields.")
+            } else {
+                for field in visible {
+                    let label = field.label ?? field.variable
+                    let value = field.values.joined(separator: ", ")
+                    print("  \(label): \(value)")
+                }
             }
+        } catch {
+            print(formatter.formatError(error))
         }
-    } catch {
-        print(formatter.formatError(error))
+    case "submit-default":
+        do {
+            try await environment.chatService.submitRoomConfig(jidString: roomJID, fields: [], accountID: accountID)
+            print("Submitted default room configuration for \(roomJID).")
+        } catch {
+            print(formatter.formatError(error))
+        }
+    default:
+        print("Usage: /config [submit-default]")
     }
     return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
 }

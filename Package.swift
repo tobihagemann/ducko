@@ -25,13 +25,13 @@ let package = Package(
             "CDnssd",
             .product(name: "Logging", package: "swift-log")
         ]),
-        .testTarget(name: "DuckoXMPPTests", dependencies: ["DuckoXMPP"]),
+        .testTarget(name: "DuckoXMPPTests", dependencies: ["DuckoXMPP", "DuckoTestSupport"]),
 
         .target(name: "DuckoCore", dependencies: [
             "DuckoXMPP",
             .product(name: "Logging", package: "swift-log")
         ]),
-        .target(name: "DuckoTestSupport", dependencies: ["DuckoCore"], path: "Sources/DuckoTestSupport"),
+        .target(name: "DuckoTestSupport", dependencies: ["DuckoCore", "DuckoXMPP"], path: "Sources/DuckoTestSupport"),
         .testTarget(name: "DuckoCoreTests", dependencies: ["DuckoCore", "DuckoTestSupport"]),
 
         .target(name: "DuckoData", dependencies: ["DuckoCore"]),

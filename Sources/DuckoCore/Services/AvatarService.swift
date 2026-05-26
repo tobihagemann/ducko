@@ -179,6 +179,11 @@ public final class AvatarService {
     // MARK: - Private: Connect
 
     private func handleConnected(accountID: UUID) async {
+        // Wait until initial presence + caps are on the wire before any PEP/vCard fetch so the server has
+        // seen this resource's caps first (XEP-0163 §3.3.2); the vCard hash fetch re-broadcasts presence.
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
+        await client.awaitInitialPresenceSent()
+
         async let conversionResult: Void = detectConversionSupport(accountID: accountID)
         async let hashResult: Void = loadOwnAvatarHash(accountID: accountID)
         _ = await (try? conversionResult, try? hashResult)

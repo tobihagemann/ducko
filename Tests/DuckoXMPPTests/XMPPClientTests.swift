@@ -1,3 +1,4 @@
+import DuckoTestSupport
 import os
 import Testing
 @testable import DuckoXMPP

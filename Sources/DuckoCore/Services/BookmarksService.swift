@@ -100,6 +100,12 @@ public final class BookmarksService {
     func handleEvent(_ event: XMPPEvent, accountID: UUID) async {
         switch event {
         case .connected:
+            // Wait until initial presence + caps are on the wire before the bookmarks2 PEP fetch so the
+            // server has seen this resource's caps first (XEP-0163 §3.3.2). Gating here rather than inside
+            // `loadBookmarks` leaves the manual REPL `/bookmarks` refresh ungated.
+            if let client = accountService?.connectedClient(for: accountID) {
+                await client.awaitInitialPresenceSent()
+            }
             await loadBookmarks(accountID: accountID)
         case let .pepItemsPublished(from, node, items)
             where node == XMPPNamespaces.bookmarks2:

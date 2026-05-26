@@ -86,11 +86,9 @@ extension DuckoIntegrationTests.CLILayer {
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
                 // `createEphemeralRoom` calls `mucModule.acceptDefaultConfig`
-                // after a newly-created room, so subsequent joins by
-                // non-owners succeed. The CLI REPL has no
-                // `/config submit-default` surface, so this hybrid
-                // setup is the only way to exercise two-actor room
-                // flows from the CLI layer today.
+                // on the newly-created room so non-owner joins succeed. This
+                // hybrid setup covers the in-process group-send path; the
+                // pure-CLI `/config submit-default` unlock is covered separately.
                 let roomJID = try await harness.createEphemeralRoom(using: "alice")
                 let aliceAccount = try #require(harness.accounts["alice"])
 
@@ -193,6 +191,50 @@ extension DuckoIntegrationTests.CLILayer {
                         timeout: TestTimeout.event
                     )
                 }
+            }
+        }
+
+        @Test
+        @MainActor func `REPL /config submit-default unlocks a freshly created room`() async throws {
+            // Pure-CLI room unlock: alice creates a locked (status-201) room and opens it via the new
+            // `/config submit-default` REPL surface — no in-process `TestHarness.createEphemeralRoom`
+            // needed — then a second CLI process joins the now-unlocked room.
+            try await CLIProcess.withProcessPair { aliceCLI, bobCLI in
+                let alice = TestCredentials.alice
+                let bob = TestCredentials.bob
+
+                let aliceREPL = try await REPLSession.start(cli: aliceCLI, credentials: alice)
+                await aliceCLI.addCleanup { await aliceREPL.terminate() }
+
+                let roomJID = Self.makeEphemeralRoomJID()
+                try await aliceREPL.send("/join \(roomJID)")
+                await aliceCLI.addCleanup {
+                    try? await aliceREPL.send("/destroy")
+                }
+                _ = try await aliceREPL.waitForOutput(
+                    containing: "Joined ",
+                    timeout: TestTimeout.event
+                )
+                // The freshly-created (status-201) room is locked, so /join prints the unlock hint.
+                _ = try await aliceREPL.waitForOutput(
+                    containing: "Room created and locked",
+                    timeout: TestTimeout.event
+                )
+
+                try await aliceREPL.send("/config submit-default")
+                _ = try await aliceREPL.waitForOutput(
+                    containing: "Submitted default room configuration",
+                    timeout: TestTimeout.event
+                )
+
+                // A second CLI can now join the unlocked room.
+                let bobREPL = try await REPLSession.start(cli: bobCLI, credentials: bob)
+                await bobCLI.addCleanup { await bobREPL.terminate() }
+                try await bobREPL.send("/join \(roomJID)")
+                _ = try await bobREPL.waitForOutput(
+                    containing: "Joined ",
+                    timeout: TestTimeout.event
+                )
             }
         }
 

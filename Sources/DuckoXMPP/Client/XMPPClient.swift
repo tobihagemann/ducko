@@ -24,11 +24,23 @@ public actor XMPPClient {
     private let connectedJIDLock = OSAllocatedUnfairLock<FullJID?>(initialState: nil)
     private let featuresLock = OSAllocatedUnfairLock<Set<String>>(initialState: [])
     private let serverFeaturesLock = OSAllocatedUnfairLock<XMLElement?>(initialState: nil)
+    /// Gate the PEP-reacting DuckoCore services (OMEMO, Avatar, Bookmarks) await before issuing PEP
+    /// retrieves/publishes, so the server has seen this resource's entity caps via initial presence first
+    /// (XEP-0163 §3.3.2). Lock-guarded for `nonisolated` reads, mirroring `connectedJIDLock`.
+    private let presenceReadinessLock = OSAllocatedUnfairLock<PresenceReadiness>(initialState: PresenceReadiness())
 
     private struct PendingIQ {
         let continuation: CheckedContinuation<XMLElement?, any Error>
         let expectedFrom: BareJID?
         let timeoutTask: Task<Void, Never>
+    }
+
+    /// `isOpen` flips true once the caps-bearing presence is on the wire (fresh connect), immediately on
+    /// resume, or on teardown so late awaits never hang; `waiters` holds services suspended in
+    /// ``awaitInitialPresenceSent()`` until then.
+    private struct PresenceReadiness {
+        var isOpen: Bool = false
+        var waiters: [CheckedContinuation<Void, Never>] = []
     }
 
     private let eventContinuation: AsyncStream<XMPPEvent>.Continuation
@@ -146,12 +158,16 @@ public actor XMPPClient {
             throw XMPPClientError.alreadyConnected
         }
         state = .connecting
+        // Re-gate the readiness signal for this attempt; resumes any stale waiter left over from a prior
+        // attempt so a reconnect on the same instance can't strand it against the new gate.
+        settleInitialPresenceReadiness(open: false)
 
         do {
             try await establish()
         } catch {
             log.error("Connection failed: \(error)")
             state = .disconnected
+            settleInitialPresenceReadiness(open: true)
             throw error
         }
 
@@ -169,25 +185,38 @@ public actor XMPPClient {
             log.error("Handshake failed: \(error)")
             serverFeaturesLock.withLock { $0 = nil }
             state = .disconnected
+            // Open the gate so any service that started awaiting after `.connected` (yielded mid-chain,
+            // before a caps/presence failure could land) resolves instead of hanging on a dead client.
+            settleInitialPresenceReadiness(open: true)
             await connection.disconnect()
             throw error
         }
     }
 
-    /// Module lifecycle after handshake. Resume: `handleResume()` in dict order. Fresh: SM `<enable>` → `.connected` →
-    /// roster → others → presence (RFC 6121 / XEP-0198 ordering invariants — see inline comments).
+    /// Module lifecycle after handshake. Resume: `handleResume()` in dict order. Fresh: SM `<enable>` → `.connected`
+    /// → roster → non-PEP modules → presence + caps (caps last) → PEP publisher, per RFC 6121 / XEP-0163 ordering
+    /// invariants.
     private func runPostHandshakeModules(resumed: Bool) async throws {
         if resumed {
             for module in modules.values {
                 try await module.handleResume()
             }
+            // Resume re-sends neither presence nor caps, so the gate is already satisfied for the resumed
+            // session; resolve it so any PEP-reacting service awaiting it proceeds.
+            settleInitialPresenceReadiness(open: true)
             return
         }
 
         // RFC 6121: Roster must be fetched before initial presence is sent.
         let rosterKey = ObjectIdentifier(RosterModule.self)
         let presenceKey = ObjectIdentifier(PresenceModule.self)
+        let capsKey = ObjectIdentifier(CapsModule.self)
         let smKey = ObjectIdentifier(StreamManagementModule.self)
+        // OMEMOModule is the only connect-time PEP *publisher* (device-list + bundle); it is sequenced after
+        // caps below. Every other module keeps its original pre-presence timing so non-PEP startup work — e.g.
+        // CarbonsModule enabling carbons on the SASL1 fallback path — still completes before the resource is
+        // advertised as available.
+        let omemoKey = ObjectIdentifier(OMEMOModule.self)
 
         // Drive SM `<enable>` before any other handleConnect so the race
         // where Dictionary iteration ran a stanza-sending module (carbons
@@ -207,11 +236,63 @@ public actor XMPPClient {
         if let rosterModule = modules[rosterKey] {
             try await rosterModule.handleConnect()
         }
-        for (key, module) in modules where key != rosterKey && key != presenceKey && key != smKey {
+        // Non-PEP modules retain their original pre-presence ordering.
+        for (key, module) in modules
+            where key != rosterKey && key != presenceKey && key != capsKey && key != smKey && key != omemoKey {
             try await module.handleConnect()
         }
+        // XEP-0163 §3.3.2: the server gates PEP `+notify` delivery on having seen this resource's entity caps
+        // via initial presence, so the caps-bearing presence (`CapsModule`) must reach the server BEFORE any
+        // PEP publisher (the `OMEMOModule` device-list/bundle publish below, and the PEP-reacting DuckoCore
+        // services that await the readiness signal). Send the plain presence (`PresenceModule`, avatar hash)
+        // then the caps presence — caps last so it is the more recent of the two initial presences. The
+        // load-bearing guarantee is "server sees caps before any PEP publish," not "caps is the literal latest
+        // stanza forever" (`AvatarService` re-broadcasts a capless presence post-gate; servers retain caps from
+        // the last caps-bearing presence).
         if let presenceModule = modules[presenceKey] {
             try await presenceModule.handleConnect()
+        }
+        if let capsModule = modules[capsKey] {
+            try await capsModule.handleConnect()
+        }
+        // Caps is on the wire — release the gated PEP-reacting services, then run the PEP publisher module.
+        settleInitialPresenceReadiness(open: true)
+        if let omemoModule = modules[omemoKey] {
+            try await omemoModule.handleConnect()
+        }
+    }
+
+    // MARK: - Initial Presence Readiness
+
+    /// Suspends until the initial available presence AND entity caps have been sent on a fresh connect, or
+    /// returns immediately on a resumed session (where neither is re-sent). The PEP-reacting services
+    /// (OMEMO, Avatar, Bookmarks) await this before issuing PEP retrieves/publishes so the server has seen
+    /// this resource's caps first (XEP-0163 §3.3.2). Also resolves on connection failure / `disconnect()`,
+    /// so a waiting service never hangs when presence never goes out.
+    public nonisolated func awaitInitialPresenceSent() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Re-check the flag inside the critical section before suspending, so a `settle` that runs
+            // between an out-of-lock check and the append can't leave the continuation orphaned.
+            let alreadyOpen = presenceReadinessLock.withLock { state -> Bool in
+                if state.isOpen { return true }
+                state.waiters.append(continuation)
+                return false
+            }
+            if alreadyOpen { continuation.resume() }
+        }
+    }
+
+    /// Resolves all current waiters, setting the gate's open state. Idempotent. `open: true` opens the gate
+    /// (caps sent, or teardown so late awaits never hang); `open: false` re-gates for a new attempt.
+    private func settleInitialPresenceReadiness(open: Bool) {
+        let waiters = presenceReadinessLock.withLock { state -> [CheckedContinuation<Void, Never>] in
+            state.isOpen = open
+            let pending = state.waiters
+            state.waiters.removeAll()
+            return pending
+        }
+        for waiter in waiters {
+            waiter.resume()
         }
     }
 
@@ -893,6 +974,8 @@ public actor XMPPClient {
             pending.continuation.resume(throwing: XMPPClientError.notConnected)
         }
         pendingIQs.removeAll()
+        // Resolve any service still awaiting the readiness signal so it doesn't hang on this dead client.
+        settleInitialPresenceReadiness(open: true)
 
         eventContinuation.yield(.disconnected(reason))
         // Terminal: callers drop instance and rebuild on reconnect. `finish()` releases any pending for-await consumers.

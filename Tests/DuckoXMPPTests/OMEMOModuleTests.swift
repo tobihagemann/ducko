@@ -1,3 +1,4 @@
+import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
 
@@ -1420,6 +1421,111 @@ enum OMEMOModuleTests {
             await client.disconnect()
         }
     }
+
+    struct EnsureOwnDeviceInListTests {
+        /// When the server's own device-list already contains this device, `ensureOwnDeviceInList` takes
+        /// the no-publish early return (`if !devices.contains(deviceID.value)` is false): the stanza after
+        /// the device-list retrieve is the bundle publish, NOT a device-list publish. Contrast the empty-list
+        /// path (`makeConnectedClient`), which appends the device and publishes the list at the same offset.
+        @Test func `No device-list publish when own device already listed`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let deviceID: UInt32 = 4242
+            try omemoModule.configureIdentity(makeTestOMEMOIdentity(deviceID: deviceID, preKeyIDs: [1]).data)
+
+            let client = try await makeConnectedClientWithOwnDeviceListed(
+                mock: mock, omemoModule: omemoModule, pepModule: pepModule, deviceID: deviceID
+            )
+
+            let sent = await mock.sentBytes
+            // Handshake (0–3), own device-list retrieve (4), then the bundle publish (5) — no list publish.
+            let retrieve = String(decoding: sent[4], as: UTF8.self)
+            #expect(retrieve.contains("<items") && retrieve.contains(XMPPNamespaces.omemoDevices))
+            let afterRetrieve = String(decoding: sent[5], as: UTF8.self)
+            #expect(afterRetrieve.contains("<publish") && afterRetrieve.contains(OMEMOModule.bundleNodePrefix))
+            // No device-list publish IQ was issued anywhere during connect.
+            for bytes in sent {
+                let xml = String(decoding: bytes, as: UTF8.self)
+                #expect(!(xml.contains("<publish") && xml.contains("node=\"\(XMPPNamespaces.omemoDevices)\"")))
+            }
+
+            await client.disconnect()
+        }
+    }
+
+    struct ModuleKexRoundTripTests {
+        /// Drives a real `OMEMOModule.decryptKexKey` end-to-end so the consumed-pre-key recording branch
+        /// runs: an initiator module encrypts a KEX targeting the recipient's *real* published bundle (built
+        /// from the recipient's own keys — `makeValidBundleResultIQ`'s throwaway keys would fail decrypt
+        /// before the `usedPreKeyIDs.insert`), then the recipient handles the message through its public
+        /// `handleMessage` path and reports the pre-key as consumed.
+        @Test func `KEX round-trip records the consumed pre-key`() async throws {
+            let recipientDeviceID: UInt32 = 200
+            let targetedPreKeyID: UInt32 = 7
+            let recipient = try makeTestOMEMOIdentity(deviceID: recipientDeviceID, preKeyIDs: [targetedPreKeyID])
+
+            // Connect the recipient so its identity is restored and its pre-key is in scope.
+            let recipientMock = MockTransport()
+            let recipientPep = PEPModule()
+            let recipientOmemo = OMEMOModule(pepModule: recipientPep)
+            recipientOmemo.configureIdentity(recipient.data)
+            let recipientClient = try await makeConnectedClientWithOwnDeviceListed(
+                mock: recipientMock, omemoModule: recipientOmemo,
+                pepModule: recipientPep, deviceID: recipientDeviceID
+            )
+
+            // Connect the initiator (fresh generated identity).
+            let initiatorMock = MockTransport()
+            let initiatorPep = PEPModule()
+            let initiatorOmemo = OMEMOModule(pepModule: initiatorPep)
+            let (initiatorClient, _) = try await makeConnectedClient(
+                mock: initiatorMock, omemoModule: initiatorOmemo, pepModule: initiatorPep
+            )
+
+            // Initiator encrypts a KEX to the recipient's device. The recipient's own JID on the wire is
+            // `user@example.com` (the connect helper's credentials), so that is what the initiator fetches.
+            let recipientJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
+            let encryptTask = Task {
+                try await initiatorOmemo.encryptMessage(
+                    plaintext: "secret", to: recipientJID,
+                    recipientDeviceIDs: [recipientDeviceID], ownDeviceIDs: []
+                )
+            }
+            await initiatorMock.waitForSent(count: 1)
+            let fetchID = try await #require(extractIQID(from: initiatorMock.sentBytes[0]))
+            // Respond with the recipient's REAL bundle so the KEX is decryptable by the recipient's keys.
+            await initiatorMock.simulateReceive(makeBundleResultIQ(
+                iqID: fetchID, fromJID: recipientJID, identity: recipient, module: initiatorOmemo
+            ))
+            let elements = try await encryptTask.value
+
+            // Feed the initiator's KEX-bearing message into the recipient's public message-handling path.
+            let recipientEvents = Task {
+                try await collectEvents(from: recipientClient) { event in
+                    if case .omemoEncryptedMessageReceived = event { return true }
+                    return false
+                }
+            }
+            var messageEl = XMLElement(name: "message", attributes: [
+                "from": "peer@example.com/i", "to": recipientJID.description
+            ])
+            messageEl.addChild(elements.encrypted)
+            try recipientOmemo.handleMessage(XMPPMessage(element: messageEl))
+
+            let collected = try await recipientEvents.value
+            guard case let .omemoEncryptedMessageReceived(_, body, _, _) = try #require(collected.last) else {
+                Issue.record("Expected omemoEncryptedMessageReceived event")
+                return
+            }
+            #expect(body == "secret")
+            // The targeted pre-key was consumed during the responder key agreement.
+            #expect(recipientOmemo.consumedPreKeyIDs() == [targetedPreKeyID])
+
+            await initiatorClient.disconnect()
+            await recipientClient.disconnect()
+        }
+    }
 }
 
 // MARK: - Helpers
@@ -1516,6 +1622,17 @@ private func makeItemNotFoundIQ(iqID: String, fromJID: BareJID) -> String {
     """
 }
 
+/// Wraps a published bundle element in the PEP `<iq type='result'>` items envelope keyed by the bundle node.
+private func bundleResultIQ(iqID: String, fromJID: BareJID, deviceID: UInt32, bundleEl: XMLElement) -> String {
+    """
+    <iq type="result" id="\(iqID)" from="\(fromJID.description)">\
+    <pubsub xmlns="http://jabber.org/protocol/pubsub">\
+    <items node="\(OMEMOModule.bundleNodePrefix)\(deviceID)">\
+    <item id="current">\(bundleEl.xmlString)</item>\
+    </items></pubsub></iq>
+    """
+}
+
 /// Builds a `<iq type='result'>` carrying a freshly-generated valid OMEMO
 /// bundle for the given peer device, suitable for X3DH initiator agreement.
 private func makeValidBundleResultIQ(
@@ -1532,14 +1649,24 @@ private func makeValidBundleResultIQ(
         signedPreKey: signedPreKey,
         preKeys: [preKey]
     )
-    let bundleEl = module.buildBundleElement(bundle)
-    return """
-    <iq type="result" id="\(iqID)" from="\(fromJID.description)">\
-    <pubsub xmlns="http://jabber.org/protocol/pubsub">\
-    <items node="urn:xmpp:omemo:2:bundles:\(deviceID)">\
-    <item id="current">\(bundleEl.xmlString)</item>\
-    </items></pubsub></iq>
-    """
+    return bundleResultIQ(iqID: iqID, fromJID: fromJID, deviceID: deviceID, bundleEl: module.buildBundleElement(bundle))
+}
+
+/// Builds a `<iq type='result'>` carrying the bundle for `identity`'s real keys, so a KEX encrypted to it
+/// is decryptable by a module configured with the same identity — unlike `makeValidBundleResultIQ`, whose
+/// throwaway keys discard the private halves the responder needs.
+private func makeBundleResultIQ(
+    iqID: String, fromJID: BareJID, identity: TestOMEMOIdentity, module: OMEMOModule
+) -> String {
+    let bundle = OMEMOPreKeyManager.buildBundle(
+        deviceID: OMEMODeviceID(value: identity.data.deviceID),
+        identityKeyPair: identity.identityKeyPair,
+        signedPreKey: identity.signedPreKey,
+        preKeys: identity.preKeys
+    )
+    return bundleResultIQ(
+        iqID: iqID, fromJID: fromJID, deviceID: identity.data.deviceID, bundleEl: module.buildBundleElement(bundle)
+    )
 }
 
 /// Extracts the bundle device ID from a captured `<iq>` whose pubsub items
@@ -1755,4 +1882,70 @@ private func makeTestBundle() -> OMEMOBundle {
             )
         ]
     )
+}
+
+/// A real OMEMO identity with its private key material retained, so the same identity can both seed a
+/// module via `configureIdentity(_:)` (`data`) and build a decryptable peer bundle via the key pairs.
+private struct TestOMEMOIdentity {
+    let data: OMEMOModule.OMEMOIdentityData
+    let identityKeyPair: OMEMOIdentityKeyPair
+    let signedPreKey: OMEMOSignedPreKey
+    let preKeys: [OMEMOPreKey]
+}
+
+private func makeTestOMEMOIdentity(deviceID: UInt32, preKeyIDs: [UInt32]) throws -> TestOMEMOIdentity {
+    let identityKeyPair = OMEMOIdentityKeyPair()
+    let signedPreKey = try OMEMOPreKeyManager.generateSignedPreKey(keyID: 1, identityKey: identityKeyPair)
+    let preKeys = preKeyIDs.map { OMEMOPreKey(keyID: $0) }
+    let data = OMEMOModule.OMEMOIdentityData(
+        deviceID: deviceID,
+        identityKeyRaw: identityKeyPair.rawRepresentation,
+        signedPreKeyID: signedPreKey.keyID,
+        signedPreKeyRaw: signedPreKey.rawRepresentation,
+        signedPreKeySignature: signedPreKey.signature,
+        preKeys: preKeys.map {
+            OMEMOModule.OMEMOIdentityData.PreKeyData(keyID: $0.keyID, keyRaw: $0.rawRepresentation)
+        }
+    )
+    return TestOMEMOIdentity(
+        data: data, identityKeyPair: identityKeyPair, signedPreKey: signedPreKey, preKeys: preKeys
+    )
+}
+
+/// Drives the standard handshake plus OMEMO connect where the server's own device-list ALREADY contains
+/// the configured `deviceID`, so `ensureOwnDeviceInList` takes the no-publish early-return: retrieve →
+/// bundle publish (no device-list publish). The own-only list means `pruneStaleBundles` has no peer
+/// devices to probe, so no probe/retract scaffolding is needed. The module must have `configureIdentity`
+/// called with a matching `deviceID` before this runs. Unlike `makeConnectedClient`, the mock's sent
+/// buffer is NOT cleared so callers can inspect the connect-time stanza sequence.
+private func makeConnectedClientWithOwnDeviceListed(
+    mock: MockTransport,
+    omemoModule: OMEMOModule,
+    pepModule: PEPModule,
+    deviceID: UInt32
+) async throws -> XMPPClient {
+    let client = XMPPClient(
+        domain: "example.com",
+        credentials: .init(username: "user", password: "pass"),
+        transport: mock, requireTLS: false
+    )
+    await client.register(pepModule)
+    await client.register(omemoModule)
+
+    let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+    await simulateNoTLSConnect(mock)
+
+    // Own device-list retrieve — return a list that ALREADY contains the configured own device ID.
+    await mock.waitForSent(count: 5)
+    let id5 = try await #require(extractIQID(from: mock.sentBytes[4]))
+    await mock.simulateReceive(makeOwnDeviceListResultIQ(iqID: id5, devices: [deviceID]))
+
+    // No device-list publish (own device already present) — the next stanza is the bundle publish.
+    await mock.waitForSent(count: 6)
+    let bundlePublishIQ = await mock.sentBytes[5]
+    let id6 = try #require(extractIQID(from: bundlePublishIQ))
+    await mock.simulateReceive("<iq type=\"result\" id=\"\(id6)\"/>")
+
+    try await connectTask.value
+    return client
 }
