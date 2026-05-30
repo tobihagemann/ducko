@@ -209,14 +209,16 @@ func simulateISRFailAndFallback(_ mock: MockTransport) async {
 
 // MARK: - Sent-Response Waiting
 
-/// Clears the mock's sent buffer, injects `stanza`, then polls `mock.sentBytes`
-/// until one of the outgoing strings satisfies `predicate` or the deadline
-/// elapses. Returns the matching string, or `nil` on timeout / no match.
+/// Clears the mock's sent buffer, injects `stanza`, then suspends until an outgoing stanza satisfies
+/// `predicate` or `timeout` elapses. Returns the matching string, or `nil` on timeout / no match.
 ///
-/// Call sites must not chain a second `simulateReceive` into the same
-/// `awaitSentResponse` invocation without first awaiting the previous response
-/// to completion — a pending fire-and-forget reply from an earlier stimulus
-/// could otherwise satisfy the new predicate and mask a missing response.
+/// The wait is event-driven: `MockTransport.waitForSent(matching:)` fires the instant a matching stanza is
+/// sent (or finds one already buffered), raced against a timeout task. Actor isolation makes a match
+/// deterministic regardless of scheduler load — only the `nil`/timeout path depends on the clock.
+///
+/// Call sites must not chain a second `simulateReceive` into the same `awaitSentResponse` invocation without
+/// first awaiting the previous response to completion — a pending fire-and-forget reply from an earlier
+/// stimulus could otherwise satisfy the new predicate and mask a missing response.
 func awaitSentResponse(
     on mock: MockTransport,
     afterReceiving stanza: String,
@@ -224,34 +226,16 @@ func awaitSentResponse(
     timeout: Duration = .seconds(2)
 ) async -> String? {
     await mock.clearSentBytes()
-    await mock.simulateReceive(stanza)
 
-    let deadline = ContinuousClock.now.advanced(by: timeout)
-    var scanned = 0
-    while ContinuousClock.now < deadline {
-        if Task.isCancelled { return nil }
-        if let match = await scan(mock: mock, from: &scanned, predicate: predicate) {
-            return match
+    return await withTaskGroup(of: String?.self) { group in
+        group.addTask { await mock.waitForSent(matching: predicate) }
+        await mock.simulateReceive(stanza)
+        group.addTask {
+            try? await Task.sleep(for: timeout)
+            return nil
         }
-        try? await Task.sleep(for: .milliseconds(25))
+        let result = await group.next() ?? nil
+        group.cancelAll()
+        return result
     }
-    // Final scan after the deadline to cover stanzas appended between the
-    // last in-loop scan and the deadline elapsing.
-    return await scan(mock: mock, from: &scanned, predicate: predicate)
-}
-
-private func scan(
-    mock: MockTransport,
-    from scanned: inout Int,
-    predicate: (String) -> Bool
-) async -> String? {
-    let sent = await mock.sentBytes
-    if sent.count > scanned {
-        for i in scanned ..< sent.count {
-            let candidate = String(decoding: sent[i], as: UTF8.self)
-            if predicate(candidate) { return candidate }
-        }
-        scanned = sent.count
-    }
-    return nil
 }

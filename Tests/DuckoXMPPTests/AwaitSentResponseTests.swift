@@ -2,9 +2,10 @@ import DuckoTestSupport
 import Testing
 
 /// Direct tests for the `awaitSentResponse` helper in `XMPPTestHelpers.swift`.
-/// The helper is exercised indirectly by every module test that uses it, but a
-/// regression in the scanned-offset bookkeeping or the post-deadline scan would
-/// either reintroduce timing flake or silently miss late-arriving responses.
+/// The helper is exercised indirectly by every module test that uses it; these
+/// pin its contract directly: an event-driven match returns the matching stanza,
+/// a never-satisfied predicate returns nil at the deadline, and the up-front
+/// buffer clear isolates bytes sent before the call.
 enum AwaitSentResponseTests {
     private static func connectedMock() async throws -> MockTransport {
         let mock = MockTransport()
@@ -80,7 +81,7 @@ enum AwaitSentResponseTests {
         }
     }
 
-    struct PostLoopScan {
+    struct ZeroTimeout {
         @Test func `clear-before-scan isolates previously-sent bytes even on zero timeout`() async throws {
             let mock = try await connectedMock()
             try await mock.send(Array("<priorByte/>".utf8))
@@ -93,38 +94,6 @@ enum AwaitSentResponseTests {
             // The helper clears sentBytes as its first step, so `priorByte`
             // must NOT match.
             #expect(result == nil)
-        }
-
-        @Test func `the final scan returns a stanza appended after the last in-loop scan`() async throws {
-            // The helper scans `sentBytes` on a fixed ~25 ms cadence until the deadline, then runs one final
-            // scan. This exercises that final scan: the reply lands ~20 ms before the deadline — past the last
-            // in-loop scan (~25 ms before the deadline) under normal timing, so the final scan is what returns
-            // it. The guard is timing-based, not deterministic: a late-waking in-loop scan can also catch the
-            // reply, so deleting the final scan does not *guarantee* a failure here. A deterministic guard would
-            // need a timing seam in `awaitSentResponse` itself, which its single-consumer signature deliberately
-            // avoids.
-            //
-            // Drive the wait off the same `ContinuousClock` with short poll-sleeps (not one long sleep) so heavy
-            // parallel load — which inflates a single `Task.sleep` and could overshoot the deadline — can't push
-            // the send past the final scan and turn the result into a spurious `nil`.
-            let mock = try await connectedMock()
-            let timeout = Duration.milliseconds(300)
-            let start = ContinuousClock.now
-            let sendAt = start.advanced(by: timeout - .milliseconds(20))
-            let sender = Task {
-                while ContinuousClock.now < sendAt {
-                    try? await Task.sleep(for: .milliseconds(4))
-                }
-                try? await mock.send(Array("<late kind='final'/>".utf8))
-            }
-            let result = await awaitSentResponse(
-                on: mock,
-                afterReceiving: "<trigger/>",
-                matching: { $0.contains("late") && $0.contains("kind='final'") },
-                timeout: timeout
-            )
-            _ = await sender.value
-            #expect(result?.contains("late") == true)
         }
     }
 }

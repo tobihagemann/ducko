@@ -16,6 +16,13 @@ public actor MockTransport: XMPPTransport {
     private var nextConnectError: (any Error)?
     private var sendFailure: (any Error)?
     private var sentWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
+    private struct PredicateSentWaiter {
+        let predicate: @Sendable (String) -> Bool
+        let continuation: CheckedContinuation<String?, Never>
+    }
+
+    private var nextPredicateSentWaiterID = 0
+    private var predicateSentWaiters: [Int: PredicateSentWaiter] = [:]
     private var blockPredicate: (@Sendable (String) -> Bool)?
     private var blockedSends: [CheckedContinuation<Void, Never>] = []
     private var blockedReleased = false
@@ -84,6 +91,10 @@ public actor MockTransport: XMPPTransport {
         if let waiter = sentWaiters.removeValue(forKey: sentBytes.count) {
             waiter.resume()
         }
+        let stanza = String(decoding: bytes, as: UTF8.self)
+        for id in predicateSentWaiters.filter({ $0.value.predicate(stanza) }).map(\.key) {
+            predicateSentWaiters.removeValue(forKey: id)?.continuation.resume(returning: stanza)
+        }
     }
 
     public func disconnect() {
@@ -108,6 +119,34 @@ public actor MockTransport: XMPPTransport {
         }
     }
 
+    /// Suspends until a sent stanza satisfies `predicate`, returning the matching stanza, or `nil` if the
+    /// awaiting task is cancelled (e.g. a timeout race). Already-sent bytes are scanned before registering, so
+    /// a send that lands before the waiter registers is not missed — actor isolation makes the wait
+    /// deterministic with no polling.
+    public func waitForSent(matching predicate: @escaping @Sendable (String) -> Bool) async -> String? {
+        let id = nextPredicateSentWaiterID
+        nextPredicateSentWaiterID += 1
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled {
+                    continuation.resume(returning: nil)
+                    return
+                }
+                if let match = sentBytes.lazy.map({ String(decoding: $0, as: UTF8.self) }).first(where: predicate) {
+                    continuation.resume(returning: match)
+                    return
+                }
+                predicateSentWaiters[id] = PredicateSentWaiter(predicate: predicate, continuation: continuation)
+            }
+        } onCancel: {
+            Task { await self.cancelPredicateSentWaiter(id) }
+        }
+    }
+
+    private func cancelPredicateSentWaiter(_ id: Int) {
+        predicateSentWaiters.removeValue(forKey: id)?.continuation.resume(returning: nil)
+    }
+
     /// Simulates receiving a UTF-8 string from the network.
     public func simulateReceive(_ string: String) {
         receivedContinuation.yield(Array(string.utf8))
@@ -126,6 +165,10 @@ public actor MockTransport: XMPPTransport {
     public func clearSentBytes() {
         sentBytes.removeAll()
         sentWaiters.removeAll()
+        for waiter in predicateSentWaiters.values {
+            waiter.continuation.resume(returning: nil)
+        }
+        predicateSentWaiters.removeAll()
     }
 
     /// Holds any send whose serialized stanza matches `predicate` until `releaseBlockedSends()` is called,
