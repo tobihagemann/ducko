@@ -4,25 +4,9 @@ import Testing
 
 // MARK: - XML Constants
 
-/// Standard stream opening from server.
-let testServerStreamOpen =
-    "<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' from='example.com' version='1.0'>"
-
-/// Features offering only PLAIN auth (no TLS).
-let testFeaturesNoTLS = """
-<features xmlns='http://etherx.jabber.org/streams'>\
-<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
-<mechanism>PLAIN</mechanism>\
-</mechanisms>\
-</features>
-"""
-
-/// Post-auth features with bind only.
-let testFeaturesBind = """
-<features xmlns='http://etherx.jabber.org/streams'>\
-<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
-</features>
-"""
+// `testServerStreamOpen`, `testFeaturesNoTLS`, and `testFeaturesBind` live in
+// `DuckoTestSupport/HandshakeFixtures.swift` (shared with DuckoCoreTests). The SM/SASL2/ISR constants below
+// are XMPP-only, so they stay here.
 
 /// Post-auth features with bind and Stream Management.
 let testFeaturesBindWithSM = """
@@ -221,25 +205,6 @@ func simulateISRFailAndFallback(_ mock: MockTransport) async {
     await mock.waitForSent(count: 4) // post-auth stream opening sent
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(testPostSASL2Features)
-}
-
-// MARK: - IQ ID Extraction
-
-/// Extracts the IQ `id` attribute value from a raw XML string.
-///
-/// Mirrors the DuckoCoreTests helper (`CoreTestHelpers.swift`); the two test targets cannot share
-/// helpers, so keep the implementations in sync.
-func extractIQID(from xmlString: String) -> String? {
-    guard let idRange = xmlString.range(of: "id=\""),
-          let endRange = xmlString[idRange.upperBound...].firstIndex(of: "\"") else {
-        return nil
-    }
-    return String(xmlString[idRange.upperBound ..< endRange])
-}
-
-/// Extracts the IQ `id` attribute value from captured `MockTransport.sentBytes`.
-func extractIQID(from bytes: [UInt8]) -> String? {
-    extractIQID(from: String(decoding: bytes, as: UTF8.self))
 }
 
 // MARK: - Sent-Response Waiting

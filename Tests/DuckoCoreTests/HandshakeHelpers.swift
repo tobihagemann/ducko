@@ -2,25 +2,8 @@ import DuckoTestSupport
 
 // MARK: - Handshake Simulation
 
-/// Standard stream opening from server.
-let testServerStreamOpen =
-    "<stream:stream xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' from='example.com' version='1.0'>"
-
-/// Features offering only PLAIN auth (no TLS).
-let testFeaturesNoTLS = """
-<features xmlns='http://etherx.jabber.org/streams'>\
-<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
-<mechanism>PLAIN</mechanism>\
-</mechanisms>\
-</features>
-"""
-
-/// Post-auth features with bind only.
-let testFeaturesBind = """
-<features xmlns='http://etherx.jabber.org/streams'>\
-<bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'/>\
-</features>
-"""
+// The stream-open and features constants used below live in `DuckoTestSupport/HandshakeFixtures.swift`
+// (shared with DuckoXMPPTests). `testBindResult` stays per-target because its bound JID differs.
 
 /// Bind result with a full JID.
 let testBindResult = """

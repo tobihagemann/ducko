@@ -58,6 +58,29 @@ enum PollingTests {
         }
     }
 
+    @MainActor
+    struct MainActorCases {
+        @Test func `accepts a sending closure that reads and mutates MainActor-owned non-Sendable state`() async {
+            // Mirrors the sole production caller (`OMEMOService.handleConnectedFirstTimePersistence`): a
+            // @MainActor caller hands off a closure that reads and mutates non-Sendable state it owns. The
+            // `sending` parameter transfers that closure's region into `pollUntil`, making the handoff legal
+            // without `@Sendable` — which the capturing closure cannot be.
+            let counter = PollCounter()
+            let result = await pollUntil(
+                {
+                    counter.value += 1
+                    return counter.value >= 3
+                },
+                timeout: .seconds(1),
+                interval: .milliseconds(10)
+            )
+            // `result == true` is reached only after the closure mutated `counter.value` to 3, proving the
+            // MainActor-owned state was read and written across polls. Reading `counter` here would re-enter the
+            // region already transferred into `pollUntil`, so the return value carries the assertion.
+            #expect(result == true)
+        }
+    }
+
     struct CancellationCases {
         @Test func `returns false when the surrounding task is cancelled before starting`() async {
             let task = Task {
@@ -82,4 +105,10 @@ enum PollingTests {
             #expect(elapsed < .seconds(1))
         }
     }
+}
+
+/// Non-Sendable reference box: owned by the @MainActor caller and mutated inside the `sending` closure, so the
+/// closure cannot be `@Sendable`. Exercises `pollUntil`'s region-transfer handoff.
+private final class PollCounter {
+    var value = 0
 }

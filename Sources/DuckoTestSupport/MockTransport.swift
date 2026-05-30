@@ -13,6 +13,7 @@ public actor MockTransport: XMPPTransport {
     public private(set) var connectedPort: UInt16?
 
     private let connectError: (any Error)?
+    private var nextConnectError: (any Error)?
     private var sendFailure: (any Error)?
     private var sentWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
     private var blockPredicate: (@Sendable (String) -> Bool)?
@@ -27,8 +28,8 @@ public actor MockTransport: XMPPTransport {
     }
 
     public func connect(host: String, port: UInt16) async throws {
-        if let connectError {
-            throw connectError
+        if let error = takeConnectError() {
+            throw error
         }
         guard !isConnected else {
             throw MockTransportError.alreadyConnected
@@ -39,8 +40,8 @@ public actor MockTransport: XMPPTransport {
     }
 
     public func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
-        if let connectError {
-            throw connectError
+        if let error = takeConnectError() {
+            throw error
         }
         guard !isConnected else {
             throw MockTransportError.alreadyConnected
@@ -49,6 +50,17 @@ public actor MockTransport: XMPPTransport {
         isTLSUpgraded = true
         connectedHost = host
         connectedPort = port
+    }
+
+    /// Resolves the error (if any) the current connect attempt should throw. The permanent
+    /// `init(connectError:)` error takes precedence and is never consumed.
+    private func takeConnectError() -> (any Error)? {
+        if let connectError {
+            return connectError
+        }
+        let next = nextConnectError
+        nextConnectError = nil
+        return next
     }
 
     public func upgradeTLS(serverName: String) async throws {
@@ -80,6 +92,13 @@ public actor MockTransport: XMPPTransport {
     }
 
     // MARK: - Test Helpers
+
+    /// Makes the next `connect`/`connectWithTLS` throw `error`; the following attempt succeeds. Lets a test drive
+    /// a same-instance reconnect: the failed attempt throws before `isConnected` is set, so the transport stays
+    /// not-connected and its `receivedData` stream is left untouched for the next connect.
+    public func failNextConnect(_ error: any Error) {
+        nextConnectError = error
+    }
 
     /// Suspends until `sentBytes.count >= count`. Returns immediately if already met.
     public func waitForSent(count: Int) async {

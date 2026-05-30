@@ -94,5 +94,37 @@ enum AwaitSentResponseTests {
             // must NOT match.
             #expect(result == nil)
         }
+
+        @Test func `the final scan returns a stanza appended after the last in-loop scan`() async throws {
+            // The helper scans `sentBytes` on a fixed ~25 ms cadence until the deadline, then runs one final
+            // scan. This exercises that final scan: the reply lands ~20 ms before the deadline — past the last
+            // in-loop scan (~25 ms before the deadline) under normal timing, so the final scan is what returns
+            // it. The guard is timing-based, not deterministic: a late-waking in-loop scan can also catch the
+            // reply, so deleting the final scan does not *guarantee* a failure here. A deterministic guard would
+            // need a timing seam in `awaitSentResponse` itself, which its single-consumer signature deliberately
+            // avoids.
+            //
+            // Drive the wait off the same `ContinuousClock` with short poll-sleeps (not one long sleep) so heavy
+            // parallel load — which inflates a single `Task.sleep` and could overshoot the deadline — can't push
+            // the send past the final scan and turn the result into a spurious `nil`.
+            let mock = try await connectedMock()
+            let timeout = Duration.milliseconds(300)
+            let start = ContinuousClock.now
+            let sendAt = start.advanced(by: timeout - .milliseconds(20))
+            let sender = Task {
+                while ContinuousClock.now < sendAt {
+                    try? await Task.sleep(for: .milliseconds(4))
+                }
+                try? await mock.send(Array("<late kind='final'/>".utf8))
+            }
+            let result = await awaitSentResponse(
+                on: mock,
+                afterReceiving: "<trigger/>",
+                matching: { $0.contains("late") && $0.contains("kind='final'") },
+                timeout: timeout
+            )
+            _ = await sender.value
+            #expect(result?.contains("late") == true)
+        }
     }
 }

@@ -295,6 +295,71 @@ enum ConnectOrderingTests {
             await client.disconnect()
             connectTask.cancel()
         }
+
+        @Test func `a same-instance reconnect re-closes the gate for a freshly parked waiter`() async {
+            // The connect-start re-gate (`settleInitialPresenceReadiness(open: false)`) is only observable on a
+            // *same-instance* reconnect, reachable only through a first-attempt establish failure: that catch
+            // sets `.disconnected`, opens the gate, and rethrows WITHOUT calling `connection.disconnect()`, so
+            // `XMPPConnection.events` and `MockTransport.receivedData` survive and attempt 2 can complete a full
+            // handshake on the same instances. Without the re-gate, attempt 1's stale `isOpen = true` would leak
+            // into attempt 2 and resolve a waiter that must stay parked until the new caps presence is sent.
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(PresenceModule())
+            await client.register(CapsModule())
+
+            // Attempt 1: the transport-connect error makes `establish()` throw before the handshake. The catch
+            // opens the gate (now stale-open) and rethrows without disconnecting the surviving connection.
+            await mock.failNextConnect(XMPPConnectionError.connectionTimeout)
+            await #expect(throws: (any Error).self) {
+                try await client.connect(host: "example.com", port: 5222)
+            }
+
+            // Attempt 2: reconnect on the same instances, holding caps off the wire so the gate's caps settle is
+            // never reached and its state is governed solely by the connect-start re-gate.
+            await mock.blockSends { $0.contains(XMPPNamespaces.caps) }
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            // `simulateNoTLSConnect`'s `waitForSent(count: 1)` is the barrier proving `openStream` ran — i.e. the
+            // re-gate's `settle(open: false)` already executed before this stanza went out.
+            await simulateNoTLSConnect(mock)
+            await mock.waitForSent(count: 5) // plain presence out; caps (stanza 6) blocked
+
+            // Park a waiter AFTER the re-gate; the "started" signal proves it reached the closed gate before the
+            // negative check, so a non-resolution can't be mistaken for a not-yet-started task.
+            let probe = GateProbe()
+            let waiter = Task {
+                await probe.markStarted()
+                await client.awaitInitialPresenceSent()
+                await probe.markOpen()
+            }
+            var started = false
+            for _ in 0 ..< 100 {
+                if await probe.isStarted { started = true; break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(started)
+
+            // The re-gate re-closed the gate, so the freshly parked waiter must NOT resolve on the stale open.
+            try? await Task.sleep(for: .milliseconds(300))
+            #expect(await probe.isOpen == false)
+
+            // Releasing caps reaches the post-caps settle; the same waiter then resolves.
+            await mock.releaseBlockedSends()
+            var opened = false
+            for _ in 0 ..< 100 {
+                if await probe.isOpen { opened = true; break }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(opened)
+
+            waiter.cancel()
+            await client.disconnect()
+            connectTask.cancel()
+        }
     }
 }
 
@@ -302,7 +367,12 @@ enum ConnectOrderingTests {
 /// task-group race) is required because the gate await is a non-cancellable `CheckedContinuation`: a waiter
 /// abandoned mid-suspension would otherwise block its enclosing task group from ever returning.
 private actor GateProbe {
+    private(set) var isStarted = false
     private(set) var isOpen = false
+    func markStarted() {
+        isStarted = true
+    }
+
     func markOpen() {
         isOpen = true
     }

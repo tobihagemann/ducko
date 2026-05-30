@@ -7,6 +7,8 @@ import Foundation
 // fixtures (`testAccountID`, `contactJID`, `makeStore`, `makeTranscripts`,
 // `makeChatService`, `makeCredentials`) stay file-private to keep individual
 // suites uncoupled — only the connect-driving subset is shared here.
+//
+// `extractIQID` lives in `DuckoTestSupport/HandshakeFixtures.swift` (shared with DuckoXMPPTests).
 
 /// Bound JID used by `MockTransport.testBindResult` — the "alice@example.com"
 /// account fixture for tests that exercise an `AccountService` with a mock
@@ -23,17 +25,6 @@ func makeAccountService(
     clientFactory: any XMPPClientFactory = DefaultXMPPClientFactory()
 ) -> AccountService {
     AccountService(store: store, credentialStore: credentials, clientFactory: clientFactory)
-}
-
-/// Extracts the first `id="..."` attribute value from a raw sent-stanza XML string. `XMLElement.xmlString`
-/// sorts attributes alphabetically, so an outer iq's `id` always precedes any inner element's. Mirrors the
-/// DuckoXMPPTests helper, which can't be reached across the test-target boundary.
-func extractIQID(from xmlString: String) -> String? {
-    guard let range = xmlString.range(of: "id=\""),
-          let endRange = xmlString[range.upperBound...].firstIndex(of: "\"") else {
-        return nil
-    }
-    return String(xmlString[range.upperBound ..< endRange])
 }
 
 /// Extracts the `queryid="..."` attribute value from a raw MAM query IQ.
