@@ -91,9 +91,11 @@ public actor MockTransport: XMPPTransport {
         if let waiter = sentWaiters.removeValue(forKey: sentBytes.count) {
             waiter.resume()
         }
-        let stanza = String(decoding: bytes, as: UTF8.self)
-        for id in predicateSentWaiters.filter({ $0.value.predicate(stanza) }).map(\.key) {
-            predicateSentWaiters.removeValue(forKey: id)?.continuation.resume(returning: stanza)
+        if !predicateSentWaiters.isEmpty {
+            let stanza = String(decoding: bytes, as: UTF8.self)
+            for id in predicateSentWaiters.compactMap({ $0.value.predicate(stanza) ? $0.key : nil }) {
+                predicateSentWaiters.removeValue(forKey: id)?.continuation.resume(returning: stanza)
+            }
         }
     }
 

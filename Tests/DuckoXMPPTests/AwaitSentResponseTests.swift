@@ -2,10 +2,8 @@ import DuckoTestSupport
 import Testing
 
 /// Direct tests for the `awaitSentResponse` helper in `XMPPTestHelpers.swift`.
-/// The helper is exercised indirectly by every module test that uses it; these
-/// pin its contract directly: an event-driven match returns the matching stanza,
-/// a never-satisfied predicate returns nil at the deadline, and the up-front
-/// buffer clear isolates bytes sent before the call.
+/// It is exercised indirectly by every module test that uses it, but pinned here
+/// directly because a regression would silently mask a missing response.
 enum AwaitSentResponseTests {
     private static func connectedMock() async throws -> MockTransport {
         let mock = MockTransport()

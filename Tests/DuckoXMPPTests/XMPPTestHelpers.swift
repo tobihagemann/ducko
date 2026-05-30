@@ -229,13 +229,18 @@ func awaitSentResponse(
 
     return await withTaskGroup(of: String?.self) { group in
         group.addTask { await mock.waitForSent(matching: predicate) }
+        // simulateReceive runs after the waiter task is scheduled; waitForSent scans the
+        // already-sent buffer when it registers, so a reply that lands before the task
+        // starts is still caught (no lost wakeup).
         await mock.simulateReceive(stanza)
         group.addTask {
             try? await Task.sleep(for: timeout)
             return nil
         }
-        let result = await group.next() ?? nil
-        group.cancelAll()
-        return result
+        for await result in group {
+            group.cancelAll()
+            return result
+        }
+        return nil
     }
 }
