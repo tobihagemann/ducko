@@ -1051,12 +1051,7 @@ extension DuckoCLI {
                 }
                 let env = context.environment
 
-                try await env.accountService.loadAccounts()
-                let accounts = await MainActor.run { env.accountService.accounts }
-
-                guard let account = accounts.first(where: { $0.jid.description == jid }) else {
-                    throw CLIError.accountNotFound(jid)
-                }
+                let account = try await resolveAccount(byJID: jid, environment: env)
 
                 await env.removeAccount(account.id, includeHistory: includeHistory)
                 print("Account deleted: \(jid)")
@@ -1083,12 +1078,7 @@ extension DuckoCLI {
                 }
                 let env = context.environment
 
-                try await env.accountService.loadAccounts()
-                let accounts = await MainActor.run { env.accountService.accounts }
-
-                guard let account = accounts.first(where: { $0.jid.description == jid }) else {
-                    throw CLIError.accountNotFound(jid)
-                }
+                let account = try await resolveAccount(byJID: jid, environment: env)
 
                 print("WARNING: This will permanently unregister \(jid) from the server.")
                 if includeHistory {
@@ -2837,6 +2827,18 @@ private func resolveAccount(_ accountIDString: String?, environment: AppEnvironm
         return found
     }
     return accounts[0]
+}
+
+private func resolveAccount(byJID jid: String, environment: AppEnvironment) async throws -> DuckoCore.Account {
+    guard let bareJID = BareJID.parse(jid) else {
+        throw CLIError.invalidJID(jid)
+    }
+    try await environment.accountService.loadAccounts()
+    let accounts = await MainActor.run { environment.accountService.accounts }
+    guard let account = accounts.first(where: { $0.jid == bareJID }) else {
+        throw CLIError.accountNotFound(jid)
+    }
+    return account
 }
 
 private func waitForConnected(accountID: UUID, environment: AppEnvironment) async throws {

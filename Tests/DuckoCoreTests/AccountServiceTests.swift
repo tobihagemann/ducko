@@ -70,6 +70,39 @@ enum AccountServiceTests {
 
         @Test
         @MainActor
+        func `createAccount with duplicate JID throws duplicateJID`() async throws {
+            let store = makeStore()
+            let service = makeAccountService(store: store)
+
+            _ = try await service.createAccount(jidString: testJIDString)
+
+            // A case-variant collides: the guard compares parsed (case-folded)
+            // BareJIDs, not the raw input strings.
+            let error = await #expect(throws: AccountService.AccountServiceError.self) {
+                _ = try await service.createAccount(jidString: "Alice@Example.COM")
+            }
+            let isDuplicate = if case .duplicateJID? = error { true } else { false }
+            #expect(isDuplicate)
+
+            let accounts = try await store.fetchAccounts()
+            #expect(accounts.count == 1)
+        }
+
+        @Test
+        @MainActor
+        func `createAccount with a distinct JID succeeds alongside an existing account`() async throws {
+            let store = makeStore()
+            let service = makeAccountService(store: store)
+
+            _ = try await service.createAccount(jidString: testJIDString)
+            _ = try await service.createAccount(jidString: "bob@example.com")
+
+            let accounts = try await store.fetchAccounts()
+            #expect(accounts.count == 2)
+        }
+
+        @Test
+        @MainActor
         func `createAccount auto-links imported conversations`() async throws {
             let store = makeStore()
             let contactJID = try #require(BareJID(localPart: "bob", domainPart: "example.com"))

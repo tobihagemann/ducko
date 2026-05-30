@@ -40,6 +40,7 @@ public final class AccountService {
 
     public enum AccountServiceError: Error, LocalizedError {
         case invalidJID(String)
+        case duplicateJID(String)
         case accountNotFound(UUID)
         case noStoredPassword(String)
         case notConnected(UUID)
@@ -48,6 +49,7 @@ public final class AccountService {
         public var errorDescription: String? {
             switch self {
             case let .invalidJID(string): "Invalid JID: \(string)"
+            case let .duplicateJID(jid): "An account with JID \(jid) already exists"
             case let .accountNotFound(id): "Account not found: \(id)"
             case let .noStoredPassword(jid): "No stored password for \(jid)"
             case let .notConnected(id): notConnectedDescription(id)
@@ -147,6 +149,10 @@ public final class AccountService {
     ) async throws -> UUID {
         guard let jid = BareJID.parse(jidString) else {
             throw AccountServiceError.invalidJID(jidString)
+        }
+        let existing = try await store.fetchAccounts()
+        if existing.contains(where: { $0.jid == jid }) {
+            throw AccountServiceError.duplicateJID(jidString)
         }
         let account = Account(
             id: UUID(),

@@ -40,6 +40,75 @@ extension DuckoIntegrationTests.CLILayer {
         }
 
         @Test
+        @MainActor func `account delete matches a case-variant JID`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                try await cli.seedAccount(alice)
+
+                // Lookups normalize through BareJID, so an upper-cased JID
+                // resolves to the stored (case-folded) account.
+                let deleted = try await cli.run(["account", "delete", alice.jid.uppercased()])
+                #expect(deleted.exitCode == 0)
+
+                let listed = try await cli.run(["account", "list", "--output", "plain"])
+                #expect(listed.exitCode == 0)
+                #expect(listed.stdout.contains("No accounts configured."))
+            }
+        }
+
+        @Test
+        @MainActor func `account unregister matches a case-variant JID before confirming`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                try await cli.seedAccount(alice)
+
+                // Decline the confirmation so the account is only resolved (proving
+                // the case-variant lookup matched) and never unregistered on the server.
+                let output = try await cli.run(
+                    ["account", "unregister", alice.jid.uppercased()],
+                    stdin: "no\n"
+                )
+                #expect(output.exitCode == 0)
+                #expect(output.stdout.contains("Cancelled."))
+            }
+        }
+
+        @Test
+        @MainActor func `account delete reports an error for an invalid JID`() async throws {
+            try await CLIProcess.withProcess { cli in
+                // A bare JID cannot carry a resource, so this is rejected by
+                // BareJID parsing before any account lookup.
+                let output = try await cli.run(["account", "delete", "alice@example.com/resource"])
+                #expect(output.exitCode != 0)
+                #expect(output.stderr.contains("Invalid JID"))
+            }
+        }
+
+        @Test
+        @MainActor func `account add rejects a duplicate JID`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                try await cli.seedAccount(alice)
+
+                // The duplicate guard rejects before any connection, so the
+                // password is never consumed — a placeholder keeps the real
+                // credential out of the child process argv.
+                let duplicate = try await cli.run([
+                    "account", "add", alice.jid, "--password", "unused"
+                ])
+                #expect(duplicate.exitCode != 0)
+                #expect(duplicate.stderr.contains("already exists"))
+
+                let listed = try await cli.run(["account", "list", "--output", "plain"])
+                #expect(listed.exitCode == 0)
+                let matches = listed.stdout
+                    .split(separator: "\n")
+                    .filter { $0.contains(alice.jid) }
+                #expect(matches.count == 1)
+            }
+        }
+
+        @Test
         @MainActor func `account delete reports an error for an unknown JID`() async throws {
             try await CLIProcess.withProcess { cli in
                 // No `seedAccount` here — `accountService.accounts` is empty,
@@ -50,6 +119,23 @@ extension DuckoIntegrationTests.CLILayer {
                 let output = try await cli.run(["account", "delete", alice.jid])
                 #expect(output.exitCode != 0)
                 #expect(output.stderr.contains("Account not found: \(alice.jid)"))
+            }
+        }
+
+        @Test
+        @MainActor func `account delete leaves an unrelated account untouched`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                let bob = TestCredentials.bob
+                try await cli.seedAccount(alice)
+
+                let output = try await cli.run(["account", "delete", bob.jid])
+                #expect(output.exitCode != 0)
+                #expect(output.stderr.contains("Account not found: \(bob.jid)"))
+
+                let listed = try await cli.run(["account", "list", "--output", "plain"])
+                #expect(listed.exitCode == 0)
+                #expect(listed.stdout.contains(alice.jid))
             }
         }
     }
