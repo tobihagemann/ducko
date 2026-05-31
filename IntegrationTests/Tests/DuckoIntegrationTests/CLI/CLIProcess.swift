@@ -239,14 +239,10 @@ actor CLIProcess {
         return handle
     }
 
-    /// Adds an account to this profile via `ducko account add` and throws on
-    /// non-zero exit. Mirrors the seeding `REPLSession.start` does internally
-    /// so call sites that don't spawn a REPL share the same code path.
-    @discardableResult
-    func seedAccount(_ credential: TestCredentials.Credential) async throws -> CLIOutput {
-        let output = try await run([
-            "account", "add", credential.jid, "--password", credential.password
-        ])
+    /// Throws `TestHarnessError.nonZeroExit` unless `output` exited cleanly (not
+    /// a signal kill). Shared by the seeding helpers so a seed regression
+    /// surfaces at seed time rather than downstream.
+    private func requireCleanExit(_ output: CLIOutput) throws -> CLIOutput {
         guard output.exitCode == 0, output.terminationReason == .exit else {
             throw TestHarnessError.nonZeroExit(
                 code: output.exitCode,
@@ -256,6 +252,46 @@ actor CLIProcess {
             )
         }
         return output
+    }
+
+    /// Adds an account to this profile via `ducko account add` and throws on
+    /// non-zero exit. Mirrors the seeding `REPLSession.start` does internally
+    /// so call sites that don't spawn a REPL share the same code path.
+    @discardableResult
+    func seedAccount(_ credential: TestCredentials.Credential) async throws -> CLIOutput {
+        let output = try await run([
+            "account", "add", credential.jid, "--password", credential.password
+        ])
+        return try requireCleanExit(output)
+    }
+
+    /// Adds an account pointing at an unreachable endpoint via
+    /// `ducko account add … --no-connect` so a failing or wedged connect can be
+    /// seeded without `account add`'s connect-to-validate rolling it back.
+    /// Throws on non-zero exit so a `--no-connect` regression — e.g. it
+    /// accidentally still connecting and failing — surfaces at seed time.
+    @discardableResult
+    func seedUnreachableAccount(jid: String, host: String, port: UInt16) async throws -> CLIOutput {
+        let output = try await run([
+            "account", "add", jid,
+            "--password", "seed-unreachable",
+            "--host", host,
+            "--port", String(port),
+            "--no-connect"
+        ])
+        return try requireCleanExit(output)
+    }
+
+    /// Binds a TCP socket to `127.0.0.1:0`, reads the kernel-assigned port, then
+    /// closes the socket and returns the now-closed port. A connect to it
+    /// fast-fails with `ECONNREFUSED`. Throws `LoopbackTCPSocketError` on the
+    /// improbable setup failure so a fixture failure points at socket setup
+    /// rather than surfacing later as confusing CLI-connect behavior. Accepts a
+    /// tiny rebind race: another process could claim the freed port.
+    static func reserveClosedLoopbackPort() throws -> UInt16 {
+        let bound = try bindLoopbackTCPSocket()
+        defer { close(bound.fd) }
+        return bound.port
     }
 
     /// Removes the on-disk profile directory under

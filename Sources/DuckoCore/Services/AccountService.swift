@@ -100,6 +100,11 @@ public final class AccountService {
         credentialStore.savePassword(password, for: account.jid.description)
     }
 
+    public func savePassword(accountID: UUID, password: String) async {
+        passwords[accountID] = password
+        await savePassword(accountID: accountID)
+    }
+
     public func deletePassword(accountID: UUID) {
         guard let account = accounts.first(where: { $0.id == accountID }) else { return }
         credentialStore.deletePassword(for: account.jid.description)

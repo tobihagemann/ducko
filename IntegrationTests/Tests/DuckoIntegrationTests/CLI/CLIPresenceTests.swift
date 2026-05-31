@@ -238,5 +238,74 @@ extension DuckoIntegrationTests.CLILayer {
                 #expect(output.exitCode == 143)
             }
         }
+
+        @Test
+        @MainActor func `ducko presence hold exits non-zero when the connect fails`() async throws {
+            try await CLIProcess.withProcess { cli in
+                // A closed loopback port fast-fails the connect with
+                // ECONNREFUSED before the hold sleep, so `runPresenceHold`
+                // rethrows the connect failure via its `.workFailed` branch.
+                let port = try CLIProcess.reserveClosedLoopbackPort()
+                try await cli.seedUnreachableAccount(
+                    jid: "holdtest@example.com", host: "127.0.0.1", port: port
+                )
+
+                let output = try await cli.run([
+                    "presence", "away", "--for", "5s", "--output", "plain"
+                ])
+                #expect(output.terminationReason == .exit)
+                #expect(output.exitCode == 1)
+                // The rethrown connect failure surfaces on stderr — pins the
+                // exit 1 to the `.workFailed` branch rather than any other
+                // generic-failure path. Avoid asserting the exact wording.
+                #expect(!output.stderr.isEmpty)
+            }
+        }
+
+        @Test
+        @MainActor func `ducko presence --keep-alive exits 130 on SIGINT during a wedged connect`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let stall = try LoopbackStallServer.start()
+                await cli.addCleanup { await stall.shutdown() }
+                try await cli.seedUnreachableAccount(
+                    jid: "holdtest@example.com", host: "127.0.0.1", port: stall.port
+                )
+
+                let handle = try await cli.spawn([
+                    "presence", "away", "--keep-alive", "--output", "plain"
+                ])
+                // The accepted connection proves the child reached
+                // `client.connect` (after `InterruptMonitor.install`); the
+                // silent server keeps it wedged pre-readiness so the signal
+                // exercises the pre-readiness teardown branch.
+                try await stall.waitForAcceptedConnection(timeout: TestTimeout.cliCommand)
+
+                await handle.sendSignal(SIGINT)
+                let output = try await handle.awaitExit()
+                #expect(output.terminationReason == .exit)
+                #expect(output.exitCode == 130)
+            }
+        }
+
+        @Test
+        @MainActor func `ducko presence --keep-alive exits 143 on SIGTERM during a wedged connect`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let stall = try LoopbackStallServer.start()
+                await cli.addCleanup { await stall.shutdown() }
+                try await cli.seedUnreachableAccount(
+                    jid: "holdtest@example.com", host: "127.0.0.1", port: stall.port
+                )
+
+                let handle = try await cli.spawn([
+                    "presence", "dnd", "--keep-alive", "--output", "plain"
+                ])
+                try await stall.waitForAcceptedConnection(timeout: TestTimeout.cliCommand)
+
+                await handle.sendSignal(SIGTERM)
+                let output = try await handle.awaitExit()
+                #expect(output.terminationReason == .exit)
+                #expect(output.exitCode == 143)
+            }
+        }
     }
 }

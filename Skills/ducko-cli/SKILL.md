@@ -126,13 +126,14 @@ ducko account list
 ducko account list --output json
 ```
 
-### `account add <jid> [--password <password>]`
+### `account add <jid> [--password <password>] [--host <host>] [--port <port>] [--no-connect]`
 
-Add a new XMPP account. Verifies credentials, saves the password. Password is prompted interactively if `--password` is omitted.
+Add a new XMPP account. By default it connects to verify credentials and saves the password. Password is prompted interactively if `--password` is omitted. `--host`/`--port` override the connection endpoint (a bare `--port` without `--host` is rejected). With `--no-connect` the account is persisted *without* connecting or verifying credentials — offline/manual setup; the password is still saved.
 
 ```
 ducko account add alice@example.com
 ducko account add alice@example.com --password secret
+ducko account add alice@example.com --password secret --host 127.0.0.1 --port 5222 --no-connect
 ```
 
 ### `account delete <jid>`

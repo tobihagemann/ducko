@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-extension DuckoIntegrationTests.CLILayer {
+extension CLIHelperUnitTests {
     struct OutputBufferTests {
         @Test
         func `appends below the cap leave the buffer intact`() async {

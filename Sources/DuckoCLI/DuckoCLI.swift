@@ -1066,6 +1066,19 @@ extension DuckoCLI {
             @Option(name: .long, help: "Password (prompted if omitted)")
             var password: String?
 
+            @Option(name: .long, help: "Override hostname for connection")
+            var host: String?
+
+            @Option(name: .long, help: "Port for --host (default 5222)")
+            var port: UInt16?
+
+            @Flag(name: .long, help: "Add the account without connecting to validate (offline setup)")
+            var noConnect = false
+
+            func validate() throws {
+                try validateHostPort(host: host, port: port)
+            }
+
             func run() async throws {
                 guard BareJID.parse(jid) != nil else {
                     throw CLIError.invalidJID(jid)
@@ -1079,14 +1092,24 @@ extension DuckoCLI {
                     try CLIBootstrap.setUp(formatter: PlainFormatter())
                 }
                 let env = context.environment
+                let effectivePort = host == nil ? nil : Int(port ?? 5222)
 
-                let accountID = try await env.accountService.createAndConnect(
-                    jidString: jid,
-                    password: resolvedPassword
-                ) { accountID in
-                    try await waitForConnected(accountID: accountID, environment: env)
+                if noConnect {
+                    let accountID = try await env.accountService.createAccount(
+                        jidString: jid, host: host, port: effectivePort
+                    )
+                    await env.accountService.savePassword(accountID: accountID, password: resolvedPassword)
+                } else {
+                    let accountID = try await env.accountService.createAndConnect(
+                        jidString: jid,
+                        password: resolvedPassword,
+                        host: host,
+                        port: effectivePort
+                    ) { accountID in
+                        try await waitForConnected(accountID: accountID, environment: env)
+                    }
+                    await env.accountService.disconnect(accountID: accountID)
                 }
-                await env.accountService.disconnect(accountID: accountID)
 
                 print("Account added: \(jid)")
             }
@@ -1184,8 +1207,12 @@ extension DuckoCLI {
             @Option(name: .long, help: "Override hostname for connection")
             var host: String?
 
-            @Option(name: .long, help: "Port (default 5222)")
+            @Option(name: .long, help: "Port for --host (default 5222)")
             var port: UInt16?
+
+            func validate() throws {
+                try validateHostPort(host: host, port: port)
+            }
 
             func run() async throws {
                 guard let resolvedPassword = password ?? CredentialHelper.getPassword() else {
@@ -1227,8 +1254,12 @@ extension DuckoCLI {
             @Option(name: .long, help: "Override hostname for connection")
             var host: String?
 
-            @Option(name: .long, help: "Port (default 5222)")
+            @Option(name: .long, help: "Port for --host (default 5222)")
             var port: UInt16?
+
+            func validate() throws {
+                try validateHostPort(host: host, port: port)
+            }
 
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
@@ -3001,6 +3032,16 @@ private func resolveAccount(byJID jid: String, environment: AppEnvironment) asyn
         throw CLIError.accountNotFound(jid)
     }
     return account
+}
+
+/// Rejects a `--port` supplied without `--host`. Every connect path (`account add`,
+/// `register`, `check-registration`) honors the host/port override only when both are
+/// set and otherwise falls back to SRV/domain discovery, so a lone `--port` silently
+/// no-ops — reject it instead.
+private func validateHostPort(host: String?, port: UInt16?) throws {
+    if port != nil, host == nil {
+        throw ValidationError("--port requires --host")
+    }
 }
 
 private func waitForConnected(accountID: UUID, environment: AppEnvironment) async throws {

@@ -25,6 +25,23 @@ extension DuckoIntegrationTests.CLILayer {
         }
 
         @Test
+        @MainActor func `account add --no-connect persists the account offline`() async throws {
+            try await CLIProcess.withProcess { cli in
+                // A closed loopback endpoint is never reached: `seedUnreachableAccount`
+                // runs `account add … --no-connect` and its clean-exit guard proves no
+                // connect was attempted; the list assertion proves the account persisted.
+                let port = try CLIProcess.reserveClosedLoopbackPort()
+                try await cli.seedUnreachableAccount(
+                    jid: "offline@example.com", host: "127.0.0.1", port: port
+                )
+
+                let listed = try await cli.run(["account", "list", "--output", "plain"])
+                #expect(listed.exitCode == 0)
+                #expect(listed.stdout.contains("offline@example.com"))
+            }
+        }
+
+        @Test
         @MainActor func `account delete removes an account`() async throws {
             try await CLIProcess.withProcess { cli in
                 let alice = TestCredentials.alice

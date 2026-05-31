@@ -415,6 +415,22 @@ enum AccountServiceTests {
 
             #expect(credentials.loadPassword(for: testJIDString) == "secret")
         }
+
+        @Test
+        @MainActor
+        func `savePassword overload persists a directly supplied password`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let service = makeAccountService(store: store, credentials: credentials)
+
+            let accountID = try await service.createAccount(jidString: testJIDString)
+            try await service.loadAccounts()
+
+            // No connect populates passwords[accountID]; the overload seeds it directly.
+            await service.savePassword(accountID: accountID, password: "secret")
+
+            #expect(credentials.loadPassword(for: testJIDString) == "secret")
+        }
     }
 
     struct DisconnectAll {
