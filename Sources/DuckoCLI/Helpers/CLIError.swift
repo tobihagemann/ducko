@@ -16,6 +16,7 @@ enum CLIError: Error, LocalizedError {
     case invalidTransferMethod(String)
     case noIncomingOffers
     case noActiveJingleSession
+    case malformedQuotedArgument(String)
 
     var errorDescription: String? {
         switch self {
@@ -49,6 +50,8 @@ enum CLIError: Error, LocalizedError {
             "No incoming file transfer offers."
         case .noActiveJingleSession:
             "No active Jingle session."
+        case let .malformedQuotedArgument(detail):
+            "Invalid nickname argument: \(detail). Quote nicknames containing spaces, e.g. \"Alice Smith\"."
         }
     }
 }

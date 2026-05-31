@@ -1624,7 +1624,8 @@ private func printREPLHelp() {
     print("  /nick <nickname>         Change nickname in current room")
     print("  /destroy [reason]        Destroy current room")
     print("  /voice grant|revoke <n>  Grant/revoke voice")
-    print("  /kick <nick> [reason]    Kick occupant from current room")
+    print("  /kick <nick> [reason]    Kick occupant; quote names w/ spaces")
+    print("  /pm <nick> <message>     PM an occupant; quote names w/ spaces")
     print("  /affiliations [type]     List affiliations")
     print("  /config [submit-default] Show room config or accept defaults")
     print("  /moderate [reason]       Moderate last message in room")
@@ -2014,7 +2015,7 @@ private func dispatchRoomREPLCommand(
     } else if input == "/rooms" || input.hasPrefix("/rooms ") {
         await handleRoomsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID)
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-    } else if input.hasPrefix("/pm ") {
+    } else if input == "/pm" || input.hasPrefix("/pm ") {
         return await handlePMREPLCommand(input, context: context, currentRoom: currentRoom)
     } else {
         return REPLDispatchResult(handled: false, updatedCurrentRoom: nil)
@@ -2219,24 +2220,23 @@ private func handleKickREPLCommand(
     accountID: UUID, currentRoom: String?
 ) async -> REPLDispatchResult {
     let args = input.dropFirst("/kick".count).trimmingCharacters(in: .whitespaces)
-    let parts = args.split(separator: " ", maxSplits: 1)
-    guard let nickname = parts.first, !nickname.isEmpty else {
-        print("Usage: /kick <nickname> [reason]")
+    guard !args.isEmpty else {
+        print("Usage: /kick <nickname> [reason]  (quote nicknames with spaces: /kick \"Alice Smith\" reason)")
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }
-    let reason = parts.count > 1 ? String(parts[1]).trimmingCharacters(in: .whitespaces) : ""
     do {
+        let parsed = try parseNicknameArgument(args)
         try await environment.chatService.kickOccupant(
-            nickname: String(nickname),
+            nickname: parsed.nickname,
             fromRoomJIDString: roomJID,
-            reason: reason.isEmpty ? nil : reason,
+            reason: parsed.trailingArgument,
             accountID: accountID
         )
-        print("Kicked \(nickname) from \(roomJID).")
+        print("Kicked \(parsed.nickname) from \(roomJID).")
     } catch {
         print(formatter.formatError(error))
     }
@@ -2383,23 +2383,26 @@ private func handleRoomsREPLCommand(
 private func handlePMREPLCommand(
     _ input: String, context: REPLContext, currentRoom: String?
 ) async -> REPLDispatchResult {
-    let args = input.dropFirst("/pm ".count).trimmingCharacters(in: .whitespaces)
-    let parts = args.split(separator: " ", maxSplits: 1)
-    guard parts.count == 2 else {
-        print("Usage: /pm <nickname> <message> (must be in a room)")
+    let usage = "Usage: /pm <nickname> <message>  (quote nicknames with spaces: /pm \"Alice Smith\" hello)"
+    let args = input.dropFirst("/pm".count).trimmingCharacters(in: .whitespaces)
+    guard !args.isEmpty else {
+        print(usage)
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }
     guard let currentRoom else {
         print(context.formatter.formatError(CLIError.noRoomSpecified))
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }
-    let nickname = String(parts[0])
-    let body = String(parts[1])
     do {
+        let parsed = try parseNicknameArgument(args)
+        guard let body = parsed.trailingArgument else {
+            print(usage)
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        }
         try await context.environment.chatService.sendMUCPrivateMessage(
-            roomJIDString: currentRoom, nickname: nickname, body: body, accountID: context.accountID
+            roomJIDString: currentRoom, nickname: parsed.nickname, body: body, accountID: context.accountID
         )
-        print("PM to \(nickname) sent.")
+        print("PM to \(parsed.nickname) sent.")
     } catch {
         print(context.formatter.formatError(error))
     }
