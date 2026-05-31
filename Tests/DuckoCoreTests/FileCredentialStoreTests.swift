@@ -75,4 +75,14 @@ struct FileCredentialStoreTests {
         let loaded = store.loadPassword(for: "alice@example.com")
         #expect(loaded == password)
     }
+
+    @Test func `persisted file is owner-only`() throws {
+        let url = makeTempURL()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = FileCredentialStore(fileURL: url)
+        store.savePassword("secret123", for: "alice@example.com")
+        let mode = try #require(FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int)
+        #expect(mode == 0o600)
+    }
 }

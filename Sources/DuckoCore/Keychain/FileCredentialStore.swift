@@ -35,8 +35,7 @@ public final class FileCredentialStore: CredentialStore, @unchecked Sendable {
         let snapshot = lock.withLock { $0 }
         do {
             let data = try JSONEncoder().encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            try data.writeOwnerOnly(to: fileURL)
         } catch {
             log.warning("Failed to write credentials file: \(error.localizedDescription)")
         }

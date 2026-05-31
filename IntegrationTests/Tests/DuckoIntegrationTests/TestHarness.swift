@@ -613,12 +613,12 @@ final class TestHarness {
         )
     }
 
-    /// Writes the encoded fixture to disk with owner-only directory and
-    /// file permissions so the long-term identity keys don't land at the
-    /// umask default (0755/0644) on multi-user hosts.
+    /// Writes the encoded fixture to disk with owner-only directory and file
+    /// permissions so the long-term identity keys don't land at the umask
+    /// default (0755/0644) on multi-user hosts.
     /// `createDirectory(attributes:)` is a no-op when the directory already
-    /// exists, so re-apply 0700 explicitly afterward — otherwise a dir
-    /// created by an older harness version at default 0755 stays that way.
+    /// exists, so re-apply 0700 explicitly afterward — otherwise a dir created
+    /// by an older harness version at default 0755 stays that way.
     private func writeFixture(_ encoded: Data, to fixtureURL: URL) throws {
         let directory = fixtureURL.deletingLastPathComponent()
         try FileManager.default.createDirectory(
@@ -627,8 +627,7 @@ final class TestHarness {
             attributes: [.posixPermissions: 0o700]
         )
         try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
-        try encoded.write(to: fixtureURL, options: .atomic)
-        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fixtureURL.path)
+        try encoded.writeOwnerOnly(to: fixtureURL)
     }
 
     /// Deterministic JSON encoding for `FixtureOMEMOIdentity`. Used both for
