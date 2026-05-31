@@ -1,3 +1,4 @@
+import Darwin
 import DuckoCore
 import DuckoXMPP
 import Foundation
@@ -177,6 +178,64 @@ extension DuckoIntegrationTests.CLILayer {
                     containingAnyOf: ["Invalid presence status: bogus-status"],
                     after: cursor
                 )
+            }
+        }
+
+        @Test
+        @MainActor func `ducko presence --for holds the window then exits 0`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                try await cli.seedAccount(alice)
+
+                // A short 2s window stays well under the 30s `cliCommand` timeout
+                // even after the connect handshake.
+                let output = try await cli.run([
+                    "presence", "away", "--for", "2s", "--output", "plain"
+                ])
+                #expect(output.exitCode == 0)
+                #expect(output.terminationReason == .exit)
+                #expect(output.stdout.contains("away"))
+            }
+        }
+
+        @Test
+        @MainActor func `ducko presence --keep-alive exits 130 on SIGINT`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                try await cli.seedAccount(alice)
+
+                let handle = try await cli.spawn([
+                    "presence", "away", "--keep-alive", "--output", "plain"
+                ])
+                // Deterministic readiness: the set-status line is on stdout only
+                // after the presence has been broadcast — no fixed sleep.
+                _ = try await handle.waitForStdout(containing: "away")
+
+                await handle.sendSignal(SIGINT)
+                let output = try await handle.awaitExit()
+                // The trap turns SIGINT into a clean teardown + `ExitCode(130)`,
+                // so the child exits normally (not killed by the signal).
+                #expect(output.terminationReason == .exit)
+                #expect(output.exitCode == 130)
+            }
+        }
+
+        @Test
+        @MainActor func `ducko presence --keep-alive exits 143 on SIGTERM`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let alice = TestCredentials.alice
+                try await cli.seedAccount(alice)
+
+                let handle = try await cli.spawn([
+                    "presence", "dnd", "--keep-alive", "--output", "plain"
+                ])
+                _ = try await handle.waitForStdout(containing: "dnd")
+
+                await handle.sendSignal(SIGTERM)
+                let output = try await handle.awaitExit()
+                // SIGTERM is trapped too and mapped to the 143 convention via a clean teardown.
+                #expect(output.terminationReason == .exit)
+                #expect(output.exitCode == 143)
             }
         }
     }

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Logging
 
@@ -204,6 +205,40 @@ actor CLIProcess {
         )
     }
 
+    /// Spawns `ducko <arguments>` without blocking on exit and returns a handle
+    /// that can signal the child, await a readiness substring on its captured
+    /// stdout, and observe its `terminationStatus`/`terminationReason` after
+    /// exit. Unlike `run`, this is the surface for tests that must send a signal
+    /// mid-run. Registers a cleanup action so a still-running child (e.g. a
+    /// `--keep-alive` hold) is killed and drained even if the test throws before
+    /// `awaitExit`.
+    func spawn(_ arguments: [String]) async throws -> CLISpawnHandle {
+        let binary = Self.binaryPath
+        guard FileManager.default.isExecutableFile(atPath: binary.path) else {
+            throw TestHarnessError.binaryMissing(path: binary.path)
+        }
+
+        let process = Process()
+        process.executableURL = binary
+        process.arguments = arguments
+        process.environment = environment
+
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+
+        try process.run()
+
+        let handle = CLISpawnHandle(
+            process: process,
+            stdout: stdoutPipe.fileHandleForReading,
+            stderr: stderrPipe.fileHandleForReading
+        )
+        addCleanup { await handle.terminateIfRunning() }
+        return handle
+    }
+
     /// Adds an account to this profile via `ducko account add` and throws on
     /// non-zero exit. Mirrors the seeding `REPLSession.start` does internally
     /// so call sites that don't spawn a REPL share the same code path.
@@ -312,5 +347,95 @@ actor CLIProcess {
         }
         cleanupActions.removeAll()
         await cleanupProfileDirectory()
+    }
+}
+
+/// Handle over a non-blocking `CLIProcess.spawn` child. Buffers stdout/stderr on detached drain tasks so a
+/// test can await a deterministic readiness substring (the set-status line) before sending a signal, then
+/// reap the child and read its `terminationStatus`/`terminationReason`. Exit-waiting and kill-escalation reuse
+/// `CLIProcess`'s `nonisolated static` helpers.
+actor CLISpawnHandle {
+    private let process: Process
+    nonisolated let pid: Int32
+    private let stdoutBuffer: OutputBuffer
+    private let stderrBuffer: OutputBuffer
+    private let stdoutReader: Task<Void, Never>
+    private let stderrReader: Task<Void, Never>
+    private var reaped = false
+
+    init(process: Process, stdout: FileHandle, stderr: FileHandle) {
+        self.process = process
+        self.pid = process.processIdentifier
+        let outBuffer = OutputBuffer()
+        let errBuffer = OutputBuffer()
+        self.stdoutBuffer = outBuffer
+        self.stderrBuffer = errBuffer
+        self.stdoutReader = Task.detached(priority: .utility) { await Self.drain(stdout, into: outBuffer) }
+        self.stderrReader = Task.detached(priority: .utility) { await Self.drain(stderr, into: errBuffer) }
+    }
+
+    /// Sends `signo` (e.g. `SIGINT`) to the child via POSIX `kill`.
+    func sendSignal(_ signo: Int32) {
+        kill(pid, signo)
+    }
+
+    /// Polls captured stdout for `substring`, returning the snapshot when found — the deterministic readiness
+    /// signal that replaces a fixed sleep before signalling the child.
+    @discardableResult
+    func waitForStdout(
+        containing substring: String,
+        timeout: Duration = TestTimeout.cliCommand
+    ) async throws -> String {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if let snapshot = await stdoutBuffer.snapshotIfContains(substring) {
+                return snapshot
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        if let snapshot = await stdoutBuffer.snapshotIfContains(substring) {
+            return snapshot
+        }
+        throw TestHarnessError.timeout
+    }
+
+    /// Waits for the child to exit (escalating SIGTERM→SIGKILL on timeout), drains the readers, and returns
+    /// its captured output and `terminationStatus`/`terminationReason`.
+    func awaitExit(timeout: Duration = TestTimeout.cliCommand) async throws -> CLIOutput {
+        let exited = await CLIProcess.waitForProcessExit(process, timeout: timeout)
+        if !exited {
+            await CLIProcess.killProcess(process)
+            await drainReaders()
+            throw TestHarnessError.timeout
+        }
+        reaped = true
+        await drainReaders()
+        return await CLIOutput(
+            stdout: stdoutBuffer.snapshot(),
+            stderr: stderrBuffer.snapshot(),
+            exitCode: process.terminationStatus,
+            terminationReason: process.terminationReason
+        )
+    }
+
+    /// Cleanup hook: kills and drains a still-running child so a held process can't survive `withProcess`
+    /// teardown. No-op once `awaitExit` has reaped the child.
+    func terminateIfRunning() async {
+        if reaped { return }
+        await CLIProcess.killProcess(process)
+        await drainReaders()
+    }
+
+    private func drainReaders() async {
+        _ = await stdoutReader.value
+        _ = await stderrReader.value
+    }
+
+    private static func drain(_ handle: FileHandle, into buffer: OutputBuffer) async {
+        while true {
+            let data = handle.availableData
+            if data.isEmpty { return }
+            await buffer.append(String(decoding: data, as: UTF8.self))
+        }
     }
 }

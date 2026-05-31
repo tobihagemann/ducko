@@ -31,30 +31,30 @@ enum PresenceServiceTests {
     struct PresenceUpdated {
         @Test
         @MainActor
-        func `Presence updated sets contact status`() throws {
+        func `Presence updated sets contact status`() async throws {
             let service = makePresenceService()
 
             let presence = makePresence(show: .away)
             let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
-            service.handleEvent(.presenceUpdated(from: from, presence: presence), accountID: testAccountID)
+            await service.handleEvent(.presenceUpdated(from: from, presence: presence), accountID: testAccountID)
 
             #expect(service.contactPresences[contactJID] == .away)
         }
 
         @Test
         @MainActor
-        func `Unavailable presence sets status to offline`() throws {
+        func `Unavailable presence sets status to offline`() async throws {
             let service = makePresenceService()
 
             // First set to available
             let available = makePresence()
             let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
-            service.handleEvent(.presenceUpdated(from: from, presence: available), accountID: testAccountID)
+            await service.handleEvent(.presenceUpdated(from: from, presence: available), accountID: testAccountID)
             #expect(service.contactPresences[contactJID] == .available)
 
             // Then unavailable — entry is removed (absent means offline)
             let unavailable = makePresence(type: .unavailable)
-            service.handleEvent(.presenceUpdated(from: from, presence: unavailable), accountID: testAccountID)
+            await service.handleEvent(.presenceUpdated(from: from, presence: unavailable), accountID: testAccountID)
             #expect(service.contactPresences[contactJID] == nil)
         }
 
@@ -67,12 +67,12 @@ enum PresenceServiceTests {
             ] as [(XMPPPresence.Show, PresenceService.PresenceStatus)]
         )
         @MainActor
-        func `Show values map correctly`(show: XMPPPresence.Show, expected: PresenceService.PresenceStatus) throws {
+        func `Show values map correctly`(show: XMPPPresence.Show, expected: PresenceService.PresenceStatus) async throws {
             let service = makePresenceService()
 
             let presence = makePresence(show: show)
             let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
-            service.handleEvent(.presenceUpdated(from: from, presence: presence), accountID: testAccountID)
+            await service.handleEvent(.presenceUpdated(from: from, presence: presence), accountID: testAccountID)
 
             #expect(service.contactPresences[contactJID] == expected)
         }
@@ -81,10 +81,10 @@ enum PresenceServiceTests {
     struct SubscriptionRequests {
         @Test
         @MainActor
-        func `Subscription request is stored`() {
+        func `Subscription request is stored`() async {
             let service = makePresenceService()
 
-            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            await service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
 
             #expect(service.pendingSubscriptionRequests.count == 1)
             #expect(service.pendingSubscriptionRequests[0] == contactJID)
@@ -92,11 +92,11 @@ enum PresenceServiceTests {
 
         @Test
         @MainActor
-        func `Duplicate subscription request is not stored twice`() {
+        func `Duplicate subscription request is not stored twice`() async {
             let service = makePresenceService()
 
-            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
-            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            await service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            await service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
 
             #expect(service.pendingSubscriptionRequests.count == 1)
         }
@@ -105,10 +105,10 @@ enum PresenceServiceTests {
     struct RemoveSubscriptionRequest {
         @Test
         @MainActor
-        func `removeSubscriptionRequest removes matching JID`() {
+        func `removeSubscriptionRequest removes matching JID`() async {
             let service = makePresenceService()
 
-            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            await service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
             #expect(service.pendingSubscriptionRequests.count == 1)
 
             service.removeSubscriptionRequest(contactJID, accountID: testAccountID)
@@ -117,11 +117,11 @@ enum PresenceServiceTests {
 
         @Test
         @MainActor
-        func `removeSubscriptionRequest does nothing for unknown JID`() throws {
+        func `removeSubscriptionRequest does nothing for unknown JID`() async throws {
             let service = makePresenceService()
             let otherJID = try #require(BareJID(localPart: "other", domainPart: "example.com"))
 
-            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            await service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
             #expect(service.pendingSubscriptionRequests.count == 1)
 
             service.removeSubscriptionRequest(otherJID, accountID: testAccountID)
@@ -132,19 +132,19 @@ enum PresenceServiceTests {
     struct Disconnect {
         @Test
         @MainActor
-        func `Disconnect event clears contactPresences and pendingSubscriptionRequests`() throws {
+        func `Disconnect event clears contactPresences and pendingSubscriptionRequests`() async throws {
             let service = makePresenceService()
 
             // Set some presence and a pending subscription request
             let presence = makePresence(show: .away)
             let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
-            service.handleEvent(.presenceUpdated(from: from, presence: presence), accountID: testAccountID)
-            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
+            await service.handleEvent(.presenceUpdated(from: from, presence: presence), accountID: testAccountID)
+            await service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: testAccountID)
             #expect(!service.contactPresences.isEmpty)
             #expect(!service.pendingSubscriptionRequests.isEmpty)
 
             // Disconnect should clear both
-            service.handleEvent(.disconnected(.requested), accountID: testAccountID)
+            await service.handleEvent(.disconnected(.requested), accountID: testAccountID)
             #expect(service.contactPresences.isEmpty)
             #expect(service.pendingSubscriptionRequests.isEmpty)
         }
@@ -153,7 +153,7 @@ enum PresenceServiceTests {
     struct MultiAccountIsolation {
         @Test
         @MainActor
-        func `Disconnect clears only the disconnected account`() throws {
+        func `Disconnect clears only the disconnected account`() async throws {
             let service = makePresenceService()
             let account1 = UUID()
             let account2 = UUID()
@@ -163,18 +163,18 @@ enum PresenceServiceTests {
             let otherFrom = try JID.full(#require(FullJID(bareJID: otherJID, resourcePart: "res")))
 
             // Account 1 gets presence + subscription
-            service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
-            service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: account1)
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
+            await service.handleEvent(.presenceSubscriptionRequest(from: contactJID), accountID: account1)
 
             // Account 2 gets presence + subscription
-            service.handleEvent(.presenceUpdated(from: otherFrom, presence: makePresence(show: .dnd)), accountID: account2)
-            service.handleEvent(.presenceSubscriptionRequest(from: otherJID), accountID: account2)
+            await service.handleEvent(.presenceUpdated(from: otherFrom, presence: makePresence(show: .dnd)), accountID: account2)
+            await service.handleEvent(.presenceSubscriptionRequest(from: otherJID), accountID: account2)
 
             #expect(service.contactPresences.count == 2)
             #expect(service.pendingSubscriptionRequests.count == 2)
 
             // Disconnect account 1 — account 2's state remains
-            service.handleEvent(.disconnected(.requested), accountID: account1)
+            await service.handleEvent(.disconnected(.requested), accountID: account1)
             #expect(service.contactPresences.count == 1)
             #expect(service.contactPresences[otherJID] == .dnd)
             #expect(service.pendingSubscriptionRequests.count == 1)
@@ -183,7 +183,7 @@ enum PresenceServiceTests {
 
         @Test
         @MainActor
-        func `Aggregate contactPresences merges all accounts`() throws {
+        func `Aggregate contactPresences merges all accounts`() async throws {
             let service = makePresenceService()
             let account1 = UUID()
             let account2 = UUID()
@@ -192,8 +192,8 @@ enum PresenceServiceTests {
             let otherJID = try #require(BareJID(localPart: "other", domainPart: "example.com"))
             let otherFrom = try JID.full(#require(FullJID(bareJID: otherJID, resourcePart: "res")))
 
-            service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
-            service.handleEvent(.presenceUpdated(from: otherFrom, presence: makePresence(show: .xa)), accountID: account2)
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
+            await service.handleEvent(.presenceUpdated(from: otherFrom, presence: makePresence(show: .xa)), accountID: account2)
 
             #expect(service.contactPresences[contactJID] == .away)
             #expect(service.contactPresences[otherJID] == .xa)

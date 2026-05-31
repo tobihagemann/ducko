@@ -100,7 +100,7 @@ public final class AppEnvironment {
                 // a child service task after `shutdown` snapshotted the drain stores.
                 if Task.isCancelled { return }
                 await chatService.handleEvent(event, accountID: accountID)
-                presenceService.handleEvent(event, accountID: accountID)
+                await presenceService.handleEvent(event, accountID: accountID)
                 await rosterService.handleEvent(event, accountID: accountID)
                 fileTransferService.handleJingleEvent(event, accountID: accountID)
                 await bookmarksService.handleEvent(event, accountID: accountID)

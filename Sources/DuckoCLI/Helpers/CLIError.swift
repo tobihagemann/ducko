@@ -8,6 +8,8 @@ enum CLIError: Error, LocalizedError {
     case connectionFailed(String)
     case connectionTimeout
     case invalidPresenceStatus(String)
+    case invalidDuration(String)
+    case durationTooLong(String)
     case invalidDate(String)
     case noMUCService
     case noRoomSpecified
@@ -34,6 +36,10 @@ enum CLIError: Error, LocalizedError {
             "Connection timed out after 30 seconds"
         case let .invalidPresenceStatus(status):
             "Invalid presence status: \(status). Valid values: available, away, xa, dnd, offline"
+        case let .invalidDuration(token):
+            "Invalid duration: \(token). Use a positive whole number with a unit s, m, or h (e.g. 30s, 15m, 2h)."
+        case let .durationTooLong(token):
+            "Duration too long: \(token). The maximum is 24h; use --keep-alive to hold indefinitely."
         case let .invalidDate(string):
             "Invalid ISO 8601 date: \(string)"
         case .noMUCService:

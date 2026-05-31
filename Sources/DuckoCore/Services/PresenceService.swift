@@ -117,8 +117,10 @@ public final class PresenceService {
 
     // MARK: - Event Handling
 
-    func handleEvent(_ event: XMPPEvent, accountID: UUID) {
+    func handleEvent(_ event: XMPPEvent, accountID: UUID) async {
         switch event {
+        case .connected:
+            await reapplyHeldPresenceAfterReconnect(accountID: accountID)
         case let .presenceUpdated(from, presence):
             handlePresenceUpdated(from: from, presence: presence, accountID: accountID)
         case let .presenceSubscriptionRequest(from):
@@ -128,7 +130,7 @@ public final class PresenceService {
             pendingRequestsByAccount.removeValue(forKey: accountID)
         case .presenceSubscriptionApproved, .presenceSubscriptionRevoked:
             break
-        case .connected, .streamResumed, .authenticationFailed,
+        case .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .messageCarbonReceived, .messageCarbonSent,
@@ -151,6 +153,28 @@ public final class PresenceService {
              .oobIQOfferReceived, .serviceOutageReceived:
             break
         }
+    }
+
+    /// Re-broadcasts a non-default held presence after an automatic reconnect. `PresenceModule.handleConnect()`
+    /// sends a blank available presence on every fresh connect, which would otherwise silently revert a chosen
+    /// away/dnd/available-with-message back to plain available for peers mid-session. Skips plain
+    /// default-available (already covered by `handleConnect`) and `.offline` (short-circuits in `sendPresence`).
+    /// `.streamResumed` is intentionally not handled — a resumed session skips `handleConnect()`, so presence is
+    /// never reset.
+    private func reapplyHeldPresenceAfterReconnect(accountID: UUID) async {
+        guard shouldReapplyHeldPresence else { return }
+        guard let client = accountService?.connectedClient(for: accountID) else { return }
+        // `.connected` is yielded before `PresenceModule.handleConnect()` sends its blank-available stanza, so
+        // gate on the initial presence before re-broadcasting or it would just be overwritten.
+        await client.awaitInitialPresenceSent()
+        // Across the await the original client can disconnect and a replacement enter `.connected`; re-verify the
+        // same instance and re-check the guard so a stale reapply can't clobber the new client's presence.
+        guard accountService?.connectedClient(for: accountID) === client, shouldReapplyHeldPresence else { return }
+        await sendPresence(accountID: accountID)
+    }
+
+    private var shouldReapplyHeldPresence: Bool {
+        myPresence != .offline && (myPresence != .available || myStatusMessage != nil)
     }
 
     // MARK: - Idle Monitoring
