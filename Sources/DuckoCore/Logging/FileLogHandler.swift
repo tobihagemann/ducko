@@ -139,9 +139,7 @@ public actor FileLogWriter {
         let fm = FileManager.default
         let file = currentLogFile
 
-        if !fm.fileExists(atPath: directory.path) {
-            try? fm.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        }
+        try? fm.createOwnerOnlyDirectory(at: directory)
 
         if !fm.fileExists(atPath: file.path) {
             fm.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600])

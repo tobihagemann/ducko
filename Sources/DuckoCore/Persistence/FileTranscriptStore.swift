@@ -406,7 +406,7 @@ public actor FileTranscriptStore: TranscriptStore {
 
     private func ensureDirectoryExists(for conversationID: UUID) throws {
         let dir = conversationDirectory(for: conversationID)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createOwnerOnlyDirectory(at: dir)
     }
 
     private func fileHandle(for fileURL: URL) throws -> FileHandle {

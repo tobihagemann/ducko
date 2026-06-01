@@ -35,7 +35,7 @@ let package = Package(
         .testTarget(name: "DuckoCoreTests", dependencies: ["DuckoCore", "DuckoTestSupport"]),
 
         .target(name: "DuckoData", dependencies: ["DuckoCore"]),
-        .testTarget(name: "DuckoDataTests", dependencies: ["DuckoData"]),
+        .testTarget(name: "DuckoDataTests", dependencies: ["DuckoData", "DuckoTestSupport"]),
 
         .target(name: "DuckoUI", dependencies: [
             "DuckoCore",

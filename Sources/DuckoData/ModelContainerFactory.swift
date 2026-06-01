@@ -17,15 +17,17 @@ public enum ModelContainerFactory {
     ])
 
     public static func makeContainer(inMemory: Bool = false) throws -> ModelContainer {
-        let configuration: ModelConfiguration
         if inMemory {
-            configuration = ModelConfiguration(isStoredInMemoryOnly: true)
-        } else {
-            let storeDir = BuildEnvironment.appSupportDirectory
-            try FileManager.default.createDirectory(at: storeDir, withIntermediateDirectories: true)
-            let storeURL = storeDir.appendingPathComponent("default.store")
-            configuration = ModelConfiguration(url: storeURL)
+            return try ModelContainer(for: schema, configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
         }
-        return try ModelContainer(for: schema, configurations: [configuration])
+        return try makeContainer(at: BuildEnvironment.appSupportDirectory)
+    }
+
+    static func makeContainer(at storeDirectory: URL) throws -> ModelContainer {
+        // Holds the SwiftData store with OMEMO key records; lock it owner-only
+        // regardless of whether this or CredentialStoreFactory creates it first.
+        try FileManager.default.createOwnerOnlyDirectory(at: storeDirectory)
+        let storeURL = storeDirectory.appendingPathComponent("default.store")
+        return try ModelContainer(for: schema, configurations: [ModelConfiguration(url: storeURL)])
     }
 }
