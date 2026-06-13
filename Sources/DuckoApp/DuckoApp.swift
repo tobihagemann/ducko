@@ -16,8 +16,13 @@ struct DuckoApp: App {
     @State private var updateManager = UpdateManager()
     @State private var notificationManager = NotificationManager()
     @FocusedValue(\.chatWindowState) private var focusedChatWindowState
+    @FocusedValue(\.contactListWindowState) private var focusedContactListWindowState
     @Environment(\.openWindow) private var openWindow
     @State private var isShowingAdiumImport = false
+    @AppStorage(ContactListSizingDefaults.autoSizeVerticalKey, store: PreferencesDefaults.store)
+    private var contactsAutoSizeVertical = true
+    @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
+    private var contactsAutoSizeHorizontal = true
 
     init() {
         LoggingConfiguration.bootstrap()
@@ -62,9 +67,14 @@ struct DuckoApp: App {
                         .environment(environment)
                 }
         }
-        .defaultSize(width: 280, height: 600)
+        .defaultSize(width: 280, height: 320)
         .defaultPosition(.topLeading)
         .defaultLaunchBehavior(.presented)
+        // Lock the window to its content only when both axes auto-size; if either
+        // is manual, let the content set a minimum and the user resize freely.
+        .windowResizability(
+            contactsAutoSizeVertical && contactsAutoSizeHorizontal ? .contentSize : .contentMinSize
+        )
 
         WindowGroup("Chat", id: "chat", for: String.self) { $jidString in
             ChatWindow(jidString: $jidString)
@@ -72,6 +82,10 @@ struct DuckoApp: App {
                 .environment(themeEngine)
         }
         .defaultSize(width: 500, height: 450)
+        // Suppress SwiftUI's auto "New Chat Window" File-menu command: opening a
+        // chat window with no JID just yields an empty, spinning window. Chat
+        // windows are opened with a JID via "New Chat" / double-click instead.
+        .commandsRemoved()
 
         Window("Chat Transcripts", id: "transcripts") {
             TranscriptViewerWindow()
@@ -92,6 +106,24 @@ struct DuckoApp: App {
             }
 
             CommandGroup(after: .newItem) {
+                Button("New Chat") {
+                    focusedContactListWindowState?.newChat()
+                }
+                .keyboardShortcut("n")
+                .disabled(focusedContactListWindowState == nil)
+
+                Button("Join Room...") {
+                    focusedContactListWindowState?.joinRoom()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(focusedContactListWindowState == nil)
+
+                Button("Bookmarks...") {
+                    focusedContactListWindowState?.showBookmarks()
+                }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+                .disabled(focusedContactListWindowState == nil)
+
                 Divider()
 
                 Button("Chat Transcripts") {
@@ -106,12 +138,38 @@ struct DuckoApp: App {
                 }
             }
 
+            CommandMenu("Contact") {
+                Button("Add Contact...") {
+                    focusedContactListWindowState?.addContact()
+                }
+                .keyboardShortcut("d")
+                .disabled(focusedContactListWindowState == nil)
+
+                Divider()
+
+                Button("My Profile...") {
+                    focusedContactListWindowState?.editProfile()
+                }
+                .disabled(focusedContactListWindowState == nil)
+            }
+
+            CommandGroup(after: .sidebar) {
+                if let state = focusedContactListWindowState {
+                    ContactListViewOptionsMenu(state: state)
+                    Divider()
+                }
+            }
+
             CommandGroup(replacing: .textEditing) {
                 Button("Find...") {
-                    focusedChatWindowState?.toggleSearch()
+                    if let chat = focusedChatWindowState {
+                        chat.toggleSearch()
+                    } else {
+                        focusedContactListWindowState?.toggleSearch()
+                    }
                 }
                 .keyboardShortcut("f")
-                .disabled(focusedChatWindowState == nil)
+                .disabled(focusedChatWindowState == nil && focusedContactListWindowState == nil)
             }
 
             CommandGroup(after: .help) {

@@ -16,7 +16,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let alice = try #require(harness.accounts["alice"])
 
                 await harness.environment.profileService.fetchOwnProfile(accountID: alice.accountID)
-                let originalProfile = try #require(harness.environment.profileService.ownProfile)
+                let originalProfile = try #require(harness.environment.profileService.ownProfile(for: alice.accountID))
 
                 harness.addCleanup {
                     try? await harness.environment.profileService.publishProfile(originalProfile, accountID: alice.accountID)
@@ -28,7 +28,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 await harness.environment.profileService.fetchOwnProfile(accountID: alice.accountID)
                 try await alice.waitForCondition({ @MainActor in
-                    harness.environment.profileService.ownProfile?.nickname == modified.nickname
+                    harness.environment.profileService.ownProfile(for: alice.accountID)?.nickname == modified.nickname
                 })
             }
         }
@@ -44,7 +44,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let alice = try #require(harness.accounts["alice"])
 
                 await harness.environment.profileService.fetchOwnProfile(accountID: alice.accountID)
-                let originalProfile = try #require(harness.environment.profileService.ownProfile)
+                let originalProfile = try #require(harness.environment.profileService.ownProfile(for: alice.accountID))
 
                 harness.addCleanup {
                     try? await harness.environment.profileService.publishProfile(originalProfile, accountID: alice.accountID)
@@ -60,7 +60,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 await harness.environment.profileService.fetchOwnProfile(accountID: alice.accountID)
                 try await alice.waitForCondition({ @MainActor in
-                    harness.environment.profileService.ownProfile?.nickname == secondNickname
+                    harness.environment.profileService.ownProfile(for: alice.accountID)?.nickname == secondNickname
                 })
             }
         }

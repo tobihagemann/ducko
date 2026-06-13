@@ -264,6 +264,15 @@ public final class AvatarService {
         do {
             let vcard = try await vcardModule.fetchVCard(for: from, forceRefresh: true)
             guard let photoData = vcard?.photoData else { return }
+            guard photoData.count <= AvatarLimits.maxBytes else {
+                log.warning("Dropping oversized avatar (\(photoData.count) bytes)")
+                // Record the hash (without the image) so the same oversized photo
+                // isn't re-fetched on every subsequent notification carrying it.
+                var updated = contact
+                updated.avatarHash = hash
+                try? await store.upsertContact(updated)
+                return
+            }
 
             var updated = contact
             updated.avatarData = Data(photoData)
@@ -285,10 +294,23 @@ public final class AvatarService {
                 from: contact.jid,
                 maxItems: 1
             )
-            guard let item = items.first,
-                  let base64Text = item.payload.textContent,
-                  let data = Data(base64Encoded: base64Text, options: .ignoreUnknownCharacters)
-            else { return }
+            guard let item = items.first, let base64Text = item.payload.textContent else { return }
+
+            // Pre-check the encoded length (base64 expands ~4/3) so an oversized
+            // payload is rejected before allocating the decoded bytes.
+            guard base64Text.utf8.count <= AvatarLimits.maxBytes / 3 * 4 + 4,
+                  let data = Data(base64Encoded: base64Text, options: .ignoreUnknownCharacters),
+                  data.count <= AvatarLimits.maxBytes
+            else {
+                // Record the hash (without the image) so an oversized/undecodable
+                // payload isn't re-fetched on every subsequent notification.
+                if let hash {
+                    var updated = contact
+                    updated.avatarHash = hash
+                    try? await store.upsertContact(updated)
+                }
+                return
+            }
 
             var updated = contact
             updated.avatarData = data
@@ -323,7 +345,10 @@ public final class AvatarService {
             )
             guard let dataItem = dataItems.first,
                   let base64Text = dataItem.payload.textContent,
-                  let data = Data(base64Encoded: base64Text, options: .ignoreUnknownCharacters)
+                  // Pre-check the encoded length (base64 expands ~4/3) before decoding.
+                  base64Text.utf8.count <= AvatarLimits.maxBytes / 3 * 4 + 4,
+                  let data = Data(base64Encoded: base64Text, options: .ignoreUnknownCharacters),
+                  data.count <= AvatarLimits.maxBytes
             else { return nil }
 
             return AvatarData(data: data, hash: hash, mimeType: mimeType)
@@ -338,7 +363,7 @@ public final class AvatarService {
 
         do {
             let vcard = try await vcardModule.fetchVCard(for: jid, forceRefresh: true)
-            guard let photoData = vcard?.photoData else { return nil }
+            guard let photoData = vcard?.photoData, photoData.count <= AvatarLimits.maxBytes else { return nil }
             let hash = vcard?.photoHash ?? sha1Hex(photoData)
             let mimeType = vcard?.photoType ?? "image/png"
             return AvatarData(data: Data(photoData), hash: hash, mimeType: mimeType)

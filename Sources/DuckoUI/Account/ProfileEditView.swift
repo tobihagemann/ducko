@@ -200,7 +200,7 @@ struct ProfileEditView: View {
             Task { await handlePhotoSelected(result) }
         }
         .onChange(of: profile.photoData) {
-            avatarImage = profile.photoData.flatMap(NSImage.init(data:))
+            avatarImage = profile.photoData.flatMap { AvatarImageDecoder.decode($0, maxPixelSize: 256) }
         }
     }
 
@@ -274,9 +274,9 @@ struct ProfileEditView: View {
             return
         }
         await environment.profileService.fetchOwnProfile(accountID: accountID)
-        if let fetched = environment.profileService.ownProfile {
+        if let fetched = environment.profileService.ownProfile(for: accountID) {
             profile = fetched
-            avatarImage = fetched.photoData.flatMap(NSImage.init(data:))
+            avatarImage = fetched.photoData.flatMap { AvatarImageDecoder.decode($0, maxPixelSize: 256) }
         }
         // Set profileLoaded even when ownProfile is nil (no vCard on server) to
         // allow first-time profile creation. Only stays false if we have no account.
@@ -306,7 +306,7 @@ struct ProfileEditView: View {
             )
             profile.photoData = imageData
             profile.photoType = mimeType
-            avatarImage = NSImage(data: imageData)
+            avatarImage = AvatarImageDecoder.decode(imageData, maxPixelSize: 256)
         } catch {
             avatarErrorMessage = error.localizedDescription
         }

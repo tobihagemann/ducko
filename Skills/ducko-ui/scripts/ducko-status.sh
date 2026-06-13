@@ -3,6 +3,13 @@
 # Usage: ducko-status.sh STATUS [MESSAGE]
 #   STATUS: available|away|xa|dnd|offline
 #   MESSAGE: optional status message text
+#
+# Limitation: the status control is a borderless SwiftUI `Menu` whose opened
+# menu renders as a process-level nested element. osascript can't reliably
+# traverse to it (`entire contents` silently truncates on the deep SwiftUI
+# tree), so this script's menu-item selection is best-effort and may report
+# "status menu item ... not found". The integration suite drives this control
+# via Swift AX and is authoritative — see UIPresenceTests.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -70,55 +77,74 @@ on run argv
             click pickerBtn
             delay 0.3
 
-            -- Find and click the target status menu item
-            -- Strategy 1: search within the picker's own menu
+            -- Find and click the target status menu item. The SwiftUI Menu
+            -- opens as a process-level menu (a sibling of the windows), not
+            -- under the button or window — so search the process's menus.
+            -- The borderless Menu is awkward to drive via osascript;
+            -- UIPresenceTests is the authoritative check for this path.
             set clicked to false
-            try
-                set menuElems to entire contents of menu 1 of pickerBtn
-                repeat with elem in menuElems
-                    try
-                        if role of elem is "AXMenuItem" and name of elem is targetLabel then
-                            click elem
-                            set clicked to true
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-            end try
-            -- Strategy 2: fallback to window contents
-            if not clicked then
-                set allElems to entire contents of contactWin
-                repeat with elem in allElems
-                    try
-                        if role of elem is "AXMenuItem" and name of elem is targetLabel then
-                            click elem
-                            set clicked to true
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-            end if
+            repeat with m in menus
+                try
+                    if exists (menu item targetLabel of m) then
+                        click (menu item targetLabel of m)
+                        set clicked to true
+                        exit repeat
+                    end if
+                end try
+            end repeat
             if not clicked then return "ERROR: status menu item " & targetLabel & " not found"
             delay 0.3
 
-            -- Optionally set the status message
+            -- Set a custom status message via the pull-down's "Custom…" sheet,
+            -- which opens pre-set to the presence just selected above.
             if messageArg is not "__none__" then
-                set msgField to missing value
+                set pickerBtn to missing value
                 set allElems to entire contents of contactWin
                 repeat with elem in allElems
                     try
-                        if value of attribute "AXIdentifier" of elem is "status-message-field" then
+                        if value of attribute "AXIdentifier" of elem is "status-picker" then
+                            set pickerBtn to elem
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+                if pickerBtn is missing value then return "ERROR: status-picker not found"
+                click pickerBtn
+                delay 0.3
+
+                set customClicked to false
+                repeat with m in menus
+                    try
+                        repeat with elem in (menu items of m)
+                            if (name of elem) starts with "Custom" then
+                                click elem
+                                set customClicked to true
+                                exit repeat
+                            end if
+                        end repeat
+                    end try
+                    if customClicked then exit repeat
+                end repeat
+                if not customClicked then return "ERROR: Custom… menu item not found"
+                delay 0.5
+
+                set msgField to missing value
+                repeat with elem in (entire contents of contactWin)
+                    try
+                        if value of attribute "AXIdentifier" of elem is "custom-status-message-field" then
                             set msgField to elem
                             exit repeat
                         end if
                     end try
                 end repeat
-                if msgField is missing value then return "ERROR: status-message-field not found"
+                if msgField is missing value then return "ERROR: custom-status-message-field not found"
                 set focused of msgField to true
                 delay 0.2
                 keystroke "a" using command down
                 delay 0.1
                 keystroke messageArg
+                delay 0.2
+                -- Set button carries .defaultAction.
                 keystroke return
                 delay 0.3
             end if

@@ -19,7 +19,7 @@ public struct MenuBarStatusView: View {
 
         Divider()
 
-        ForEach(statusOptions, id: \.self) { status in
+        ForEach(PresenceService.PresenceStatus.selectableCases, id: \.self) { status in
             Button {
                 setPresence(status)
             } label: {
@@ -46,15 +46,12 @@ public struct MenuBarStatusView: View {
         }
     }
 
-    private var statusOptions: [PresenceService.PresenceStatus] {
-        [.available, .away, .dnd, .xa]
-    }
-
     private func setPresence(_ status: PresenceService.PresenceStatus) {
         guard let accountID = environment.accountService.accounts.first(where: { $0.isEnabled })?.id else { return }
-        let message = environment.presenceService.myStatusMessage
         Task {
-            await environment.presenceService.applyPresence(status, message: message, accountID: accountID) { id in
+            // Picking a base presence clears any custom status message, matching
+            // the Contacts "me" header so both surfaces send the same payload.
+            await environment.presenceService.applyPresence(status, message: nil, accountID: accountID) { id in
                 try await environment.accountService.connect(accountID: id)
             } disconnect: { id in
                 await environment.accountService.disconnect(accountID: id)

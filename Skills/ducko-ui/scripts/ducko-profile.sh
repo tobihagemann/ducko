@@ -25,53 +25,12 @@ tell application "System Events"
         end repeat
         -- Fall back to window 1 if contact list not found
         if contactWin is missing value then set contactWin to window 1
-        -- Click the My Profile toolbar button (try direct button first)
-        set clicked to false
-        set allElems to entire contents of contactWin
-        repeat with elem in allElems
-            try
-                if value of attribute "AXIdentifier" of elem is "my-profile-toolbar-button" then
-                    click elem
-                    set clicked to true
-                    exit repeat
-                end if
-            end try
-        end repeat
-        -- Fall back to description matching
-        if not clicked then
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXButton" and description of elem is "My Profile" then
-                        click elem
-                        set clicked to true
-                        exit repeat
-                    end if
-                end try
-            end repeat
-        end if
-        -- Fall back to overflow menu if button not found
-        if not clicked then
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXPopUpButton" then
-                        click elem
-                        delay 0.5
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            set menuElems to entire contents of contactWin
-            repeat with elem in menuElems
-                try
-                    if role of elem is "AXMenuItem" and name of elem is "My Profile" then
-                        click elem
-                        set clicked to true
-                        exit repeat
-                    end if
-                end try
-            end repeat
-        end if
-        if not clicked then return "ERROR: My Profile button not found"
+        -- My Profile is on the Contact menu (no shortcut).
+        try
+            click (first menu item of menu 1 of menu bar item "Contact" of menu bar 1 whose name starts with "My Profile")
+        on error
+            return "ERROR: My Profile menu item not found"
+        end try
         delay 1
         -- Verify the profile sheet appeared by looking for profile-edit-view
         set allElems to entire contents of contactWin

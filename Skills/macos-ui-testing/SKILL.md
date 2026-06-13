@@ -88,6 +88,10 @@ osascript -e 'tell application "System Events" to get value of text field 1 of g
 osascript -e 'tell application "System Events" to click button "Submit" of group 1 of window 1 of process "AppName"'
 ```
 
+> **Synthetic coordinate clicks don't drive SwiftUI gestures.** AppleScript `click at {x,y}` and `peekaboo click --coords` do **not** trigger `.onTapGesture`/`.simultaneousGesture` or `List(selection:)` selection — only real user clicks or an accessibility **`AXPress`** on an actual `Button` do (`peekaboo perform-action --on ELEM --action AXPress`, or `peekaboo click --on ELEM` from `see --json`). So a `Button` is verifiable, but UI relying on tap gestures or list selection **can't be confirmed by synthetic clicks** — treat such a result as a signal, not proof, and hand the app to the user when only real clicks suffice.
+>
+> Peekaboo targets apps by **display name** (`--app Ducko`), not the executable name (`DuckoApp`).
+
 ### Step 6: Verify Results
 
 Take another screenshot or read values back to confirm the interaction succeeded.
@@ -140,6 +144,14 @@ Peekaboo's `click`, `type`, `image` with `--app` try to activate the app first. 
 - `see --app` works fine (read-only, skips focus)
 
 **Caveat with `--no-auto-focus`**: Clicks use absolute screen coordinates. If another window overlaps the target, the click hits the wrong window. Prefer `osascript` click (accessibility API, position-independent) for reliable button clicks.
+
+## Driving SwiftUI Controls (gotchas)
+
+SwiftUI controls bridge to accessibility in ways that defeat naive synthetic automation:
+
+- **Auto-focusing `@FocusState` text fields drop CGEvent keystrokes.** The field is AX-focused (`kAXFocusedAttribute == true`) but its editor never becomes AppKit's first responder, so CGEvents (`keyboardSetUnicodeString`, `.cghidEventTap`) post to the key window and are discarded. System Events `keystroke` (osascript) routes to the application's AX-focused element and lands — type via osascript `keystroke` (set the process frontmost first), not CGEvents. The typed text is often NOT exposed via `kAXValue` (it surfaces as the element's label/`AXTitle`), so assert on the resulting behavior (rows filtering, etc.), not on reading the field's value back.
+- **A SwiftUI `Menu` (`.menuStyle(.button)`) opens its menu as a top-level / process-level `AXMenu`** — a sibling of the windows, like a context menu — NOT as a descendant of the button. `kAXShownMenuUIElementAttribute` on the button and a popup-scoped descendant search both miss it; resolve the opened menu from the **application root** (search the app's top children excluding the menu bar for a `kAXMenuRole`). To open it, use an `AXPress` (`kAXPressAction`), not a coordinate click (see the Step 5 note). The Menu's label text isn't in `kAXValue` — add `.accessibilityValue(...)` in the app so the current selection is readable (also a VoiceOver win).
+- **osascript `entire contents` silently truncates on deep SwiftUI AX trees** — it misses deeply-nested identifiers that `peekaboo see --json` and a Swift `AXUIElement` walk find reliably; `... of window 1` (e.g. `UI element of window 1`) only checks **direct** children, not descendants. Don't rely on osascript element-finding for deeply-nested SwiftUI elements — use peekaboo or a Swift AX walk. Menu-bar navigation (`click menu item "X" of menu 1 of menu bar item "Y" of menu bar 1`) stays reliable and is the robust way to drive menu commands from osascript.
 
 ## Additional Resources
 

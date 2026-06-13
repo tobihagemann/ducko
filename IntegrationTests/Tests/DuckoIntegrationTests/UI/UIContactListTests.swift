@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import Foundation
 import Testing
 
@@ -33,19 +34,27 @@ extension DuckoIntegrationTests.UILayer {
                 let bob = TestCredentials.bob
                 try await app.waitForElement(identifier: "contact-row-\(bob.jid)")
 
+                // Search is hidden until revealed with Find (⌘F); the field
+                // carries `contact-search-field` once shown.
+                try await app.pressKey(CGKeyCode(kVK_ANSI_F), modifiers: .maskCommand)
+                try await app.waitForElement(
+                    identifier: "contact-search-field",
+                    timeout: TestTimeout.uiElement
+                )
+
                 // Negative case first: a query that matches no contact must
-                // hide bob's row. Without this, a no-op `.searchable` would
-                // pass the matching-query check below trivially.
-                try await app.type("zzznomatch", intoSearchField: nil)
+                // hide bob's row. `replaceText` types via keystrokes so the
+                // SwiftUI binding commits (a plain AX value-set leaves
+                // `$searchText` stale).
+                try await app.replaceText("zzznomatch", intoIdentifier: "contact-search-field")
                 try await app.waitForAbsence(
                     identifier: "contact-row-\(bob.jid)",
                     timeout: TestTimeout.uiElement
                 )
 
-                // Positive case: typing "bob" surfaces bob's row again.
-                // Replace the search text — the keystroke fallback would
-                // append, so we set the kAXValueAttribute path explicitly.
-                try await app.type("bob", intoSearchField: nil)
+                // Positive case: replacing the query with "bob" surfaces the
+                // row again.
+                try await app.replaceText("bob", intoIdentifier: "contact-search-field")
                 try await app.waitForElement(
                     identifier: "contact-row-\(bob.jid)",
                     timeout: TestTimeout.uiElement

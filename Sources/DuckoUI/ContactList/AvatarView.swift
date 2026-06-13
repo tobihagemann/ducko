@@ -4,9 +4,22 @@ import SwiftUI
 
 struct AvatarView: View {
     @Environment(ThemeEngine.self) private var theme
-    let contact: Contact
-    var size: CGFloat = 32
+    private let imageData: Data?
+    private let name: String
+    private let size: CGFloat
     @State private var nsImage: NSImage?
+
+    init(contact: Contact, size: CGFloat = 32) {
+        self.imageData = contact.avatarData
+        self.name = contact.displayName
+        self.size = size
+    }
+
+    init(imageData: Data?, name: String, size: CGFloat = 32) {
+        self.imageData = imageData
+        self.name = name
+        self.size = size
+    }
 
     var body: some View {
         Group {
@@ -20,8 +33,9 @@ struct AvatarView: View {
                 initialsView
             }
         }
-        .task(id: contact.avatarData) {
-            nsImage = contact.avatarData.flatMap(NSImage.init(data:))
+        .task(id: imageData) {
+            let pixelSize = Int((size * 3).rounded())
+            nsImage = imageData.flatMap { AvatarImageDecoder.decode($0, maxPixelSize: pixelSize) }
         }
     }
 
@@ -45,7 +59,6 @@ struct AvatarView: View {
     }
 
     private var initials: String {
-        let name = contact.displayName
         let parts = name.split(separator: " ")
         if parts.count >= 2 {
             return String(parts[0].prefix(1) + parts[1].prefix(1)).uppercased()

@@ -28,6 +28,16 @@ private func makePresence(show: XMPPPresence.Show? = nil, type: XMPPPresence.Pre
 // MARK: - Tests
 
 enum PresenceServiceTests {
+    struct StatusOptions {
+        @Test func `selectableCases excludes offline in canonical order`() {
+            #expect(PresenceService.PresenceStatus.selectableCases == [.available, .away, .xa, .dnd])
+        }
+
+        @Test func `allCases is the full canonical order including offline`() {
+            #expect(PresenceService.PresenceStatus.allCases == [.available, .away, .xa, .dnd, .offline])
+        }
+    }
+
     struct PresenceUpdated {
         @Test
         @MainActor

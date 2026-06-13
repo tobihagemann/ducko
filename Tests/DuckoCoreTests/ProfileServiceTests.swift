@@ -80,6 +80,33 @@ private func captureAndAckPublish(_ transport: MockTransport, sentIndex: Int) as
 // MARK: - Tests
 
 enum ProfileServiceTests {
+    struct AccountIsolation {
+        @Test
+        @MainActor
+        func `ownProfile is keyed per account and never leaks across accounts`() async throws {
+            let connected = try await connectProfileService()
+            let profileService = connected.service
+            let transport = connected.transport
+            let accountID = connected.accountID
+
+            let publishTask = Task { @MainActor in
+                try await profileService.publishProfile(ProfileInfo(fullName: "Alice"), accountID: accountID)
+            }
+            try await respondToVCardFetch(
+                transport, sentIndex: 4, serverVCard: "<vCard xmlns='vcard-temp'><FN>Alice</FN></vCard>"
+            )
+            _ = try await captureAndAckPublish(transport, sentIndex: 5)
+            try await publishTask.value
+
+            // The published profile is retrievable for its own account…
+            #expect(profileService.ownProfile(for: accountID)?.fullName == "Alice")
+            // …and a different account ID never surfaces it.
+            #expect(profileService.ownProfile(for: UUID()) == nil)
+
+            await connected.accountService.disconnect(accountID: accountID)
+        }
+    }
+
     struct PublishPreservesRawXML {
         @Test
         @MainActor

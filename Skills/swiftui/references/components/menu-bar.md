@@ -99,3 +99,4 @@ struct ItemCommands: Commands {
 
 - Avoid registering the same keyboard shortcut in multiple command groups.
 - Don’t use menu items as the only discoverable entry point for critical features.
+- A `WindowGroup` — especially a `WindowGroup(for: SomeType.self)` — auto-adds a `New <Title> Window` command to the File menu; opening it creates a window with no data (empty/placeholder/spinner). Suppress it with `.commandsRemoved()` on that scene when its windows are only opened programmatically (e.g. via `openWindow(id:value:)`).

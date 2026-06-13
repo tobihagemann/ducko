@@ -50,57 +50,69 @@ struct AccountSetupView: View {
             .frame(maxWidth: 300)
             .accessibilityIdentifier("setup-mode-picker")
 
-            VStack(spacing: 12) {
-                switch mode {
-                case .importAdium:
-                    AdiumOnboardingImportView(
-                        importInProgress: $importInProgress,
-                        cachedAccounts: $adiumAccounts,
-                        cachedLogSources: $adiumLogSources,
-                        cachedKeychainPasswords: $adiumKeychainPasswords
-                    )
-                case .login:
-                    loginFields
-                case .register:
-                    registerFields
-                }
-            }
-            .frame(maxWidth: 300)
-
-            if mode != .importAdium {
-                if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.callout)
+            // Reserve a stable footprint for the mode-dependent area and pin its
+            // content to the top, so the icon, title, subtitle, and segmented
+            // control above never shift when switching modes or when the error
+            // message appears.
+            VStack(spacing: 20) {
+                VStack(spacing: 12) {
+                    switch mode {
+                    case .importAdium:
+                        AdiumOnboardingImportView(
+                            importInProgress: $importInProgress,
+                            cachedAccounts: $adiumAccounts,
+                            cachedLogSources: $adiumLogSources,
+                            cachedKeychainPasswords: $adiumKeychainPasswords
+                        )
+                    case .login:
+                        loginFields
+                    case .register:
+                        registerFields
+                    }
                 }
 
-                Button {
-                    Task {
-                        switch mode {
-                        case .login:
-                            await connectAccount()
-                        case .register:
-                            await registerAccount()
-                        case .importAdium:
-                            break
+                if mode != .importAdium {
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                            .font(.callout)
+                    }
+
+                    Button {
+                        Task {
+                            switch mode {
+                            case .login:
+                                await connectAccount()
+                            case .register:
+                                await registerAccount()
+                            case .importAdium:
+                                break
+                            }
+                        }
+                    } label: {
+                        if isConnecting {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Text(mode == .login ? "Connect" : "Register")
                         }
                     }
-                } label: {
-                    if isConnecting {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Text(mode == .login ? "Connect" : "Register")
-                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isActionDisabled)
+                    .accessibilityIdentifier(mode == .login ? "connect-button" : "register-button")
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isActionDisabled)
-                .accessibilityIdentifier(mode == .login ? "connect-button" : "register-button")
             }
+            .frame(maxWidth: 300, minHeight: reservedContentHeight, alignment: .top)
         }
         .padding(40)
         .frame(minWidth: 400, minHeight: 300)
     }
+
+    /// Stable height reserved for the mode-dependent content below the picker.
+    /// Sized to comfortably fit the tallest fixed layout (Register: four fields
+    /// plus the action button and an error line) so toggling between modes does
+    /// not move anything above it.
+    private let reservedContentHeight: CGFloat = 220
 
     // MARK: - Fields
 

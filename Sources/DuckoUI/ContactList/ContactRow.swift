@@ -12,8 +12,8 @@ struct ContactRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if theme.current.showAvatars {
-                AvatarView(contact: contact, size: theme.current.avatarSize)
+            if theme.current.showPresenceIndicators {
+                PresenceIndicator(status: presence, isPendingSubscription: contact.isPendingSubscription)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -41,8 +41,8 @@ struct ContactRow: View {
 
             Spacer()
 
-            if theme.current.showPresenceIndicators {
-                PresenceIndicator(status: presence, isPendingSubscription: contact.isPendingSubscription)
+            if theme.current.showAvatars {
+                AvatarView(contact: contact, size: theme.current.avatarSize)
             }
         }
         .padding(.vertical, 2)

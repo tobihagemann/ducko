@@ -17,6 +17,8 @@ DuckoApp ships separate windows:
 - **Chat** (`id: "chat"`, keyed by JID string) — one window per conversation, opened by double-click or New Chat.
 - **MenuBarExtra** — quick status, Show Contact List, Quit.
 
+The Contacts window has **no toolbar**. Its actions live in the app menu bar: New Chat (⌘N), Join Room (⌘⇧N), Bookmarks (⌘⇧B) under File; Add Contact (⌘D), My Profile under the Contact menu; sort order + Hide Offline under View. `⌘F` reveals the roster search field (`contact-search-field`). Scripts drive these via keyboard shortcuts or menu-bar clicks (`menu bar item ... of menu bar 1`), not window buttons.
+
 ## Prerequisites
 
 - Peekaboo CLI installed (`/opt/homebrew/bin/peekaboo`)
@@ -34,8 +36,10 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 |---|---|---|
 | `contact-list` | Contact list view | Contacts |
 | `contact-row-{jid}` | Individual contact row | Contacts |
-| `status-picker` | Presence status menu | Contacts |
-| `status-message-field` | Status message text field | Contacts |
+| `status-picker` | Presence status pull-down (status options + Custom…) in the "me" header | Contacts |
+| `custom-status-message-field` | Message field in the status pull-down's Custom… sheet | Contacts |
+| `my-avatar` | Self avatar in the "me" header | Contacts |
+| `contact-search-field` | Roster search field, revealed by ⌘F | Contacts |
 | `message-field` | Message input text field | Chat |
 | `send-button` | Send message button | Chat |
 | `new-chat-jid-field` | JID field in New Chat sheet | Contacts |
@@ -48,8 +52,7 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `typing-indicator` | Typing indicator dots | Chat |
 | `reply-compose-bar` | Reply/edit compose bar above input | Chat |
 | `message-search-bar` | Cmd+F search bar in chat | Chat |
-| `sort-mode-menu` | View options menu (sort/filter) | Contacts |
-| `join-room-toolbar-button` | Join Room toolbar button | Contacts |
+| `sort-mode-menu` | "Sort Contacts" picker, in the View menu bar | Contacts (menu bar) |
 | `room-row-{jid}` | Room row in Rooms section | Contacts |
 | `room-invite-banner` | Pending room invitation banner | Contacts |
 | `room-jid-field` | Room JID field in Join Room dialog | Contacts |
@@ -78,7 +81,6 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `affiliation-add-button` | Add affiliation button | Room Settings |
 | `change-nickname-menu-item` | "Change Nickname…" on self in sidebar | Chat (sidebar) |
 | `change-nickname-field` | Nickname text field in change alert | Chat (sidebar) |
-| `my-profile-toolbar-button` | My Profile toolbar button | Contacts |
 | `profile-edit-view` | Profile editing sheet | Contacts |
 | `profile-fullname-field` | Full Name text field | Profile |
 | `profile-nickname-field` | Nickname text field | Profile |
@@ -93,7 +95,6 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `profile-remove-photo-button` | Remove Photo button | Profile |
 | `profile-save-button` | Save button | Profile |
 | `profile-cancel-button` | Cancel button | Profile |
-| `bookmarks-toolbar-button` | Bookmarks toolbar button | Contacts |
 | `bookmark-row-{jid}` | Individual bookmark row | Bookmarks |
 | `add-bookmark-button` | Add Bookmark toolbar button | Bookmarks |
 | `bookmark-jid-field` | Room JID field in Add Bookmark sheet | Bookmarks |
@@ -199,20 +200,21 @@ Right-click a participant in the chat window sidebar:
 | `ducko-send.sh` | Type a message and send it in the active chat window | `MESSAGE` |
 | `ducko-screenshot.sh` | Capture window screenshot | `[FILENAME]` (optional, absolute path or relative to `/private/tmp/claude/`) |
 | `ducko-search.sh` | Toggle Cmd+F search bar in chat, optionally search | `[QUERY]` (optional) |
+| `ducko-contact-search.sh` | Reveal the contact-list search (⌘F), optionally filter the roster | `[QUERY]` (optional) |
 | `ducko-reply.sh` | Right-click a message and select Reply | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
-| `ducko-sort.sh` | Open View Options menu, optionally select sort/filter | `[alphabetical\|byStatus\|recentConversation\|hideOffline]` (optional) |
+| `ducko-sort.sh` | Open the View menu (Sort Contacts / Hide Offline), optionally select sort/filter | `[alphabetical\|byStatus\|recentConversation\|hideOffline]` (optional) |
 | `ducko-join-room.sh` | Open Join Room sheet, fill room JID + nickname, join | `ROOM_JID [NICKNAME]` |
 | `ducko-toggle-sidebar.sh` | Toggle participant sidebar in active groupchat window | none |
 | `ducko-focus-contacts.sh` | Raise the Contacts window to the front | none |
 | `ducko-room-settings.sh` | Open Room Settings sheet via context menu | `ROOM_JID` |
 | `ducko-connect.sh` | Reconnect by restarting the app | none |
-| `ducko-profile.sh` | Open My Profile sheet from contact list toolbar | none |
+| `ducko-profile.sh` | Open My Profile sheet from the Contact menu | none |
 | `ducko-avatar.sh` | Upload an avatar image via profile sheet | `IMAGE_PATH` |
 | `ducko-avatar-remove.sh` | Remove current avatar via profile sheet | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
 | `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Appearance\|Notifications\|Advanced>` |
-| `ducko-status.sh` | Set presence status and optional status message | `STATUS [MESSAGE]` (`STATUS`: available\|away\|xa\|dnd\|offline) |
-| `ducko-bookmarks.sh` | Open the Bookmarks sheet from contact list toolbar | none |
+| `ducko-status.sh` | Set presence status and optional status message (best-effort; the borderless status `Menu` isn't reliably scriptable via osascript — see UIPresenceTests) | `STATUS [MESSAGE]` (`STATUS`: available\|away\|xa\|dnd\|offline) |
+| `ducko-bookmarks.sh` | Open the Bookmarks sheet from the File menu (⌘⇧B) | none |
 | `ducko-add-bookmark.sh` | Add a bookmark via the Bookmarks sheet | `ROOM_JID [NICKNAME]` |
 | `ducko-remove-bookmark.sh` | Remove a bookmark from the Bookmarks sheet | `ROOM_JID` |
 | `ducko-leave-room.sh` | Leave a room via context menu | `ROOM_JID` |
@@ -467,7 +469,7 @@ SCRIPTS="Skills/ducko-ui/scripts"
 # 1. Launch (account must exist)
 $SCRIPTS/ducko-launch.sh
 
-# 2. Open My Profile sheet from toolbar
+# 2. Open My Profile sheet from the Contact menu
 $SCRIPTS/ducko-profile.sh
 
 # 3. Screenshot to verify profile fields loaded

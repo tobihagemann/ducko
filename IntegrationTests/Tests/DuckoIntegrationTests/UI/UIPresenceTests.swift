@@ -49,15 +49,51 @@ extension DuckoIntegrationTests.UILayer {
             if: AppAccessor.appBundleExists && AppAccessor.isAccessibilityTrusted && CLIProcess.binaryExists,
             "Ducko.app missing, AX trust not granted, or DuckoCLI binary missing"
         ))
-        @MainActor func `setting a status message updates the field`() async throws {
+        @MainActor func `setting a custom status message updates the picker`() async throws {
             try await UISeededApp.withSeededApp { app in
-                try await app.waitForElement(identifier: "status-message-field", timeout: TestTimeout.uiElement)
+                try await app.waitForElement(identifier: "status-picker", timeout: TestTimeout.uiElement)
 
-                try await app.type("Working", intoIdentifier: "status-message-field")
-                try await app.pressReturn(intoIdentifier: "status-message-field")
+                // The status message is set via the pull-down's "Custom…" sheet.
+                try await app.pressMenuItem(title: "Custom…", identifier: "status-picker")
+                try await app.waitForElement(
+                    identifier: "custom-status-message-field",
+                    timeout: TestTimeout.uiElement
+                )
+                try await app.type("Working", intoIdentifier: "custom-status-message-field")
+                try await app.clickSheetButton(label: "Set")
+                try await app.waitForSheetDismissed()
 
-                let value = try await app.value(identifier: "status-message-field")
+                // The closed pull-down shows the custom message in place of the
+                // presence label.
+                let value = try await app.value(identifier: "status-picker")
                 #expect(value == "Working")
+            }
+        }
+
+        @Test(.enabled(
+            if: AppAccessor.appBundleExists && AppAccessor.isAccessibilityTrusted && CLIProcess.binaryExists,
+            "Ducko.app missing, AX trust not granted, or DuckoCLI binary missing"
+        ))
+        @MainActor func `selecting a base presence clears a custom status message`() async throws {
+            try await UISeededApp.withSeededApp { app in
+                try await app.waitForElement(identifier: "status-picker", timeout: TestTimeout.uiElement)
+
+                // Set a custom message via the "Custom…" sheet.
+                try await app.pressMenuItem(title: "Custom…", identifier: "status-picker")
+                try await app.waitForElement(
+                    identifier: "custom-status-message-field",
+                    timeout: TestTimeout.uiElement
+                )
+                try await app.type("Working", intoIdentifier: "custom-status-message-field")
+                try await app.clickSheetButton(label: "Set")
+                try await app.waitForSheetDismissed()
+                try #require(try await app.value(identifier: "status-picker") == "Working")
+
+                // Picking a base presence clears the custom message, so the
+                // closed pull-down falls back to the presence label.
+                try await app.pickPopUpItem(title: "Away", identifier: "status-picker")
+                let value = try await app.value(identifier: "status-picker")
+                #expect(value == "Away")
             }
         }
     }

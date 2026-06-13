@@ -1,13 +1,40 @@
+import AppKit
 import DuckoCore
 import SwiftUI
 
 private let roomsSectionKey = "__rooms__"
 
+/// Fixed height of a group header row (content + 8pt vertical insets).
+private let groupRowHeight: CGFloat = 24
+
+/// Vertical chrome around a contact row's avatar (row insets + `ContactRow`
+/// padding + `.plain`'s own row padding); a contact row is `avatarSize` + this.
+private let contactRowChrome: CGFloat = 12
+
+/// Row insets, kept equal across headers and contacts (leading 4 / trailing 3)
+/// so dots and avatars column-align with the "me" header. `.plain` adds its own
+/// ~8pt leading / ~9pt trailing (scroller gutter) on top, landing content at ~12pt.
+private let groupRowInsets = EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 3)
+private let contactRowInsets = EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 3)
+
+/// Caps on the hidden name-measuring layer so a server-controlled roster (very
+/// many entries or pathologically long names) can't drive unbounded layout
+/// work. Generous enough not to affect realistic rosters — a name longer than
+/// the length cap can't widen the window past `sliderMaxWidth` anyway.
+private let maxMeasuredNames = 200
+private let maxMeasuredNameLength = 64
+
 struct ContactListView: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(ThemeEngine.self) private var theme
     @Environment(\.openWindow) private var openWindow
     let searchText: String
     let preferences: ContactListPreferences
+    @State private var selection: String?
+    @AppStorage(ContactListSizingDefaults.autoSizeVerticalKey, store: PreferencesDefaults.store)
+    private var autoSizeVertical = true
+    @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
+    private var autoSizeHorizontal = true
 
     private var roomConversations: [Conversation] {
         environment.chatService.openConversations.filter { $0.type == .groupchat }
@@ -23,122 +50,212 @@ struct ContactListView: View {
     }
 
     var body: some View {
-        List {
-            ForEach(sortedAndFilteredGroups) { group in
-                let expanded = Binding(
-                    get: { preferences.isGroupExpanded(group.name) },
-                    set: { _ in preferences.toggleGroupExpanded(group.name) }
-                )
+        // Resolve the filtered roster, open rooms, and presence map once: the
+        // rows, the group counts, the height, the width-measuring layer, and
+        // the selection reconcile below all read them.
+        let groups = sortedAndFilteredGroups
+        let rooms = roomConversations
+        let presences = environment.presenceService.contactPresences
+        let unfilteredGroups = environment.rosterService.groups
+        let contentHeight: CGFloat? = autoSizeVertical
+            ? min(listContentHeight(groups: groups, rooms: rooms), maxListHeight)
+            : nil
 
-                DisclosureGroup(isExpanded: expanded) {
+        List(selection: $selection) {
+            ForEach(groups) { group in
+                let counts = ContactListSizing.onlineCounts(
+                    groupID: group.id,
+                    unfilteredRoster: unfilteredGroups,
+                    displayedContacts: group.contacts
+                ) { presences[$0.jid] != nil }
+
+                GroupHeaderRow(
+                    name: group.name,
+                    online: counts.online,
+                    total: counts.total,
+                    isExpanded: preferences.isGroupExpanded(group.name)
+                ) {
+                    preferences.toggleGroupExpanded(group.name)
+                }
+                .listRowInsets(groupRowInsets)
+                .listRowSeparator(.hidden)
+                .selectionDisabled()
+
+                if preferences.isGroupExpanded(group.name) {
                     ForEach(group.contacts) { contact in
-                        ContactRowWithMenu(contact: contact)
-                            .onTapGesture(count: 2) {
-                                openWindow(id: "chat", value: contact.jid.description)
-                            }
+                        selectableRow(id: contact.jid.description) {
+                            ContactRowWithMenu(contact: contact)
+                        }
                     }
-                } label: {
-                    Text(group.name)
                 }
             }
 
-            if !roomConversations.isEmpty {
-                let roomsExpanded = Binding(
-                    get: { preferences.isGroupExpanded(roomsSectionKey) },
-                    set: { _ in preferences.toggleGroupExpanded(roomsSectionKey) }
-                )
+            if !rooms.isEmpty {
+                GroupHeaderRow(
+                    name: "Rooms",
+                    showCount: false,
+                    isExpanded: preferences.isGroupExpanded(roomsSectionKey)
+                ) {
+                    preferences.toggleGroupExpanded(roomsSectionKey)
+                }
+                .listRowInsets(groupRowInsets)
+                .listRowSeparator(.hidden)
+                .selectionDisabled()
 
-                DisclosureGroup(isExpanded: roomsExpanded) {
-                    ForEach(roomConversations) { conversation in
-                        RoomRowWithMenu(conversation: conversation)
-                            .onTapGesture(count: 2) {
-                                openWindow(id: "chat", value: conversation.jid.description)
-                            }
+                if preferences.isGroupExpanded(roomsSectionKey) {
+                    ForEach(rooms) { conversation in
+                        selectableRow(id: conversation.jid.description) {
+                            RoomRowWithMenu(conversation: conversation)
+                        }
                     }
-                } label: {
-                    Text("Rooms")
                 }
             }
         }
-        .listStyle(.sidebar)
+        .listStyle(.plain)
+        // Native single-click selection across the whole row; `primaryAction`
+        // fires on double-click (and Return) to open the chat. The per-row
+        // `.contextMenu` on the rows themselves keeps providing the right-click
+        // actions, so the selection menu here is intentionally empty.
+        .contextMenu(forSelectionType: String.self) { _ in
+        } primaryAction: { ids in
+            if let id = ids.first {
+                openWindow(id: "chat", value: id)
+            }
+        }
         .accessibilityIdentifier("contact-list")
         // AX-only connectivity gate at `contact-list`. `.accessibilityValue` propagates to `kAXValueAttribute` on
         // the List's AX element; a Button/overlay sentinel doesn't (SwiftUI elides zero-frame primitives from the
         // AX tree). Tests wait for "connected" because `contact-row-*` can render from cached roster before bind completes.
         .accessibilityValue(hasConnectedAccount ? "connected" : "connecting")
+        // Vertical auto-size: when enabled, give the list exactly its content
+        // height (capped at the screen) so the enclosing content-size window
+        // shrinks/grows to fit the contacts instead of leaving empty space —
+        // Adium's auto-sizing buddy list. When disabled, the list fills the
+        // (user-resizable) window. Recomputes as groups expand/collapse.
+        .frame(height: contentHeight)
+        // Horizontal auto-size: measure the widest *visible* (filtered) name
+        // off-screen and publish it up to the window via `MaxNameWidthKey`, so
+        // a search that narrows to one contact narrows the window too.
+        .background(alignment: .topLeading) {
+            if autoSizeHorizontal {
+                nameMeasuringLayer(names: visibleNames(groups: groups, rooms: rooms))
+            }
+        }
+        // Drop a selection whose row was filtered or collapsed out of view, so
+        // a hidden row doesn't stay logically selected.
+        .onChange(of: visibleSelectableIDs(groups: groups, rooms: rooms)) { _, ids in
+            if let current = selection, !ids.contains(current) {
+                selection = nil
+            }
+        }
+    }
+
+    /// Bridges the view's themed row height into `ContactListSizing.listContentHeight`.
+    private func listContentHeight(groups: [ContactGroup], rooms: [Conversation]) -> CGFloat {
+        CGFloat(ContactListSizing.listContentHeight(
+            groups: groups.map { (contactCount: $0.contacts.count, isExpanded: preferences.isGroupExpanded($0.name)) },
+            roomCount: rooms.count,
+            roomsExpanded: preferences.isGroupExpanded(roomsSectionKey),
+            groupRowHeight: Double(groupRowHeight),
+            rowHeight: Double(theme.current.avatarSize + contactRowChrome)
+        ))
+    }
+
+    /// Upper bound so a long roster scrolls within the window rather than
+    /// growing it past the visible screen.
+    private var maxListHeight: CGFloat {
+        (NSScreen.main?.visibleFrame.height ?? 800) - 160
+    }
+
+    /// A selectable contact/room row. Selection is owned by `List(selection:)`;
+    /// double-click and Return open the chat via the list's
+    /// `.contextMenu(…primaryAction:)`. The full-width `contentShape` keeps the
+    /// whole row hit-testable — the row carries no tap gesture of its own (one
+    /// would steal single clicks from the list's selection in the content area).
+    private func selectableRow(id: String, @ViewBuilder content: () -> some View) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .listRowInsets(contactRowInsets)
+            .listRowSeparator(.hidden)
+            .tag(id)
+    }
+
+    /// Display names of the rows the list actually renders — contacts in
+    /// expanded, filtered groups plus room titles when the rooms section is
+    /// open — so the window's width tracks every visible name, not just contacts.
+    private func visibleNames(groups: [ContactGroup], rooms: [Conversation]) -> [String] {
+        var names = groups
+            .filter { preferences.isGroupExpanded($0.name) }
+            .flatMap { $0.contacts.map(\.displayName) }
+        if preferences.isGroupExpanded(roomsSectionKey) {
+            names += rooms.map { $0.displayName ?? $0.jid.localPart ?? $0.jid.description }
+        }
+        return names.prefix(maxMeasuredNames).map { String($0.prefix(maxMeasuredNameLength)) }
+    }
+
+    /// Row IDs currently rendered (expanded groups' contacts plus open rooms),
+    /// used to reconcile `selection` when a filter hides the selected row.
+    private func visibleSelectableIDs(groups: [ContactGroup], rooms: [Conversation]) -> Set<String> {
+        var ids = Set<String>()
+        for group in groups where preferences.isGroupExpanded(group.name) {
+            for contact in group.contacts {
+                ids.insert(contact.jid.description)
+            }
+        }
+        if preferences.isGroupExpanded(roomsSectionKey) {
+            for room in rooms {
+                ids.insert(room.jid.description)
+            }
+        }
+        return ids
+    }
+
+    /// Off-screen copies of the visible names at intrinsic width, each
+    /// publishing its width so `MaxNameWidthKey` tracks the widest — the basis
+    /// for the window's horizontal auto-fit. `.fixedSize()` makes each label
+    /// ignore the window width so the measurement is the true label width.
+    private func nameMeasuringLayer(names: [String]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(names.enumerated()), id: \.offset) { _, name in
+                Text(name)
+                    .fontWeight(.medium)
+                    .fixedSize()
+                    .background {
+                        GeometryReader { proxy in
+                            Color.clear.preference(key: MaxNameWidthKey.self, value: proxy.size.width)
+                        }
+                    }
+            }
+        }
+        .hidden()
+        .accessibilityHidden(true)
     }
 
     private var sortedAndFilteredGroups: [ContactGroup] {
-        let groups = environment.rosterService.groups
-
-        let searched: [ContactGroup] = if searchText.isEmpty {
-            groups
-        } else {
-            groups.compactMap { group in
-                let filtered = group.contacts.filter { contact in
-                    contact.displayName.localizedStandardContains(searchText)
-                        || contact.jid.description.localizedStandardContains(searchText)
-                }
-                guard !filtered.isEmpty else { return nil }
-                return ContactGroup(id: group.id, name: group.name, contacts: filtered)
+        let presences = environment.presenceService.contactPresences
+        var lastMessageDates: [String: Date] = [:]
+        for conversation in environment.chatService.openConversations {
+            if let date = conversation.lastMessageDate {
+                lastMessageDates[conversation.jid.description] = date
             }
         }
 
-        let filtered: [ContactGroup] = if preferences.hideOffline {
-            searched.compactMap { group in
-                let onlineContacts = group.contacts.filter { contact in
-                    environment.presenceService.contactPresences[contact.jid] != nil
-                }
-                guard !onlineContacts.isEmpty else { return nil }
-                return ContactGroup(id: group.id, name: group.name, contacts: onlineContacts)
-            }
-        } else {
-            searched
-        }
-
-        return filtered.map { group in
-            let sorted = sortContacts(group.contacts)
-            return ContactGroup(id: group.id, name: group.name, contacts: sorted)
-        }
+        return ContactListFilter.sortedAndFiltered(
+            groups: environment.rosterService.groups,
+            searchText: searchText,
+            hideOffline: preferences.hideOffline,
+            sortMode: preferences.sortMode,
+            context: ContactListFilter.PresenceContext(
+                isOnline: { presences[$0.jid] != nil },
+                statusPriority: { statusPriority(of: presences[$0.jid]) },
+                lastMessageDate: { lastMessageDates[$0.jid.description] }
+            )
+        )
     }
 
-    private func sortContacts(_ contacts: [Contact]) -> [Contact] {
-        switch preferences.sortMode {
-        case .alphabetical:
-            return contacts.sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
-
-        case .byStatus:
-            return contacts.sorted { a, b in
-                let aPriority = statusPriority(for: a)
-                let bPriority = statusPriority(for: b)
-                if aPriority != bPriority {
-                    return aPriority < bPriority
-                }
-                return a.displayName.localizedStandardCompare(b.displayName) == .orderedAscending
-            }
-
-        case .recentConversation:
-            var dateLookup: [String: Date] = [:]
-            for conversation in environment.chatService.openConversations {
-                if let date = conversation.lastMessageDate {
-                    dateLookup[conversation.jid.description] = date
-                }
-            }
-            return contacts.sorted { a, b in
-                let aDate = dateLookup[a.jid.description]
-                let bDate = dateLookup[b.jid.description]
-                if let aDate, let bDate {
-                    return aDate > bDate
-                }
-                if aDate != nil { return true }
-                if bDate != nil { return false }
-                return a.displayName.localizedStandardCompare(b.displayName) == .orderedAscending
-            }
-        }
-    }
-
-    private func statusPriority(for contact: Contact) -> Int {
-        guard let status = environment.presenceService.contactPresences[contact.jid] else { return 4 }
+    private func statusPriority(of status: PresenceService.PresenceStatus?) -> Int {
+        guard let status else { return 4 }
         return switch status {
         case .available: 0
         case .away: 1
@@ -146,6 +263,55 @@ struct ContactListView: View {
         case .xa: 3
         case .offline: 4
         }
+    }
+}
+
+/// Publishes the widest measured contact-name label up the view tree so the
+/// enclosing window can size its width to fit (Adium's horizontal auto-fit).
+struct MaxNameWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// A collapsible group header. The whole row toggles expansion (not just the
+/// chevron), matching Adium, and is excluded from list selection by the caller.
+private struct GroupHeaderRow: View {
+    let name: String
+    var online: Int = 0
+    var total: Int = 0
+    var showCount: Bool = true
+    let isExpanded: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    // Same 8-pt slot as the contact status dots so the chevron's
+                    // center aligns with the dot column above/below it.
+                    .frame(width: 8)
+
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if showCount {
+                    Text("\(online) of \(total)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

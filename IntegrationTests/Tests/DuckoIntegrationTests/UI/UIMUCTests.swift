@@ -1,4 +1,5 @@
 import ApplicationServices
+import Carbon.HIToolbox
 import Foundation
 import Testing
 
@@ -94,8 +95,8 @@ extension DuckoIntegrationTests.UILayer {
 
             try await app.waitForContactRow(TestCredentials.bob)
 
-            try await app.waitForElement(identifier: "join-room-toolbar-button")
-            try await app.click(identifier: "join-room-toolbar-button")
+            // Join Room… lives in the File menu; drive it through its ⌘⇧N shortcut.
+            try await app.pressKey(CGKeyCode(kVK_ANSI_N), modifiers: [.maskCommand, .maskShift])
             try await app.waitForElement(identifier: "room-jid-field", timeout: TestTimeout.uiElement)
             try await app.type(roomJID, intoIdentifier: "room-jid-field")
             try await app.type("alice", intoIdentifier: "room-nickname-field")

@@ -19,8 +19,15 @@ public final class PresenceService {
         pendingRequestsByAccount.values.flatMap(\.self)
     }
 
-    public enum PresenceStatus: String, Sendable {
+    public enum PresenceStatus: String, Sendable, CaseIterable {
         case available, away, xa, dnd, offline
+
+        /// User-selectable presences in canonical `allCases` order, excluding
+        /// `offline` (a disconnected state rather than a status picked alongside
+        /// a custom message). Used by the menu-bar and custom-status menus; the
+        /// Contacts header menu deliberately iterates the full `allCases` so it
+        /// can also offer Offline (which disconnects).
+        public static let selectableCases: [PresenceStatus] = allCases.filter { $0 != .offline }
 
         public var displayName: String {
             switch self {

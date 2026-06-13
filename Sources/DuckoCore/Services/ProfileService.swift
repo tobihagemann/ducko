@@ -16,7 +16,13 @@ public final class ProfileService {
         }
     }
 
-    public private(set) var ownProfile: ProfileInfo?
+    private var ownProfilesByAccount: [UUID: ProfileInfo] = [:]
+
+    /// The fetched/published profile for a specific account. Keyed by account so
+    /// switching the active account never surfaces a previous account's profile.
+    public func ownProfile(for accountID: UUID) -> ProfileInfo? {
+        ownProfilesByAccount[accountID]
+    }
 
     private weak var accountService: AccountService?
 
@@ -37,7 +43,7 @@ public final class ProfileService {
         do {
             let vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true)
             if let vcard {
-                ownProfile = mapVCardToProfileInfo(vcard)
+                ownProfilesByAccount[accountID] = mapVCardToProfileInfo(vcard)
             }
         } catch {
             log.warning("Failed to fetch own vCard: \(error)")
@@ -63,7 +69,7 @@ public final class ProfileService {
             }
         } catch let stanzaError as XMPPStanzaError where stanzaError.condition == .itemNotFound {}
         try await vcardModule.publishVCard(vcard)
-        ownProfile = profile
+        ownProfilesByAccount[accountID] = profile
     }
 
     // MARK: - Mapping
@@ -86,7 +92,9 @@ public final class ProfileService {
             url: vcard.url,
             birthday: vcard.birthday,
             note: vcard.note,
-            photoData: vcard.photoData.map { Data($0) },
+            // Drop an oversized server-supplied photo rather than caching it, in
+            // line with the contact-avatar ingestion cap.
+            photoData: vcard.photoData.flatMap { $0.count <= AvatarLimits.maxBytes ? Data($0) : nil },
             photoType: vcard.photoType
         )
     }

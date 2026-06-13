@@ -254,16 +254,16 @@ actor AppAccessor {
         // Argument-domain UserDefaults override: `NSUserDefaults` reads
         // `-key value` pairs from process arguments and treats them as the
         // highest-priority domain on read. NSWindow's `setFrameAutosaveName`
-        // consults `standardUserDefaults`, so this override wins over the
-        // persisted frame in `~/Library/Preferences/im.ducko.plist` for this
-        // launch only — the developer's saved Contacts position is never
-        // read or written.
+        // consults `standardUserDefaults`, so this override wins on read over
+        // any frame persisted in `~/Library/Preferences/im.ducko.plist` — a
+        // stray developer-saved Contacts frame can't reposition the test
+        // window for this launch.
         //
-        // The Contacts window's `.defaultSize(width: 280, height: 600)` is
-        // too narrow for all six toolbar items + `.searchable` field to lay
-        // out without AppKit collapsing one into the `>>` overflow popup,
-        // where `kAXIdentifierAttribute` lookups (e.g. `join-room-toolbar-
-        // button`) miss. 720pt gives every item room to render.
+        // The Contacts window content-sizes itself (auto-fitting width and
+        // height), so the injected size is advisory: AppKit clamps it to the
+        // content. The override exists to pin a deterministic on-screen
+        // origin; the size only needs to be large enough that the first paint
+        // isn't clipped before auto-sizing settles.
         //
         // Each pair is two argv elements (`"-<key>"`, `"<value>"`); a
         // contributor adding a second pair must keep that one-element-per-
@@ -352,8 +352,8 @@ actor AppAccessor {
     /// the new `XMPPClient` finishes binding. The `contact-list` element
     /// exposes `kAXValueAttribute = "connected"` only when
     /// `AccountService.connectionStates` flips to `.connected` — closing the
-    /// race where a click on `join-room-toolbar-button` hit `XMPPClient.send`
-    /// while state was still `.connecting`/`.authenticating`.
+    /// race where a roster-driven action fires against `XMPPClient.send` while
+    /// state is still `.connecting`/`.authenticating`.
     func waitForContactRow(_ contact: TestCredentials.Credential) async throws {
         try await waitForElement(identifier: "contact-row-\(contact.jid)", timeout: TestTimeout.connect)
         try await pollUntil(timeout: TestTimeout.connect) {
@@ -386,6 +386,20 @@ actor AppAccessor {
             // leaking sensitive data at higher levels.
             log.debug("waitForElement timeout (\(timeout)) for identifier '\(identifier)'")
             throw TestHarnessError.timeout
+        }
+    }
+
+    /// Polls until `identifier`'s element reports `kAXFocusedAttribute == true`.
+    /// SwiftUI `TextField`s that auto-focus via `@FocusState` only become first
+    /// responder asynchronously (and a synthetic click does not reliably focus
+    /// one), so keystrokes posted before focus settles are dropped. Gate typing
+    /// on this so the field is actually receiving input.
+    func waitForFocus(identifier: String, timeout: Duration = TestTimeout.uiElement) async throws {
+        try await pollUntil(timeout: timeout) {
+            guard let element = try? self.resolveElement(identifier: identifier) else { return false }
+            var value: AnyObject?
+            let err = AXUIElementCopyAttributeValue(element, kAXFocusedAttribute as CFString, &value)
+            return err == .success && (value as? Bool == true)
         }
     }
 
@@ -444,13 +458,21 @@ actor AppAccessor {
     /// `kAXMenuRole` to publish under the application; if the menu does
     /// appear, the action committed regardless of return code.
     func rightClick(identifier: String) async throws {
-        let element = try resolveElement(identifier: identifier)
-        let err = AXUIElementPerformAction(element, kAXShowMenuAction as CFString)
-        if err == .apiDisabled { throw TestHarnessError.axTrustMissing }
-        do {
-            _ = try await waitForShownContextMenu(timeout: TestTimeout.uiElement)
-        } catch TestHarnessError.elementNotFound, TestHarnessError.timeout {
-            throw TestHarnessError.elementNotFound(identifier: identifier)
+        // Retry the whole resolve → show-menu → wait sequence: a presence or
+        // roster re-render can invalidate the row's AX element either before
+        // the resolve or between the resolve and `kAXShowMenuAction` (the row
+        // re-mounts mid-gesture, so the action lands on a stale element and no
+        // menu appears). Re-posting is safe here because each retry only runs
+        // after the wait below found NO menu — there's nothing open to close.
+        try await retryOnStaleElement(identifier: identifier, maxAttempts: 4) {
+            let element = try self.resolveElement(identifier: identifier)
+            let err = AXUIElementPerformAction(element, kAXShowMenuAction as CFString)
+            if err == .apiDisabled { throw TestHarnessError.axTrustMissing }
+            do {
+                _ = try await self.waitForShownContextMenu(timeout: .seconds(3))
+            } catch TestHarnessError.elementNotFound, TestHarnessError.timeout {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
         }
     }
 
@@ -501,46 +523,6 @@ actor AppAccessor {
         }
     }
 
-    /// Search-field-aware variant: tries the kebab identifier first, then
-    /// falls back to walking the application's `kAXToolbarRole` for any
-    /// `kAXTextFieldRole` descendant. Ships unconditionally so callers do
-    /// not branch on whether `.searchable` propagated the audit identifier.
-    func type(_ text: String, intoSearchField identifier: String?) async throws {
-        if let identifier {
-            do {
-                try await type(text, intoIdentifier: identifier)
-                return
-            } catch TestHarnessError.elementNotFound {
-                // fall through to role-based traversal
-            }
-        }
-        let fallbackIdentifier = identifier ?? "search-contacts"
-        try await retryOnStaleElement(identifier: fallbackIdentifier) {
-            guard let pid = self.process?.processIdentifier else {
-                throw TestHarnessError.elementNotFound(identifier: fallbackIdentifier)
-            }
-            let appElement = AXUIElementCreateApplication(pid)
-            guard let toolbar = self.findDescendant(in: appElement, role: kAXToolbarRole, where: { _ in true }),
-                  let field = self.findDescendant(in: toolbar, role: kAXTextFieldRole, where: { _ in true }) else {
-                throw TestHarnessError.elementNotFound(identifier: fallbackIdentifier)
-            }
-            Self.setFocused(field, identifier: fallbackIdentifier)
-            switch Self.mapSetterError(
-                AXUIElementSetAttributeValue(field, kAXValueAttribute as CFString, text as CFString),
-                identifier: fallbackIdentifier
-            ) {
-            case .done:
-                return
-            case let .error(error):
-                throw error
-            case .needsFallback:
-                break
-            }
-            await self.ensureFrontmost()
-            Self.synthesizeKeystrokes(for: text)
-        }
-    }
-
     /// Focuses `identifier` and synthesizes a hardware Return keystroke.
     /// `kAXConfirmAction` is not used because SwiftUI's `.onKeyPress(.return)`
     /// handlers only fire on real keystroke events.
@@ -552,37 +534,16 @@ actor AppAccessor {
         }
     }
 
-    /// Clears `identifier`'s current contents and types `text`, all via
-    /// hardware-style keystrokes (Cmd+A, Delete, then per-character events).
-    /// Use when the field already holds content that the test must replace
-    /// — e.g. the message-field pre-populated by `editingMessage` after the
-    /// Edit context-menu pick. The plain `type(_:intoIdentifier:)` shortcut
-    /// uses `kAXSetValueAction` first; on a pre-populated SwiftUI
-    /// `TextField` bound to `@State` the AX setter returns success and may
-    /// even repaint the field, but the SwiftUI Binding stays at its prior
-    /// value, so a follow-up `pressReturn` reads stale `text` in
-    /// `.onKeyPress(.return)`. Keystrokes route through the field editor's
-    /// `controlTextDidChange` path which is what SwiftUI observes, so the
-    /// Binding always syncs.
-    ///
-    /// A synthesized mouse click at the field's center is the first step:
-    /// `kAXSetAttributeValue(kAXFocusedAttribute = true)` and
-    /// `kAXFocusedWindowAttribute` set the AX-level focus, but they do not
-    /// update AppKit's first responder, so subsequent keystrokes posted via
-    /// `.cghidEventTap` get dispatched to whatever responder the chat window
-    /// inherited after the context-menu modal session dismissed (typically
-    /// the window itself, which discards them). A real mouse click forces
-    /// the field to become first responder.
+    /// Clears `identifier`'s current contents, types `text` (via `replaceText`),
+    /// then waits for the field's `kAXValue` to reconcile. Use when the test
+    /// must both replace content and prove the SwiftUI binding committed — e.g.
+    /// the message field pre-populated after the Edit context-menu pick, where a
+    /// stale `@State` binding would make a follow-up `pressReturn` send the
+    /// pre-edit body. This is `replaceText` plus the value-reconcile assertion;
+    /// for fields whose typed text never surfaces via `kAXValue` (the borderless
+    /// search field), call `replaceText` directly and assert on behavior.
     func clearAndType(_ text: String, intoIdentifier identifier: String) async throws {
-        let element = try resolveElement(identifier: identifier)
-        Self.setFocused(element, identifier: identifier)
-        await ensureFrontmost()
-        if let center = elementCenter(of: element) {
-            postClickPair(at: center, clickState: 1)
-        }
-        try await pressKey(CGKeyCode(kVK_ANSI_A), modifiers: .maskCommand)
-        try await pressKey(CGKeyCode(kVK_Delete), modifiers: [])
-        Self.synthesizeKeystrokes(for: text)
+        try await replaceText(text, intoIdentifier: identifier)
         // `synthesizeKeystrokes` posts CGEvents and returns; under suite load
         // the AppKit field editor's `controlTextDidChange` pipeline can land
         // the typed replacement into SwiftUI's bound `@State` *after* a
@@ -591,6 +552,52 @@ actor AppAccessor {
         // pre-edit body. Polling for AX value equality proves the binding
         // committed before this helper returns.
         try await waitForValue(text, identifier: identifier)
+    }
+
+    /// Clears `identifier` and types `text` via hardware-style keystrokes, like
+    /// `clearAndType`, but WITHOUT asserting the field's `kAXValue` reconciles.
+    /// Use for SwiftUI `TextField`s whose typed text isn't surfaced via
+    /// `kAXValueAttribute` (e.g. the borderless contact-list search field): the
+    /// `@State` binding still commits, so assert on the resulting behavior (rows
+    /// appearing/disappearing) instead of on the field's value.
+    func replaceText(_ text: String, intoIdentifier identifier: String) async throws {
+        // Type via System Events `keystroke`, which routes to the application's
+        // AX-focused element. The contact search field auto-focuses through
+        // `@FocusState` but its editor never becomes AppKit's first responder,
+        // so the CGEvent path (`synthesizeKeystrokes`) is silently dropped;
+        // System Events reaches the focused element regardless. Wait for the
+        // field to report focus first so the keystroke lands in it.
+        try Self.setFocused(resolveElement(identifier: identifier), identifier: identifier)
+        await ensureFrontmost()
+        try? await waitForFocus(identifier: identifier)
+        Self.osascriptType(text, clearFirst: true)
+    }
+
+    /// Types `text` into the application's currently AX-focused element via
+    /// System Events `keystroke` (selecting and clearing existing content first
+    /// when `clearFirst`). The companion to `synthesizeKeystrokes` for fields
+    /// the raw CGEvent path can't reach.
+    private nonisolated static func osascriptType(_ text: String, clearFirst: Bool) {
+        let escaped = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        var lines = [
+            "tell application \"System Events\"",
+            "set frontmost of process \"DuckoApp\" to true",
+            "delay 0.1"
+        ]
+        if clearFirst {
+            lines.append("keystroke \"a\" using command down")
+            lines.append("delay 0.05")
+            lines.append("key code 51") // Delete
+        }
+        lines.append("keystroke \"\(escaped)\"")
+        lines.append("end tell")
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        proc.arguments = ["-e", lines.joined(separator: "\n")]
+        try? proc.run()
+        proc.waitUntilExit()
     }
 
     /// Resolves `identifier` and reads `kAXValueAttribute` (falling back to
@@ -802,6 +809,36 @@ actor AppAccessor {
             if !commitAttempted {
                 try? await pressKey(CGKeyCode(kVK_Escape), modifiers: [])
             }
+            throw error
+        }
+    }
+
+    /// Opens the SwiftUI `Menu` (pull-down) identified by `identifier` and
+    /// presses the item titled `title`. Unlike `pickPopUpItem`, it does not
+    /// wait for a popup value to reconcile — use it for items that fire an
+    /// action (e.g. open a sheet) rather than commit a `Picker` selection.
+    /// Posts Escape and throws if the item is missing so an orphaned open
+    /// menu can't poison later helpers.
+    func pressMenuItem(title: String, identifier: String) async throws {
+        let menuButton = try resolveElement(identifier: identifier)
+        if let pid = process?.processIdentifier {
+            await Self.activateApp(pid: pid)
+        }
+        let showErr = AXUIElementPerformAction(menuButton, kAXShowMenuAction as CFString)
+        if showErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
+        try await waitForShownMenu(on: menuButton, identifier: identifier)
+
+        let itemIdentifier = "\(identifier)/menu-item[\(title)]"
+        let menu = try resolveShownMenu(for: menuButton, identifier: identifier)
+        guard let item = findMenuItem(in: menu, title: title) else {
+            try? await pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+            throw TestHarnessError.elementNotFound(identifier: itemIdentifier)
+        }
+        if let error = Self.classifyContextMenuPressPick(
+            press: AXUIElementPerformAction(item, kAXPressAction as CFString),
+            pick: AXUIElementPerformAction(item, kAXPickAction as CFString),
+            identifier: itemIdentifier
+        ) {
             throw error
         }
     }
@@ -1427,6 +1464,14 @@ actor AppAccessor {
             return unsafeDowncast(shownValue, to: AXUIElement.self)
         }
         if let menu = findDescendant(in: popUp, role: kAXMenuRole, where: { _ in true }) {
+            return menu
+        }
+        // SwiftUI `Menu` (button style) opens its menu as a top-level `AXMenu`
+        // under the application — a sibling of the windows, not a descendant of
+        // the popup button — so the popup-scoped lookups above miss it. Fall
+        // back to the same app-root search context menus use.
+        if let pid = process?.processIdentifier,
+           let menu = findContextMenu(in: AXUIElementCreateApplication(pid)) {
             return menu
         }
         throw TestHarnessError.elementNotFound(identifier: "\(identifier)/shown-menu")
