@@ -652,7 +652,7 @@ extension DuckoCLI {
                     accountID: selectedAccount.id, timeout: .seconds(15)
                 )
 
-                let participantCount = await MainActor.run { env.chatService.participantCount(forRoomJIDString: jid) }
+                let participantCount = await MainActor.run { env.chatService.participantCount(forRoomJIDString: jid, accountID: selectedAccount.id) }
                 print(formatter.formatRoomJoinedConfirmation(room: jid, nickname: nick, participantCount: participantCount, subject: nil))
                 print("Type 'send <message>' to send, 'quit' to leave.")
 
@@ -703,7 +703,7 @@ extension DuckoCLI {
                     accountID: selectedAccount.id, timeout: .seconds(15)
                 )
 
-                await printRoomMembers(jidString: jid, environment: env, formatter: formatter)
+                await printRoomMembers(jidString: jid, accountID: selectedAccount.id, environment: env, formatter: formatter)
 
                 try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
                 await env.accountService.disconnect(accountID: selectedAccount.id)
@@ -2089,7 +2089,7 @@ private func dispatchRoomREPLCommand(
             print(formatter.formatError(CLIError.noRoomSpecified))
             return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
         }
-        await printRoomMembers(jidString: roomJID, environment: environment, formatter: formatter)
+        await printRoomMembers(jidString: roomJID, accountID: accountID, environment: environment, formatter: formatter)
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     } else if input == "/topic" || input.hasPrefix("/topic ") {
         return await handleTopicREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
@@ -2131,9 +2131,9 @@ private func handleJoinREPLCommand(
             jidString: roomJID, nickname: nick,
             accountID: context.accountID, timeout: .seconds(15)
         )
-        let count = await MainActor.run { context.environment.chatService.participantCount(forRoomJIDString: roomJID) }
+        let count = await MainActor.run { context.environment.chatService.participantCount(forRoomJIDString: roomJID, accountID: context.accountID) }
         print(context.formatter.formatRoomJoinedConfirmation(room: roomJID, nickname: nick, participantCount: count, subject: nil))
-        let isNewlyCreated = await MainActor.run { context.environment.chatService.newlyCreatedRoomJIDs.contains(roomJID) }
+        let isNewlyCreated = await MainActor.run { context.environment.chatService.isRoomNewlyCreated(jidString: roomJID, accountID: context.accountID) }
         if isNewlyCreated {
             print("Room created and locked — run /config submit-default to open it, or /config to customize.")
         }
@@ -2521,8 +2521,8 @@ private func handleSendCommand(
 
     do {
         let (isRoom, looksLikeUnjoinedRoom) = await MainActor.run {
-            let joined = !environment.chatService.participants(forRoomJIDString: jidString).isEmpty
-            let unjoinedRoom = !joined && environment.chatService.knownRoomDomains.contains(recipientJID.domainPart)
+            let joined = !environment.chatService.participants(forRoomJIDString: jidString, accountID: accountID).isEmpty
+            let unjoinedRoom = !joined && environment.chatService.knownRoomDomains(accountID: accountID).contains(recipientJID.domainPart)
             return (joined, unjoinedRoom)
         }
         if isRoom {

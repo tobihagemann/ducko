@@ -9,8 +9,9 @@ struct RoomContextMenu: View {
     @Binding var isShowingSettingsSheet: Bool
 
     private var myParticipant: RoomParticipant? {
-        guard let nickname = conversation.roomNickname else { return nil }
-        let participants = environment.chatService.participants(forRoomJIDString: conversation.jid.description)
+        guard let nickname = conversation.roomNickname,
+              let accountID = conversation.accountID else { return nil }
+        let participants = environment.chatService.participants(forRoomJIDString: conversation.jid.description, accountID: accountID)
         return participants.first { $0.nickname == nickname }
     }
 
@@ -20,7 +21,7 @@ struct RoomContextMenu: View {
 
     var body: some View {
         Button("Open Chat") {
-            openChat(conversation.jid.description)
+            openChat(conversation.jid.description, accountID: conversation.accountID)
         }
 
         if let accountID = conversation.accountID {

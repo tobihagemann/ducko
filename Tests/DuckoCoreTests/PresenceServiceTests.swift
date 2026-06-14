@@ -303,6 +303,52 @@ enum PresenceServiceTests {
         }
     }
 
+    struct AccountScopedReads {
+        @Test
+        @MainActor
+        func `presence(for:accountID:) resolves the requested account when the JID is on two`() async throws {
+            let service = makePresenceService()
+            let account1 = UUID()
+            let account2 = UUID()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .dnd)), accountID: account2)
+
+            #expect(service.presence(for: contactJID, accountID: account1) == .away)
+            #expect(service.presence(for: contactJID, accountID: account2) == .dnd)
+        }
+
+        @Test
+        @MainActor
+        func `presence(for:accountID:) returns nil for a JID on a different account`() async throws {
+            let service = makePresenceService()
+            let account1 = UUID()
+            let account2 = UUID()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away)), accountID: account1)
+
+            #expect(service.presence(for: contactJID, accountID: account2) == nil)
+        }
+
+        @Test
+        @MainActor
+        func `statusMessage(for:accountID:) resolves the requested account and returns nil elsewhere`() async throws {
+            let service = makePresenceService()
+            let account1 = UUID()
+            let account2 = UUID()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(status: "On A")), accountID: account1)
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(status: "On B")), accountID: account2)
+
+            #expect(service.statusMessage(for: contactJID, accountID: account1) == "On A")
+            #expect(service.statusMessage(for: contactJID, accountID: account2) == "On B")
+            #expect(service.statusMessage(for: contactJID, accountID: UUID()) == nil)
+        }
+    }
+
     struct StatusDisplayName {
         @Test(
             arguments: [

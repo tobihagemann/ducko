@@ -6,7 +6,7 @@ struct ChatView: View {
     let windowState: ChatWindowState
 
     private var isPartnerTyping: Bool {
-        environment.chatService.isPartnerTyping(jidString: windowState.jidString)
+        environment.chatService.isPartnerTyping(jidString: windowState.jidString, accountID: windowState.accountID)
     }
 
     var body: some View {
@@ -54,7 +54,7 @@ struct ChatView: View {
                 if windowState.isGroupchat, windowState.showParticipantSidebar {
                     Divider()
 
-                    ParticipantSidebar(roomJIDString: windowState.jidString, roomNickname: windowState.conversation?.roomNickname)
+                    ParticipantSidebar(roomJIDString: windowState.jidString, roomNickname: windowState.conversation?.roomNickname, accountID: windowState.accountID)
                         .transition(.move(edge: .trailing))
                 }
             }

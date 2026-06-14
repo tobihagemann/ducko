@@ -59,8 +59,9 @@ public final class ChatWindowState {
 
     var myRoomRole: RoomRole? {
         guard isGroupchat,
-              let nickname = conversation?.roomNickname else { return nil }
-        let participants = environment.chatService.participants(forRoomJIDString: jidString)
+              let nickname = conversation?.roomNickname,
+              let accountID = resolvedAccountID else { return nil }
+        let participants = environment.chatService.participants(forRoomJIDString: jidString, accountID: accountID)
         return participants.first { $0.nickname == nickname }?.role
     }
 
@@ -79,17 +80,28 @@ public final class ChatWindowState {
     var currentSearchIndex = 0
 
     let jidString: String
+    /// The account this tab is bound to, set at open time. Always non-nil in practice (every
+    /// opened tab carries a real account); the `?? accounts.first?.id` fallbacks below are
+    /// defensive only — there is no nil-account tab through which a live send could misroute.
+    let accountID: UUID?
     private let environment: AppEnvironment
 
-    init(jidString: String, environment: AppEnvironment) {
+    init(jidString: String, accountID: UUID?, environment: AppEnvironment) {
         self.jidString = jidString
+        self.accountID = accountID
         self.environment = environment
+    }
+
+    /// The account to route this tab's reads/sends through: the bound `accountID`, falling back
+    /// to the first account only defensively (no live tab actually has a nil account).
+    private var resolvedAccountID: UUID? {
+        accountID ?? environment.accountService.accounts.first?.id
     }
 
     // MARK: - Public API
 
     func load() async {
-        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        guard let accountID = resolvedAccountID else { return }
 
         isLoading = true
         defer { isLoading = false }
@@ -106,7 +118,7 @@ public final class ChatWindowState {
                 )
             } else {
                 conv = try await environment.chatService.openConversation(jidString: jidString, accountID: accountID)
-                contact = environment.rosterService.contact(jidString: jidString)
+                contact = environment.rosterService.contact(jidString: jidString, accountID: accountID)
             }
             conversation = conv
             messages = await environment.chatService.loadMessages(for: conv.id)
@@ -124,7 +136,7 @@ public final class ChatWindowState {
     }
 
     func sendMessage(_ body: String) async {
-        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        guard let accountID = resolvedAccountID else { return }
 
         do {
             if isGroupchat, let editing = editingMessage {
@@ -180,12 +192,12 @@ public final class ChatWindowState {
     }
 
     func setRoomSubject(_ subject: String) async {
-        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        guard let accountID = resolvedAccountID else { return }
         try? await environment.chatService.setRoomSubject(jidString: jidString, subject: subject, accountID: accountID)
     }
 
     func userIsTyping() async {
-        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        guard let accountID = resolvedAccountID else { return }
         await environment.chatService.userIsTyping(inJIDString: jidString, accountID: accountID)
     }
 
@@ -211,7 +223,7 @@ public final class ChatWindowState {
     func retractMessage(_ message: ChatMessage) async {
         // Preflight skip when the bubble has no stanzaID — never reached
         // the server, so retraction is a no-op even with the service guard.
-        guard let accountID = environment.accountService.accounts.first?.id,
+        guard let accountID = resolvedAccountID,
               message.stanzaID != nil else { return }
 
         do {
@@ -229,7 +241,7 @@ public final class ChatWindowState {
     // MARK: - Moderation
 
     func moderateMessage(_ message: ChatMessage, reason: String?) async {
-        guard let accountID = environment.accountService.accounts.first?.id,
+        guard let accountID = resolvedAccountID,
               let serverID = message.serverID else { return }
 
         do {
@@ -260,7 +272,7 @@ public final class ChatWindowState {
 
             if older.isEmpty {
                 // Local store exhausted — try server
-                guard let accountID = environment.accountService.accounts.first?.id else {
+                guard let accountID = resolvedAccountID else {
                     hasReachedEnd = true
                     return
                 }
@@ -402,7 +414,7 @@ public final class ChatWindowState {
     }
 
     func sendAttachments() async {
-        guard let accountID = environment.accountService.accounts.first?.id else { return }
+        guard let accountID = resolvedAccountID else { return }
         guard let conversation else { return }
 
         let attachmentsToSend = pendingAttachments

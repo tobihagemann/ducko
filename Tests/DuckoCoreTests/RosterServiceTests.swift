@@ -374,6 +374,48 @@ enum RosterServiceTests {
         }
     }
 
+    struct DuplicatedJIDPredicate {
+        @Test
+        @MainActor
+        func `accountIDs(forBareJID:) dedups a multi-group contact and counts each account once`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            // Same contact in two groups under A must still count A exactly once.
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends", "Work"])]), accountID: accountA)
+            #expect(service.accountIDs(forBareJID: contactJID1.description) == [accountA])
+
+            // The same JID also on B makes it duplicated across two accounts.
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice-B")]), accountID: accountB)
+            #expect(service.accountIDs(forBareJID: contactJID1.description) == [accountA, accountB])
+
+            // A JID on no account resolves to the empty set.
+            #expect(service.accountIDs(forBareJID: "nobody@example.com").isEmpty)
+        }
+    }
+
+    struct GroupIdentityScoping {
+        @Test
+        @MainActor
+        func `the same group name on two accounts yields distinct group ids`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            // Both contacts are ungrouped, so each account contributes an "Ungrouped" group.
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
+
+            let ungrouped = service.groups.filter { $0.name == ContactGroup.ungroupedName }
+            #expect(ungrouped.count == 2)
+            // Distinct ids despite the shared name — a duplicate id would corrupt List selection.
+            #expect(Set(ungrouped.map(\.id)).count == 2)
+        }
+    }
+
     struct ContactDisplayName {
         @Test
         func `displayName prefers localAlias over name`() {

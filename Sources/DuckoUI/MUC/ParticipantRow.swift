@@ -1,4 +1,5 @@
 import DuckoCore
+import Foundation
 import SwiftUI
 
 struct ParticipantRow: View {
@@ -7,6 +8,9 @@ struct ParticipantRow: View {
     let participant: RoomParticipant
     let myParticipant: RoomParticipant?
     let roomJIDString: String
+    /// The room's account, threaded down from the owning chat tab so room actions and the PM
+    /// open route to the right account rather than re-deriving `accounts.first`.
+    let accountID: UUID?
     @State private var isNickChangePresented = false
     @State private var newNickname = ""
 
@@ -38,10 +42,6 @@ struct ParticipantRow: View {
         myParticipant?.role == .moderator && isOtherParticipant && participant.role == .participant
     }
 
-    private var accountID: UUID? {
-        environment.accountService.accounts.first?.id
-    }
-
     var body: some View {
         HStack(spacing: 8) {
             ParticipantAvatarView(nickname: participant.nickname)
@@ -64,7 +64,7 @@ struct ParticipantRow: View {
         .contextMenu {
             if isOtherParticipant {
                 Button("Send Private Message") {
-                    openChat("\(roomJIDString)/\(participant.nickname)")
+                    openChat("\(roomJIDString)/\(participant.nickname)", accountID: accountID)
                 }
                 .accessibilityIdentifier("send-pm-menu-item")
             }

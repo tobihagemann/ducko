@@ -31,6 +31,18 @@ public final class PresenceService {
         return nil
     }
 
+    /// Account-scoped presence lookup. Prefer this when the account is known: the merged
+    /// `contactPresences` collapses every account's map last-account-wins on JID collision,
+    /// so it resolves the wrong account when the same peer JID is on two.
+    public func presence(for jid: BareJID, accountID: UUID) -> PresenceStatus? {
+        contactPresencesByAccount[accountID]?[jid]
+    }
+
+    /// Account-scoped status-message lookup. Mirror of `presence(for:accountID:)`.
+    public func statusMessage(for jid: BareJID, accountID: UUID) -> String? {
+        contactStatusMessagesByAccount[accountID]?[jid]
+    }
+
     public var pendingSubscriptionRequests: [BareJID] {
         pendingRequestsByAccount.values.flatMap(\.self)
     }

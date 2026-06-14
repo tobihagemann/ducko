@@ -47,8 +47,8 @@ struct DuckoApp: App {
     /// Built from the app-owned container + `openWindow` so every scene shares one
     /// open-chat behavior: create/select the tab, then surface the single chat window.
     private var openChatAction: OpenChatAction {
-        OpenChatAction { jidString in
-            chatContainer.open(jidString)
+        OpenChatAction { jidString, accountID in
+            chatContainer.open(jidString, accountID: accountID)
             openWindow(id: "chat")
         }
     }
@@ -230,12 +230,13 @@ struct DuckoApp: App {
                 from: senderName,
                 body: message.body,
                 jidString: conversation.jid.description,
+                accountID: conversation.accountID,
                 avatarData: nil
             )
         }
 
-        notificationManager.onNotificationTapped = { [openWindow, chatContainer] jidString in
-            chatContainer.open(jidString)
+        notificationManager.onNotificationTapped = { [openWindow, chatContainer] jidString, accountID in
+            chatContainer.open(jidString, accountID: accountID)
             openWindow(id: "chat")
         }
     }

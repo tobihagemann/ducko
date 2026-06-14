@@ -7,15 +7,29 @@ struct ContactRow: View {
     let contact: Contact
 
     private var presence: PresenceService.PresenceStatus? {
-        environment.presenceService.contactPresences[contact.jid]
+        environment.presenceService.presence(for: contact.jid, accountID: contact.accountID)
     }
 
     private var display: ContactPresenceDisplay {
-        ContactPresenceDisplay.resolve(for: contact, presenceService: environment.presenceService)
+        ContactPresenceDisplay.resolve(for: contact, accountID: contact.accountID, presenceService: environment.presenceService)
     }
 
     private var statusMessage: String? {
-        environment.presenceService.statusMessage(for: contact.jid)
+        environment.presenceService.statusMessage(for: contact.jid, accountID: contact.accountID)
+    }
+
+    /// The disambiguation label shown when this contact's JID is on more than one account; nil otherwise.
+    private var accountLabel: String? {
+        AccountIndicator.label(
+            for: contact.accountID, bareJID: contact.jid.description,
+            accountService: environment.accountService, rosterService: environment.rosterService
+        )
+    }
+
+    /// JID-only when unique; account-qualified when the JID is duplicated so the two same-JID rows
+    /// are individually addressable by automation. Single-account users keep the plain `{jid}` id.
+    private var accessibilityKey: String {
+        AccountIndicator.qualified(contact.jid.description, accountID: contact.accountID, qualify: accountLabel != nil, accountService: environment.accountService)
     }
 
     var body: some View {
@@ -25,9 +39,15 @@ struct ContactRow: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(contact.displayName)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(contact.displayName)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+
+                    if let accountLabel {
+                        AccountLabelText(label: accountLabel)
+                    }
+                }
 
                 if theme.current.showStatusMessages, let statusText = statusMessage ?? presence?.displayName {
                     Text(statusText)
@@ -56,6 +76,6 @@ struct ContactRow: View {
         .padding(.vertical, 2)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("contact-row-\(contact.jid)")
+        .accessibilityIdentifier("contact-row-\(accessibilityKey)")
     }
 }

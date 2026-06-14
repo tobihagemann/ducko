@@ -37,7 +37,7 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | Identifier | Element | Window |
 |---|---|---|
 | `contact-list` | Contact list view | Contacts |
-| `contact-row-{jid}` | Individual contact row | Contacts |
+| `contact-row-{jid}` | Individual contact row (account-qualified as `contact-row-{jid}\|{account-jid}` when the JID is on more than one account) | Contacts |
 | `status-picker` | Presence status pull-down (status options + Custom…) in the "me" header | Contacts |
 | `custom-status-message-field` | Message field in the status pull-down's Custom… sheet | Contacts |
 | `my-avatar` | Self avatar in the "me" header | Contacts |
@@ -45,6 +45,7 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `message-field` | Message input text field | Chat |
 | `send-button` | Send message button | Chat |
 | `new-chat-jid-field` | JID field in New Chat sheet | Contacts |
+| `new-chat-account-picker` | Account picker in New Chat sheet (shown only when more than one account is enabled) | Contacts |
 | `start-chat-button` | Start Chat button in sheet | Contacts |
 | `add-contact-jid-field` | JID field in Add Contact sheet | Contacts |
 | `add-contact-button` | Add Contact button in sheet | Contacts |
@@ -159,8 +160,8 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `history-button` | History (clock) button in chat header | Chat |
 | `disconnected-strip` | "You're offline" strip under the chat header | Chat |
 | `chat-tab-bar` | Bottom conversation tab bar | Chat |
-| `chat-tab-{jid}` | Individual conversation tab chip | Chat |
-| `chat-tab-close-{jid}` | Close button on a conversation tab (revealed on hover, replacing the tab icon) | Chat |
+| `chat-tab-{jid}` | Individual conversation tab chip (account-qualified as `chat-tab-{jid}\|{account-jid}` when the same JID is open under more than one account) | Chat |
+| `chat-tab-close-{jid}` | Close button on a conversation tab (revealed on hover, replacing the tab icon; account-qualified to match the chip) | Chat |
 | `chat-tab-overflow` | Dropdown for tabs that don't fit the bar width | Chat |
 | `chat-empty-state` | Placeholder (with New Chat button) shown when no tab is open | Chat |
 | `contact-context-get-info` | "Get Info" context menu item on a contact | Contacts |
@@ -214,7 +215,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-launch.sh` | Build and launch DuckoApp, output window ID | none |
 | `ducko-import.sh` | Switch to Import mode and click Import button | none |
 | `ducko-login.sh` | Fill JID + password, click Connect | `JID PASSWORD` |
-| `ducko-new-chat.sh` | Open New Chat sheet from contact list, fill JID, start chat | `JID` |
+| `ducko-new-chat.sh` | Open New Chat sheet from contact list, fill JID, optionally pick the sending account, start chat | `JID [ACCOUNT]` |
 | `ducko-add-contact.sh` | Open Add Contact sheet from contact list, fill JID, submit | `JID` |
 | `ducko-send.sh` | Type a message and send it in the active chat window | `MESSAGE` |
 | `ducko-screenshot.sh` | Capture window screenshot | `[FILENAME]` (optional, absolute path or relative to `/private/tmp/claude/`) |

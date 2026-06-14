@@ -42,10 +42,10 @@ enum ChatServiceMUCUITests {
             )
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID]
-            #expect(participants?.count == 2)
-            #expect(participants?.contains { $0.nickname == "me" } == true)
-            #expect(participants?.contains { $0.nickname == "admin" } == true)
+            let participants = service.participants(forRoomJIDString: testRoomJID.description, accountID: testAccountID)
+            #expect(participants.count == 2)
+            #expect(participants.contains { $0.nickname == "me" })
+            #expect(participants.contains { $0.nickname == "admin" })
         }
     }
 
@@ -69,12 +69,12 @@ enum ChatServiceMUCUITests {
             let newOccupant = RoomOccupant(nickname: "newcomer", affiliation: .none, role: .participant)
             await service.handleEvent(.roomOccupantJoined(room: testRoomJID, occupant: newOccupant), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID]
-            #expect(participants?.count == 2)
-            #expect(participants?.contains { $0.nickname == "newcomer" } == true)
+            let participants = service.participants(forRoomJIDString: testRoomJID.description, accountID: testAccountID)
+            #expect(participants.count == 2)
+            #expect(participants.contains { $0.nickname == "newcomer" })
 
             // Verify mapped affiliation and role
-            let newcomer = participants?.first { $0.nickname == "newcomer" }
+            let newcomer = participants.first { $0.nickname == "newcomer" }
             #expect(newcomer?.affiliation == RoomAffiliation.none)
             #expect(newcomer?.role == RoomRole.participant)
         }
@@ -103,9 +103,9 @@ enum ChatServiceMUCUITests {
             let leftOccupant = RoomOccupant(nickname: "other", affiliation: .member, role: .participant)
             await service.handleEvent(.roomOccupantLeft(room: testRoomJID, occupant: leftOccupant, reason: nil), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID]
-            #expect(participants?.count == 1)
-            #expect(participants?.contains { $0.nickname == "other" } == false)
+            let participants = service.participants(forRoomJIDString: testRoomJID.description, accountID: testAccountID)
+            #expect(participants.count == 1)
+            #expect(participants.contains { $0.nickname == "other" } == false)
         }
     }
 
@@ -129,7 +129,7 @@ enum ChatServiceMUCUITests {
             )
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
-            let groups = service.participantGroups(forRoomJIDString: testRoomJID.description)
+            let groups = service.participantGroups(forRoomJIDString: testRoomJID.description, accountID: testAccountID)
             #expect(groups.count == 4)
             #expect(groups[0].affiliation == .owner)
             #expect(groups[1].affiliation == .admin)
@@ -228,7 +228,7 @@ enum ChatServiceMUCUITests {
             let occupancy = RoomOccupancy(nickname: "o", occupants: occupants, subject: nil)
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: testAccountID)
 
-            let participants = service.roomParticipants[testRoomJID] ?? []
+            let participants = service.participants(forRoomJIDString: testRoomJID.description, accountID: testAccountID)
 
             let owner = participants.first { $0.nickname == "o" }
             #expect(owner?.affiliation == .owner)

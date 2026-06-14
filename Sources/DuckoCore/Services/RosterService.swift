@@ -52,9 +52,21 @@ public final class RosterService {
         groupsByAccount[accountID]?.lazy.flatMap(\.contacts).first { $0.jid.description == jidString }
     }
 
+    /// Accounts whose roster contains `jidString` (a bare JID), deduped so a contact appearing in
+    /// multiple groups under one account is counted once. A duplicated JID — `count > 1` — drives
+    /// the account indicator shown on roster rows and chat tabs.
+    public func accountIDs(forBareJID jidString: String) -> Set<UUID> {
+        var result: Set<UUID> = []
+        for (accountID, groups) in groupsByAccount
+            where groups.contains(where: { $0.contacts.contains { $0.jid.description == jidString } }) {
+            result.insert(accountID)
+        }
+        return result
+    }
+
     public func loadContacts(for accountID: UUID) async throws {
         let contacts = try await store.fetchContacts(for: accountID)
-        groupsByAccount[accountID] = buildGroups(from: contacts)
+        groupsByAccount[accountID] = buildGroups(from: contacts, accountID: accountID)
     }
 
     public func addContact(jid: BareJID, name: String?, groups: [String], accountID: UUID) async throws {
@@ -193,7 +205,7 @@ public final class RosterService {
         // Empty roster response with a cached version means "up-to-date" — use cached contacts
         if items.isEmpty {
             if !existingContacts.isEmpty {
-                groupsByAccount[accountID] = buildGroups(from: existingContacts)
+                groupsByAccount[accountID] = buildGroups(from: existingContacts, accountID: accountID)
                 return
             }
         }
@@ -211,7 +223,7 @@ public final class RosterService {
             updatedContacts.append(contact)
         }
 
-        groupsByAccount[accountID] = buildGroups(from: updatedContacts)
+        groupsByAccount[accountID] = buildGroups(from: updatedContacts, accountID: accountID)
     }
 
     private func handleRosterVersionChanged(_ version: String, accountID: UUID) async {
@@ -234,7 +246,7 @@ public final class RosterService {
         }
 
         let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
-        groupsByAccount[accountID] = buildGroups(from: contacts)
+        groupsByAccount[accountID] = buildGroups(from: contacts, accountID: accountID)
     }
 
     private func mapRosterItem(_ item: RosterItem, accountID: UUID, existingContacts: [Contact]) -> Contact {
@@ -288,7 +300,7 @@ public final class RosterService {
         try? await loadContacts(for: accountID)
     }
 
-    private func buildGroups(from contacts: [Contact]) -> [ContactGroup] {
+    private func buildGroups(from contacts: [Contact], accountID: UUID) -> [ContactGroup] {
         var grouped: [String: [Contact]] = [:]
 
         for contact in contacts {
@@ -312,8 +324,12 @@ public final class RosterService {
             return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
         }
 
+        // Qualify the id with the account so the same group name on two accounts (e.g. "Ungrouped")
+        // yields distinct `ContactGroup.id`s. `groups` flat-maps every account's groups into one
+        // list; a shared id there is a duplicate `ForEach` identity that corrupts List selection
+        // (selecting one same-JID row would select the other) and mis-targets per-group online counts.
         return sortedKeys.map { key in
-            ContactGroup(id: key, name: key, contacts: grouped[key] ?? [])
+            ContactGroup(id: "\(accountID.uuidString)|\(key)", name: key, contacts: grouped[key] ?? [])
         }
     }
 }

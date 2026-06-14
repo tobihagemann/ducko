@@ -25,13 +25,21 @@ struct RoomJoinNotifier {
 @MainActor @Observable
 public final class ChatService {
     public private(set) var openConversations: [Conversation] = []
+    /// Per-account conversation cache. `openConversations` is the rebuilt union of every slot,
+    /// so a fetch/refresh on one account never drops another account's conversations. Stays the
+    /// source of truth behind the published union — mutate slots and call `rebuildOpenConversations()`.
+    private var conversationsByAccount: [UUID: [Conversation]] = [:]
     public private(set) var activeConversationID: UUID?
     public private(set) var messages: [ChatMessage] = []
-    public private(set) var typingStates: [BareJID: ChatState] = [:]
-    public private(set) var roomParticipants: [BareJID: [RoomParticipant]] = [:]
+    /// Incoming typing state keyed by account, then peer — the same peer JID on two accounts
+    /// must light up only the account that received the `composing`.
+    public private(set) var typingStates: [UUID: [BareJID: ChatState]] = [:]
+    /// Room occupancy keyed by `(accountID, room)` — joining the same room address under two
+    /// accounts keeps two independent participant lists instead of last-account-wins.
+    private var roomParticipants: [RoomJoinKey: [RoomParticipant]] = [:]
     public private(set) var pendingInvites: [PendingRoomInvite] = []
-    public private(set) var newlyCreatedRoomJIDs: Set<String> = []
-    public private(set) var roomFlags: [String: Set<RoomFlag>] = [:]
+    private var newlyCreatedRoomKeys: Set<RoomJoinKey> = []
+    private var roomFlags: [RoomJoinKey: Set<RoomFlag>] = [:]
     /// Per-conversation revision tick. The chat view observes via `.onChange` to refresh after amendments
     /// (corrections, retractions, markers) — these don't bump `lastMessageDate`.
     public private(set) var messagesRevisions: [UUID: Int] = [:]
@@ -139,7 +147,7 @@ public final class ChatService {
         // routes room messages to separate handlers, but the OMEMO event carries no message type, so guard
         // here with the same groupchat-conversation check `shouldSkipRawMessage` uses.
         let bareJID = from.bareJID
-        if openConversations.contains(where: { $0.jid == bareJID && $0.type == .groupchat }) { return }
+        if openConversations.contains(where: { $0.jid == bareJID && $0.type == .groupchat && $0.accountID == accountID }) { return }
         if let owning = lockSequenceByPeer[accountID]?[bareJID], sequence < owning { return }
         lockSequenceByPeer[accountID, default: [:]][bareJID] = sequence
         switch from {
@@ -162,7 +170,41 @@ public final class ChatService {
     // MARK: - Public API
 
     public func loadConversations(for accountID: UUID) async throws {
-        openConversations = try await store.fetchConversations(for: accountID)
+        try await setConversations(store.fetchConversations(for: accountID), for: accountID)
+    }
+
+    /// Replaces one account's cached conversations and republishes the union. The single place
+    /// a wholesale per-account fetch result lands so cross-account derived reads stay current.
+    private func setConversations(_ conversations: [Conversation], for accountID: UUID) {
+        conversationsByAccount[accountID] = conversations
+        rebuildOpenConversations()
+    }
+
+    /// Replaces a single conversation in its owning account's slot and republishes. Mutating only
+    /// the union would be transient — the next rebuild from another slot resurrects the stale value.
+    private func updateCachedConversation(_ conversation: Conversation) {
+        guard let accountID = conversation.accountID,
+              let index = conversationsByAccount[accountID]?.firstIndex(where: { $0.id == conversation.id }) else { return }
+        conversationsByAccount[accountID]?[index] = conversation
+        rebuildOpenConversations()
+    }
+
+    /// Rebuilds the published `openConversations` as the union of every cached account slot, sorted
+    /// most-recent-first to match the per-account `store.fetchConversations` order (a bare
+    /// `Dictionary.values` union has no defined order, which would reshuffle the rooms list on every
+    /// rebuild). `openConversations` stays a stored property so `@Observable` change-tracking and the
+    /// ID-based single-element lookups keep working.
+    private func rebuildOpenConversations() {
+        openConversations = conversationsByAccount.values.flatMap(\.self)
+            .sorted { lhs, rhs in
+                let lhsDate = lhs.lastMessageDate ?? .distantPast
+                let rhsDate = rhs.lastMessageDate ?? .distantPast
+                if lhsDate != rhsDate { return lhsDate > rhsDate }
+                // Deterministic tie-breakers so equal/nil dates (e.g. fresh, message-less
+                // conversations) don't inherit the undefined `Dictionary.values` order and reshuffle.
+                if lhs.createdAt != rhs.createdAt { return lhs.createdAt > rhs.createdAt }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
     }
 
     public func sendMessage(to jid: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {
@@ -292,14 +334,18 @@ public final class ChatService {
         }
         try? await store.markConversationRead(id)
         if let accountID {
-            openConversations = await (try? store.fetchConversations(for: accountID)) ?? openConversations
+            // Update the per-account slot only on a successful fetch — a failed fetch must leave
+            // the slot (and the other accounts' published conversations) untouched.
+            if let fetched = try? await store.fetchConversations(for: accountID) {
+                setConversations(fetched, for: accountID)
+            }
             await sendDisplayedMarkerForLatest(conversationID: id, accountID: accountID)
         }
     }
 
     public func openConversation(for jid: BareJID, accountID: UUID) async throws -> Conversation {
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
-        openConversations = try await store.fetchConversations(for: accountID)
+        try await setConversations(store.fetchConversations(for: accountID), for: accountID)
         return conversation
     }
 
@@ -314,7 +360,7 @@ public final class ChatService {
         guard var conversation = openConversations.first(where: { $0.id == conversationID }) else { return }
         conversation.encryptionEnabled = enabled
         try await store.upsertConversation(conversation)
-        openConversations = try await store.fetchConversations(for: accountID)
+        try await setConversations(store.fetchConversations(for: accountID), for: accountID)
     }
 
     /// Persists an encrypted message received via OMEMO. Called by OMEMOService.
@@ -351,9 +397,9 @@ public final class ChatService {
         await userIsTyping(in: jid, accountID: accountID)
     }
 
-    public func isPartnerTyping(jidString: String) -> Bool {
-        guard let jid = BareJID.parse(jidString) else { return false }
-        return typingStates[jid] == .composing
+    public func isPartnerTyping(jidString: String, accountID: UUID?) -> Bool {
+        guard let accountID, let jid = BareJID.parse(jidString) else { return false }
+        return typingStates[accountID]?[jid] == .composing
     }
 
     // MARK: - Corrections
@@ -821,7 +867,7 @@ public final class ChatService {
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         try await mucModule.leaveRoom(jid)
-        clearRoomState(for: jid)
+        clearRoomState(for: jid, accountID: accountID)
     }
 
     public func sendGroupMessage(to room: BareJID, body: String, accountID: UUID, additionalElements: [DuckoXMPP.XMLElement] = []) async throws {
@@ -927,7 +973,7 @@ public final class ChatService {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
         let conversation = try await findOrCreateMUCPMConversation(for: roomJID, nickname: nickname, accountID: accountID)
-        openConversations = try await store.fetchConversations(for: accountID)
+        try await setConversations(store.fetchConversations(for: accountID), for: accountID)
         return conversation
     }
 
@@ -955,35 +1001,48 @@ public final class ChatService {
 
     // MARK: - MUC Bridge
 
-    public func participantGroups(forRoomJIDString jidString: String) -> [RoomParticipantGroup] {
-        let participants = participants(forRoomJIDString: jidString)
+    public func participantGroups(forRoomJIDString jidString: String, accountID: UUID) -> [RoomParticipantGroup] {
+        let participants = participants(forRoomJIDString: jidString, accountID: accountID)
         let grouped = Dictionary(grouping: participants, by: \.affiliation)
         return grouped
             .map { RoomParticipantGroup(affiliation: $0.key, participants: $0.value.sorted { $0.nickname.localizedStandardCompare($1.nickname) == .orderedAscending }) }
             .sorted { $0.affiliation.sortPriority < $1.affiliation.sortPriority }
     }
 
-    public func participantCount(forRoomJIDString jidString: String) -> Int {
-        participants(forRoomJIDString: jidString).count
+    public func participantCount(forRoomJIDString jidString: String, accountID: UUID) -> Int {
+        participants(forRoomJIDString: jidString, accountID: accountID).count
     }
 
-    public func participants(forRoomJIDString jidString: String) -> [RoomParticipant] {
-        guard let key = normalizedRoomKey(jidString) else { return [] }
+    public func participants(forRoomJIDString jidString: String, accountID: UUID) -> [RoomParticipant] {
+        guard let key = roomKey(jidString, accountID: accountID) else { return [] }
         return roomParticipants[key] ?? []
     }
 
-    /// Domain parts of every room currently in `roomParticipants`. Used by
-    /// `DuckoCLI.handleSendCommand` to distinguish "unjoined-room" hints from
-    /// 1:1 sends.
-    public var knownRoomDomains: Set<String> {
-        Set(roomParticipants.keys.map(\.domainPart))
+    /// Active room flags for the room under `accountID`, or an empty set when none are known.
+    public func roomFlags(forRoomJIDString jidString: String, accountID: UUID) -> Set<RoomFlag> {
+        guard let key = roomKey(jidString, accountID: accountID) else { return [] }
+        return roomFlags[key] ?? []
     }
 
-    /// Normalizes user-input JID strings to `BareJID`. Required because integration-test localparts (e.g.
-    /// `inttest-ui-FCA13B13@…`) preserve `UUID.prefix(8)` casing while `conversation.jid.description` is
-    /// lowercased — without canonicalization the sidebar and title bar would read different keys for the same room.
-    private func normalizedRoomKey(_ jidString: String) -> BareJID? {
-        BareJID.parse(jidString)
+    /// Whether the room under `accountID` was just created (locked, awaiting initial config).
+    public func isRoomNewlyCreated(jidString: String, accountID: UUID) -> Bool {
+        guard let key = roomKey(jidString, accountID: accountID) else { return false }
+        return newlyCreatedRoomKeys.contains(key)
+    }
+
+    /// Domain parts of every room `accountID` currently occupies. Used by
+    /// `DuckoCLI.handleSendCommand` to distinguish "unjoined-room" hints from
+    /// 1:1 sends.
+    public func knownRoomDomains(accountID: UUID) -> Set<String> {
+        Set(roomParticipants.keys.filter { $0.accountID == accountID }.map(\.room.domainPart))
+    }
+
+    /// Normalizes a user-input JID string into the composite `(accountID, room)` key. Parsing to
+    /// `BareJID` is required because integration-test localparts (e.g. `inttest-ui-FCA13B13@…`)
+    /// preserve `UUID.prefix(8)` casing while `conversation.jid.description` is lowercased — without
+    /// canonicalization the sidebar and title bar would read different keys for the same room.
+    private func roomKey(_ jidString: String, accountID: UUID) -> RoomJoinKey? {
+        BareJID.parse(jidString).map { RoomJoinKey(accountID: accountID, room: $0) }
     }
 
     public func discoverMUCService(accountID: UUID) async -> String? {
@@ -1195,8 +1254,9 @@ public final class ChatService {
         pendingInvites.removeAll { $0.id == invite.id }
     }
 
-    public func clearNewlyCreatedRoom(_ jidString: String) {
-        newlyCreatedRoomJIDs.remove(jidString)
+    public func clearNewlyCreatedRoom(_ jidString: String, accountID: UUID) {
+        guard let key = roomKey(jidString, accountID: accountID) else { return }
+        newlyCreatedRoomKeys.remove(key)
     }
 
     // MARK: - Pin/Mute
@@ -1217,7 +1277,7 @@ public final class ChatService {
         guard var conversation = openConversations.first(where: { $0.id == conversationID }) else { return }
         mutate(&conversation)
         try await store.upsertConversation(conversation)
-        openConversations = try await store.fetchConversations(for: accountID)
+        try await setConversations(store.fetchConversations(for: accountID), for: accountID)
     }
 
     public enum ChatServiceError: Error, LocalizedError {
@@ -1273,7 +1333,7 @@ public final class ChatService {
         case let .chatMarkerReceived(messageID, markerType, from):
             await handleChatMarker(messageID: messageID, type: markerType, from: from, accountID: accountID)
         case let .chatStateChanged(from, chatState):
-            handleChatStateChanged(from: from, state: chatState)
+            handleChatStateChanged(from: from, state: chatState, accountID: accountID)
         case .messageCorrected, .messageRetracted, .messageModerated, .messageError:
             await handleMessageUpdateEvent(event, accountID: accountID)
         case .rosterLoaded:
@@ -1322,13 +1382,14 @@ public final class ChatService {
         case let .roomSubjectChanged(room, subject, _):
             await handleRoomSubjectChanged(room: room, subject: subject, accountID: accountID)
         case let .roomInviteReceived(invite):
-            handleRoomInviteReceived(invite)
+            handleRoomInviteReceived(invite, accountID: accountID)
         case let .roomDestroyed(room, _, _):
-            clearRoomState(for: room)
+            clearRoomState(for: room, accountID: accountID)
         case let .mucSelfPingFailed(room, reason):
             await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
         case .disconnected:
             clearLocks(accountID: accountID)
+            typingStates.removeValue(forKey: accountID)
             // Drop room state owned by the disconnecting account only — a
             // global `removeAll` would erase rooms belonging to other still-
             // connected accounts in a multi-account session.
@@ -1359,9 +1420,9 @@ public final class ChatService {
     private func handleMUCOccupantEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
         case let .roomOccupantJoined(room, occupant):
-            handleRoomOccupantJoined(room: room, occupant: occupant)
+            handleRoomOccupantJoined(room: room, occupant: occupant, accountID: accountID)
         case let .roomOccupantLeft(room, occupant, _):
-            handleRoomOccupantLeft(room: room, occupant: occupant)
+            handleRoomOccupantLeft(room: room, occupant: occupant, accountID: accountID)
         case let .roomOccupantNickChanged(room, oldNickname, occupant):
             handleRoomOccupantNickChanged(room: room, oldNickname: oldNickname, occupant: occupant, accountID: accountID)
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
@@ -1476,8 +1537,8 @@ public final class ChatService {
         return false
     }
 
-    private func handleChatStateChanged(from: BareJID, state: ChatState) {
-        typingStates[from] = state
+    private func handleChatStateChanged(from: BareJID, state: ChatState, accountID: UUID) {
+        typingStates[accountID, default: [:]][from] = state
     }
 
     private func handleMessageCorrected(originalID: String, newBody: String, from: JID, accountID: UUID) async {
@@ -1598,10 +1659,10 @@ public final class ChatService {
 
     private func handleRoomJoined(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool, accountID: UUID) async {
         _ = try? await findOrCreateGroupConversation(for: room, nickname: occupancy.nickname, accountID: accountID)
-        let key = room.description
-        roomParticipants[room] = occupancy.occupants.map { mapOccupant($0) }
+        let key = RoomJoinKey(accountID: accountID, room: room)
+        roomParticipants[key] = occupancy.occupants.map { mapOccupant($0) }
         if isNewlyCreated {
-            newlyCreatedRoomJIDs.insert(key)
+            newlyCreatedRoomKeys.insert(key)
         }
         if occupancy.flags.isEmpty {
             roomFlags.removeValue(forKey: key)
@@ -1620,28 +1681,31 @@ public final class ChatService {
         }
     }
 
-    private func handleRoomOccupantJoined(room: BareJID, occupant: RoomOccupant) {
+    private func handleRoomOccupantJoined(room: BareJID, occupant: RoomOccupant, accountID: UUID) {
+        let key = RoomJoinKey(accountID: accountID, room: room)
         let participant = mapOccupant(occupant)
-        var list = roomParticipants[room] ?? []
+        var list = roomParticipants[key] ?? []
         list.removeAll { $0.nickname == participant.nickname }
         list.append(participant)
-        roomParticipants[room] = list
+        roomParticipants[key] = list
     }
 
-    private func handleRoomOccupantLeft(room: BareJID, occupant: RoomOccupant) {
-        roomParticipants[room]?.removeAll { $0.nickname == occupant.nickname }
+    private func handleRoomOccupantLeft(room: BareJID, occupant: RoomOccupant, accountID: UUID) {
+        let key = RoomJoinKey(accountID: accountID, room: room)
+        roomParticipants[key]?.removeAll { $0.nickname == occupant.nickname }
     }
 
-    private func handleRoomInviteReceived(_ invite: RoomInvite) {
+    private func handleRoomInviteReceived(_ invite: RoomInvite, accountID: UUID) {
         let pending = PendingRoomInvite(
+            accountID: accountID,
             roomJIDString: invite.room.description,
             fromJIDString: invite.from.description,
             reason: invite.reason,
             password: invite.password,
             isDirect: invite.isDirect
         )
-        // Deduplicate by room+from
-        guard !pendingInvites.contains(where: { $0.roomJIDString == pending.roomJIDString && $0.fromJIDString == pending.fromJIDString }) else {
+        // Deduplicate by account+room+from so the same invite arriving on two accounts stays two rows.
+        guard !pendingInvites.contains(where: { $0.id == pending.id }) else {
             return
         }
         pendingInvites.append(pending)
@@ -1801,20 +1865,19 @@ public final class ChatService {
         guard var conversation = conversations.first(where: { $0.jid == room && $0.type == .groupchat }) else { return }
         conversation.roomSubject = subject
         try? await store.upsertConversation(conversation)
-        if let index = openConversations.firstIndex(where: { $0.id == conversation.id }) {
-            openConversations[index] = conversation
-        }
+        updateCachedConversation(conversation)
     }
 
     private func handleRoomOccupantNickChanged(room: BareJID, oldNickname: String, occupant: RoomOccupant, accountID: UUID) {
-        var list = roomParticipants[room] ?? []
+        let key = RoomJoinKey(accountID: accountID, room: room)
+        var list = roomParticipants[key] ?? []
         let participant = mapOccupant(occupant)
         list.removeAll { $0.nickname == oldNickname || $0.nickname == participant.nickname }
         list.append(participant)
-        roomParticipants[room] = list
+        roomParticipants[key] = list
 
         // If self-nick changed, update conversation
-        if let conversation = openConversations.first(where: { $0.jid == room && $0.type == .groupchat }),
+        if let conversation = openConversations.first(where: { $0.jid == room && $0.type == .groupchat && $0.accountID == accountID }),
            conversation.roomNickname == oldNickname {
             let taskID = UUID()
             pendingTasks[taskID] = Task { [weak self] in
@@ -1823,25 +1886,27 @@ public final class ChatService {
                 var updated = conversation
                 updated.roomNickname = occupant.nickname
                 try? await store.upsertConversation(updated)
-                openConversations = await (try? store.fetchConversations(for: accountID)) ?? openConversations
+                if let fetched = try? await store.fetchConversations(for: accountID) {
+                    setConversations(fetched, for: accountID)
+                }
             }
         }
     }
 
-    /// Drops per-room state (`roomParticipants`, `roomFlags`, `newlyCreatedRoomJIDs`) for `jid`. Clearing only one of the three was the bug this helper guards against.
-    package func clearRoomState(for jid: BareJID) {
-        let key = jid.description
-        roomParticipants.removeValue(forKey: jid)
+    /// Drops all three keyed per-room maps (`roomParticipants`, `roomFlags`, `newlyCreatedRoomKeys`) for `(accountID, jid)` together — leaving any one populated strands stale room state.
+    package func clearRoomState(for jid: BareJID, accountID: UUID) {
+        let key = RoomJoinKey(accountID: accountID, room: jid)
+        roomParticipants.removeValue(forKey: key)
         roomFlags.removeValue(forKey: key)
-        newlyCreatedRoomJIDs.remove(key)
+        newlyCreatedRoomKeys.remove(key)
     }
 
-    /// Per-account disconnect clear. The room-state maps carry no per-account partitioning, so re-derive the
-    /// disconnecting account's rooms from persisted conversations to avoid erasing other accounts' rooms.
+    /// Per-account disconnect clear. Re-derives the disconnecting account's rooms from persisted
+    /// conversations and drops each one's keyed state, leaving other accounts' rooms intact.
     private func clearRoomState(forAccount accountID: UUID) async {
         let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
         for conversation in conversations where conversation.type == .groupchat {
-            clearRoomState(for: conversation.jid)
+            clearRoomState(for: conversation.jid, accountID: accountID)
         }
     }
 
@@ -2003,7 +2068,7 @@ public final class ChatService {
     }
 
     private func handleMessageReceived(_ xmppMessage: XMPPMessage, accountID: UUID) async {
-        if shouldSkipRawMessage(xmppMessage) { return }
+        if shouldSkipRawMessage(xmppMessage, accountID: accountID) { return }
 
         // Headline messages are transient (RFC 6121 §5.2.2) — surface but don't persist
         if xmppMessage.messageType == .headline {
@@ -2176,7 +2241,7 @@ public final class ChatService {
 
     /// Parses XEP-0066 `<x xmlns='jabber:x:oob'>` elements into attachments.
     /// Returns `true` if the raw `.messageReceived` stanza should be skipped because a classified event handles it.
-    private func shouldSkipRawMessage(_ message: XMPPMessage) -> Bool {
+    private func shouldSkipRawMessage(_ message: XMPPMessage, accountID: UUID) -> Bool {
         // Retractions, corrections, encrypted — handled by classified events
         if message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil { return true }
         if message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil { return true }
@@ -2188,7 +2253,7 @@ public final class ChatService {
         // MUC private messages — handled by .mucPrivateMessageReceived
         if message.messageType == .chat || message.messageType == .normal, let from = message.from, case .full = from {
             let roomJID = from.bareJID
-            if openConversations.contains(where: { $0.jid == roomJID && $0.type == .groupchat })
+            if openConversations.contains(where: { $0.jid == roomJID && $0.type == .groupchat && $0.accountID == accountID })
                 || message.element.child(named: "x", namespace: XMPPNamespaces.mucUser) != nil {
                 return true
             }
@@ -2219,7 +2284,7 @@ public final class ChatService {
         }
         try await store.upsertConversation(updated)
 
-        openConversations = try await store.fetchConversations(for: accountID)
+        try await setConversations(store.fetchConversations(for: accountID), for: accountID)
 
         await messagesChanged(in: conversation.id)
     }
@@ -2379,7 +2444,7 @@ public final class ChatService {
                     try await store.upsertConversation(updated)
                 }
             }
-            openConversations = try await store.fetchConversations(for: accountID)
+            try await setConversations(store.fetchConversations(for: accountID), for: accountID)
         } catch {
             let desc = error.localizedDescription
             log.warning("MAM sync failed: \(desc)")

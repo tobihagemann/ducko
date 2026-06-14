@@ -42,8 +42,8 @@ public struct ChatContainerView: View {
             Task { await container.selectedState?.refreshMessages() }
         }
         .sheet(isPresented: $container.isShowingNewChat) {
-            NewChatSheet { jidString in
-                container.open(jidString)
+            NewChatSheet { jidString, accountID in
+                container.open(jidString, accountID: accountID)
             }
         }
     }

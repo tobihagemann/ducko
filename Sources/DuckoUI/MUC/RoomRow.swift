@@ -8,7 +8,8 @@ struct RoomRow: View {
     let conversation: Conversation
 
     private var participantCount: Int {
-        environment.chatService.participantCount(forRoomJIDString: conversation.jid.description)
+        guard let accountID = conversation.accountID else { return 0 }
+        return environment.chatService.participantCount(forRoomJIDString: conversation.jid.description, accountID: accountID)
     }
 
     var body: some View {

@@ -1,9 +1,14 @@
 #!/bin/bash
 # Enumerate, select, or close the bottom conversation tabs in the chat window.
 # Usage: ducko-chat-tabs.sh <list|select|close> [JID]
-#   list:        print the JIDs of all open tabs (one per line)
+#   list:        print the identity of all open tabs (one per line)
 #   select JID:  click the tab for JID to make it active
 #   close JID:   click the tab's close button (revealed on hover over the tab)
+#
+# Tab identity is the bare JID when unique. When the same peer JID is open under
+# more than one account, each tab is account-qualified as "{jid}|{account-jid}"
+# so the two are individually addressable. `list` prints whatever form is in use;
+# pass that exact string to `select`/`close`.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then

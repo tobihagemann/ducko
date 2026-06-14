@@ -4,7 +4,7 @@ import SwiftUI
 struct RoomJoinDialog: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
-    var onJoin: (String) -> Void
+    var onJoin: (String, UUID?) -> Void
     @State private var roomJID = ""
     @State private var nickname = ""
     @State private var password = ""
@@ -239,7 +239,7 @@ struct RoomJoinDialog: View {
                 return
             }
 
-            onJoin(resolvedJID)
+            onJoin(resolvedJID, accountID)
             dismiss()
         }
     }

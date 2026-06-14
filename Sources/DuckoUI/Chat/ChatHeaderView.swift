@@ -36,11 +36,13 @@ struct ChatHeaderView: View {
     }
 
     private var participantCount: Int {
-        environment.chatService.participantCount(forRoomJIDString: conversation.jid.description)
+        guard let accountID = conversation.accountID else { return 0 }
+        return environment.chatService.participantCount(forRoomJIDString: conversation.jid.description, accountID: accountID)
     }
 
     private var roomFlags: Set<RoomFlag> {
-        environment.chatService.roomFlags[conversation.jid.description] ?? []
+        guard let accountID = conversation.accountID else { return [] }
+        return environment.chatService.roomFlags(forRoomJIDString: conversation.jid.description, accountID: accountID)
     }
 
     private var contact: Contact? {
@@ -127,11 +129,16 @@ struct ChatHeaderView: View {
 
     private var peerIdentity: some View {
         // A chat with a non-roster peer has no subscription to reason from, so its
-        // presence is genuinely unknown rather than offline.
+        // presence is genuinely unknown rather than offline. Reads are scoped to the
+        // conversation's own account so a same-JID peer on two accounts shows the right one.
         let display = contact.map {
-            ContactPresenceDisplay.resolve(for: $0, presenceService: environment.presenceService)
+            ContactPresenceDisplay.resolve(for: $0, accountID: conversation.accountID, presenceService: environment.presenceService)
         } ?? .unknown
-        let statusMessage = environment.presenceService.statusMessage(for: conversation.jid)
+        let statusMessage: String? = if let accountID = conversation.accountID {
+            environment.presenceService.statusMessage(for: conversation.jid, accountID: accountID)
+        } else {
+            environment.presenceService.statusMessage(for: conversation.jid)
+        }
 
         return HStack(spacing: 8) {
             if let contact {

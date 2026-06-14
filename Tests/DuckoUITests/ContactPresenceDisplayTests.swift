@@ -86,6 +86,33 @@ struct ContactPresenceDisplayTests {
         #expect(ContactPresenceDisplay.resolve(for: contact, presenceService: PresenceService()) == .pending)
     }
 
+    @Test
+    @MainActor
+    func `resolve(for:accountID:) reads presence under the given account`() async throws {
+        let accountA = UUID()
+        let accountB = UUID()
+        let service = PresenceService()
+        try await seedPresence(.dnd, for: "bob@example.com", into: service, accountID: accountA)
+
+        let bobOnA = try makeContact(jid: "bob@example.com", subscription: .both, accountID: accountA)
+        #expect(ContactPresenceDisplay.resolve(for: bobOnA, accountID: accountA, presenceService: service) == .dnd)
+
+        // The same JID on a different account has no presence under B — subscribed with no presence is offline.
+        let bobOnB = try makeContact(jid: "bob@example.com", subscription: .both, accountID: accountB)
+        #expect(ContactPresenceDisplay.resolve(for: bobOnB, accountID: accountB, presenceService: service) == .offline)
+    }
+
+    @Test
+    @MainActor
+    func `resolve(for:accountID:) falls back to the merged map when accountID is nil`() async throws {
+        let accountA = UUID()
+        let service = PresenceService()
+        try await seedPresence(.away, for: "bob@example.com", into: service, accountID: accountA)
+
+        let bob = try makeContact(jid: "bob@example.com", subscription: .both, accountID: accountA)
+        #expect(ContactPresenceDisplay.resolve(for: bob, accountID: nil, presenceService: service) == .away)
+    }
+
     @MainActor
     private func seedPresence(
         _ show: XMPPPresence.Show, for jid: String, into service: PresenceService, accountID: UUID

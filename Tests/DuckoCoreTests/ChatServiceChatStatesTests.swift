@@ -28,7 +28,7 @@ enum ChatServiceChatStatesTests {
                 accountID: testAccountID
             )
 
-            #expect(service.typingStates[contactJID] == .composing)
+            #expect(service.typingStates[testAccountID]?[contactJID] == .composing)
         }
 
         @Test
@@ -42,13 +42,13 @@ enum ChatServiceChatStatesTests {
                 .chatStateChanged(from: contactJID, state: .composing),
                 accountID: testAccountID
             )
-            #expect(service.typingStates[contactJID] == .composing)
+            #expect(service.typingStates[testAccountID]?[contactJID] == .composing)
 
             await service.handleEvent(
                 .chatStateChanged(from: contactJID, state: .active),
                 accountID: testAccountID
             )
-            #expect(service.typingStates[contactJID] == .active)
+            #expect(service.typingStates[testAccountID]?[contactJID] == .active)
         }
     }
 }

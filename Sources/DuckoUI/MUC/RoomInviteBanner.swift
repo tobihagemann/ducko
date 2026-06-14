@@ -28,8 +28,10 @@ private struct RoomInviteRow: View {
     @State private var nickname = ""
     @State private var errorMessage: String?
 
+    /// The account the invite arrived on — drives accept/decline and the default nickname, so the
+    /// same room invite on two accounts targets the right one rather than re-deriving `accounts.first`.
     private var account: Account? {
-        environment.accountService.accounts.first
+        environment.accountService.accounts.first { $0.id == invite.accountID }
     }
 
     var body: some View {
@@ -97,7 +99,7 @@ private struct RoomInviteRow: View {
         Task {
             do {
                 try await environment.chatService.acceptInvite(invite, nickname: nick, accountID: accountID)
-                openChat(invite.roomJIDString)
+                openChat(invite.roomJIDString, accountID: accountID)
                 errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription

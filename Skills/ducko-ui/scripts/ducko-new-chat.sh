@@ -1,14 +1,19 @@
 #!/bin/bash
-# Open the New Chat sheet from the contact list, fill in a JID, and start the chat.
-# The chat opens in a separate window. Uses accessibility identifiers for reliable targeting.
-# Usage: ducko-new-chat.sh JID
+# Open the New Chat sheet from the contact list, fill in a JID, optionally pick the
+# sending account, and start the chat. The chat opens in a separate window.
+# Usage: ducko-new-chat.sh JID [ACCOUNT]
+#   JID:     the peer JID to start a chat with
+#   ACCOUNT: optional account label to select in the account picker — shown only
+#            when more than one account is enabled; matches the picker row text
 set -euo pipefail
 
-JID="${1:?Usage: ducko-new-chat.sh JID}"
+JID="${1:?Usage: ducko-new-chat.sh JID [ACCOUNT]}"
+ACCOUNT="${2:-}"
 
-RESULT=$(osascript - "$JID" << 'APPLESCRIPT'
+RESULT=$(osascript - "$JID" "$ACCOUNT" << 'APPLESCRIPT'
 on run argv
     set jid to item 1 of argv
+    set acct to item 2 of argv
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.5
@@ -50,6 +55,30 @@ on run argv
                 end try
             end repeat
             if not filled then return "ERROR: new-chat-jid-field not found"
+            -- Optionally select the sending account. The picker is present only
+            -- when more than one account is enabled; with a single account the
+            -- chat opens under it and no ACCOUNT argument is needed.
+            if acct is not "" then
+                set picker to missing value
+                set allElems to entire contents of contactWin
+                repeat with elem in allElems
+                    try
+                        if value of attribute "AXIdentifier" of elem is "new-chat-account-picker" then
+                            set picker to elem
+                            exit repeat
+                        end if
+                    end try
+                end repeat
+                if picker is missing value then return "ERROR: new-chat-account-picker not found"
+                click picker
+                delay 0.3
+                try
+                    click (first menu item of menu 1 of picker whose name contains acct)
+                on error
+                    return "ERROR: account not in picker: " & acct
+                end try
+                delay 0.2
+            end if
             delay 0.3
             -- Start Chat has .defaultAction keyboard shortcut
             keystroke return
@@ -61,7 +90,7 @@ APPLESCRIPT
 )
 
 if [[ "$RESULT" == ok ]]; then
-    echo "Chat started with $JID"
+    echo "Chat started with $JID${ACCOUNT:+ on $ACCOUNT}"
 else
     echo "$RESULT" >&2
     exit 1

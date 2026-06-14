@@ -6,8 +6,15 @@ public actor MockPersistenceStore: PersistenceStore {
     public var contacts: [Contact] = []
     public var conversations: [Conversation] = []
     public var linkPreviews: [LinkPreview] = []
+    /// Test seam: when set, `fetchConversations(for:)` throws this instead of returning, so the
+    /// account-aware cache's failed-fetch-leaves-the-slot-intact path is exercisable.
+    public var fetchConversationsError: Error?
 
     public init() {}
+
+    public func setFetchConversationsError(_ error: Error?) {
+        fetchConversationsError = error
+    }
 
     public func addAccount(_ account: Account) {
         accounts.append(account)
@@ -56,7 +63,8 @@ public actor MockPersistenceStore: PersistenceStore {
     // MARK: - Conversations
 
     public func fetchConversations(for accountID: UUID) async throws -> [Conversation] {
-        conversations.filter { $0.accountID == accountID }
+        if let fetchConversationsError { throw fetchConversationsError }
+        return conversations.filter { $0.accountID == accountID }
     }
 
     public func fetchConversations(importSourceJID: String) async throws -> [Conversation] {

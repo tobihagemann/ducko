@@ -1,4 +1,5 @@
 import DuckoXMPP
+import Foundation
 
 /// Re-export for DuckoUI which cannot import DuckoXMPP.
 public typealias RoomFlag = DuckoXMPP.RoomFlag
@@ -168,16 +169,18 @@ public struct RoomAffiliationItem: Sendable, Identifiable {
 
 public struct PendingRoomInvite: Sendable, Identifiable {
     public var id: String {
-        roomJIDString + "|" + (fromJIDString ?? "")
+        accountID.uuidString + "|" + roomJIDString + "|" + (fromJIDString ?? "")
     }
 
+    public let accountID: UUID
     public let roomJIDString: String
     public let fromJIDString: String?
     public let reason: String?
     public let password: String?
     public let isDirect: Bool
 
-    public init(roomJIDString: String, fromJIDString: String?, reason: String?, password: String?, isDirect: Bool = false) {
+    public init(accountID: UUID, roomJIDString: String, fromJIDString: String?, reason: String?, password: String?, isDirect: Bool = false) {
+        self.accountID = accountID
         self.roomJIDString = roomJIDString
         self.fromJIDString = fromJIDString
         self.reason = reason

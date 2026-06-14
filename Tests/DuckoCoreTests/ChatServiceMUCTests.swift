@@ -180,15 +180,15 @@ enum ChatServiceMUCTests {
                 accountID: testAccountID
             )
 
-            #expect(service.roomParticipants[testRoomJID] != nil)
-            #expect(service.roomFlags[key] != nil)
-            #expect(service.newlyCreatedRoomJIDs.contains(key))
+            #expect(!service.participants(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(!service.roomFlags(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(service.isRoomNewlyCreated(jidString: key, accountID: testAccountID))
 
-            service.clearRoomState(for: testRoomJID)
+            service.clearRoomState(for: testRoomJID, accountID: testAccountID)
 
-            #expect(service.roomParticipants[testRoomJID] == nil)
-            #expect(service.roomFlags[key] == nil)
-            #expect(!service.newlyCreatedRoomJIDs.contains(key))
+            #expect(service.participants(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(service.roomFlags(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(!service.isRoomNewlyCreated(jidString: key, accountID: testAccountID))
         }
 
         @Test
@@ -215,9 +215,9 @@ enum ChatServiceMUCTests {
                 accountID: testAccountID
             )
 
-            #expect(service.roomParticipants[testRoomJID] == nil)
-            #expect(service.roomFlags[key] == nil)
-            #expect(!service.newlyCreatedRoomJIDs.contains(key))
+            #expect(service.participants(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(service.roomFlags(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(!service.isRoomNewlyCreated(jidString: key, accountID: testAccountID))
         }
 
         @Test
@@ -241,9 +241,9 @@ enum ChatServiceMUCTests {
 
             await service.handleEvent(.disconnected(.requested), accountID: testAccountID)
 
-            #expect(service.roomParticipants[testRoomJID] == nil)
-            #expect(service.roomFlags[key] == nil)
-            #expect(!service.newlyCreatedRoomJIDs.contains(key))
+            #expect(service.participants(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(service.roomFlags(forRoomJIDString: key, accountID: testAccountID).isEmpty)
+            #expect(!service.isRoomNewlyCreated(jidString: key, accountID: testAccountID))
         }
 
         /// Locks the per-account scope of the disconnect-time clear: when
@@ -281,14 +281,14 @@ enum ChatServiceMUCTests {
             await service.handleEvent(.disconnected(.requested), accountID: accountA)
 
             // A's room state is gone.
-            #expect(service.roomParticipants[roomA] == nil)
-            #expect(service.roomFlags[roomA.description] == nil)
-            #expect(!service.newlyCreatedRoomJIDs.contains(roomA.description))
+            #expect(service.participants(forRoomJIDString: roomA.description, accountID: accountA).isEmpty)
+            #expect(service.roomFlags(forRoomJIDString: roomA.description, accountID: accountA).isEmpty)
+            #expect(!service.isRoomNewlyCreated(jidString: roomA.description, accountID: accountA))
 
             // B's room state is preserved.
-            #expect(service.roomParticipants[roomB] != nil)
-            #expect(service.roomFlags[roomB.description] != nil)
-            #expect(service.newlyCreatedRoomJIDs.contains(roomB.description))
+            #expect(!service.participants(forRoomJIDString: roomB.description, accountID: accountB).isEmpty)
+            #expect(!service.roomFlags(forRoomJIDString: roomB.description, accountID: accountB).isEmpty)
+            #expect(service.isRoomNewlyCreated(jidString: roomB.description, accountID: accountB))
         }
     }
 }

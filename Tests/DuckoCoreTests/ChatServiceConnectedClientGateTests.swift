@@ -115,7 +115,7 @@ enum ChatServiceConnectedClientGateTests {
             // test's `inttest-ui-FCA13B13@…` UUID-prefixed localpart) parses
             // into the same canonical key.
             let mixedCase = "Room@Conference.Example.Com"
-            let participants = service.participants(forRoomJIDString: mixedCase)
+            let participants = service.participants(forRoomJIDString: mixedCase, accountID: accountID)
             #expect(participants.count == 2)
             #expect(participants.contains { $0.nickname == "me" })
             #expect(participants.contains { $0.nickname == "admin" })
@@ -136,7 +136,7 @@ enum ChatServiceConnectedClientGateTests {
             )
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: accountID)
 
-            let participants = service.participants(forRoomJIDString: testRoomJID.description)
+            let participants = service.participants(forRoomJIDString: testRoomJID.description, accountID: accountID)
             #expect(participants.count == 1)
             #expect(participants.first?.nickname == "me")
         }
@@ -160,7 +160,7 @@ enum ChatServiceConnectedClientGateTests {
             // `normalizedRoomKey` returns nil and `participants(forRoomJIDString:)`
             // short-circuits to `[]` rather than surfacing the room's
             // participants by accident via a raw-string fallback.
-            let participants = service.participants(forRoomJIDString: "not a valid jid")
+            let participants = service.participants(forRoomJIDString: "not a valid jid", accountID: accountID)
             #expect(participants.isEmpty)
         }
 
@@ -181,7 +181,7 @@ enum ChatServiceConnectedClientGateTests {
             await service.handleEvent(.roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: false), accountID: accountID)
             await service.handleEvent(.roomJoined(room: secondRoom, occupancy: occupancy, isNewlyCreated: false), accountID: accountID)
 
-            let domains = service.knownRoomDomains
+            let domains = service.knownRoomDomains(accountID: accountID)
             #expect(domains.contains("conference.example.com"))
             #expect(domains.contains("muc.other.example"))
             #expect(domains.count == 2)

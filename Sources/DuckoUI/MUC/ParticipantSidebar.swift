@@ -1,18 +1,21 @@
 import DuckoCore
+import Foundation
 import SwiftUI
 
 struct ParticipantSidebar: View {
     @Environment(AppEnvironment.self) private var environment
     let roomJIDString: String
     let roomNickname: String?
+    let accountID: UUID?
 
     private var groups: [RoomParticipantGroup] {
-        environment.chatService.participantGroups(forRoomJIDString: roomJIDString)
+        guard let accountID else { return [] }
+        return environment.chatService.participantGroups(forRoomJIDString: roomJIDString, accountID: accountID)
     }
 
     private var myParticipant: RoomParticipant? {
-        guard let nickname = roomNickname else { return nil }
-        let participants = environment.chatService.participants(forRoomJIDString: roomJIDString)
+        guard let nickname = roomNickname, let accountID else { return nil }
+        let participants = environment.chatService.participants(forRoomJIDString: roomJIDString, accountID: accountID)
         return participants.first { $0.nickname == nickname }
     }
 
@@ -25,7 +28,8 @@ struct ParticipantSidebar: View {
                         ParticipantRow(
                             participant: participant,
                             myParticipant: me,
-                            roomJIDString: roomJIDString
+                            roomJIDString: roomJIDString,
+                            accountID: accountID
                         )
                     }
                 }

@@ -10,12 +10,12 @@ struct ContactContextMenu: View {
     @Binding var isShowingRenameSheet: Bool
 
     private var conversation: Conversation? {
-        environment.chatService.openConversations.first { $0.jid == contact.jid }
+        environment.chatService.openConversations.first { $0.jid == contact.jid && $0.accountID == contact.accountID }
     }
 
     var body: some View {
         Button("Start Chat") {
-            openChat(contact.jid.description)
+            openChat(contact.jid.description, accountID: contact.accountID)
         }
 
         Button("Get Info") {

@@ -1,4 +1,5 @@
 import DuckoCore
+import Foundation
 
 /// View-layer presence treatment that distinguishes a genuinely-offline contact
 /// from one whose presence is unknown because we aren't subscribed to it. Derived
@@ -31,6 +32,20 @@ enum ContactPresenceDisplay {
         resolve(
             subscription: contact.subscription,
             presence: presenceService.contactPresences[contact.jid],
+            isPending: contact.isPendingSubscription
+        )
+    }
+
+    /// Account-scoped variant: reads the contact's presence under `accountID` so the same peer JID
+    /// on two accounts resolves the right account's presence. Falls back to the merged map when
+    /// `accountID` is nil (account-less/imported paths).
+    @MainActor
+    static func resolve(for contact: Contact, accountID: UUID?, presenceService: PresenceService) -> ContactPresenceDisplay {
+        let presence = accountID.map { presenceService.presence(for: contact.jid, accountID: $0) }
+            ?? presenceService.contactPresences[contact.jid]
+        return resolve(
+            subscription: contact.subscription,
+            presence: presence,
             isPending: contact.isPendingSubscription
         )
     }

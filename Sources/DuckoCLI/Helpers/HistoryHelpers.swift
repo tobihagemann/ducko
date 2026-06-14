@@ -42,7 +42,9 @@ private func resolveConversation(
 ) async throws -> Conversation? {
     try await environment.chatService.loadConversations(for: accountID)
     let conversations = await MainActor.run { environment.chatService.openConversations }
-    return conversations.first(where: { $0.jid == jid })
+    // Scope by account: `openConversations` is a cross-account union, so a bare-JID match alone could
+    // resolve another account's conversation when the same peer is rostered on two accounts.
+    return conversations.first(where: { $0.jid == jid && $0.accountID == accountID })
 }
 
 func printHistory(_ messages: [ChatMessage], formatter: any CLIFormatter, accountJID: BareJID? = nil) {

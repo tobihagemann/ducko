@@ -1,10 +1,19 @@
+import DuckoCore
 import SwiftUI
 
 struct NewChatSheet: View {
+    @Environment(AppEnvironment.self) private var environment
     @Environment(\.dismiss) private var dismiss
-    var onStartChat: (String) -> Void
+    var onStartChat: (String, UUID?) -> Void
     @State private var jidString = ""
+    @State private var selectedAccountID: UUID?
     @State private var errorMessage: String?
+
+    /// Only enabled accounts can send, so the picker offers (and defaults to) those —
+    /// mirroring `StatusBarView`/`RoomInviteRow`. Shown only when more than one exists.
+    private var enabledAccounts: [Account] {
+        environment.accountService.accounts.filter(\.isEnabled)
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -15,6 +24,17 @@ struct NewChatSheet: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 300)
                 .accessibilityIdentifier("new-chat-jid-field")
+
+            if enabledAccounts.count > 1 {
+                Picker("Account", selection: $selectedAccountID) {
+                    ForEach(enabledAccounts) { account in
+                        Text(account.displayName ?? account.jid.description).tag(account.id as UUID?)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: 300)
+                .accessibilityIdentifier("new-chat-account-picker")
+            }
 
             if let errorMessage {
                 Text(errorMessage)
@@ -39,6 +59,11 @@ struct NewChatSheet: View {
         }
         .padding(20)
         .frame(minWidth: 350)
+        .onAppear {
+            if selectedAccountID == nil {
+                selectedAccountID = enabledAccounts.first?.id
+            }
+        }
     }
 
     private func startChat() {
@@ -49,7 +74,7 @@ struct NewChatSheet: View {
             return
         }
         errorMessage = nil
-        onStartChat(trimmed)
+        onStartChat(trimmed, selectedAccountID)
         dismiss()
     }
 }

@@ -3,14 +3,14 @@ import SwiftUI
 
 /// App-owned state for the single tabbed chat window. Retains each open tab's
 /// `ChatWindowState` in `states` so switching tabs never destroys per-conversation UI
-/// state (draft, search, reply/edit, sidebar). Tab keys are the full open-string
-/// (`room@conf/nick` for a MUC PM is a distinct key from the room's `room@conf`), matching
-/// how `ChatWindowState.load()` disambiguates them.
+/// state (draft, search, reply/edit, sidebar). Tabs are keyed by `ConversationKey`
+/// (account + full open-string JID), so the same peer JID under two accounts opens two
+/// distinct tabs, and a MUC PM (`room@conf/nick`) stays distinct from the room (`room@conf`).
 @MainActor @Observable
 public final class ChatContainerState {
-    public private(set) var orderedTabs: [String] = []
-    private var states: [String: ChatWindowState] = [:]
-    public var selectedJID: String?
+    public private(set) var orderedTabs: [ConversationKey] = []
+    private var states: [ConversationKey: ChatWindowState] = [:]
+    public var selectedKey: ConversationKey?
 
     /// Drives the container-owned New Chat sheet so the tab-bar "+" and the menu-bar
     /// New Chat command work when the chat window is frontmost — the Contacts window
@@ -24,25 +24,26 @@ public final class ChatContainerState {
     }
 
     public var selectedState: ChatWindowState? {
-        selectedJID.flatMap { states[$0] }
+        selectedKey.flatMap { states[$0] }
     }
 
     public var hasTabs: Bool {
         !orderedTabs.isEmpty
     }
 
-    public func state(for jidString: String) -> ChatWindowState? {
-        states[jidString]
+    public func state(for key: ConversationKey) -> ChatWindowState? {
+        states[key]
     }
 
     // MARK: - Tab Lifecycle
 
-    public func open(_ jidString: String) {
-        if states[jidString] == nil {
-            let state = ChatWindowState(jidString: jidString, environment: environment)
-            states[jidString] = state
-            orderedTabs.append(jidString)
-            selectedJID = jidString
+    public func open(_ jidString: String, accountID: UUID?) {
+        let key = ConversationKey(accountID: accountID, jid: jidString)
+        if states[key] == nil {
+            let state = ChatWindowState(jidString: jidString, accountID: accountID, environment: environment)
+            states[key] = state
+            orderedTabs.append(key)
+            selectedKey = key
             // `load()` ends by calling `chatService.selectConversation`, so the freshly
             // opened tab becomes the active conversation without a separate activation.
             // Bump the generation so any in-flight select/close activation finds itself
@@ -51,25 +52,25 @@ public final class ChatContainerState {
             activationGeneration += 1
             Task { await state.load() }
         } else {
-            select(jidString)
+            select(key)
         }
     }
 
-    public func select(_ jidString: String) {
-        guard let state = states[jidString], selectedJID != jidString else { return }
-        selectedJID = jidString
+    public func select(_ key: ConversationKey) {
+        guard let state = states[key], selectedKey != key else { return }
+        selectedKey = key
         scheduleActivation(of: state)
     }
 
-    public func close(_ jidString: String) {
-        guard let index = orderedTabs.firstIndex(of: jidString) else { return }
+    public func close(_ key: ConversationKey) {
+        guard let index = orderedTabs.firstIndex(of: key) else { return }
         orderedTabs.remove(at: index)
-        states.removeValue(forKey: jidString)
+        states.removeValue(forKey: key)
 
-        guard selectedJID == jidString else { return }
+        guard selectedKey == key else { return }
         // Pick the tab that shifted into this slot, else the new last tab.
         let neighbor = orderedTabs.indices.contains(index) ? orderedTabs[index] : orderedTabs.last
-        selectedJID = neighbor
+        selectedKey = neighbor
         if let neighbor, let state = states[neighbor] {
             scheduleActivation(of: state)
         } else {

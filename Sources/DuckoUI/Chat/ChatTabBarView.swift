@@ -3,6 +3,7 @@ import DuckoCore
 import SwiftUI
 
 struct ChatTabBarView: View {
+    @Environment(AppEnvironment.self) private var environment
     let container: ChatContainerState
 
     /// Below this a tab can't show a usable label, so further tabs spill into the
@@ -40,14 +41,14 @@ struct ChatTabBarView: View {
             // into the corner.
             HStack(spacing: 0) {
                 HStack(spacing: tabSpacing) {
-                    ForEach(Array(split.visible.enumerated()), id: \.element) { index, jidString in
+                    ForEach(Array(split.visible.enumerated()), id: \.element) { index, key in
                         ChatTabChip(
-                            jidString: jidString,
-                            state: container.state(for: jidString),
-                            isSelected: container.selectedJID == jidString,
+                            key: key,
+                            state: container.state(for: key),
+                            isSelected: container.selectedKey == key,
                             width: widths[index],
-                            onSelect: { container.select(jidString) },
-                            onClose: { container.close(jidString) }
+                            onSelect: { container.select(key) },
+                            onClose: { container.close(key) }
                         )
                     }
                 }
@@ -65,11 +66,11 @@ struct ChatTabBarView: View {
         .accessibilityIdentifier("chat-tab-bar")
     }
 
-    private func overflowMenu(_ tabs: [String]) -> some View {
+    private func overflowMenu(_ tabs: [ConversationKey]) -> some View {
         Menu {
-            ForEach(tabs, id: \.self) { jidString in
-                Button(container.state(for: jidString)?.displayName ?? jidString) {
-                    container.select(jidString)
+            ForEach(tabs, id: \.self) { key in
+                Button(overflowLabel(for: key)) {
+                    container.select(key)
                 }
             }
         } label: {
@@ -86,11 +87,11 @@ struct ChatTabBarView: View {
     /// Splits tabs into the visible run and the overflow remainder, keeping the
     /// selected tab visible by swapping it into the last visible slot if it would
     /// otherwise fall into the overflow menu.
-    private func partition(_ tabs: [String], visibleCount: Int) -> (visible: [String], overflow: [String]) {
+    private func partition(_ tabs: [ConversationKey], visibleCount: Int) -> (visible: [ConversationKey], overflow: [ConversationKey]) {
         guard visibleCount < tabs.count else { return (tabs, []) }
         var visible = Array(tabs.prefix(visibleCount))
         var overflow = Array(tabs.suffix(from: visibleCount))
-        if let selected = container.selectedJID,
+        if let selected = container.selectedKey,
            !visible.contains(selected),
            let overflowIndex = overflow.firstIndex(of: selected),
            !visible.isEmpty {
@@ -159,18 +160,40 @@ struct ChatTabBarView: View {
     /// Fixed chip chrome around the label: icon slot + spacing + horizontal padding.
     private static let chipChrome: CGFloat = 16 + 6 + 16
 
-    private func intrinsicWidth(for jidString: String) -> CGFloat {
-        let state = container.state(for: jidString)
-        let textWidth = ((state?.displayName ?? jidString) as NSString)
+    private func intrinsicWidth(for key: ConversationKey) -> CGFloat {
+        let state = container.state(for: key)
+        var textWidth = ((state?.displayName ?? key.jid) as NSString)
             .size(withAttributes: [.font: Self.labelFont]).width
+        // Budget the account-disambiguation label so a duplicated tab isn't sized name-only and
+        // truncated. Measured in the body font (the label renders smaller), leaving a little slack.
+        if let accountLabel = accountLabel(for: key) {
+            textWidth += (accountLabel as NSString).size(withAttributes: [.font: Self.labelFont]).width + 4
+        }
         let badge: CGFloat = (state?.unreadCount ?? 0) > 0 ? 24 : 0
         return min(maxTabWidth, max(minTabWidth, textWidth.rounded(.up) + Self.chipChrome + badge))
+    }
+
+    /// Account-disambiguation label for a tab, via the shared `AccountIndicator.tabLabel` gate so the
+    /// width math here and the rendered `ChatTabChip` always agree on what shows.
+    private func accountLabel(for key: ConversationKey) -> String? {
+        AccountIndicator.tabLabel(
+            for: key, conversation: container.state(for: key)?.conversation,
+            accountService: environment.accountService, rosterService: environment.rosterService
+        )
+    }
+
+    /// Overflow-menu row title: appends the account label for a duplicated tab so the same-JID tabs
+    /// stay distinguishable once they spill into the menu, matching the visible chips.
+    private func overflowLabel(for key: ConversationKey) -> String {
+        let name = container.state(for: key)?.displayName ?? key.jid
+        guard let accountLabel = accountLabel(for: key) else { return name }
+        return "\(name) — \(accountLabel)"
     }
 }
 
 private struct ChatTabChip: View {
     @Environment(AppEnvironment.self) private var environment
-    let jidString: String
+    let key: ConversationKey
     let state: ChatWindowState?
     let isSelected: Bool
     let width: CGFloat
@@ -195,7 +218,7 @@ private struct ChatTabChip: View {
     }
 
     private var displayName: String {
-        state?.displayName ?? jidString
+        state?.displayName ?? key.jid
     }
 
     private var unreadCount: Int {
@@ -203,10 +226,32 @@ private struct ChatTabChip: View {
     }
 
     private var presenceDisplay: ContactPresenceDisplay {
-        guard let contact = state?.contact ?? environment.rosterService.contact(jidString: jidString) else {
+        guard let contact = state?.contact ?? scopedContact else {
             return .unknown
         }
-        return ContactPresenceDisplay.resolve(for: contact, presenceService: environment.presenceService)
+        return ContactPresenceDisplay.resolve(for: contact, accountID: key.accountID, presenceService: environment.presenceService)
+    }
+
+    private var scopedContact: Contact? {
+        guard let accountID = key.accountID else {
+            return environment.rosterService.contact(jidString: key.jid)
+        }
+        return environment.rosterService.contact(jidString: key.jid, accountID: accountID)
+    }
+
+    /// The disambiguation label shown when this is a direct 1:1 whose bare JID is duplicated across
+    /// accounts (MUC tabs are out of scope); nil otherwise.
+    private var accountLabel: String? {
+        AccountIndicator.tabLabel(
+            for: key, conversation: conversation,
+            accountService: environment.accountService, rosterService: environment.rosterService
+        )
+    }
+
+    /// JID-only when unique; account-qualified when the JID is duplicated so the two same-JID tabs
+    /// are individually addressable by automation. Single-account users keep the plain `{jid}` id.
+    private var accessibilityKey: String {
+        AccountIndicator.qualified(key.jid, accountID: key.accountID, qualify: accountLabel != nil, accountService: environment.accountService)
     }
 
     var body: some View {
@@ -214,10 +259,16 @@ private struct ChatTabChip: View {
             leadingSlot
                 .frame(width: 16)
 
-            Text(displayName)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(displayName)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                if let accountLabel {
+                    AccountLabelText(label: accountLabel)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if unreadCount > 0 {
                 Text("\(unreadCount)")
@@ -246,7 +297,7 @@ private struct ChatTabChip: View {
         // The close button only appears on hover, so expose closing as a named action
         // for keyboard and VoiceOver users.
         .accessibilityAction(named: "Close Tab") { onClose() }
-        .accessibilityIdentifier("chat-tab-\(jidString)")
+        .accessibilityIdentifier("chat-tab-\(accessibilityKey)")
     }
 
     /// The leading slot shows the conversation's icon, and reveals the close
@@ -261,7 +312,7 @@ private struct ChatTabChip: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("chat-tab-close-\(jidString)")
+            .accessibilityIdentifier("chat-tab-close-\(accessibilityKey)")
         } else {
             tabIcon
         }

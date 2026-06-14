@@ -12,6 +12,7 @@ struct ChatWindowStateTests {
     private struct Fixture {
         let windowState: ChatWindowState
         let transcripts: MockTranscriptStore
+        let accountID: UUID
     }
 
     private static func makeFixture() async throws -> Fixture {
@@ -43,9 +44,39 @@ struct ChatWindowStateTests {
             credentialStore: NullCredentialStore()
         )
         try await environment.accountService.loadAccounts()
-        let windowState = ChatWindowState(jidString: jidString, environment: environment)
+        let windowState = ChatWindowState(jidString: jidString, accountID: account.id, environment: environment)
         await windowState.load()
-        return Fixture(windowState: windowState, transcripts: transcripts)
+        return Fixture(windowState: windowState, transcripts: transcripts, accountID: account.id)
+    }
+
+    @Test func `windowState carries the opened accountID`() async throws {
+        let fixture = try await Self.makeFixture()
+        #expect(fixture.windowState.accountID == fixture.accountID)
+    }
+
+    @Test func `windowState resolves the contact under its own account when the JID is on two`() async throws {
+        let store = MockPersistenceStore()
+        let transcripts = MockTranscriptStore()
+        let peerJID = try #require(BareJID.parse(Self.jidString))
+        let accountA = try Account(id: UUID(), jid: #require(BareJID.parse("a@example.com")), isEnabled: true, connectOnLaunch: false, createdAt: Date())
+        let accountB = try Account(id: UUID(), jid: #require(BareJID.parse("b@example.com")), isEnabled: true, connectOnLaunch: false, createdAt: Date())
+        await store.addAccount(accountA)
+        await store.addAccount(accountB)
+
+        // Same peer JID rostered on both accounts with distinct names.
+        try await store.upsertContact(Contact(id: UUID(), accountID: accountA.id, jid: peerJID, name: "Bob-A", subscription: .both, groups: [], isBlocked: false, createdAt: Date()))
+        try await store.upsertContact(Contact(id: UUID(), accountID: accountB.id, jid: peerJID, name: "Bob-B", subscription: .both, groups: [], isBlocked: false, createdAt: Date()))
+
+        let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
+        try await environment.accountService.loadAccounts()
+        try await environment.rosterService.loadContacts(for: accountA.id)
+        try await environment.rosterService.loadContacts(for: accountB.id)
+
+        let windowState = ChatWindowState(jidString: Self.jidString, accountID: accountB.id, environment: environment)
+        await windowState.load()
+
+        #expect(windowState.accountID == accountB.id)
+        #expect(windowState.contact?.name == "Bob-B")
     }
 
     @Test func `loadOlderMessages sets lastLoadHistoryError when server fetch fails`() async throws {

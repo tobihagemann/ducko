@@ -5,8 +5,8 @@ func defaultNickname(for account: Account) -> String {
     account.jid.localPart ?? account.jid.description
 }
 
-func printRoomMembers(jidString: String, environment: AppEnvironment, formatter: any CLIFormatter) async {
-    let groups = await MainActor.run { environment.chatService.participantGroups(forRoomJIDString: jidString) }
+func printRoomMembers(jidString: String, accountID: UUID, environment: AppEnvironment, formatter: any CLIFormatter) async {
+    let groups = await MainActor.run { environment.chatService.participantGroups(forRoomJIDString: jidString, accountID: accountID) }
 
     guard !groups.isEmpty else {
         print("No participants in room.")

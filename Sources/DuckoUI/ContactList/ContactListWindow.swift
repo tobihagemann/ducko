@@ -93,8 +93,8 @@ struct ContactListWindow: View {
             AddContactSheet()
         }
         .sheet(isPresented: $state.isShowingJoinRoom) {
-            RoomJoinDialog { jidString in
-                openChat(jidString)
+            RoomJoinDialog { jidString, accountID in
+                openChat(jidString, accountID: accountID)
             }
         }
         .sheet(isPresented: $state.isShowingBookmarks) {

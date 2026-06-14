@@ -5,7 +5,7 @@ import UserNotifications
 /// Apple's notification delegate protocol inherits from NSObjectProtocol.
 @MainActor
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
-    var onNotificationTapped: ((String) -> Void)?
+    var onNotificationTapped: ((String, UUID?) -> Void)?
 
     /// UNUserNotificationCenter.current() crashes when running via `swift run`
     /// (no app bundle → bundleProxyForCurrentProcess is nil). Guard with bundle check.
@@ -25,12 +25,16 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    func postMessageNotification(from senderName: String, body: String, jidString: String, avatarData: Data?) {
+    func postMessageNotification(from senderName: String, body: String, jidString: String, accountID: UUID?, avatarData: Data?) {
         let content = UNMutableNotificationContent()
         content.title = senderName
         content.body = body
         content.sound = .default
-        content.userInfo = ["jid": jidString]
+        var userInfo: [String: String] = ["jid": jidString]
+        if let accountID {
+            userInfo["accountID"] = accountID.uuidString
+        }
+        content.userInfo = userInfo
 
         if let avatarData {
             attachAvatar(avatarData, to: content)
@@ -50,10 +54,12 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         _: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
-        let jid = response.notification.request.content.userInfo["jid"] as? String
+        let userInfo = response.notification.request.content.userInfo
+        let jid = userInfo["jid"] as? String
+        let accountID = (userInfo["accountID"] as? String).flatMap(UUID.init(uuidString:))
         await MainActor.run {
             if let jid {
-                onNotificationTapped?(jid)
+                onNotificationTapped?(jid, accountID)
             }
         }
     }

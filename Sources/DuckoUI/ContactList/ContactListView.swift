@@ -30,7 +30,7 @@ struct ContactListView: View {
     @Environment(\.openChat) private var openChat
     let searchText: String
     let preferences: ContactListPreferences
-    @State private var selection: String?
+    @State private var selection: ConversationKey?
     @AppStorage(ContactListSizingDefaults.autoSizeVerticalKey, store: PreferencesDefaults.store)
     private var autoSizeVertical = true
     @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
@@ -50,12 +50,12 @@ struct ContactListView: View {
     }
 
     var body: some View {
-        // Resolve the filtered roster, open rooms, and presence map once: the
-        // rows, the group counts, the height, the width-measuring layer, and
-        // the selection reconcile below all read them.
+        // Resolve the filtered roster and open rooms once: the rows, the group counts,
+        // the height, the width-measuring layer, and the selection reconcile below all
+        // read them. Presence is read per contact (account-scoped) rather than from a
+        // merged map, so a same-JID peer on two accounts counts under the right account.
         let groups = sortedAndFilteredGroups
         let rooms = roomConversations
-        let presences = environment.presenceService.contactPresences
         let unfilteredGroups = environment.rosterService.groups
         let contentHeight: CGFloat? = autoSizeVertical
             ? min(listContentHeight(groups: groups, rooms: rooms), maxListHeight)
@@ -67,7 +67,7 @@ struct ContactListView: View {
                     groupID: group.id,
                     unfilteredRoster: unfilteredGroups,
                     displayedContacts: group.contacts
-                ) { presences[$0.jid] != nil }
+                ) { environment.presenceService.presence(for: $0.jid, accountID: $0.accountID) != nil }
 
                 GroupHeaderRow(
                     name: group.name,
@@ -83,7 +83,7 @@ struct ContactListView: View {
 
                 if preferences.isGroupExpanded(group.name) {
                     ForEach(group.contacts) { contact in
-                        selectableRow(id: contact.jid.description) {
+                        selectableRow(id: ConversationKey(accountID: contact.accountID, jid: contact.jid.description)) {
                             ContactRowWithMenu(contact: contact)
                         }
                     }
@@ -104,7 +104,7 @@ struct ContactListView: View {
 
                 if preferences.isGroupExpanded(roomsSectionKey) {
                     ForEach(rooms) { conversation in
-                        selectableRow(id: conversation.jid.description) {
+                        selectableRow(id: ConversationKey(accountID: conversation.accountID, jid: conversation.jid.description)) {
                             RoomRowWithMenu(conversation: conversation)
                         }
                     }
@@ -116,10 +116,10 @@ struct ContactListView: View {
         // fires on double-click (and Return) to open the chat. The per-row
         // `.contextMenu` on the rows themselves keeps providing the right-click
         // actions, so the selection menu here is intentionally empty.
-        .contextMenu(forSelectionType: String.self) { _ in
+        .contextMenu(forSelectionType: ConversationKey.self) { _ in
         } primaryAction: { ids in
             if let id = ids.first {
-                openChat(id)
+                openChat(id.jid, accountID: id.accountID)
             }
         }
         .accessibilityIdentifier("contact-list")
@@ -172,7 +172,7 @@ struct ContactListView: View {
     /// `.contextMenu(…primaryAction:)`. The full-width `contentShape` keeps the
     /// whole row hit-testable — the row carries no tap gesture of its own (one
     /// would steal single clicks from the list's selection in the content area).
-    private func selectableRow(id: String, @ViewBuilder content: () -> some View) -> some View {
+    private func selectableRow(id: ConversationKey, @ViewBuilder content: () -> some View) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
@@ -187,25 +187,37 @@ struct ContactListView: View {
     private func visibleNames(groups: [ContactGroup], rooms: [Conversation]) -> [String] {
         var names = groups
             .filter { preferences.isGroupExpanded($0.name) }
-            .flatMap { $0.contacts.map(\.displayName) }
+            .flatMap { $0.contacts.map { measuringName(for: $0) } }
         if preferences.isGroupExpanded(roomsSectionKey) {
             names += rooms.map { $0.displayName ?? $0.jid.localPart ?? $0.jid.description }
         }
         return names.prefix(maxMeasuredNames).map { String($0.prefix(maxMeasuredNameLength)) }
     }
 
+    /// The contact's name plus its account-disambiguation label (when its JID is duplicated), so the
+    /// window's horizontal auto-fit accounts for the label and doesn't truncate it.
+    private func measuringName(for contact: Contact) -> String {
+        guard let label = AccountIndicator.label(
+            for: contact.accountID, bareJID: contact.jid.description,
+            accountService: environment.accountService, rosterService: environment.rosterService
+        ) else {
+            return contact.displayName
+        }
+        return "\(contact.displayName)  \(label)"
+    }
+
     /// Row IDs currently rendered (expanded groups' contacts plus open rooms),
     /// used to reconcile `selection` when a filter hides the selected row.
-    private func visibleSelectableIDs(groups: [ContactGroup], rooms: [Conversation]) -> Set<String> {
-        var ids = Set<String>()
+    private func visibleSelectableIDs(groups: [ContactGroup], rooms: [Conversation]) -> Set<ConversationKey> {
+        var ids = Set<ConversationKey>()
         for group in groups where preferences.isGroupExpanded(group.name) {
             for contact in group.contacts {
-                ids.insert(contact.jid.description)
+                ids.insert(ConversationKey(accountID: contact.accountID, jid: contact.jid.description))
             }
         }
         if preferences.isGroupExpanded(roomsSectionKey) {
             for room in rooms {
-                ids.insert(room.jid.description)
+                ids.insert(ConversationKey(accountID: room.accountID, jid: room.jid.description))
             }
         }
         return ids
@@ -233,13 +245,15 @@ struct ContactListView: View {
     }
 
     private var sortedAndFilteredGroups: [ContactGroup] {
-        let presences = environment.presenceService.contactPresences
-        var lastMessageDates: [String: Date] = [:]
+        // Key the last-message map by account+JID: two accounts' conversations with the same peer
+        // JID would otherwise collide and the "recent conversation" sort would read the wrong date.
+        var lastMessageDates: [ConversationKey: Date] = [:]
         for conversation in environment.chatService.openConversations {
             if let date = conversation.lastMessageDate {
-                lastMessageDates[conversation.jid.description] = date
+                lastMessageDates[ConversationKey(accountID: conversation.accountID, jid: conversation.jid.description)] = date
             }
         }
+        let presenceService = environment.presenceService
 
         return ContactListFilter.sortedAndFiltered(
             groups: environment.rosterService.groups,
@@ -247,9 +261,9 @@ struct ContactListView: View {
             hideOffline: preferences.hideOffline,
             sortMode: preferences.sortMode,
             context: ContactListFilter.PresenceContext(
-                isOnline: { presences[$0.jid] != nil },
-                statusPriority: { statusPriority(of: presences[$0.jid]) },
-                lastMessageDate: { lastMessageDates[$0.jid.description] }
+                isOnline: { presenceService.presence(for: $0.jid, accountID: $0.accountID) != nil },
+                statusPriority: { statusPriority(of: presenceService.presence(for: $0.jid, accountID: $0.accountID)) },
+                lastMessageDate: { lastMessageDates[ConversationKey(accountID: $0.accountID, jid: $0.jid.description)] }
             )
         )
     }
@@ -322,7 +336,8 @@ private struct RoomRowWithMenu: View {
     @State private var isShowingSettingsSheet = false
 
     private var isNewlyCreated: Bool {
-        environment.chatService.newlyCreatedRoomJIDs.contains(conversation.jid.description)
+        guard let accountID = conversation.accountID else { return false }
+        return environment.chatService.isRoomNewlyCreated(jidString: conversation.jid.description, accountID: accountID)
     }
 
     var body: some View {
@@ -340,7 +355,9 @@ private struct RoomRowWithMenu: View {
             .sheet(
                 isPresented: $isShowingSettingsSheet,
                 onDismiss: {
-                    environment.chatService.clearNewlyCreatedRoom(conversation.jid.description)
+                    if let accountID = conversation.accountID {
+                        environment.chatService.clearNewlyCreatedRoom(conversation.jid.description, accountID: accountID)
+                    }
                 },
                 content: {
                     if let accountID = conversation.accountID {
