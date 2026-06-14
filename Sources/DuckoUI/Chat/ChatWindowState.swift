@@ -12,6 +12,25 @@ public final class ChatWindowState {
     var messages: [ChatMessage] = []
     var isLoading = false
 
+    // MARK: - Display
+
+    var displayName: String {
+        conversation?.displayName ?? contact?.displayName ?? jidString
+    }
+
+    /// Live unread count from the service, not the value-type `conversation` copy
+    /// (which is set once at `load()` and never updated as unread changes).
+    var unreadCount: Int {
+        guard let conversationID = conversation?.id else { return 0 }
+        return environment.chatService.openConversations.first { $0.id == conversationID }?.unreadCount ?? 0
+    }
+
+    // MARK: - Composer Draft
+
+    /// The composer's live text, retained per-tab so switching conversations in the
+    /// single-window container neither bleeds the draft into another tab nor resets it.
+    var draftText = ""
+
     // MARK: - Reply/Edit State
 
     var replyingTo: ChatMessage?
@@ -139,9 +158,9 @@ public final class ChatWindowState {
             } else {
                 try await environment.chatService.sendMessage(toJIDString: jidString, body: body, accountID: accountID)
             }
-            // Successful send clears any prior error banner.
             lastSendError = nil
             lastFailedSendBody = nil
+            draftText = ""
         } catch let error as ChatService.ChatServiceError {
             // Typed failures surface to the composer and let it restore the body.
             lastSendError = error.localizedDescription

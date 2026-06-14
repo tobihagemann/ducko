@@ -11,7 +11,6 @@ public final class ContactListWindowState {
     var searchText = ""
     var isSearching = false
 
-    var isShowingNewChat = false
     var isShowingAddContact = false
     var isShowingJoinRoom = false
     var isShowingBookmarks = false
@@ -30,10 +29,6 @@ public final class ContactListWindowState {
     public func endSearch() {
         isSearching = false
         searchText = ""
-    }
-
-    public func newChat() {
-        isShowingNewChat = true
     }
 
     public func addContact() {

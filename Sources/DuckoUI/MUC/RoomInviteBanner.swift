@@ -23,7 +23,7 @@ struct RoomInviteBanner: View {
 
 private struct RoomInviteRow: View {
     @Environment(AppEnvironment.self) private var environment
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openChat) private var openChat
     let invite: PendingRoomInvite
     @State private var nickname = ""
     @State private var errorMessage: String?
@@ -97,7 +97,7 @@ private struct RoomInviteRow: View {
         Task {
             do {
                 try await environment.chatService.acceptInvite(invite, nickname: nick, accountID: accountID)
-                openWindow(id: "chat", value: invite.roomJIDString)
+                openChat(invite.roomJIDString)
                 errorMessage = nil
             } catch {
                 errorMessage = error.localizedDescription

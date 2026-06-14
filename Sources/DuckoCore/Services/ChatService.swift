@@ -32,7 +32,7 @@ public final class ChatService {
     public private(set) var pendingInvites: [PendingRoomInvite] = []
     public private(set) var newlyCreatedRoomJIDs: Set<String> = []
     public private(set) var roomFlags: [String: Set<RoomFlag>] = [:]
-    /// Per-conversation revision tick. ChatWindow observes via `.onChange` to refresh after amendments
+    /// Per-conversation revision tick. The chat view observes via `.onChange` to refresh after amendments
     /// (corrections, retractions, markers) — these don't bump `lastMessageDate`.
     public private(set) var messagesRevisions: [UUID: Int] = [:]
     public var onIncomingMessage: ((ChatMessage, Conversation) -> Void)?
@@ -1942,7 +1942,7 @@ public final class ChatService {
         return prepared.isEncrypted
     }
 
-    /// Bumps the revision (so any open `ChatWindow` refreshes) and reloads `messages` only when `conversationID` matches the active one.
+    /// Bumps the revision (so the open chat view refreshes) and reloads `messages` only when `conversationID` matches the active one.
     private func messagesChanged(in conversationID: UUID) async {
         bumpRevision(for: conversationID)
         if conversationID == activeConversationID {

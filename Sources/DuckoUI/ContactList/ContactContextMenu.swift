@@ -3,7 +3,9 @@ import SwiftUI
 
 struct ContactContextMenu: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(TranscriptScope.self) private var transcriptScope
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openChat) private var openChat
     let contact: Contact
     @Binding var isShowingRenameSheet: Bool
 
@@ -13,8 +15,21 @@ struct ContactContextMenu: View {
 
     var body: some View {
         Button("Start Chat") {
-            openWindow(id: "chat", value: contact.jid.description)
+            openChat(contact.jid.description)
         }
+
+        Button("Get Info") {
+            openWindow(id: "contact-info", value: ContactInfoRef(accountID: contact.accountID, jid: contact.jid.description))
+        }
+        .accessibilityIdentifier("contact-context-get-info")
+
+        Button("History") {
+            let ref = conversation.map { ConversationRef(conversation: $0) }
+                ?? ConversationRef(accountID: contact.accountID, jid: contact.jid.description, type: .chat)
+            transcriptScope.request(ref)
+            openWindow(id: "transcripts")
+        }
+        .accessibilityIdentifier("contact-context-history")
 
         Divider()
 

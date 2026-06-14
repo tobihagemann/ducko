@@ -10,10 +10,22 @@ struct ContactRow: View {
         environment.presenceService.contactPresences[contact.jid]
     }
 
+    private var display: ContactPresenceDisplay {
+        ContactPresenceDisplay.resolve(
+            subscription: contact.subscription,
+            presence: presence,
+            isPending: contact.isPendingSubscription
+        )
+    }
+
+    private var statusMessage: String? {
+        environment.presenceService.statusMessage(for: contact.jid)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             if theme.current.showPresenceIndicators {
-                PresenceIndicator(status: presence, isPendingSubscription: contact.isPendingSubscription)
+                PresenceIndicator(display: display)
             }
 
             VStack(alignment: .leading, spacing: 2) {
@@ -21,7 +33,7 @@ struct ContactRow: View {
                     .fontWeight(.medium)
                     .lineLimit(1)
 
-                if theme.current.showStatusMessages, let statusText = presence?.displayName {
+                if theme.current.showStatusMessages, let statusText = statusMessage ?? presence?.displayName {
                     Text(statusText)
                         .font(.caption)
                         .foregroundStyle(.secondary)

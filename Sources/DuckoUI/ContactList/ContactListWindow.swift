@@ -4,7 +4,7 @@ import SwiftUI
 struct ContactListWindow: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(ThemeEngine.self) private var theme
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openChat) private var openChat
     @State private var state = ContactListWindowState()
     @State private var maxNameWidth: CGFloat = 0
 
@@ -89,17 +89,12 @@ struct ContactListWindow: View {
             try? await environment.rosterService.loadContacts(for: accountID)
             environment.presenceService.startIdleMonitoring(accountID: accountID)
         }
-        .sheet(isPresented: $state.isShowingNewChat) {
-            NewChatSheet { jidString in
-                openWindow(id: "chat", value: jidString)
-            }
-        }
         .sheet(isPresented: $state.isShowingAddContact) {
             AddContactSheet()
         }
         .sheet(isPresented: $state.isShowingJoinRoom) {
             RoomJoinDialog { jidString in
-                openWindow(id: "chat", value: jidString)
+                openChat(jidString)
             }
         }
         .sheet(isPresented: $state.isShowingBookmarks) {

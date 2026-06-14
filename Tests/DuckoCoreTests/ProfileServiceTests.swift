@@ -107,6 +107,78 @@ enum ProfileServiceTests {
         }
     }
 
+    struct PeerProfileFetch {
+        private static let peerJID = "peer@example.com"
+
+        /// Answers the peer vCard `get` at `sentIndex`. The result must carry `from` set to
+        /// the peer JID — unlike the own-vCard path (`to`-less), a peer-addressed IQ result
+        /// is only matched to its request when the `from` matches the original `to`.
+        @MainActor
+        private static func respondToPeerFetch(_ transport: MockTransport, sentIndex: Int, body: String) async throws {
+            await transport.waitForSent(count: sentIndex + 1)
+            let sent = await transport.sentBytes
+            let getIQ = String(decoding: sent[sentIndex], as: UTF8.self)
+            let id = try #require(extractIQID(from: getIQ))
+            await transport.simulateReceive("<iq type='result' from='\(peerJID)' id='\(id)'>\(body)</iq>")
+        }
+
+        @Test
+        @MainActor
+        func `fetchProfile maps a peer vCard into ProfileInfo`() async throws {
+            let connected = try await connectProfileService()
+            let profileService = connected.service
+            let accountID = connected.accountID
+
+            let fetchTask = Task { @MainActor in
+                try await profileService.fetchProfile(for: Self.peerJID, accountID: accountID)
+            }
+
+            // The connect handshake sends 4 stanzas; the peer vCard get is the first IQ after.
+            try await Self.respondToPeerFetch(
+                connected.transport, sentIndex: 4,
+                body: "<vCard xmlns='vcard-temp'><FN>Peer Person</FN>"
+                    + "<EMAIL><USERID>peer@example.com</USERID></EMAIL>"
+                    + "<ORG><ORGNAME>Acme</ORGNAME></ORG></vCard>"
+            )
+
+            let profile = try await fetchTask.value
+            #expect(profile.fullName == "Peer Person")
+            #expect(profile.emails.first?.address == "peer@example.com")
+            #expect(profile.organization == "Acme")
+
+            await connected.accountService.disconnect(accountID: accountID)
+        }
+
+        @Test
+        @MainActor
+        func `fetchProfile returns an empty profile when the peer has no vCard`() async throws {
+            let connected = try await connectProfileService()
+            let profileService = connected.service
+            let transport = connected.transport
+            let accountID = connected.accountID
+
+            let fetchTask = Task { @MainActor in
+                try await profileService.fetchProfile(for: Self.peerJID, accountID: accountID)
+            }
+
+            // item-not-found is the common "never published a vCard" case — fetchProfile
+            // swallows it and returns an empty profile rather than throwing.
+            await transport.waitForSent(count: 5)
+            let sent = await transport.sentBytes
+            let id = try #require(extractIQID(from: String(decoding: sent[4], as: UTF8.self)))
+            await transport.simulateReceive(
+                "<iq type='error' from='\(Self.peerJID)' id='\(id)'><error type='cancel'>"
+                    + "<item-not-found xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>"
+            )
+
+            let profile = try await fetchTask.value
+            #expect(profile.fullName == nil)
+            #expect(profile.emails.isEmpty)
+
+            await connected.accountService.disconnect(accountID: accountID)
+        }
+    }
+
     struct PublishPreservesRawXML {
         @Test
         @MainActor

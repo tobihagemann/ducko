@@ -12,6 +12,8 @@ private let log = Logger(label: "im.ducko.app.lifecycle")
 struct DuckoApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var environment: AppEnvironment
+    @State private var chatContainer: ChatContainerState
+    @State private var transcriptScope = TranscriptScope()
     @State private var themeEngine = ThemeEngine()
     @State private var updateManager = UpdateManager()
     @State private var notificationManager = NotificationManager()
@@ -34,10 +36,20 @@ struct DuckoApp: App {
             let transcripts = FileTranscriptStore.makeDefault()
             let env = AppEnvironment(store: store, transcripts: transcripts, omemoStore: omemoStore, linkPreviewFetcher: LPLinkPreviewFetcher())
             self.environment = env
+            self.chatContainer = ChatContainerState(environment: env)
             AppStateObserver(accountService: env.accountService)
             AppDelegate.environment = env
         } catch {
             fatalError("Failed to create model container: \(error)")
+        }
+    }
+
+    /// Built from the app-owned container + `openWindow` so every scene shares one
+    /// open-chat behavior: create/select the tab, then surface the single chat window.
+    private var openChatAction: OpenChatAction {
+        OpenChatAction { jidString in
+            chatContainer.open(jidString)
+            openWindow(id: "chat")
         }
     }
 
@@ -55,6 +67,9 @@ struct DuckoApp: App {
             ContentView()
                 .environment(environment)
                 .environment(themeEngine)
+                .environment(chatContainer)
+                .environment(transcriptScope)
+                .environment(\.openChat, openChatAction)
                 .task {
                     notificationManager.requestAuthorization()
                     wireNotifications()
@@ -76,21 +91,29 @@ struct DuckoApp: App {
             contactsAutoSizeVertical && contactsAutoSizeHorizontal ? .contentSize : .contentMinSize
         )
 
-        WindowGroup("Chat", id: "chat", for: String.self) { $jidString in
-            ChatWindow(jidString: $jidString)
+        Window("Chat", id: "chat") {
+            ChatContainerView()
+                .environment(environment)
+                .environment(themeEngine)
+                .environment(chatContainer)
+                .environment(transcriptScope)
+                .environment(\.openChat, openChatAction)
+        }
+        .defaultSize(width: 500, height: 450)
+        .windowResizability(.contentMinSize)
+
+        WindowGroup("Contact Info", id: "contact-info", for: ContactInfoRef.self) { $ref in
+            ContactInfoWindow(ref: $ref)
                 .environment(environment)
                 .environment(themeEngine)
         }
-        .defaultSize(width: 500, height: 450)
-        // Suppress SwiftUI's auto "New Chat Window" File-menu command: opening a
-        // chat window with no JID just yields an empty, spinning window. Chat
-        // windows are opened with a JID via "New Chat" / double-click instead.
-        .commandsRemoved()
+        .defaultSize(width: 400, height: 520)
 
         Window("Chat Transcripts", id: "transcripts") {
             TranscriptViewerWindow()
                 .environment(environment)
                 .environment(themeEngine)
+                .environment(transcriptScope)
         }
         .defaultSize(width: 900, height: 600)
         .commands {
@@ -107,10 +130,10 @@ struct DuckoApp: App {
 
             CommandGroup(after: .newItem) {
                 Button("New Chat") {
-                    focusedContactListWindowState?.newChat()
+                    openWindow(id: "chat")
+                    chatContainer.newChat()
                 }
                 .keyboardShortcut("n")
-                .disabled(focusedContactListWindowState == nil)
 
                 Button("Join Room...") {
                     focusedContactListWindowState?.joinRoom()
@@ -211,8 +234,9 @@ struct DuckoApp: App {
             )
         }
 
-        notificationManager.onNotificationTapped = { [openWindow] jidString in
-            openWindow(id: "chat", value: jidString)
+        notificationManager.onNotificationTapped = { [openWindow, chatContainer] jidString in
+            chatContainer.open(jidString)
+            openWindow(id: "chat")
         }
     }
 

@@ -319,6 +319,59 @@ enum RosterServiceTests {
                 try await service.denySubscription(jidString: "alice@example.com", accountID: testAccountID)
             }
         }
+
+        @Test
+        @MainActor
+        func `requestSubscription(jidString:) throws notConnected without account service`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.requestSubscription(jidString: "alice@example.com", accountID: testAccountID)
+            }
+        }
+
+        @Test
+        @MainActor
+        func `requestSubscription(jidString:) throws invalidJID for empty string`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            await #expect(throws: RosterService.RosterServiceError.self) {
+                try await service.requestSubscription(jidString: "", accountID: testAccountID)
+            }
+        }
+    }
+
+    struct AccountScopedLookup {
+        @Test
+        @MainActor
+        func `contact(jidString:accountID:) resolves the requested account when the JID is on two`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            // Same bare JID present on both accounts with different roster names.
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice-A")]), accountID: accountA)
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice-B")]), accountID: accountB)
+
+            #expect(service.contact(jidString: contactJID1.description, accountID: accountA)?.name == "Alice-A")
+            #expect(service.contact(jidString: contactJID1.description, accountID: accountB)?.name == "Alice-B")
+        }
+
+        @Test
+        @MainActor
+        func `contact(jidString:accountID:) returns nil for a JID on a different account`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+
+            #expect(service.contact(jidString: contactJID1.description, accountID: accountB) == nil)
+        }
     }
 
     struct ContactDisplayName {

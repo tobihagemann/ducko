@@ -8,10 +8,12 @@ private let log = Logger(label: "im.ducko.core.profile")
 public final class ProfileService {
     public enum ProfileServiceError: Error, LocalizedError {
         case notConnected(UUID)
+        case invalidJID(String)
 
         public var errorDescription: String? {
             switch self {
             case let .notConnected(id): notConnectedDescription(id)
+            case let .invalidJID(string): "Invalid JID: \(string)"
             }
         }
     }
@@ -47,6 +49,29 @@ public final class ProfileService {
             }
         } catch {
             log.warning("Failed to fetch own vCard: \(error)")
+        }
+    }
+
+    /// Fetches a peer's vCard profile. Distinct from `fetchOwnProfile`, which targets the
+    /// connected JID with no `to` attribute per XEP-0054; this addresses the peer's bare JID.
+    public func fetchProfile(for jidString: String, accountID: UUID) async throws -> ProfileInfo {
+        guard let jid = BareJID.parse(jidString) else {
+            throw ProfileServiceError.invalidJID(jidString)
+        }
+        guard let client = accountService?.connectedClient(for: accountID) else {
+            throw ProfileServiceError.notConnected(accountID)
+        }
+        guard let vcardModule = await client.module(ofType: VCardModule.self) else {
+            throw ProfileServiceError.notConnected(accountID)
+        }
+
+        do {
+            let vcard = try await vcardModule.fetchVCard(for: jid, forceRefresh: true)
+            return vcard.map { mapVCardToProfileInfo($0) } ?? ProfileInfo()
+        } catch let stanzaError as XMPPStanzaError where stanzaError.condition == .itemNotFound {
+            // A peer that has never published a vCard is the common case — surface an
+            // empty profile rather than an error.
+            return ProfileInfo()
         }
     }
 

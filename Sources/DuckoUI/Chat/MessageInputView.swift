@@ -4,13 +4,12 @@ import UniformTypeIdentifiers
 
 struct MessageInputView: View {
     @Bindable var windowState: ChatWindowState
-    @State private var text = ""
     @State private var showFileImporter = false
     @State private var isSending = false
     @FocusState private var isInputFocused: Bool
 
     private var trimmedText: String {
-        text.trimmingCharacters(in: .whitespacesAndNewlines)
+        windowState.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var canSend: Bool {
@@ -35,7 +34,7 @@ struct MessageInputView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("attachment-button")
 
-                TextField("Message", text: $text, axis: .vertical)
+                TextField("Message", text: $windowState.draftText, axis: .vertical)
                     .textFieldStyle(.plain)
                     .lineLimit(1 ... 5)
                     .onKeyPress(.return, phases: .down) { keyPress in
@@ -45,13 +44,13 @@ struct MessageInputView: View {
                         sendMessage()
                         return .handled
                     }
-                    .onChange(of: text) {
-                        guard !text.isEmpty else { return }
+                    .onChange(of: windowState.draftText) {
+                        guard !windowState.draftText.isEmpty else { return }
                         Task { await windowState.userIsTyping() }
                     }
                     .onChange(of: windowState.editingMessage?.id) {
                         if let editing = windowState.editingMessage {
-                            text = editing.body
+                            windowState.draftText = editing.body
                             isInputFocused = true
                         }
                     }
@@ -88,7 +87,7 @@ struct MessageInputView: View {
         let hasAttachments = !windowState.pendingAttachments.isEmpty
 
         guard !body.isEmpty || hasAttachments else { return }
-        text = ""
+        windowState.draftText = ""
         isSending = true
 
         Task {
@@ -100,7 +99,7 @@ struct MessageInputView: View {
             }
             // Restore composer text only on typed send errors (e.g. encryption-required-but-no-trusted-devices); untyped failures leave the composer empty.
             if windowState.lastSendError != nil, let failedBody = windowState.lastFailedSendBody {
-                text = failedBody
+                windowState.draftText = failedBody
             }
             isSending = false
         }

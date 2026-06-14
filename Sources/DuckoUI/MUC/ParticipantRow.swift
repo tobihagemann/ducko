@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ParticipantRow: View {
     @Environment(AppEnvironment.self) private var environment
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openChat) private var openChat
     let participant: RoomParticipant
     let myParticipant: RoomParticipant?
     let roomJIDString: String
@@ -64,7 +64,7 @@ struct ParticipantRow: View {
         .contextMenu {
             if isOtherParticipant {
                 Button("Send Private Message") {
-                    openWindow(id: "chat", value: "\(roomJIDString)/\(participant.nickname)")
+                    openChat("\(roomJIDString)/\(participant.nickname)")
                 }
                 .accessibilityIdentifier("send-pm-menu-item")
             }

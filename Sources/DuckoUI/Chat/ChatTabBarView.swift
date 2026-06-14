@@ -1,0 +1,287 @@
+import AppKit
+import DuckoCore
+import SwiftUI
+
+struct ChatTabBarView: View {
+    let container: ChatContainerState
+
+    /// Below this a tab can't show a usable label, so further tabs spill into the
+    /// overflow menu rather than shrinking past legibility.
+    private let minTabWidth: CGFloat = 90
+    /// Cap so one very long name can't crowd everything else out; a name wider
+    /// than this truncates even when the bar has room.
+    private let maxTabWidth: CGFloat = 320
+    /// Footprint reserved for the overflow dropdown when it's shown.
+    private let controlWidth: CGFloat = 30
+    private let barHeight: CGFloat = 34
+    /// Symmetric inset large enough to keep tabs clear of the window's rounded
+    /// bottom corners — the bar sits at the very bottom edge, so a smaller inset
+    /// lets the leading/trailing tabs run into the corner curve.
+    private let horizontalInset: CGFloat = 12
+    private let tabSpacing: CGFloat = 4
+
+    var body: some View {
+        // GeometryReader takes the offered width and proposes no minimum of its
+        // own, so the tab content never forces the chat window wider or blocks it
+        // from shrinking — tabs are laid out within whatever width the window gives.
+        GeometryReader { proxy in
+            let tabs = container.orderedTabs
+            let available = proxy.size.width - horizontalInset * 2
+            let intrinsics = Dictionary(uniqueKeysWithValues: tabs.map { ($0, intrinsicWidth(for: $0)) })
+            let visibleCount = visibleCount(available: available, intrinsics: tabs.map { intrinsics[$0] ?? minTabWidth })
+            let split = partition(tabs, visibleCount: visibleCount)
+            let hasOverflow = !split.overflow.isEmpty
+            let budget = (hasOverflow ? available - controlWidth : available) - gaps(split.visible.count)
+            let widths = distribute(split.visible.map { intrinsics[$0] ?? minTabWidth }, budget: budget)
+
+            // Outer spacing 0 so the Spacer/overflow add no stray gaps; the inner
+            // HStack owns the inter-tab spacing, which the width math budgets for so
+            // the chips never overflow the padded width and shove the trailing tab
+            // into the corner.
+            HStack(spacing: 0) {
+                HStack(spacing: tabSpacing) {
+                    ForEach(Array(split.visible.enumerated()), id: \.element) { index, jidString in
+                        ChatTabChip(
+                            jidString: jidString,
+                            state: container.state(for: jidString),
+                            isSelected: container.selectedJID == jidString,
+                            width: widths[index],
+                            onSelect: { container.select(jidString) },
+                            onClose: { container.close(jidString) }
+                        )
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                if hasOverflow {
+                    overflowMenu(split.overflow)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.horizontal, horizontalInset)
+        }
+        .frame(height: barHeight)
+        .accessibilityIdentifier("chat-tab-bar")
+    }
+
+    private func overflowMenu(_ tabs: [String]) -> some View {
+        Menu {
+            ForEach(tabs, id: \.self) { jidString in
+                Button(container.state(for: jidString)?.displayName ?? jidString) {
+                    container.select(jidString)
+                }
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityIdentifier("chat-tab-overflow")
+    }
+
+    /// Splits tabs into the visible run and the overflow remainder, keeping the
+    /// selected tab visible by swapping it into the last visible slot if it would
+    /// otherwise fall into the overflow menu.
+    private func partition(_ tabs: [String], visibleCount: Int) -> (visible: [String], overflow: [String]) {
+        guard visibleCount < tabs.count else { return (tabs, []) }
+        var visible = Array(tabs.prefix(visibleCount))
+        var overflow = Array(tabs.suffix(from: visibleCount))
+        if let selected = container.selectedJID,
+           !visible.contains(selected),
+           let overflowIndex = overflow.firstIndex(of: selected),
+           !visible.isEmpty {
+            let displaced = visible.removeLast()
+            overflow.remove(at: overflowIndex)
+            visible.append(selected)
+            overflow.insert(displaced, at: 0)
+        }
+        return (visible, overflow)
+    }
+
+    // MARK: - Width math
+
+    /// Width consumed by the gaps between `count` tabs.
+    private func gaps(_ count: Int) -> CGFloat {
+        CGFloat(max(0, count - 1)) * tabSpacing
+    }
+
+    /// How many tabs to show before spilling into the overflow menu: all of them
+    /// while they fit at their content width OR can shrink without dropping below
+    /// `minTabWidth`, otherwise as many as fit at `minTabWidth` beside the dropdown.
+    private func visibleCount(available: CGFloat, intrinsics: [CGFloat]) -> Int {
+        let count = intrinsics.count
+        guard count > 0, available > 0 else { return count }
+
+        let intrinsicTotal = intrinsics.reduce(0, +) + gaps(count)
+        if intrinsicTotal <= available { return count }
+        if (available - gaps(count)) / CGFloat(count) >= minTabWidth { return count }
+
+        let usable = max(minTabWidth, available - controlWidth)
+        let visible = max(1, Int((usable + tabSpacing) / (minTabWidth + tabSpacing)))
+        return min(visible, count)
+    }
+
+    /// Assigns each visible tab a width: its full content width when the set fits
+    /// the budget, otherwise short tabs keep their content width while the longer
+    /// ones share the remainder equally (clamped to `minTabWidth`) — so names are
+    /// shown in full whenever there is room and truncated only when crowded.
+    private func distribute(_ intrinsics: [CGFloat], budget: CGFloat) -> [CGFloat] {
+        guard !intrinsics.isEmpty else { return [] }
+        if intrinsics.reduce(0, +) <= budget { return intrinsics }
+
+        var widths = [CGFloat?](repeating: nil, count: intrinsics.count)
+        var flexible = Array(intrinsics.indices)
+        var remaining = budget
+        while !flexible.isEmpty {
+            let share = remaining / CGFloat(flexible.count)
+            let small = flexible.filter { intrinsics[$0] <= share }
+            if small.isEmpty {
+                for index in flexible {
+                    widths[index] = max(minTabWidth, share)
+                }
+                break
+            }
+            for index in small {
+                widths[index] = intrinsics[index]
+                remaining -= intrinsics[index]
+            }
+            flexible.removeAll { small.contains($0) }
+        }
+        return widths.map { $0 ?? minTabWidth }
+    }
+
+    /// The font the chip label renders in, for measuring content width.
+    private static let labelFont = NSFont.preferredFont(forTextStyle: .body)
+    /// Fixed chip chrome around the label: icon slot + spacing + horizontal padding.
+    private static let chipChrome: CGFloat = 16 + 6 + 16
+
+    private func intrinsicWidth(for jidString: String) -> CGFloat {
+        let state = container.state(for: jidString)
+        let textWidth = ((state?.displayName ?? jidString) as NSString)
+            .size(withAttributes: [.font: Self.labelFont]).width
+        let badge: CGFloat = (state?.unreadCount ?? 0) > 0 ? 24 : 0
+        return min(maxTabWidth, max(minTabWidth, textWidth.rounded(.up) + Self.chipChrome + badge))
+    }
+}
+
+private struct ChatTabChip: View {
+    @Environment(AppEnvironment.self) private var environment
+    let jidString: String
+    let state: ChatWindowState?
+    let isSelected: Bool
+    let width: CGFloat
+    let onSelect: () -> Void
+    let onClose: () -> Void
+    @State private var isHovered = false
+
+    private enum TabKind {
+        case room
+        case privateMessage
+        case direct
+    }
+
+    private var conversation: Conversation? {
+        state?.conversation
+    }
+
+    private var kind: TabKind {
+        if conversation?.type == .groupchat { return .room }
+        if conversation?.occupantNickname != nil { return .privateMessage }
+        return .direct
+    }
+
+    private var displayName: String {
+        state?.displayName ?? jidString
+    }
+
+    private var unreadCount: Int {
+        state?.unreadCount ?? 0
+    }
+
+    private var presenceDisplay: ContactPresenceDisplay {
+        guard let contact = state?.contact ?? environment.rosterService.contact(jidString: jidString) else {
+            return .unknown
+        }
+        return ContactPresenceDisplay.resolve(
+            subscription: contact.subscription,
+            presence: environment.presenceService.contactPresences[contact.jid],
+            isPending: contact.isPendingSubscription
+        )
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            leadingSlot
+                .frame(width: 16)
+
+            Text(displayName)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if unreadCount > 0 {
+                Text("\(unreadCount)")
+                    .font(.caption2)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.accentColor))
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(width: width)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect() }
+        .onHover { isHovered = $0 }
+        .help(displayName)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(displayName)
+        .accessibilityAction { onSelect() }
+        // The close button only appears on hover, so expose closing as a named action
+        // for keyboard and VoiceOver users.
+        .accessibilityAction(named: "Close Tab") { onClose() }
+        .accessibilityIdentifier("chat-tab-\(jidString)")
+    }
+
+    /// The leading slot shows the conversation's icon, and reveals the close
+    /// button in its place on hover — keeping the chip uncluttered until pointed at.
+    @ViewBuilder
+    private var leadingSlot: some View {
+        if isHovered {
+            Button {
+                onClose()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chat-tab-close-\(jidString)")
+        } else {
+            tabIcon
+        }
+    }
+
+    @ViewBuilder
+    private var tabIcon: some View {
+        switch kind {
+        case .room:
+            Image(systemName: "number")
+                .foregroundStyle(.secondary)
+        case .privateMessage:
+            Image(systemName: "person.crop.circle")
+                .foregroundStyle(.secondary)
+        case .direct:
+            PresenceIndicator(display: presenceDisplay)
+        }
+    }
+}

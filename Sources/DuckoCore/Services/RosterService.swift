@@ -45,6 +45,13 @@ public final class RosterService {
         groups.lazy.flatMap(\.contacts).first { $0.jid.description == jidString }
     }
 
+    /// Account-scoped lookup. Prefer this when the account is known: `contact(jidString:)`
+    /// returns the first match across all accounts, so it resolves the wrong account when
+    /// the same JID is on two.
+    public func contact(jidString: String, accountID: UUID) -> Contact? {
+        groupsByAccount[accountID]?.lazy.flatMap(\.contacts).first { $0.jid.description == jidString }
+    }
+
     public func loadContacts(for accountID: UUID) async throws {
         let contacts = try await store.fetchContacts(for: accountID)
         groupsByAccount[accountID] = buildGroups(from: contacts)
@@ -73,6 +80,16 @@ public final class RosterService {
         guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.removeContact(jid: jid)
+    }
+
+    /// Sends a presence subscription request without touching the roster item. Use for a
+    /// contact already in the roster (e.g. subscription `none`/`from`): `addContact` would
+    /// send a roster set that overwrites the server-side name and groups.
+    public func requestSubscription(jidString: String, accountID: UUID) async throws {
+        guard let jid = BareJID.parse(jidString) else { throw RosterServiceError.invalidJID(jidString) }
+        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
+        guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
+        try await rosterModule.subscribe(to: jid)
     }
 
     public func approveSubscription(jidString: String, accountID: UUID) async throws {

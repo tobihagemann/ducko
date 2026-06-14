@@ -3,7 +3,7 @@ import SwiftUI
 
 struct RoomContextMenu: View {
     @Environment(AppEnvironment.self) private var environment
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openChat) private var openChat
     let conversation: Conversation
     @Binding var isShowingInviteSheet: Bool
     @Binding var isShowingSettingsSheet: Bool
@@ -20,7 +20,7 @@ struct RoomContextMenu: View {
 
     var body: some View {
         Button("Open Chat") {
-            openWindow(id: "chat", value: conversation.jid.description)
+            openChat(conversation.jid.description)
         }
 
         if let accountID = conversation.accountID {

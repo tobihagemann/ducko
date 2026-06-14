@@ -107,8 +107,7 @@ final class TranscriptViewerState {
         }
     }
 
-    func selectConversation(_ conversation: Conversation?) async {
-        selectedConversation = conversation
+    private func resetSelectionState() {
         messages = []
         positions = [:]
         messageDates = []
@@ -117,6 +116,11 @@ final class TranscriptViewerState {
         searchResults = []
         searchMatchDates = []
         transcriptSearchText = ""
+    }
+
+    func selectConversation(_ conversation: Conversation?) async {
+        selectedConversation = conversation
+        resetSelectionState()
 
         guard let conversation else { return }
 
@@ -133,6 +137,53 @@ final class TranscriptViewerState {
             }
         } catch {
             log.error("Failed to load message dates: \(error)")
+        }
+    }
+
+    // MARK: - Scoping
+
+    /// Generation of the scope request currently being applied. A stale handler still
+    /// mid-`await` when a newer request arrives finds its generation no longer matches and
+    /// discards its results, so it can't select the wrong conversation/date over the newer.
+    private var appliedScopeGeneration = 0
+
+    /// Scopes the window to a specific conversation, resolved against `allConversations` by
+    /// `Conversation.id` (or the full identity tuple) — never bare JID alone. Used for both
+    /// the cold-open (after `load()`) and already-open (`onChange`) paths.
+    func applyScope(_ request: ScopeRequest) async {
+        appliedScopeGeneration = request.generation
+
+        // Refresh the conversation list first: it is otherwise loaded once at
+        // window open, so scoping to a conversation created since then (e.g. a
+        // chat started after the transcript window first appeared) would find no
+        // match and silently fail to retarget.
+        if let refreshed = try? await environment.chatService.fetchAllConversations() {
+            guard request.generation == appliedScopeGeneration else { return }
+            allConversations = refreshed
+        }
+
+        guard let match = allConversations.first(where: { request.ref.matches($0) }) else { return }
+
+        selectedConversation = match
+        resetSelectionState()
+
+        isLoading = true
+        defer { isLoading = false }
+
+        do {
+            let dateCounts = try await environment.chatService.conversationMessageDateCounts(match.id)
+            guard request.generation == appliedScopeGeneration else { return }
+            messageDates = dateCounts.map(\.date)
+            messageDateCounts = Dictionary(uniqueKeysWithValues: dateCounts)
+            if let latestDate = messageDates.first {
+                selectedDate = latestDate
+                let dateMessages = try await environment.chatService.fetchMessageHistory(for: match.id, on: latestDate)
+                guard request.generation == appliedScopeGeneration else { return }
+                messages = dateMessages
+                positions = computeMessagePositions(dateMessages)
+            }
+        } catch {
+            log.error("Failed to scope transcript: \(error)")
         }
     }
 

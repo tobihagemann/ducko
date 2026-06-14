@@ -19,9 +19,10 @@ private func makePresenceService(idleTimeSource: any IdleTimeSource = MockIdleTi
     PresenceService(idleTimeSource: idleTimeSource)
 }
 
-private func makePresence(show: XMPPPresence.Show? = nil, type: XMPPPresence.PresenceType? = nil) -> XMPPPresence {
+private func makePresence(show: XMPPPresence.Show? = nil, type: XMPPPresence.PresenceType? = nil, status: String? = nil) -> XMPPPresence {
     var presence = XMPPPresence(type: type)
     presence.show = show
+    presence.status = status
     return presence
 }
 
@@ -85,6 +86,98 @@ enum PresenceServiceTests {
             await service.handleEvent(.presenceUpdated(from: from, presence: presence), accountID: testAccountID)
 
             #expect(service.contactPresences[contactJID] == expected)
+        }
+    }
+
+    struct PeerStatusMessages {
+        @Test
+        @MainActor
+        func `Custom status text is captured and trimmed`() async throws {
+            let service = makePresenceService()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence(show: .away, status: "  Out to lunch  ")),
+                accountID: testAccountID
+            )
+
+            #expect(service.statusMessage(for: contactJID) == "Out to lunch")
+            #expect(service.contactStatusMessages[contactJID] == "Out to lunch")
+        }
+
+        @Test
+        @MainActor
+        func `Returning to plain available clears the stale status`() async throws {
+            let service = makePresenceService()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence(status: "Busy")),
+                accountID: testAccountID
+            )
+            try #require(service.statusMessage(for: contactJID) == "Busy")
+
+            // Plain available with no status text must drop the prior custom status.
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence()),
+                accountID: testAccountID
+            )
+            #expect(service.statusMessage(for: contactJID) == nil)
+        }
+
+        @Test
+        @MainActor
+        func `Whitespace-only status clears the entry`() async throws {
+            let service = makePresenceService()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence(status: "Here")),
+                accountID: testAccountID
+            )
+            try #require(service.statusMessage(for: contactJID) == "Here")
+
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence(status: "   ")),
+                accountID: testAccountID
+            )
+            #expect(service.statusMessage(for: contactJID) == nil)
+        }
+
+        @Test
+        @MainActor
+        func `Going offline clears the status even with status text present`() async throws {
+            let service = makePresenceService()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence(status: "Away a while")),
+                accountID: testAccountID
+            )
+            try #require(service.statusMessage(for: contactJID) == "Away a while")
+
+            // Some servers send a status on the unavailable stanza; offline must still clear it.
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence(type: .unavailable, status: "Away a while")),
+                accountID: testAccountID
+            )
+            #expect(service.statusMessage(for: contactJID) == nil)
+        }
+
+        @Test
+        @MainActor
+        func `Disconnect clears captured status messages for the account`() async throws {
+            let service = makePresenceService()
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+
+            await service.handleEvent(
+                .presenceUpdated(from: from, presence: makePresence(status: "Working")),
+                accountID: testAccountID
+            )
+            try #require(!service.contactStatusMessages.isEmpty)
+
+            await service.handleEvent(.disconnected(.requested), accountID: testAccountID)
+            #expect(service.contactStatusMessages.isEmpty)
         }
     }
 

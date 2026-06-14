@@ -310,3 +310,21 @@ struct PublishView: View {
 - [ ] Action handlers reference methods, not inline logic
 - [ ] Avoid excessive `GeometryReader` usage
 - [ ] Use `containerRelativeFrame()` when appropriate
+
+## macOS Adaptive Bar / Window Sizing
+
+Patterns for a horizontal bar (tab strip, toolbar) that must adapt to the window width, and for the window's own resize bounds.
+
+**Budget inter-item spacing when dividing a measured width.** When you compute a per-item width by dividing an available width among N fixed-width items, subtract the `(N-1) * spacing` the `HStack` inserts between them. Omitting it makes the items sum to more than the content area, so the trailing item overflows the edge — and symmetric `.padding(.horizontal:)` won't fix it because the overflow scales with item count, not the inset.
+
+```swift
+// items fill `width` exactly: account for the gaps the HStack adds
+let gaps = CGFloat(max(0, count - 1)) * spacing
+let itemWidth = (width - gaps) / CGFloat(count)
+```
+
+Keep the flexible `Spacer`/trailing control in an OUTER `HStack(spacing: 0)` and the items in an INNER `HStack(spacing: spacing)`, so the spacer/control don't add stray gaps the math didn't budget.
+
+**Wrap width-driven layout in `GeometryReader` to decouple it from the window's minimum size.** Fixed-width children inside a plain `HStack` make the stack's minimum width grow with child count — which forces a macOS window wider and blocks it from shrinking. A `GeometryReader` takes the offered width and proposes no minimum of its own, so the bar lays out within whatever the window gives without pinning or growing it. Constrain its greedy height with `.frame(height:)`. This is the exception to the "avoid `GeometryReader`" guidance above — a single, non-nested reader is the right tool here precisely because `containerRelativeFrame()` sizes to the container but doesn't shield the window's minimum-width computation from fixed-width children.
+
+**Give a resizable singleton `Window` an explicit lower bound.** Once content no longer imposes a (growing) minimum, the window can be dragged to an unusable sliver. Add `.frame(minWidth:minHeight:)` to the content and `.windowResizability(.contentMinSize)` to the `Window` scene so it floors the window's minimum while still resizing freely above it. Pair with `.lineLimit(1)` on header labels so they truncate instead of wrapping a character per line near the floor.

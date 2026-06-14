@@ -14,7 +14,9 @@ Each script wraps a single osascript flow so it can be allowlisted in `settings.
 DuckoApp ships separate windows:
 
 - **Contact List** (`id: "contacts"`) — singleton, main window after login (roster, status picker, search).
-- **Chat** (`id: "chat"`, keyed by JID string) — one window per conversation, opened by double-click or New Chat.
+- **Chat** (`id: "chat"`) — singleton tabbed window holding every open conversation as a bottom tab (`chat-tab-bar`); opened/raised by double-click or New Chat. Switching tabs preserves each conversation's draft, search, and sidebar state.
+- **Contact Info** (`id: "contact-info"`, keyed by `ContactInfoRef`) — Get Info window: identity, roster/subscription state, vCard, and Block/Remove. Opened from the chat header (i) button or a contact's "Get Info" context item.
+- **Chat Transcripts** (`id: "transcripts"`) — singleton history window; the header clock and a contact's "History" context item retarget it to that conversation.
 - **MenuBarExtra** — quick status, Show Contact List, Quit.
 
 The Contacts window has **no toolbar**. Its actions live in the app menu bar: New Chat (⌘N), Join Room (⌘⇧N), Bookmarks (⌘⇧B) under File; Add Contact (⌘D), My Profile under the Contact menu; sort order + Hide Offline under View. `⌘F` reveals the roster search field (`contact-search-field`). Scripts drive these via keyboard shortcuts or menu-bar clicks (`menu bar item ... of menu bar 1`), not window buttons.
@@ -153,6 +155,21 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `registration-username-field` | Username field in registration form | Registration |
 | `registration-password-field` | Password field in registration form | Registration |
 | `registration-email-field` | Email field in registration form | Registration |
+| `contact-info-button` | Profile-info (i) button in chat header | Chat |
+| `history-button` | History (clock) button in chat header | Chat |
+| `disconnected-strip` | "You're offline" strip under the chat header | Chat |
+| `chat-tab-bar` | Bottom conversation tab bar | Chat |
+| `chat-tab-{jid}` | Individual conversation tab chip | Chat |
+| `chat-tab-close-{jid}` | Close button on a conversation tab (revealed on hover, replacing the tab icon) | Chat |
+| `chat-tab-overflow` | Dropdown for tabs that don't fit the bar width | Chat |
+| `chat-empty-state` | Placeholder (with New Chat button) shown when no tab is open | Chat |
+| `contact-context-get-info` | "Get Info" context menu item on a contact | Contacts |
+| `contact-context-history` | "History" context menu item on a contact | Contacts |
+| `contact-info-window` | Contact Info (Get Info) window container | Contact Info |
+| `contact-info-nickname-field` | Editable nickname field | Contact Info |
+| `contact-info-request-presence` | "Request Presence" button | Contact Info |
+| `contact-info-block` | Block/Unblock button | Contact Info |
+| `contact-info-remove` | Remove Contact button | Contact Info |
 
 ## Context Menu Features
 
@@ -160,7 +177,9 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 
 Right-click a contact row in the contact list:
 
-- **Start Chat** — open a chat window with the contact
+- **Start Chat** — open a chat tab with the contact
+- **Get Info** — open the Contact Info window (identity, subscription, vCard, Block/Remove)
+- **History** — open the transcript window scoped to this contact
 - **Pin / Unpin** — pin or unpin the contact to the top of the list
 - **Mute / Unmute** — mute or unmute notifications
 - **Rename** — set a local alias for the contact
@@ -233,6 +252,9 @@ Right-click a participant in the chat window sidebar:
 | `ducko-toggle-preference.sh` | Toggle any preference checkbox by identifier | `IDENTIFIER` (e.g., chatStatesToggle, encryptByDefaultToggle, tofuToggle) |
 | `ducko-edit-profile.sh` | Edit profile fields and optionally save | `[--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]` |
 | `ducko-remove-contact.sh` | Remove a contact via context menu | `JID` |
+| `ducko-contact-info.sh` | Open the Contact Info window via context menu, optionally block/remove | `JID [block\|remove]` |
+| `ducko-chat-tabs.sh` | List, select, or close bottom chat tabs | `<list\|select\|close> [JID]` |
+| `ducko-chat-header.sh` | Click a chat-header toolbar button (Profile info / History) | `<info\|history>` |
 | `ducko-invite-user.sh` | Invite a user to a room via context menu | `ROOM_JID INVITEE_JID` |
 | `ducko-destroy-room.sh` | Destroy a room via Room Settings sheet | `ROOM_JID` |
 | `ducko-room-config-save.sh` | Save room config in Room Settings sheet | `ROOM_JID` |
@@ -738,6 +760,6 @@ To allow these scripts in `settings.local.json` without prompts:
 - App activation uses `set frontmost of process` (works with SwiftPM builds).
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
 - Element targeting uses `entire contents` + `AXIdentifier` matching for reliability across window sizes.
-- The contact list is a singleton (`Window`, not `WindowGroup`); chat windows are data-driven (`WindowGroup` keyed by JID string), so `ducko-send.sh` targets the frontmost chat window.
+- The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Arguments passed via `osascript - "$ARG" << 'APPLESCRIPT'` + `on run argv` (no shell injection).
 - Credentials are arguments, never hardcoded.

@@ -27,7 +27,7 @@ private let maxMeasuredNameLength = 64
 struct ContactListView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(ThemeEngine.self) private var theme
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.openChat) private var openChat
     let searchText: String
     let preferences: ContactListPreferences
     @State private var selection: String?
@@ -119,7 +119,7 @@ struct ContactListView: View {
         .contextMenu(forSelectionType: String.self) { _ in
         } primaryAction: { ids in
             if let id = ids.first {
-                openWindow(id: "chat", value: id)
+                openChat(id)
             }
         }
         .accessibilityIdentifier("contact-list")

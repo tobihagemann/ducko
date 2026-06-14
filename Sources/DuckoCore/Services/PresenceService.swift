@@ -7,12 +7,28 @@ public final class PresenceService {
     public var myPresence: PresenceStatus = .available
     public var myStatusMessage: String?
     private var contactPresencesByAccount: [UUID: [BareJID: PresenceStatus]] = [:]
+    private var contactStatusMessagesByAccount: [UUID: [BareJID: String]] = [:]
     private var pendingRequestsByAccount: [UUID: [BareJID]] = [:]
 
     public var contactPresences: [BareJID: PresenceStatus] {
         contactPresencesByAccount.values.reduce(into: [:]) { result, dict in
             result.merge(dict) { _, new in new }
         }
+    }
+
+    public var contactStatusMessages: [BareJID: String] {
+        contactStatusMessagesByAccount.values.reduce(into: [:]) { result, dict in
+            result.merge(dict) { _, new in new }
+        }
+    }
+
+    public func statusMessage(for jid: BareJID) -> String? {
+        // Search per-account directly rather than materializing the merged dictionary
+        // for a single-key read — this runs per contact row on every roster render.
+        for messages in contactStatusMessagesByAccount.values {
+            if let message = messages[jid] { return message }
+        }
+        return nil
     }
 
     public var pendingSubscriptionRequests: [BareJID] {
@@ -134,6 +150,7 @@ public final class PresenceService {
             handleSubscriptionRequest(from: from, accountID: accountID)
         case .disconnected:
             contactPresencesByAccount.removeValue(forKey: accountID)
+            contactStatusMessagesByAccount.removeValue(forKey: accountID)
             pendingRequestsByAccount.removeValue(forKey: accountID)
         case .presenceSubscriptionApproved, .presenceSubscriptionRevoked:
             break
@@ -238,6 +255,17 @@ public final class PresenceService {
             contactPresencesByAccount[accountID, default: [:]].removeValue(forKey: bareJID)
         } else {
             contactPresencesByAccount[accountID, default: [:]][bareJID] = status
+        }
+
+        // Stores the status from the most recently applied presence; multi-resource
+        // priority handling is out of scope for v1. Clearing when the trimmed text is
+        // empty (or the peer went offline) keeps a stale custom status from sticking
+        // after the peer returns to plain available.
+        let trimmedStatus = presence.status?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if status == .offline || (trimmedStatus?.isEmpty ?? true) {
+            contactStatusMessagesByAccount[accountID, default: [:]].removeValue(forKey: bareJID)
+        } else {
+            contactStatusMessagesByAccount[accountID, default: [:]][bareJID] = trimmedStatus
         }
     }
 
