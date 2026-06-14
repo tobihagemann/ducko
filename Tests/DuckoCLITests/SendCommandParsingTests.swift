@@ -25,11 +25,10 @@ struct SendCommandParsingTests {
     }
 
     @Test func `parse with no body no file fails validation`() {
-        #expect(performing: {
+        let error = #expect(throws: (any Error).self) {
             _ = try DuckoCLI.Send.parse(["alice@example.com"])
-        }, throws: { error in
-            String(describing: error).contains("Provide a message body or --file <path>")
-        })
+        }
+        #expect(String(describing: error).contains("Provide a message body or --file <path>"))
     }
 
     // MARK: - --method flag

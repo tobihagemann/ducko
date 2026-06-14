@@ -206,11 +206,7 @@ private struct ChatTabChip: View {
         guard let contact = state?.contact ?? environment.rosterService.contact(jidString: jidString) else {
             return .unknown
         }
-        return ContactPresenceDisplay.resolve(
-            subscription: contact.subscription,
-            presence: environment.presenceService.contactPresences[contact.jid],
-            isPending: contact.isPendingSubscription
-        )
+        return ContactPresenceDisplay.resolve(for: contact, presenceService: environment.presenceService)
     }
 
     var body: some View {

@@ -129,11 +129,7 @@ struct ChatHeaderView: View {
         // A chat with a non-roster peer has no subscription to reason from, so its
         // presence is genuinely unknown rather than offline.
         let display = contact.map {
-            ContactPresenceDisplay.resolve(
-                subscription: $0.subscription,
-                presence: environment.presenceService.contactPresences[conversation.jid],
-                isPending: $0.isPendingSubscription
-            )
+            ContactPresenceDisplay.resolve(for: $0, presenceService: environment.presenceService)
         } ?? .unknown
         let statusMessage = environment.presenceService.statusMessage(for: conversation.jid)
 

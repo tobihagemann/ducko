@@ -30,17 +30,9 @@ public final class ContactInfoWindowState {
         contact?.displayName ?? ref.jid
     }
 
-    private var presence: PresenceService.PresenceStatus? {
-        contact.flatMap { environment.presenceService.contactPresences[$0.jid] }
-    }
-
     var presenceDisplay: ContactPresenceDisplay {
         guard let contact else { return .unknown }
-        return ContactPresenceDisplay.resolve(
-            subscription: contact.subscription,
-            presence: presence,
-            isPending: contact.isPendingSubscription
-        )
+        return ContactPresenceDisplay.resolve(for: contact, presenceService: environment.presenceService)
     }
 
     var statusMessage: String? {

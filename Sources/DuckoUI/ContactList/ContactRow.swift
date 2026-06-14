@@ -11,11 +11,7 @@ struct ContactRow: View {
     }
 
     private var display: ContactPresenceDisplay {
-        ContactPresenceDisplay.resolve(
-            subscription: contact.subscription,
-            presence: presence,
-            isPending: contact.isPendingSubscription
-        )
+        ContactPresenceDisplay.resolve(for: contact, presenceService: environment.presenceService)
     }
 
     private var statusMessage: String? {

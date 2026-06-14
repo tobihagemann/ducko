@@ -25,6 +25,16 @@ enum ContactPresenceDisplay {
         }
     }
 
+    /// The one place the per-contact presence-key choice lives, so call sites don't re-spell it.
+    @MainActor
+    static func resolve(for contact: Contact, presenceService: PresenceService) -> ContactPresenceDisplay {
+        resolve(
+            subscription: contact.subscription,
+            presence: presenceService.contactPresences[contact.jid],
+            isPending: contact.isPendingSubscription
+        )
+    }
+
     static func resolve(
         subscription: Contact.Subscription,
         presence: PresenceService.PresenceStatus?,
