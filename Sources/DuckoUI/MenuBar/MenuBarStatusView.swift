@@ -23,14 +23,13 @@ public struct MenuBarStatusView: View {
             Button {
                 setPresence(status)
             } label: {
-                HStack {
-                    Text(status.displayName)
-                    if status == currentStatus {
-                        Spacer()
-                        Image(systemName: "checkmark")
-                    }
-                }
+                MenuStatusRow(status: status, label: status.displayName, isActive: status == currentStatus)
             }
+        }
+
+        if environment.accountService.connectedAccounts.count > 1 {
+            Divider()
+            AccountStatusMenu()
         }
 
         Divider()
@@ -47,11 +46,13 @@ public struct MenuBarStatusView: View {
     }
 
     private func setPresence(_ status: PresenceService.PresenceStatus) {
-        guard let accountID = environment.accountService.accounts.first(where: { $0.isEnabled })?.id else { return }
+        // No identity switcher here, so resolve the empty-`connectOnLaunch` reconnect fallback on the spot.
+        let identityAccountID = environment.accountService.firstConnectedAccount?.id
+            ?? environment.accountService.accounts.first { $0.isEnabled }?.id
         Task {
-            // Picking a base presence clears any custom status message, matching
-            // the Contacts "me" header so both surfaces send the same payload.
-            await environment.presenceService.applyPresence(status, message: nil, accountID: accountID) { id in
+            // Picking a base presence clears any custom status message and broadcasts to every online account,
+            // matching the Contacts "me" header so both surfaces send the same payload.
+            await environment.presenceService.applyGlobalPresence(status, message: nil, identityAccountID: identityAccountID) { id in
                 try await environment.accountService.connect(accountID: id)
             } disconnect: { id in
                 await environment.accountService.disconnect(accountID: id)

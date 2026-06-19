@@ -15,6 +15,7 @@ struct DuckoApp: App {
     @State private var chatContainer: ChatContainerState
     @State private var transcriptScope = TranscriptScope()
     @State private var themeEngine = ThemeEngine()
+    @State private var statusBarPreferences = StatusBarPreferences()
     @State private var updateManager = UpdateManager()
     @State private var notificationManager = NotificationManager()
     @FocusedValue(\.chatWindowState) private var focusedChatWindowState
@@ -69,6 +70,7 @@ struct DuckoApp: App {
                 .environment(themeEngine)
                 .environment(chatContainer)
                 .environment(transcriptScope)
+                .environment(statusBarPreferences)
                 .environment(\.openChat, openChatAction)
                 .task {
                     notificationManager.requestAuthorization()
@@ -212,6 +214,7 @@ struct DuckoApp: App {
             PreferencesView()
                 .environment(environment)
                 .environment(themeEngine)
+                .environment(statusBarPreferences)
         }
     }
 

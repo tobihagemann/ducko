@@ -30,6 +30,11 @@ public final class AccountService {
     private var isAppActive: Bool = true
     private weak var omemoService: OMEMOService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
+    /// Fired at the start of a user-initiated `disconnect(accountID:)` (Preferences disconnect, account
+    /// disable/remove, shutdown) — but not on auto-reconnecting drops, which go through `handleDisconnect`.
+    /// `PresenceService` uses it to drop a per-account override that the cancelled event task would otherwise
+    /// keep from reaching the reason-aware cleanup.
+    var onRequestedDisconnect: ((UUID) -> Void)?
 
     public enum ConnectionState: Sendable {
         case disconnected
@@ -111,6 +116,7 @@ public final class AccountService {
     }
 
     public func disconnect(accountID: UUID) async {
+        onRequestedDisconnect?(accountID)
         cancelReconnect(for: accountID, resetAttempts: true)
         passwords[accountID] = nil
         smResumeStates[accountID] = nil
@@ -399,6 +405,20 @@ public final class AccountService {
     public var hasAnyConnectedAccount: Bool {
         connectionStates.values.contains {
             if case .connected = $0 { return true }
+            return false
+        }
+    }
+
+    /// The first `.connected` account in `accounts` order, so identity resolution is stable.
+    public var firstConnectedAccount: Account? {
+        connectedAccounts.first
+    }
+
+    /// Every `.connected` account in `accounts` order. UI menus consume this instead of reasoning
+    /// about `XMPPClient`s, keeping DuckoUI on the DuckoCore boundary.
+    public var connectedAccounts: [Account] {
+        accounts.filter {
+            if case .connected = connectionStates[$0.id] { return true }
             return false
         }
     }

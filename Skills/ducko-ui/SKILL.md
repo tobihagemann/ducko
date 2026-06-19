@@ -38,9 +38,12 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 |---|---|---|
 | `contact-list` | Contact list view | Contacts |
 | `contact-row-{jid}` | Individual contact row (account-qualified as `contact-row-{jid}\|{account-jid}` when the JID is on more than one account) | Contacts |
-| `status-picker` | Presence status pull-down (status options + Custom…) in the "me" header | Contacts |
+| `status-picker` | Presence status pull-down (status rows with colored dots, saved statuses, per-account override submenus, Custom…) in the "me" header | Contacts |
 | `custom-status-message-field` | Message field in the status pull-down's Custom… sheet | Contacts |
+| `identity-switcher` | Identity (account) switcher menu on the "me" header name, shown with 2+ enabled accounts | Contacts |
 | `my-avatar` | Self avatar in the "me" header | Contacts |
+| `status-preferences` | Saved-status management list in Preferences ▸ Status | Preferences |
+| `saved-status-message-field` | Message field in the Preferences ▸ Status add sheet | Preferences |
 | `contact-search-field` | Roster search field, revealed by ⌘F | Contacts |
 | `message-field` | Message input text field | Chat |
 | `send-button` | Send message button | Chat |

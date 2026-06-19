@@ -593,6 +593,352 @@ enum PresenceServiceTests {
             #expect(PresenceService.isDisconnected(state: state) == expected)
         }
     }
+
+    struct GlobalAndAccountPresence {
+        @Test
+        @MainActor
+        func `applyGlobalPresence broadcasts to every connected account and clears overrides`() async throws {
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+
+            // Pin Bob to DND, then clear the wire so the global broadcast is isolated.
+            await service.applyAccountPresence(.dnd, message: "busy", accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
+            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            await fixture.aliceTransport.clearSentBytes()
+            await fixture.bobTransport.clearSentBytes()
+
+            await service.applyGlobalPresence(.away, message: nil, identityAccountID: nil) { id in
+                try await fixture.accountService.connect(accountID: id)
+            } disconnect: { id in
+                await fixture.accountService.disconnect(accountID: id)
+            }
+
+            let alice = await fixture.aliceTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            let bob = await fixture.bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(alice.contains { $0.contains("<presence") && $0.contains("away") })
+            #expect(bob.contains { $0.contains("<presence") && $0.contains("away") })
+            #expect(service.effectiveStatus(for: fixture.bobID) == .away)
+
+            await fixture.teardown()
+        }
+
+        @Test
+        @MainActor
+        func `applyAccountPresence pins one account and a later global resets everyone`() async throws {
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+            await fixture.aliceTransport.clearSentBytes()
+            await fixture.bobTransport.clearSentBytes()
+
+            await service.applyAccountPresence(.dnd, message: "busy", accountID: fixture.bobID) { id in
+                try await fixture.accountService.connect(accountID: id)
+            } disconnect: { id in
+                await fixture.accountService.disconnect(accountID: id)
+            }
+
+            let bob = await fixture.bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            let alice = await fixture.aliceTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(bob.contains { $0.contains("<presence") && $0.contains("dnd") && $0.contains("busy") })
+            #expect(alice.allSatisfy { !$0.contains("<presence") })
+            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            #expect(service.effectivePresence(for: fixture.bobID).message == "busy")
+            #expect(service.effectiveStatus(for: fixture.aliceID) == .available)
+
+            await service.applyGlobalPresence(.available, message: nil, identityAccountID: nil, connect: { _ in }, disconnect: { _ in })
+            #expect(service.effectiveStatus(for: fixture.bobID) == .available)
+
+            await fixture.teardown()
+        }
+
+        @Test
+        @MainActor
+        func `applyAccountPresence offline stores no override and disconnects only that account`() async throws {
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+
+            // Pre-pin Bob so the assertion proves the override is dropped, not stored as an offline override.
+            await service.applyAccountPresence(.dnd, message: nil, accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
+            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+
+            await service.applyAccountPresence(.offline, message: nil, accountID: fixture.bobID) { id in
+                try await fixture.accountService.connect(accountID: id)
+            } disconnect: { id in
+                await fixture.accountService.disconnect(accountID: id)
+            }
+
+            // Effective falls back to the global Available — not Offline — so no override lingers.
+            #expect(service.effectiveStatus(for: fixture.bobID) == .available)
+            #expect(fixture.accountService.connectedClient(for: fixture.bobID) == nil)
+            #expect(fixture.accountService.connectedClient(for: fixture.aliceID) != nil)
+
+            await fixture.teardown()
+        }
+
+        @Test
+        @MainActor
+        func `a user-initiated AccountService disconnect clears the account override`() async throws {
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+
+            await service.applyAccountPresence(.dnd, message: nil, accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
+            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+
+            // A deliberate disconnect must drop the pin even though the cancelled event task never delivers
+            // `.disconnected(.requested)` to `handleEvent`.
+            await fixture.accountService.disconnect(accountID: fixture.bobID)
+            #expect(service.effectiveStatus(for: fixture.bobID) == .available)
+
+            await fixture.teardown()
+        }
+
+        @Test
+        @MainActor
+        func `an override survives a connection-lost disconnect and is dropped by a requested one`() async {
+            let service = makePresenceService()
+            let accountID = UUID()
+            await service.applyAccountPresence(.dnd, message: nil, accountID: accountID, connect: { _ in }, disconnect: { _ in })
+            #expect(service.effectiveStatus(for: accountID) == .dnd)
+
+            await service.handleEvent(.disconnected(.connectionLost("dropped")), accountID: accountID)
+            #expect(service.effectiveStatus(for: accountID) == .dnd)
+
+            await service.handleEvent(.disconnected(.requested), accountID: accountID)
+            #expect(service.effectiveStatus(for: accountID) == .available)
+        }
+
+        @Test
+        @MainActor
+        func `effectivePresence returns global without an override and the override when set`() async {
+            let service = makePresenceService()
+            let accountID = UUID()
+            #expect(service.effectivePresence(for: accountID).status == .available)
+            #expect(service.effectivePresence(for: accountID).message == nil)
+
+            await service.applyAccountPresence(.dnd, message: "busy", accountID: accountID, connect: { _ in }, disconnect: { _ in })
+            #expect(service.effectivePresence(for: accountID).status == .dnd)
+            #expect(service.effectivePresence(for: accountID).message == "busy")
+            #expect(service.effectiveStatus(for: accountID) == .dnd)
+        }
+    }
+
+    struct OverrideIdleAndReapply {
+        @Test
+        @MainActor
+        func `idle auto-away leaves a per-account override untouched`() async throws {
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+
+            await service.applyAccountPresence(.dnd, message: nil, accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
+            await fixture.aliceTransport.clearSentBytes()
+            await fixture.bobTransport.clearSentBytes()
+
+            await service.applyIdleTransition(idleTime: 400, timeout: 300)
+            let aliceAway = await fixture.aliceTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            let bobAway = await fixture.bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(aliceAway.contains { $0.contains("<presence") && $0.contains("away") })
+            #expect(bobAway.allSatisfy { !$0.contains("away") })
+            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+
+            await service.applyIdleTransition(idleTime: 0, timeout: 300)
+            #expect(service.myPresence == .available)
+            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+
+            await fixture.teardown()
+        }
+
+        @Test
+        @MainActor
+        func `reconnect reapplies an account override rather than a blank available`() async throws {
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+
+            // Global stays plain Available; only Bob carries a DND override.
+            await service.applyAccountPresence(.dnd, message: nil, accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
+            await fixture.bobTransport.clearSentBytes()
+
+            let bobBare = try #require(BareJID(localPart: "bob", domainPart: "example.com"))
+            let bobFullJID = try #require(FullJID(bareJID: bobBare, resourcePart: "ducko"))
+            await service.handleEvent(.connected(bobFullJID), accountID: fixture.bobID)
+
+            let bob = await fixture.bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(bob.contains { $0.contains("<presence") && $0.contains("dnd") })
+
+            await fixture.teardown()
+        }
+
+        @Test
+        @MainActor
+        func `resendEffectivePresence re-broadcasts an account override, not the global status`() async throws {
+            // The path AvatarService uses for avatar/vCard/MUC re-broadcasts: it must carry the override.
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+
+            await service.applyAccountPresence(.dnd, message: nil, accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
+            await fixture.bobTransport.clearSentBytes()
+
+            await service.resendEffectivePresence(accountID: fixture.bobID)
+
+            let bob = await fixture.bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(bob.contains { $0.contains("<presence") && $0.contains("dnd") })
+
+            await fixture.teardown()
+        }
+    }
+
+    struct GlobalPresenceLifecycle {
+        @Test
+        @MainActor
+        func `global offline tears down a connecting account too`() async throws {
+            let store = MockPersistenceStore()
+            let credentials = MockCredentialStore()
+            let aliceTransport = MockTransport()
+            let bobTransport = MockTransport()
+            let factory = MockXMPPClientFactory(
+                transportForAccount: { $0.jid.localPart == "alice" ? aliceTransport : bobTransport },
+                modulesForAccount: { _ in [PresenceModule(), CapsModule()] }
+            )
+            let accountService = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
+            let presenceService = PresenceService()
+            presenceService.setAccountService(accountService)
+
+            let aliceID = try await accountService.createAccount(jidString: "alice@example.com", host: "example.com", port: 5222)
+            let bobID = try await accountService.createAccount(jidString: "bob@example.com", host: "example.com", port: 5222)
+            let (_, aliceTask) = try await driveMockConnect(accountService, accountID: aliceID, transport: aliceTransport, awaitInitialPresence: true)
+
+            // Bob begins connecting but never finishes the handshake, so it stays `.connecting`.
+            let bobTask = Task { @MainActor in try await accountService.connect(accountID: bobID, password: "secret") }
+            for _ in 0 ..< 100 {
+                if isConnecting(accountService.connectionStates[bobID]) { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(isConnecting(accountService.connectionStates[bobID]))
+
+            let recorder = CallRecorder()
+            await presenceService.applyGlobalPresence(.offline, message: nil, identityAccountID: nil) { _ in
+            } disconnect: { id in
+                recorder.append(id)
+                await accountService.disconnect(accountID: id)
+            }
+
+            #expect(Set(recorder.ids) == Set([aliceID, bobID]))
+            #expect(presenceService.myPresence == .offline)
+
+            aliceTask.cancel()
+            bobTask.cancel()
+        }
+
+        @Test
+        @MainActor
+        func `going online from offline reconnects only connect-on-launch accounts`() async throws {
+            let (accountService, presenceService) = makeUnconnectedService()
+            let aliceID = try await accountService.createAccount(jidString: "alice@example.com", connectOnLaunch: true)
+            let carolID = try await accountService.createAccount(jidString: "carol@example.com", connectOnLaunch: false)
+
+            let recorder = CallRecorder()
+            await presenceService.applyGlobalPresence(.available, message: nil, identityAccountID: nil) { id in
+                recorder.append(id)
+            } disconnect: { _ in }
+
+            #expect(recorder.ids == [aliceID])
+            #expect(!recorder.ids.contains(carolID))
+        }
+
+        @Test
+        @MainActor
+        func `going online with no connect-on-launch account falls back to the identity account`() async throws {
+            let (accountService, presenceService) = makeUnconnectedService()
+            let daveID = try await accountService.createAccount(jidString: "dave@example.com", connectOnLaunch: false)
+            let eveID = try await accountService.createAccount(jidString: "eve@example.com", connectOnLaunch: false)
+
+            let recorder = CallRecorder()
+            await presenceService.applyGlobalPresence(.available, message: nil, identityAccountID: daveID) { id in
+                recorder.append(id)
+            } disconnect: { _ in }
+
+            #expect(recorder.ids == [daveID])
+            #expect(!recorder.ids.contains(eveID))
+        }
+    }
+}
+
+// MARK: - Multi-Account Fixtures
+
+/// Records the account IDs a `connect`/`disconnect` closure was invoked for. A `@MainActor` class so the
+/// `@escaping` apply closures can append without tripping mutable-capture diagnostics.
+@MainActor
+private final class CallRecorder {
+    private(set) var ids: [UUID] = []
+    func append(_ id: UUID) {
+        ids.append(id)
+    }
+}
+
+private func isConnecting(_ state: AccountService.ConnectionState?) -> Bool {
+    if case .connecting = state { return true }
+    return false
+}
+
+@MainActor
+private struct TwoConnectedAccountsFixture {
+    let accountService: AccountService
+    let presenceService: PresenceService
+    let aliceTransport: MockTransport
+    let bobTransport: MockTransport
+    let aliceID: UUID
+    let bobID: UUID
+    let aliceTask: Task<Void, any Error>
+    let bobTask: Task<Void, any Error>
+
+    func teardown() async {
+        aliceTask.cancel()
+        bobTask.cancel()
+        await accountService.disconnect(accountID: aliceID)
+        await accountService.disconnect(accountID: bobID)
+    }
+}
+
+@MainActor
+private func makeTwoConnectedAccounts() async throws -> TwoConnectedAccountsFixture {
+    let store = MockPersistenceStore()
+    let credentials = MockCredentialStore()
+    let aliceTransport = MockTransport()
+    let bobTransport = MockTransport()
+    let factory = MockXMPPClientFactory(
+        transportForAccount: { $0.jid.localPart == "alice" ? aliceTransport : bobTransport },
+        modulesForAccount: { _ in [PresenceModule(), CapsModule()] }
+    )
+    let accountService = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
+    let presenceService = PresenceService()
+    presenceService.setAccountService(accountService)
+
+    let aliceID = try await accountService.createAccount(jidString: "alice@example.com", host: "example.com", port: 5222)
+    let bobID = try await accountService.createAccount(jidString: "bob@example.com", host: "example.com", port: 5222)
+    let (_, aliceTask) = try await driveMockConnect(accountService, accountID: aliceID, transport: aliceTransport, awaitInitialPresence: true)
+    let (_, bobTask) = try await driveMockConnect(accountService, accountID: bobID, transport: bobTransport, awaitInitialPresence: true)
+
+    return TwoConnectedAccountsFixture(
+        accountService: accountService,
+        presenceService: presenceService,
+        aliceTransport: aliceTransport,
+        bobTransport: bobTransport,
+        aliceID: aliceID,
+        bobID: bobID,
+        aliceTask: aliceTask,
+        bobTask: bobTask
+    )
+}
+
+/// An `AccountService`/`PresenceService` pair with no connected accounts, for asserting the connect closures
+/// the global apply path invokes without driving real handshakes.
+@MainActor
+private func makeUnconnectedService() -> (AccountService, PresenceService) {
+    let store = MockPersistenceStore()
+    let credentials = MockCredentialStore()
+    let factory = MockXMPPClientFactory(transportForAccount: { _ in MockTransport() })
+    let accountService = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
+    let presenceService = PresenceService()
+    presenceService.setAccountService(accountService)
+    return (accountService, presenceService)
 }
 
 // MARK: - Test Helpers

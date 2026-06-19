@@ -2888,18 +2888,25 @@ private func printRoster(groups: [ContactGroup], presences: [BareJID: PresenceSe
     }
 }
 
+/// Routes CLI/REPL `/status` and the `presence` subcommand through the same global-presence model the GUI
+/// uses: broadcast to every connected account, clear any per-account overrides, and tear down on offline. Each
+/// caller connects its account before invoking this, so the multi-account reconnect branch never fires (an
+/// account is already connected); `accountID` seeds the reconnect fallback for symmetry.
+@MainActor
 private func applyPresence(
     _ presenceStatus: PresenceService.PresenceStatus,
     message: String?,
     environment: AppEnvironment,
     accountID: UUID
 ) async {
-    if presenceStatus == .offline {
-        await MainActor.run {
-            environment.presenceService.goOffline(accountID: accountID)
-        }
-    } else {
-        await environment.presenceService.setPresence(presenceStatus, message: message, accountID: accountID)
+    await environment.presenceService.applyGlobalPresence(
+        presenceStatus,
+        message: message,
+        identityAccountID: accountID
+    ) { id in
+        try await environment.accountService.connect(accountID: id)
+    } disconnect: { id in
+        await environment.accountService.disconnect(accountID: id)
     }
 }
 

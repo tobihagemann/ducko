@@ -14,6 +14,9 @@ public struct PreferencesView: View {
             ChatPreferencesView()
                 .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
 
+            StatusPreferencesView()
+                .tabItem { Label("Status", systemImage: "circle.lefthalf.filled") }
+
             AppearancePreferencesView()
                 .tabItem { Label("Appearance", systemImage: "paintbrush") }
 

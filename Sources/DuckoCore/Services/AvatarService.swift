@@ -130,8 +130,8 @@ public final class AvatarService {
 
         ownAvatarHash = hash
         presenceModule.setOwnAvatarHash(hash)
-        try? await presenceModule.broadcastPresence(show: presenceService?.currentShow, status: presenceService?.myStatusMessage)
-        await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
+        await presenceService?.resendEffectivePresence(accountID: accountID)
+        await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule, accountID: accountID)
     }
 
     public func removeAvatar(accountID: UUID) async throws {
@@ -152,8 +152,8 @@ public final class AvatarService {
 
         ownAvatarHash = nil
         presenceModule.setOwnAvatarHash(nil)
-        try? await presenceModule.broadcastPresence(show: presenceService?.currentShow, status: presenceService?.myStatusMessage)
-        await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule)
+        await presenceService?.resendEffectivePresence(accountID: accountID)
+        await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule, accountID: accountID)
     }
 
     public func fetchAvatar(for jid: BareJID, accountID: UUID) async -> AvatarData? {
@@ -167,10 +167,10 @@ public final class AvatarService {
 
     /// XEP-0398 §4: Re-send directed presence to joined MUC rooms
     /// so room occupants receive the updated vcard-temp:x:update hash.
-    private func resendPresenceToMUCRooms(client: XMPPClient, presenceModule: PresenceModule) async {
+    private func resendPresenceToMUCRooms(client: XMPPClient, presenceModule: PresenceModule, accountID: UUID) async {
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
-        let show = presenceService?.currentShow
-        let status = presenceService?.myStatusMessage
+        let show = presenceService?.effectiveShow(for: accountID)
+        let status = presenceService?.effectivePresence(for: accountID).message
         for roomJID in mucModule.joinedRoomFullJIDs {
             try? await presenceModule.sendDirectedPresence(to: roomJID, show: show, status: status)
         }
@@ -216,7 +216,7 @@ public final class AvatarService {
             presenceModule.setOwnAvatarHash(ownAvatarHash)
             // Re-broadcast presence so contacts receive the XEP-0153 hash
             // (initial presence was sent before this fetch completed)
-            try? await presenceModule.broadcastPresence(show: presenceService?.currentShow, status: presenceService?.myStatusMessage)
+            await presenceService?.resendEffectivePresence(accountID: accountID)
         } catch {
             log.warning("Failed to fetch own vCard for avatar hash: \(error.localizedDescription)")
         }

@@ -10,6 +10,15 @@ public final class PresenceService {
     private var contactStatusMessagesByAccount: [UUID: [BareJID: String]] = [:]
     private var pendingRequestsByAccount: [UUID: [BareJID]] = [:]
 
+    /// Sparse per-account pins layered over the global `myPresence`/`myStatusMessage`. An account with
+    /// an entry broadcasts its own status; any global change wipes the whole map (Adium's "reset everyone").
+    private var presenceOverridesByAccount: [UUID: OwnPresenceOverride] = [:]
+
+    private struct OwnPresenceOverride {
+        var status: PresenceStatus
+        var message: String?
+    }
+
     public var contactPresences: [BareJID: PresenceStatus] {
         contactPresencesByAccount.values.reduce(into: [:]) { result, dict in
             result.merge(dict) { _, new in new }
@@ -82,6 +91,12 @@ public final class PresenceService {
 
     func setAccountService(_ service: AccountService) {
         accountService = service
+        // A user-initiated disconnect cancels the account's event task before the `.disconnected(.requested)`
+        // event can reach `handleEvent`, so clear the per-account override here instead — a stream-blip
+        // reconnect goes through `handleDisconnect` and never fires this, preserving the pinned override.
+        service.onRequestedDisconnect = { [weak self] accountID in
+            self?.presenceOverridesByAccount.removeValue(forKey: accountID)
+        }
     }
 
     public enum PresenceServiceError: Error, LocalizedError {
@@ -106,13 +121,14 @@ public final class PresenceService {
         await sendPresence(accountID: accountID)
     }
 
-    /// Sends directed presence to a specific JID, using the user's current show/status.
+    /// Sends directed presence to a specific JID, using the account's effective show/status so a directed
+    /// presence from an overridden account matches its broadcast status.
     public func sendDirectedPresence(to jidString: String, accountID: UUID) async throws {
         guard let jid = JID.parse(jidString) else { throw PresenceServiceError.invalidJID(jidString) }
         guard let client = accountService?.connectedClient(for: accountID) else { throw PresenceServiceError.notConnected(accountID) }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
-        try await presenceModule.sendDirectedPresence(to: jid, show: currentShow, status: myStatusMessage)
+        try await presenceModule.sendDirectedPresence(to: jid, show: effectiveShow(for: accountID), status: effectivePresence(for: accountID).message)
     }
 
     /// Updates `myPresence` / `myStatusMessage` synchronously (views see the change before any await). Reads
@@ -134,6 +150,77 @@ public final class PresenceService {
             myPresence = status
             myStatusMessage = message
             if isDisconnected {
+                try? await connect(accountID)
+            }
+            await sendPresence(accountID: accountID)
+        }
+    }
+
+    /// Sets the global status and broadcasts it to every online account, clearing any per-account overrides
+    /// first (Adium's "reset everyone to the same"). `identityAccountID` carries the UI's resolved header
+    /// identity so an Available-from-fully-offline action isn't a silent no-op when no `connectOnLaunch`
+    /// account exists. Reads `AccountService.connectionStates` directly so the offline teardown also reaches
+    /// `.connecting`/reconnecting accounts.
+    public func applyGlobalPresence(
+        _ status: PresenceStatus,
+        message: String?,
+        identityAccountID: UUID?,
+        connect: @escaping (UUID) async throws -> Void,
+        disconnect: @escaping (UUID) async -> Void
+    ) async {
+        cancelAutoAway()
+        presenceOverridesByAccount.removeAll()
+        myPresence = status
+        myStatusMessage = status == .offline ? nil : message
+
+        if status == .offline {
+            // Tear down every account that isn't already disconnected — connected, connecting, and
+            // reconnecting (`.error`) — so an in-flight connect can't finish and emit available after offline.
+            for account in accountService?.accounts ?? [] {
+                switch accountService?.connectionStates[account.id] {
+                case .connected, .connecting, .error:
+                    await disconnect(account.id)
+                case .disconnected, .none:
+                    break
+                }
+            }
+        } else {
+            // Going online from fully-offline mirrors launch: reconnect the normal online set
+            // (`connectOnLaunch` accounts), falling back to the identity account so the action isn't a no-op.
+            // Skip accounts already connecting (`isAccountDisconnected` is false for `.connecting`/`.connected`)
+            // so an in-flight connect isn't torn down and restarted.
+            if let accountService, !accountService.hasAnyConnectedAccount {
+                let onlineSet = accountService.accounts.filter { $0.isEnabled && $0.connectOnLaunch }
+                if onlineSet.isEmpty {
+                    if let identityAccountID, isAccountDisconnected(accountID: identityAccountID) {
+                        try? await connect(identityAccountID)
+                    }
+                } else {
+                    for account in onlineSet where isAccountDisconnected(accountID: account.id) {
+                        try? await connect(account.id)
+                    }
+                }
+            }
+            await broadcastPresenceToConnectedAccounts()
+        }
+    }
+
+    /// Pins `accountID` to its own status, layered over the global value. Offline is not modeled as an override:
+    /// it disconnects the account (the submenu derives Offline from connection state), and any prior override is
+    /// dropped so a later reconnect doesn't resurface it.
+    public func applyAccountPresence(
+        _ status: PresenceStatus,
+        message: String?,
+        accountID: UUID,
+        connect: @escaping (UUID) async throws -> Void,
+        disconnect: @escaping (UUID) async -> Void
+    ) async {
+        if status == .offline {
+            presenceOverridesByAccount.removeValue(forKey: accountID)
+            await disconnect(accountID)
+        } else {
+            presenceOverridesByAccount[accountID] = OwnPresenceOverride(status: status, message: message)
+            if isAccountDisconnected(accountID: accountID) {
                 try? await connect(accountID)
             }
             await sendPresence(accountID: accountID)
@@ -171,10 +258,15 @@ public final class PresenceService {
             handlePresenceUpdated(from: from, presence: presence, accountID: accountID)
         case let .presenceSubscriptionRequest(from):
             handleSubscriptionRequest(from: from, accountID: accountID)
-        case .disconnected:
+        case let .disconnected(reason):
             contactPresencesByAccount.removeValue(forKey: accountID)
             contactStatusMessagesByAccount.removeValue(forKey: accountID)
             pendingRequestsByAccount.removeValue(forKey: accountID)
+            // Drop a per-account override only on intentional teardown; preserve it across a stream
+            // blip + auto-reconnect so a pinned status isn't silently lost.
+            if case .requested = reason {
+                presenceOverridesByAccount.removeValue(forKey: accountID)
+            }
         case .presenceSubscriptionApproved, .presenceSubscriptionRevoked:
             break
         case .streamResumed, .authenticationFailed,
@@ -209,19 +301,22 @@ public final class PresenceService {
     /// `.streamResumed` is intentionally not handled — a resumed session skips `handleConnect()`, so presence is
     /// never reset.
     private func reapplyHeldPresenceAfterReconnect(accountID: UUID) async {
-        guard shouldReapplyHeldPresence else { return }
+        guard shouldReapplyHeldPresence(accountID: accountID) else { return }
         guard let client = accountService?.connectedClient(for: accountID) else { return }
         // `.connected` is yielded before `PresenceModule.handleConnect()` sends its blank-available stanza, so
         // gate on the initial presence before re-broadcasting or it would just be overwritten.
         await client.awaitInitialPresenceSent()
         // Across the await the original client can disconnect and a replacement enter `.connected`; re-verify the
         // same instance and re-check the guard so a stale reapply can't clobber the new client's presence.
-        guard accountService?.connectedClient(for: accountID) === client, shouldReapplyHeldPresence else { return }
+        guard accountService?.connectedClient(for: accountID) === client, shouldReapplyHeldPresence(accountID: accountID) else { return }
         await sendPresence(accountID: accountID)
     }
 
-    private var shouldReapplyHeldPresence: Bool {
-        myPresence != .offline && (myPresence != .available || myStatusMessage != nil)
+    /// Reads the account's *effective* presence so an account whose global is plain available but which carries a
+    /// non-offline override still re-broadcasts (and replaces the blank-available stanza) after reconnect.
+    private func shouldReapplyHeldPresence(accountID: UUID) -> Bool {
+        let effective = effectivePresence(for: accountID)
+        return effective.status != .offline && (effective.status != .available || effective.message != nil)
     }
 
     // MARK: - Idle Monitoring
@@ -330,7 +425,31 @@ public final class PresenceService {
     }
 
     public var currentShow: XMPPPresence.Show? {
-        switch myPresence {
+        Self.show(for: myPresence)
+    }
+
+    /// The presence pinned for `accountID`, falling back to the global values when no override is set.
+    /// Every outbound presence path reads this so an overridden account never reverts to global; the Contacts
+    /// header also reads it so the dot/label reflect the displayed identity account's actual status.
+    public func effectivePresence(for accountID: UUID) -> (status: PresenceStatus, message: String?) {
+        if let override = presenceOverridesByAccount[accountID] {
+            return (override.status, override.message)
+        }
+        return (myPresence, myStatusMessage)
+    }
+
+    /// The effective `Show` for an account, mirroring `currentShow` over `effectivePresence(for:)`.
+    func effectiveShow(for accountID: UUID) -> XMPPPresence.Show? {
+        Self.show(for: effectivePresence(for: accountID).status)
+    }
+
+    /// The effective status for an account, surfaced to the UI's per-account submenu.
+    public func effectiveStatus(for accountID: UUID) -> PresenceStatus {
+        effectivePresence(for: accountID).status
+    }
+
+    private static func show(for status: PresenceStatus) -> XMPPPresence.Show? {
+        switch status {
         case .available, .offline: nil
         case .away: .away
         case .xa: .xa
@@ -338,12 +457,22 @@ public final class PresenceService {
         }
     }
 
+    /// Re-broadcasts an account's effective presence. `AvatarService` routes its re-broadcasts through this so
+    /// an avatar/vCard/MUC update never clobbers an overridden account back to the global status.
+    func resendEffectivePresence(accountID: UUID) async {
+        await sendPresence(accountID: accountID)
+    }
+
     private func sendPresence(accountID: UUID) async {
+        // Global offline is a hard stop: never broadcast presence while the user is offline, even if an
+        // account still carries a non-offline override.
         guard myPresence != .offline else { return }
+        let effective = effectivePresence(for: accountID)
+        guard effective.status != .offline else { return }
         guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
 
-        try? await presenceModule.broadcastPresence(show: currentShow, status: myStatusMessage)
+        try? await presenceModule.broadcastPresence(show: effectiveShow(for: accountID), status: effective.message)
     }
 }
 

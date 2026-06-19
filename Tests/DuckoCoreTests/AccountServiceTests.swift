@@ -552,4 +552,49 @@ enum AccountServiceTests {
             #expect(elapsed < .milliseconds(500))
         }
     }
+
+    struct ConnectedProjections {
+        @Test
+        @MainActor
+        func `connectedAccounts and firstConnectedAccount follow accounts order and exclude unconnected`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let aliceTransport = MockTransport()
+            let bobTransport = MockTransport()
+            let factory = MockXMPPClientFactory(
+                transportForAccount: { $0.jid.localPart == "alice" ? aliceTransport : bobTransport }
+            )
+            let service = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
+
+            let aliceID = try await service.createAccount(jidString: "alice@example.com", host: "example.com", port: 5222)
+            let bobID = try await service.createAccount(jidString: "bob@example.com", host: "example.com", port: 5222)
+            let carolID = try await service.createAccount(jidString: "carol@example.com", host: "example.com", port: 5222)
+
+            // Connect bob before alice to prove ordering follows `accounts`, not connect order.
+            let (_, bobTask) = try await driveMockConnect(service, accountID: bobID, transport: bobTransport)
+            let (_, aliceTask) = try await driveMockConnect(service, accountID: aliceID, transport: aliceTransport)
+
+            #expect(service.connectedAccounts.map(\.id) == [aliceID, bobID])
+            #expect(service.firstConnectedAccount?.id == aliceID)
+            #expect(!service.connectedAccounts.map(\.id).contains(carolID))
+
+            bobTask.cancel()
+            aliceTask.cancel()
+            await service.disconnect(accountID: aliceID)
+            await service.disconnect(accountID: bobID)
+        }
+
+        @Test
+        @MainActor
+        func `connectedAccounts is empty and firstConnectedAccount nil with nothing connected`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let factory = MockXMPPClientFactory(transport: MockTransport())
+            let service = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
+            _ = try await service.createAccount(jidString: "alice@example.com")
+
+            #expect(service.connectedAccounts.isEmpty)
+            #expect(service.firstConnectedAccount == nil)
+        }
+    }
 }
