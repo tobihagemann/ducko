@@ -100,6 +100,7 @@ public final class PresenceService {
 
     /// Broadcasts on an already-connected account. Use `applyPresence` when reconnect may be needed.
     public func setPresence(_ status: PresenceStatus, message: String?, accountID: UUID) async {
+        cancelAutoAway()
         myPresence = status
         myStatusMessage = message
         await sendPresence(accountID: accountID)
@@ -128,6 +129,7 @@ public final class PresenceService {
             goOffline(accountID: accountID)
             await disconnect(accountID)
         } else {
+            cancelAutoAway()
             let isDisconnected = isAccountDisconnected(accountID: accountID)
             myPresence = status
             myStatusMessage = message
@@ -146,8 +148,17 @@ public final class PresenceService {
 
     /// Marks local presence offline only. Caller must invoke `AccountService.disconnect` so the server sees the unavailable stanza.
     public func goOffline(accountID _: UUID) {
+        cancelAutoAway()
         myPresence = .offline
         myStatusMessage = nil
+    }
+
+    /// Cancels a pending auto-away restore. Any deliberate presence change (offline, away, a custom status)
+    /// supersedes the held auto-away state, so a later idle-return must not flip back to it and broadcast
+    /// that stale presence to the still-connected accounts.
+    private func cancelAutoAway() {
+        autoAwayActive = false
+        previousPresence = nil
     }
 
     // MARK: - Event Handling
@@ -215,28 +226,16 @@ public final class PresenceService {
 
     // MARK: - Idle Monitoring
 
-    /// Opt-in idle monitoring (GUI calls this, CLI doesn't).
-    public func startIdleMonitoring(accountID: UUID, timeout: TimeInterval = 300) {
+    /// Opt-in idle monitoring (GUI calls this, CLI doesn't). A single global
+    /// monitor that, on each transition, broadcasts to every connected account.
+    public func startIdleMonitoring(timeout: TimeInterval = 300) {
         stopIdleMonitoring()
 
         idleMonitorTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 guard !Task.isCancelled, let self else { return }
-
-                let idleTime = idleTimeSource.secondsSinceLastUserInput()
-
-                if idleTime >= timeout, !autoAwayActive {
-                    previousPresence = myPresence
-                    autoAwayActive = true
-                    myPresence = .away
-                    await sendPresence(accountID: accountID)
-                } else if idleTime < timeout, autoAwayActive {
-                    autoAwayActive = false
-                    myPresence = previousPresence ?? .available
-                    previousPresence = nil
-                    await sendPresence(accountID: accountID)
-                }
+                await applyIdleTransition(idleTime: idleTimeSource.secondsSinceLastUserInput(), timeout: timeout)
             }
         }
     }
@@ -244,6 +243,33 @@ public final class PresenceService {
     public func stopIdleMonitoring() {
         idleMonitorTask?.cancel()
         idleMonitorTask = nil
+    }
+
+    /// Applies one idle poll's state transition. Activates auto-away once idle past `timeout` — but never for
+    /// a user who is deliberately `.offline` — and restores the held presence on the return to activity. Both
+    /// transitions broadcast to every connected account.
+    func applyIdleTransition(idleTime: TimeInterval, timeout: TimeInterval) async {
+        if idleTime >= timeout, !autoAwayActive, myPresence != .offline {
+            previousPresence = myPresence
+            autoAwayActive = true
+            myPresence = .away
+            await broadcastPresenceToConnectedAccounts()
+        } else if idleTime < timeout, autoAwayActive {
+            autoAwayActive = false
+            myPresence = previousPresence ?? .available
+            previousPresence = nil
+            await broadcastPresenceToConnectedAccounts()
+        }
+    }
+
+    /// Broadcasts the current `myPresence` to every connected account, so idle
+    /// auto-away/return moves all accounts together. Reuses the per-account
+    /// `sendPresence`, which short-circuits on `.offline` or a missing client.
+    func broadcastPresenceToConnectedAccounts() async {
+        guard let accountService else { return }
+        for account in accountService.accounts where accountService.connectedClient(for: account.id) != nil {
+            await sendPresence(accountID: account.id)
+        }
     }
 
     private func isAccountDisconnected(accountID: UUID) -> Bool {

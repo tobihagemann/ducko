@@ -5,8 +5,20 @@ import Foundation
 public final class RosterService {
     private var groupsByAccount: [UUID: [ContactGroup]] = [:]
 
+    /// Per-account groups merged into one section per name (Adium-style), so a
+    /// multi-account setup doesn't show duplicate same-named sections. Each row
+    /// keeps its account-scoped selection identity via `Contact.accountID`, and the
+    /// name is a safe `ForEach`/`onlineCounts` id because names are unique post-merge.
     public var groups: [ContactGroup] {
-        groupsByAccount.values.flatMap(\.self)
+        var merged: [String: [Contact]] = [:]
+        for accountGroups in groupsByAccount.values {
+            for group in accountGroups {
+                merged[group.name, default: []].append(contentsOf: group.contacts)
+            }
+        }
+        return sortedGroupKeys(merged.keys).map { name in
+            ContactGroup(id: name, name: name, contacts: sortedByDisplayName(merged[name] ?? []))
+        }
     }
 
     private let store: any PersistenceStore
@@ -313,23 +325,29 @@ public final class RosterService {
             }
         }
 
-        for key in grouped.keys {
-            grouped[key]?.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        // Qualify the id with the account so the same group name on two accounts (e.g. "Ungrouped")
+        // stays a distinct per-account `ContactGroup` here. The merged `groups` view coalesces these
+        // by name into one section; the account-qualified id keeps the internal per-account lookups
+        // (`groupsByAccount`) unambiguous.
+        return sortedGroupKeys(grouped.keys).map { key in
+            ContactGroup(id: "\(accountID.uuidString)|\(key)", name: key, contacts: sortedByDisplayName(grouped[key] ?? []))
         }
+    }
 
-        // Sort groups alphabetically, ContactGroup.ungroupedName last
-        let sortedKeys = grouped.keys.sorted { lhs, rhs in
+    /// Contacts sorted by display name (case-insensitive) — the order both per-account
+    /// `buildGroups` and the merged `groups` view present contacts in.
+    private func sortedByDisplayName(_ contacts: [Contact]) -> [Contact] {
+        contacts.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    /// Group names sorted alphabetically with `ContactGroup.ungroupedName` last. This order is
+    /// the sole determinant of displayed section order: `ContactListFilter` sorts only contacts
+    /// within groups and preserves the incoming group order, so the merged `groups` view sorts here.
+    private func sortedGroupKeys(_ keys: some Sequence<String>) -> [String] {
+        keys.sorted { lhs, rhs in
             if lhs == ContactGroup.ungroupedName { return false }
             if rhs == ContactGroup.ungroupedName { return true }
             return lhs.localizedCaseInsensitiveCompare(rhs) == .orderedAscending
-        }
-
-        // Qualify the id with the account so the same group name on two accounts (e.g. "Ungrouped")
-        // yields distinct `ContactGroup.id`s. `groups` flat-maps every account's groups into one
-        // list; a shared id there is a duplicate `ForEach` identity that corrupts List selection
-        // (selecting one same-JID row would select the other) and mis-targets per-group online counts.
-        return sortedKeys.map { key in
-            ContactGroup(id: "\(accountID.uuidString)|\(key)", name: key, contacts: grouped[key] ?? [])
         }
     }
 }

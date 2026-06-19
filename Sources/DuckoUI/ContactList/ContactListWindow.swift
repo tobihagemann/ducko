@@ -13,8 +13,13 @@ struct ContactListWindow: View {
     @AppStorage(ContactListSizingDefaults.maxWidthKey, store: PreferencesDefaults.store)
     private var maxWidthPreference = ContactListSizingDefaults.defaultMaxWidth
 
-    private var account: Account? {
-        environment.accountService.accounts.first { $0.isEnabled }
+    /// Enabled account IDs in a stable order, so the per-account load `.task(id:)`
+    /// re-fires on membership change but not on reorder.
+    private var enabledAccountIDs: [UUID] {
+        environment.accountService.accounts
+            .filter(\.isEnabled)
+            .map(\.id)
+            .sorted { $0.uuidString < $1.uuidString }
     }
 
     /// Floor so the "me" header stays comfortable when names are short.
@@ -74,20 +79,17 @@ struct ContactListWindow: View {
         )
         .onPreferenceChange(MaxNameWidthKey.self) { maxNameWidth = $0 }
         .focusedSceneValue(\.contactListWindowState, state)
-        .task {
-            guard let accountID = account?.id else { return }
-            switch environment.accountService.connectionStates[accountID] {
-            case .connected:
-                break
-            default:
-                try? await environment.accountService.connect(accountID: accountID)
+        // Launch connect is owned by `ContentView`, not here — this task only loads cached data.
+        .task(id: enabledAccountIDs) {
+            for accountID in enabledAccountIDs {
+                try? await environment.chatService.loadConversations(for: accountID)
+                try? await environment.rosterService.loadContacts(for: accountID)
             }
         }
-        .task(id: account?.id) {
-            guard let accountID = account?.id else { return }
-            try? await environment.chatService.loadConversations(for: accountID)
-            try? await environment.rosterService.loadContacts(for: accountID)
-            environment.presenceService.startIdleMonitoring(accountID: accountID)
+        // Idle monitoring is a single global monitor that broadcasts to every
+        // connected account, so it is started once rather than per account.
+        .task {
+            environment.presenceService.startIdleMonitoring()
         }
         .sheet(isPresented: $state.isShowingAddContact) {
             AddContactSheet()

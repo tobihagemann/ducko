@@ -1,3 +1,4 @@
+import DuckoTestSupport
 import Foundation
 import Testing
 @testable import DuckoCore
@@ -411,6 +412,169 @@ enum PresenceServiceTests {
 
             await releaseConnect.signal()
             await task.value
+        }
+    }
+
+    struct IdleBroadcast {
+        @Test
+        @MainActor
+        func `broadcasts the held presence to every connected account, and nothing while offline`() async throws {
+            let store = MockPersistenceStore()
+            let credentials = MockCredentialStore()
+            let aliceTransport = MockTransport()
+            let bobTransport = MockTransport()
+            let factory = MockXMPPClientFactory(
+                transportForAccount: { $0.jid.localPart == "alice" ? aliceTransport : bobTransport },
+                modulesForAccount: { _ in [PresenceModule(), CapsModule()] }
+            )
+            let accountService = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
+            let presenceService = PresenceService()
+            presenceService.setAccountService(accountService)
+
+            let aliceID = try await accountService.createAccount(jidString: "alice@example.com", host: "example.com", port: 5222)
+            let bobID = try await accountService.createAccount(jidString: "bob@example.com", host: "example.com", port: 5222)
+            let (_, aliceTask) = try await driveMockConnect(accountService, accountID: aliceID, transport: aliceTransport, awaitInitialPresence: true)
+            let (_, bobTask) = try await driveMockConnect(accountService, accountID: bobID, transport: bobTransport, awaitInitialPresence: true)
+
+            await aliceTransport.clearSentBytes()
+            await bobTransport.clearSentBytes()
+
+            // Auto-away: a held away status reaches both connected accounts.
+            presenceService.myPresence = .away
+            await presenceService.broadcastPresenceToConnectedAccounts()
+
+            let awayAlice = await aliceTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            let awayBob = await bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(awayAlice.contains { $0.contains("<presence") && $0.contains("away") })
+            #expect(awayBob.contains { $0.contains("<presence") && $0.contains("away") })
+
+            // Offline: the broadcast emits no presence, so an offline user is never shown as away on the
+            // still-connected accounts (the broadcast half of the offline guard; the activation half lives
+            // in the un-injectable 30 s idle-monitor loop).
+            await aliceTransport.clearSentBytes()
+            await bobTransport.clearSentBytes()
+            presenceService.myPresence = .offline
+            await presenceService.broadcastPresenceToConnectedAccounts()
+
+            let offlineAlice = await aliceTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            let offlineBob = await bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(offlineAlice.allSatisfy { !$0.contains("<presence") })
+            #expect(offlineBob.allSatisfy { !$0.contains("<presence") })
+
+            aliceTask.cancel()
+            bobTask.cancel()
+            await accountService.disconnect(accountID: aliceID)
+            await accountService.disconnect(accountID: bobID)
+        }
+
+        @Test
+        @MainActor
+        func `an idle transition broadcasts the resulting presence to a connected account`() async throws {
+            let store = MockPersistenceStore()
+            let credentials = MockCredentialStore()
+            let transport = MockTransport()
+            let factory = MockXMPPClientFactory(
+                transportForAccount: { _ in transport },
+                modulesForAccount: { _ in [PresenceModule(), CapsModule()] }
+            )
+            let accountService = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
+            let presenceService = PresenceService()
+            presenceService.setAccountService(accountService)
+
+            let accountID = try await accountService.createAccount(jidString: "alice@example.com", host: "example.com", port: 5222)
+            let (_, task) = try await driveMockConnect(accountService, accountID: accountID, transport: transport, awaitInitialPresence: true)
+            await transport.clearSentBytes()
+
+            // Idling past the timeout must drive the transition AND broadcast the resulting away presence.
+            await presenceService.applyIdleTransition(idleTime: 400, timeout: 300)
+            let awaySent = await transport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(awaySent.contains { $0.contains("<presence") && $0.contains("away") })
+
+            // Returning to activity must broadcast the restored presence.
+            await transport.clearSentBytes()
+            await presenceService.applyIdleTransition(idleTime: 0, timeout: 300)
+            let restoreSent = await transport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(restoreSent.contains { $0.contains("<presence") })
+
+            task.cancel()
+            await accountService.disconnect(accountID: accountID)
+        }
+    }
+
+    struct IdleTransitions {
+        @Test
+        @MainActor
+        func `idle past timeout activates auto-away from the held presence`() async {
+            let service = makePresenceService()
+            #expect(service.myPresence == .available)
+            await service.applyIdleTransition(idleTime: 400, timeout: 300)
+            #expect(service.myPresence == .away)
+        }
+
+        @Test
+        @MainActor
+        func `return to activity restores the held presence`() async {
+            let service = makePresenceService()
+            service.myPresence = .dnd
+            await service.applyIdleTransition(idleTime: 400, timeout: 300)
+            #expect(service.myPresence == .away)
+            await service.applyIdleTransition(idleTime: 0, timeout: 300)
+            #expect(service.myPresence == .dnd)
+        }
+
+        @Test
+        @MainActor
+        func `idle does not promote a deliberately offline user to away`() async {
+            let service = makePresenceService()
+            service.goOffline(accountID: UUID())
+            #expect(service.myPresence == .offline)
+            await service.applyIdleTransition(idleTime: 400, timeout: 300)
+            #expect(service.myPresence == .offline)
+        }
+
+        @Test
+        @MainActor
+        func `going offline during auto-away cancels the pending restore`() async {
+            let service = makePresenceService()
+            // Idle activates auto-away, holding the prior Available.
+            await service.applyIdleTransition(idleTime: 400, timeout: 300)
+            #expect(service.myPresence == .away)
+            // The user deliberately goes Offline while still idle.
+            service.goOffline(accountID: UUID())
+            #expect(service.myPresence == .offline)
+            // Returning to activity must not undo the deliberate Offline.
+            await service.applyIdleTransition(idleTime: 0, timeout: 300)
+            #expect(service.myPresence == .offline)
+        }
+
+        @Test
+        @MainActor
+        func `a manual status change during auto-away survives the idle return`() async {
+            let service = makePresenceService()
+            // Idle activates auto-away, holding the prior Available.
+            await service.applyIdleTransition(idleTime: 400, timeout: 300)
+            #expect(service.myPresence == .away)
+            // The user manually picks a non-offline status while still idle.
+            await service.setPresence(.dnd, message: nil, accountID: testAccountID)
+            #expect(service.myPresence == .dnd)
+            // Returning to activity must not clobber the manual choice with the stale held presence.
+            await service.applyIdleTransition(idleTime: 0, timeout: 300)
+            #expect(service.myPresence == .dnd)
+        }
+
+        @Test
+        @MainActor
+        func `a status change via the GUI applyPresence path during auto-away survives the idle return`() async {
+            let service = makePresenceService()
+            // Idle activates auto-away, holding the prior Available.
+            await service.applyIdleTransition(idleTime: 400, timeout: 300)
+            #expect(service.myPresence == .away)
+            // The user picks a non-offline status through the GUI path (StatusBarView/MenuBarStatusView → applyPresence).
+            await service.applyPresence(.dnd, message: nil, accountID: testAccountID, connect: { _ in }, disconnect: { _ in })
+            #expect(service.myPresence == .dnd)
+            // Returning to activity must not clobber the GUI choice with the stale held presence.
+            await service.applyIdleTransition(idleTime: 0, timeout: 300)
+            #expect(service.myPresence == .dnd)
         }
     }
 

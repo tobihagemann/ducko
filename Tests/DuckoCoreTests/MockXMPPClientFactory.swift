@@ -2,12 +2,22 @@ import DuckoCore
 @testable import DuckoXMPP
 
 struct MockXMPPClientFactory: XMPPClientFactory {
-    let transport: any XMPPTransport
-    let modules: [any XMPPModule]
+    let transportForAccount: @Sendable (Account) -> any XMPPTransport
+    let modulesForAccount: @Sendable (Account) -> [any XMPPModule]
 
     init(transport: any XMPPTransport, modules: [any XMPPModule] = []) {
-        self.transport = transport
-        self.modules = modules
+        self.transportForAccount = { _ in transport }
+        self.modulesForAccount = { _ in modules }
+    }
+
+    /// Per-account transport and module resolution, for tests that back two simultaneously
+    /// connected accounts (e.g. asserting a broadcast reaches each account's own transport).
+    init(
+        transportForAccount: @escaping @Sendable (Account) -> any XMPPTransport,
+        modulesForAccount: @escaping @Sendable (Account) -> [any XMPPModule] = { _ in [] }
+    ) {
+        self.transportForAccount = transportForAccount
+        self.modulesForAccount = modulesForAccount
     }
 
     func makeClient(
@@ -22,12 +32,12 @@ struct MockXMPPClientFactory: XMPPClientFactory {
             username: account.jid.localPart ?? "",
             password: password
         )
-        builder.withTransport(transport)
+        builder.withTransport(transportForAccount(account))
         builder.withRequireTLS(false)
         let sm = StreamManagementModule(previousState: previousSMState)
         builder.withModule(sm)
         builder.withInterceptor(sm)
-        for module in modules {
+        for module in modulesForAccount(account) {
             builder.withModule(module)
         }
         return await (builder.build(), sm)

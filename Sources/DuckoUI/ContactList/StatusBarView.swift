@@ -6,6 +6,9 @@ struct StatusBarView: View {
     @State private var isShowingCustomStatus = false
     @State private var isHoveringStatus = false
 
+    /// With multiple connected accounts the header reflects only the first enabled
+    /// account; the Adium-style multi-account header (global-status broadcast,
+    /// per-account status submenu, identity switcher) is a separate backlog item.
     private var account: Account? {
         environment.accountService.accounts.first { $0.isEnabled }
     }

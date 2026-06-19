@@ -56,6 +56,18 @@ enum AccountServiceTests {
 
         @Test
         @MainActor
+        func `createAccount defaults connectOnLaunch to true`() async throws {
+            let store = makeStore()
+            let service = makeAccountService(store: store)
+
+            _ = try await service.createAccount(jidString: testJIDString)
+
+            let accounts = try await store.fetchAccounts()
+            #expect(accounts[0].connectOnLaunch == true)
+        }
+
+        @Test
+        @MainActor
         func `createAccount with invalid JID throws invalidJID`() async throws {
             let store = makeStore()
             let service = makeAccountService(store: store)
@@ -185,6 +197,68 @@ enum AccountServiceTests {
             } else {
                 Issue.record("Expected .disconnected, got \(String(describing: service.connectionStates[account.id]))")
             }
+        }
+    }
+
+    struct ConnectEnabledAccounts {
+        @Test
+        @MainActor
+        func `connects an enabled connectOnLaunch account and skips one without the flag`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let flaggedJID = try #require(BareJID(localPart: "alice", domainPart: "example.com"))
+            let unflaggedJID = try #require(BareJID(localPart: "bob", domainPart: "example.com"))
+            let flagged = Account(id: UUID(), jid: flaggedJID, isEnabled: true, connectOnLaunch: true, createdAt: Date())
+            let unflagged = Account(id: UUID(), jid: unflaggedJID, isEnabled: true, connectOnLaunch: false, createdAt: Date())
+            await store.addAccount(flagged)
+            await store.addAccount(unflagged)
+            credentials.savePassword("secret", for: flagged.jid.description)
+            credentials.savePassword("secret", for: unflagged.jid.description)
+
+            // A permanent connect error makes the attempted account land in `.error`
+            // without driving a handshake; the skipped account stays `.disconnected`.
+            let transport = MockTransport(connectError: TestError())
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+            try await service.loadAccounts()
+
+            await service.connectEnabledAccounts()
+
+            if case .error = service.connectionStates[flagged.id] {
+                // Expected — the flagged account was attempted.
+            } else {
+                Issue.record("Expected .error for the flagged account, got \(String(describing: service.connectionStates[flagged.id]))")
+            }
+            if case .disconnected = service.connectionStates[unflagged.id] {
+                // Expected — the unflagged account was never attempted.
+            } else {
+                Issue.record("Expected .disconnected for the unflagged account, got \(String(describing: service.connectionStates[unflagged.id]))")
+            }
+        }
+
+        @Test
+        @MainActor
+        func `connectEnabledAccounts skips an already-connected account`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let account = Account(id: UUID(), jid: testJID, isEnabled: true, connectOnLaunch: true, createdAt: Date())
+            await store.addAccount(account)
+            credentials.savePassword("secret", for: account.jid.description)
+
+            let transport = MockTransport()
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+            try await service.loadAccounts()
+
+            let (client, connectTask) = try await driveMockConnect(service, accountID: account.id, transport: transport)
+
+            // Re-running launch connect must skip the already-connected account: the same client instance
+            // stays in place (a re-dial would build a new client and fail on the already-connected transport).
+            await service.connectEnabledAccounts()
+            #expect(service.connectedClient(for: account.id) === client)
+
+            connectTask.cancel()
+            await service.disconnect(accountID: account.id)
         }
     }
 
@@ -323,6 +397,7 @@ enum AccountServiceTests {
             let accounts = try await store.fetchAccounts()
             #expect(accounts.count == 1)
             #expect(accounts[0].id == accountID)
+            #expect(accounts[0].connectOnLaunch == true)
         }
 
         @Test

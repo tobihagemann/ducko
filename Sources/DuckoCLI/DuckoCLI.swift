@@ -1096,7 +1096,7 @@ extension DuckoCLI {
 
                 if noConnect {
                     let accountID = try await env.accountService.createAccount(
-                        jidString: jid, host: host, port: effectivePort
+                        jidString: jid, host: host, port: effectivePort, connectOnLaunch: false
                     )
                     await env.accountService.savePassword(accountID: accountID, password: resolvedPassword)
                 } else {

@@ -396,10 +396,10 @@ enum RosterServiceTests {
         }
     }
 
-    struct GroupIdentityScoping {
+    struct GroupMerging {
         @Test
         @MainActor
-        func `the same group name on two accounts yields distinct group ids`() async {
+        func `same group name across accounts merges into one section keyed by name`() async throws {
             let store = makeStore()
             let service = makeRosterService(store: store)
             let accountA = UUID()
@@ -410,9 +410,71 @@ enum RosterServiceTests {
             await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
 
             let ungrouped = service.groups.filter { $0.name == ContactGroup.ungroupedName }
-            #expect(ungrouped.count == 2)
-            // Distinct ids despite the shared name — a duplicate id would corrupt List selection.
-            #expect(Set(ungrouped.map(\.id)).count == 2)
+            #expect(ungrouped.count == 1)
+
+            let merged = try #require(ungrouped.first)
+            // A single name-based id post-merge — a safe `ForEach`/`onlineCounts` key.
+            #expect(merged.id == ContactGroup.ungroupedName)
+            #expect(merged.contacts.count == 2)
+            // Both accounts' contacts are present, distinguishable by accountID.
+            #expect(Set(merged.contacts.map(\.accountID)) == [accountA, accountB])
+        }
+
+        @Test
+        @MainActor
+        func `onlineCounts for a merged group totals contacts across accounts`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
+
+            let merged = try #require(service.groups.first { $0.name == ContactGroup.ungroupedName })
+            let counts = ContactListSizing.onlineCounts(
+                groupID: merged.id,
+                unfilteredRoster: service.groups,
+                displayedContacts: merged.contacts
+            ) { $0.jid == contactJID1 }
+
+            #expect(counts.total == 2)
+            #expect(counts.online == 1)
+        }
+
+        @Test
+        @MainActor
+        func `merged sections sort alphabetically with Ungrouped last across accounts`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            // Account A contributes "Work"; account B contributes "Friends" and an ungrouped contact.
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Work"])]), accountID: accountA)
+            await service.handleEvent(.rosterLoaded([
+                makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"]),
+                makeRosterItem(jid: contactJID3, name: "Carol")
+            ]), accountID: accountB)
+
+            #expect(service.groups.map(\.name) == ["Friends", "Work", ContactGroup.ungroupedName])
+        }
+
+        @Test
+        @MainActor
+        func `contacts interleave alphabetically across accounts within a merged group`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            // Bob on A, Alice on B, both in "Friends" — the merged section must sort Alice before Bob,
+            // not cluster per account in insertion order.
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"])]), accountID: accountA)
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"])]), accountID: accountB)
+
+            let friends = try #require(service.groups.first { $0.name == "Friends" })
+            #expect(friends.contacts.map(\.name) == ["Alice", "Bob"])
         }
     }
 

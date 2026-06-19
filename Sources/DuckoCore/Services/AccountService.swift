@@ -149,7 +149,7 @@ public final class AccountService {
         port: Int? = nil,
         resource: String? = nil,
         requireTLS: Bool = true,
-        connectOnLaunch: Bool = false,
+        connectOnLaunch: Bool = true,
         importedFrom: String? = nil
     ) async throws -> UUID {
         guard let jid = BareJID.parse(jidString) else {
@@ -260,7 +260,7 @@ public final class AccountService {
         port: Int? = nil,
         resource: String? = nil,
         requireTLS: Bool = true,
-        connectOnLaunch: Bool = false,
+        connectOnLaunch: Bool = true,
         importedFrom: String? = nil,
         afterConnect: ((UUID) async throws -> Void)? = nil
     ) async throws -> UUID {

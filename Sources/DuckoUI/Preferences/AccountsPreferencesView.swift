@@ -430,8 +430,10 @@ private struct AccountAddSheet: View {
         isAdding = true
         Task {
             do {
-                let accountID = try await environment.accountService.createAndConnect(jidString: jid, password: password)
-                await environment.accountService.disconnect(accountID: accountID)
+                // `createAndConnect` already connects, persists the password, and reloads
+                // accounts; leaving it connected lets the new account's roster appear
+                // without a relaunch.
+                _ = try await environment.accountService.createAndConnect(jidString: jid, password: password)
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription
