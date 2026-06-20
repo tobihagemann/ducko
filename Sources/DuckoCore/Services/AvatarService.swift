@@ -19,10 +19,11 @@ public struct AvatarData: Sendable {
 
 @MainActor @Observable
 public final class AvatarService {
-    /// Whether the server supports XEP-0398 PEP-to-vCard conversion.
-    private var serverSupportsConversion: Bool = false
-    /// Own avatar hash (for presence broadcasts).
-    public private(set) var ownAvatarHash: String?
+    /// Per-account: whether each account's server supports XEP-0398 PEP-to-vCard conversion. Keyed by account
+    /// so capabilities stay isolated across a multi-account session.
+    private var serverSupportsConversionByAccount: [UUID: Bool] = [:]
+    /// Per-account own avatar hash, used for presence broadcasts.
+    private var ownAvatarHashByAccount: [UUID: String] = [:]
 
     private weak var accountService: AccountService?
     private weak var rosterService: RosterService?
@@ -47,6 +48,46 @@ public final class AvatarService {
         presenceService = service
     }
 
+    // MARK: - Lifecycle
+
+    /// The account's own avatar hash, or nil when none is published/loaded for it.
+    public func ownAvatarHash(for accountID: UUID) -> String? {
+        ownAvatarHashByAccount[accountID]
+    }
+
+    /// Drops one account's avatar capability/hash on a lifecycle teardown that bypasses the `.disconnected`
+    /// event handler (user-initiated `AccountService.disconnect`, account delete).
+    func purgeAccount(_ accountID: UUID) {
+        clearAvatarState(for: accountID)
+    }
+
+    private func clearAvatarState(for accountID: UUID) {
+        serverSupportsConversionByAccount.removeValue(forKey: accountID)
+        ownAvatarHashByAccount.removeValue(forKey: accountID)
+    }
+
+    private func serverSupportsConversion(for accountID: UUID) -> Bool {
+        serverSupportsConversionByAccount[accountID] ?? false
+    }
+
+    /// True when the roster content generation for `accountID` is unchanged since `captured` (nil → no roster
+    /// service wired, so there is nothing to republish). Peer-avatar handlers capture the generation before
+    /// their first await and re-check before each contact write and reload, so a disconnect/purge during the
+    /// fetch can't republish a just-cleared account via `RosterService.loadContacts` (which captures its own
+    /// fresh generation).
+    private func rosterGenerationUnchanged(_ captured: UInt64?, accountID: UUID) -> Bool {
+        guard let captured else { return true }
+        return rosterService?.contentGeneration(for: accountID) == captured
+    }
+
+    #if DEBUG
+        /// Test seam: seeds per-account avatar state without a live connection, so per-account isolation and
+        /// teardown can be exercised in unit tests.
+        func setOwnAvatarHashForTesting(_ hash: String?, accountID: UUID) {
+            ownAvatarHashByAccount[accountID] = hash
+        }
+    #endif
+
     // MARK: - Event Handling
 
     func handleEvent(_ event: XMPPEvent, accountID: UUID) async {
@@ -59,8 +100,7 @@ public final class AvatarService {
         case let .vcardAvatarHashReceived(from, hash):
             await handleVCardAvatarHash(from: from, hash: hash, accountID: accountID)
         case .disconnected:
-            serverSupportsConversion = false
-            ownAvatarHash = nil
+            clearAvatarState(for: accountID)
         case .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -124,11 +164,13 @@ public final class AvatarService {
         )
 
         // Update vCard photo if server doesn't do conversion
-        if !serverSupportsConversion {
+        if !serverSupportsConversion(for: accountID) {
             await updateVCardPhoto(bytes: Array(imageData), mimeType: mimeType, accountID: accountID)
         }
 
-        ownAvatarHash = hash
+        // A disconnect/purge during the publish tore the account down; don't restore its cleared hash.
+        guard accountService?.connectedClient(for: accountID) === client else { return }
+        ownAvatarHashByAccount[accountID] = hash
         presenceModule.setOwnAvatarHash(hash)
         await presenceService?.resendEffectivePresence(accountID: accountID)
         await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule, accountID: accountID)
@@ -146,11 +188,13 @@ public final class AvatarService {
             payload: metadata
         )
 
-        if !serverSupportsConversion {
+        if !serverSupportsConversion(for: accountID) {
             await clearVCardPhoto(accountID: accountID)
         }
 
-        ownAvatarHash = nil
+        // A disconnect/purge during the removal tore the account down; leave the purged state alone.
+        guard accountService?.connectedClient(for: accountID) === client else { return }
+        ownAvatarHashByAccount.removeValue(forKey: accountID)
         presenceModule.setOwnAvatarHash(nil)
         await presenceService?.resendEffectivePresence(accountID: accountID)
         await resendPresenceToMUCRooms(client: client, presenceModule: presenceModule, accountID: accountID)
@@ -196,8 +240,11 @@ public final class AvatarService {
 
         do {
             let info = try await discoModule.queryInfo(for: .bare(account.jid))
-            serverSupportsConversion = info.features.contains(XMPPNamespaces.pepVCardConversion)
-            if serverSupportsConversion {
+            let supportsConversion = info.features.contains(XMPPNamespaces.pepVCardConversion)
+            // A disconnect/purge during the await tore the account down; don't restore its cleared state.
+            guard accountService?.connectedClient(for: accountID) === client else { return }
+            serverSupportsConversionByAccount[accountID] = supportsConversion
+            if supportsConversion {
                 log.info("Server supports XEP-0398 PEP-vCard conversion")
             }
         } catch {
@@ -212,8 +259,10 @@ public final class AvatarService {
 
         do {
             let vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true)
-            ownAvatarHash = vcard?.photoHash
-            presenceModule.setOwnAvatarHash(ownAvatarHash)
+            // A disconnect/purge during the await tore the account down; don't restore its cleared state.
+            guard accountService?.connectedClient(for: accountID) === client else { return }
+            ownAvatarHashByAccount[accountID] = vcard?.photoHash
+            presenceModule.setOwnAvatarHash(vcard?.photoHash)
             // Re-broadcast presence so contacts receive the XEP-0153 hash
             // (initial presence was sent before this fetch completed)
             await presenceService?.resendEffectivePresence(accountID: accountID)
@@ -225,6 +274,7 @@ public final class AvatarService {
     // MARK: - Private: PEP Avatar Metadata
 
     private func handleAvatarMetadataPublished(from: BareJID, items: [PEPItem], accountID: UUID) async {
+        let rosterGeneration = rosterService?.contentGeneration(for: accountID)
         guard let account = accountService?.accounts.first(where: { $0.id == accountID }),
               from != account.jid else { return }
 
@@ -232,7 +282,7 @@ public final class AvatarService {
         let metadata = item.payload
 
         guard let info = metadata.child(named: "info") else {
-            await clearContactAvatar(jid: from, accountID: accountID)
+            await clearContactAvatar(jid: from, accountID: accountID, rosterGeneration: rosterGeneration)
             return
         }
 
@@ -241,17 +291,18 @@ public final class AvatarService {
 
         if let hash, contact.avatarHash == hash { return }
 
-        await fetchAndStoreAvatar(for: contact, hash: hash, accountID: accountID)
+        await fetchAndStoreAvatar(for: contact, hash: hash, accountID: accountID, rosterGeneration: rosterGeneration)
     }
 
     // MARK: - Private: vCard Avatar Hash
 
     private func handleVCardAvatarHash(from: BareJID, hash: String?, accountID: UUID) async {
+        let rosterGeneration = rosterService?.contentGeneration(for: accountID)
         guard let contact = await findContact(jid: from, accountID: accountID) else { return }
 
         guard let hash else {
             if contact.avatarHash != nil {
-                await clearContactAvatar(jid: from, accountID: accountID)
+                await clearContactAvatar(jid: from, accountID: accountID, rosterGeneration: rosterGeneration)
             }
             return
         }
@@ -264,27 +315,17 @@ public final class AvatarService {
         do {
             let vcard = try await vcardModule.fetchVCard(for: from, forceRefresh: true)
             guard let photoData = vcard?.photoData else { return }
-            guard photoData.count <= AvatarLimits.maxBytes else {
-                log.warning("Dropping oversized avatar (\(photoData.count) bytes)")
-                // Record the hash (without the image) so the same oversized photo
-                // isn't re-fetched on every subsequent notification carrying it.
-                var updated = contact
-                updated.avatarHash = hash
-                try? await store.upsertContact(updated)
-                return
-            }
-
-            var updated = contact
-            updated.avatarData = Data(photoData)
-            updated.avatarHash = hash
-            try? await store.upsertContact(updated)
-            try? await rosterService?.loadContacts(for: accountID)
+            // Record the hash without the image (data == nil) for an oversized photo, so the same one isn't
+            // re-fetched on every subsequent notification carrying it.
+            let data: Data? = photoData.count <= AvatarLimits.maxBytes ? Data(photoData) : nil
+            if data == nil { log.warning("Dropping oversized avatar (\(photoData.count) bytes)") }
+            await storeContactAvatar(data, hash: hash, for: contact, accountID: accountID, rosterGeneration: rosterGeneration)
         } catch {
             log.warning("Failed to fetch vCard avatar for \(from): \(error.localizedDescription)")
         }
     }
 
-    private func fetchAndStoreAvatar(for contact: Contact, hash: String?, accountID: UUID) async {
+    private func fetchAndStoreAvatar(for contact: Contact, hash: String?, accountID: UUID, rosterGeneration: UInt64?) async {
         guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let pepModule = await client.module(ofType: PEPModule.self) else { return }
 
@@ -296,30 +337,35 @@ public final class AvatarService {
             )
             guard let item = items.first, let base64Text = item.payload.textContent else { return }
 
-            // Pre-check the encoded length (base64 expands ~4/3) so an oversized
-            // payload is rejected before allocating the decoded bytes.
-            guard base64Text.utf8.count <= AvatarLimits.maxBytes / 3 * 4 + 4,
-                  let data = Data(base64Encoded: base64Text, options: .ignoreUnknownCharacters),
-                  data.count <= AvatarLimits.maxBytes
-            else {
-                // Record the hash (without the image) so an oversized/undecodable
-                // payload isn't re-fetched on every subsequent notification.
-                if let hash {
-                    var updated = contact
-                    updated.avatarHash = hash
-                    try? await store.upsertContact(updated)
-                }
-                return
-            }
-
-            var updated = contact
-            updated.avatarData = data
-            updated.avatarHash = hash ?? sha1Hex(Array(data))
-            try? await store.upsertContact(updated)
-            try? await rosterService?.loadContacts(for: accountID)
+            // Pre-check the encoded length (base64 expands ~4/3) before decoding; nil data (oversized or
+            // undecodable) records only the hash so the payload isn't re-fetched on every notification.
+            let data: Data? = base64Text.utf8.count <= AvatarLimits.maxBytes / 3 * 4 + 4
+                ? Data(base64Encoded: base64Text, options: .ignoreUnknownCharacters).flatMap { $0.count <= AvatarLimits.maxBytes ? $0 : nil }
+                : nil
+            await storeContactAvatar(data, hash: hash, for: contact, accountID: accountID, rosterGeneration: rosterGeneration)
         } catch {
             log.warning("Failed to fetch PEP avatar data for \(contact.jid): \(error.localizedDescription)")
         }
+    }
+
+    /// Writes a peer's fetched avatar to its contact and republishes the roster, guarded by the roster
+    /// `rosterGeneration` captured before the fetch so a disconnect/purge during the await can't resurrect a
+    /// torn-down account. `data == nil` records only the hash (oversized/undecodable payloads) and skips the
+    /// reload; a nil `hash` with nil `data` is a no-op.
+    private func storeContactAvatar(_ data: Data?, hash: String?, for contact: Contact, accountID: UUID, rosterGeneration: UInt64?) async {
+        guard rosterGenerationUnchanged(rosterGeneration, accountID: accountID) else { return }
+        var updated = contact
+        if let data {
+            updated.avatarData = data
+            updated.avatarHash = hash ?? sha1Hex(Array(data))
+        } else if let hash {
+            updated.avatarHash = hash
+        } else {
+            return
+        }
+        try? await store.upsertContact(updated)
+        guard data != nil else { return }
+        try? await rosterService?.loadContacts(for: accountID, ifGenerationUnchangedSince: rosterGeneration ?? 0)
     }
 
     private func fetchPEPAvatar(for jid: BareJID, accountID: UUID) async -> AvatarData? {
@@ -372,12 +418,14 @@ public final class AvatarService {
         }
     }
 
-    private func clearContactAvatar(jid: BareJID, accountID: UUID) async {
+    private func clearContactAvatar(jid: BareJID, accountID: UUID, rosterGeneration: UInt64?) async {
         guard var contact = await findContact(jid: jid, accountID: accountID) else { return }
         contact.avatarData = nil
         contact.avatarHash = nil
+        // A disconnect/purge during the fetch tore the account down; don't write its contact or republish.
+        guard rosterGenerationUnchanged(rosterGeneration, accountID: accountID) else { return }
         try? await store.upsertContact(contact)
-        try? await rosterService?.loadContacts(for: accountID)
+        try? await rosterService?.loadContacts(for: accountID, ifGenerationUnchangedSince: rosterGeneration ?? 0)
     }
 
     private func updateVCardPhoto(bytes: [UInt8], mimeType: String, accountID: UUID) async {

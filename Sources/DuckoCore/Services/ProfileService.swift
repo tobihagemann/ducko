@@ -36,6 +36,22 @@ public final class ProfileService {
         accountService = service
     }
 
+    // MARK: - Lifecycle
+
+    /// Drops one account's cached own-profile on a lifecycle teardown (user-initiated `AccountService.disconnect`,
+    /// account delete), keeping profile state consistent with the other per-account caches.
+    func purgeAccount(_ accountID: UUID) {
+        ownProfilesByAccount.removeValue(forKey: accountID)
+    }
+
+    #if DEBUG
+        /// Test seam: seeds a per-account own-profile without a live fetch, so per-account purge/isolation can
+        /// be exercised in unit tests.
+        func setOwnProfileForTesting(_ profile: ProfileInfo, accountID: UUID) {
+            ownProfilesByAccount[accountID] = profile
+        }
+    #endif
+
     // MARK: - Public API
 
     public func fetchOwnProfile(accountID: UUID) async {
@@ -44,6 +60,8 @@ public final class ProfileService {
 
         do {
             let vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true)
+            // A disconnect/purge during the await tore the account down; don't restore its cleared profile.
+            guard accountService?.connectedClient(for: accountID) === client else { return }
             if let vcard {
                 ownProfilesByAccount[accountID] = mapVCardToProfileInfo(vcard)
             }
@@ -94,6 +112,8 @@ public final class ProfileService {
             }
         } catch let stanzaError as XMPPStanzaError where stanzaError.condition == .itemNotFound {}
         try await vcardModule.publishVCard(vcard)
+        // A disconnect/purge during the publish tore the account down; don't restore its cleared profile.
+        guard accountService?.connectedClient(for: accountID) === client else { return }
         ownProfilesByAccount[accountID] = profile
     }
 

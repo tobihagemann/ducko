@@ -19,17 +19,14 @@ public final class PresenceService {
         var message: String?
     }
 
-    public var contactPresences: [BareJID: PresenceStatus] {
-        contactPresencesByAccount.values.reduce(into: [:]) { result, dict in
-            result.merge(dict) { _, new in new }
-        }
-    }
+    /// Cross-account merge of every account's peer presences (last-account-wins on JID collision).
+    /// Stored (not computed) so `@Observable` tracks it and the merge runs once per mutation, not per read;
+    /// the per-account fast path stays `presence(for:accountID:)`. Maintained by the rebuild helpers below.
+    public private(set) var contactPresences: [BareJID: PresenceStatus] = [:]
 
-    public var contactStatusMessages: [BareJID: String] {
-        contactStatusMessagesByAccount.values.reduce(into: [:]) { result, dict in
-            result.merge(dict) { _, new in new }
-        }
-    }
+    /// Cross-account merge of every account's peer status messages, the structural twin of `contactPresences`.
+    /// Stored for the same reason; the per-account fast path stays `statusMessage(for:accountID:)`.
+    public private(set) var contactStatusMessages: [BareJID: String] = [:]
 
     public func statusMessage(for jid: BareJID) -> String? {
         // Search per-account directly rather than materializing the merged dictionary
@@ -91,12 +88,6 @@ public final class PresenceService {
 
     func setAccountService(_ service: AccountService) {
         accountService = service
-        // A user-initiated disconnect cancels the account's event task before the `.disconnected(.requested)`
-        // event can reach `handleEvent`, so clear the per-account override here instead — a stream-blip
-        // reconnect goes through `handleDisconnect` and never fires this, preserving the pinned override.
-        service.onRequestedDisconnect = { [weak self] accountID in
-            self?.presenceOverridesByAccount.removeValue(forKey: accountID)
-        }
     }
 
     public enum PresenceServiceError: Error, LocalizedError {
@@ -259,9 +250,7 @@ public final class PresenceService {
         case let .presenceSubscriptionRequest(from):
             handleSubscriptionRequest(from: from, accountID: accountID)
         case let .disconnected(reason):
-            contactPresencesByAccount.removeValue(forKey: accountID)
-            contactStatusMessagesByAccount.removeValue(forKey: accountID)
-            pendingRequestsByAccount.removeValue(forKey: accountID)
+            clearContactState(for: accountID)
             // Drop a per-account override only on intentional teardown; preserve it across a stream
             // blip + auto-reconnect so a pinned status isn't silently lost.
             if case .requested = reason {
@@ -399,6 +388,46 @@ public final class PresenceService {
             contactStatusMessagesByAccount[accountID, default: [:]].removeValue(forKey: bareJID)
         } else {
             contactStatusMessagesByAccount[accountID, default: [:]][bareJID] = trimmedStatus
+        }
+
+        // Synchronous handler (no store await to bracket), so the caches are recomputed inline — no
+        // load-generation guard is needed here, unlike the suspending roster-load handlers.
+        rebuildContactPresences()
+        rebuildContactStatusMessages()
+    }
+
+    // MARK: - Lifecycle
+
+    /// Drops one account's presence state — including any per-account override — on a lifecycle teardown
+    /// that bypasses the `.disconnected` event handler (user-initiated `AccountService.disconnect`, account
+    /// delete). A stream-blip reconnect goes through `handleDisconnect` and never calls this, so a pinned
+    /// override survives a blip.
+    func purgeAccount(_ accountID: UUID) {
+        clearContactState(for: accountID)
+        presenceOverridesByAccount.removeValue(forKey: accountID)
+    }
+
+    // MARK: - Presence Cache
+
+    /// Drops one account's peer presence/status/subscription state and republishes the merged caches.
+    /// Shared by the `.disconnected` handler and `purgeAccount` so the two stay in lockstep.
+    private func clearContactState(for accountID: UUID) {
+        contactPresencesByAccount.removeValue(forKey: accountID)
+        contactStatusMessagesByAccount.removeValue(forKey: accountID)
+        pendingRequestsByAccount.removeValue(forKey: accountID)
+        rebuildContactPresences()
+        rebuildContactStatusMessages()
+    }
+
+    private func rebuildContactPresences() {
+        contactPresences = contactPresencesByAccount.values.reduce(into: [:]) { result, dict in
+            result.merge(dict) { _, new in new }
+        }
+    }
+
+    private func rebuildContactStatusMessages() {
+        contactStatusMessages = contactStatusMessagesByAccount.values.reduce(into: [:]) { result, dict in
+            result.merge(dict) { _, new in new }
         }
     }
 

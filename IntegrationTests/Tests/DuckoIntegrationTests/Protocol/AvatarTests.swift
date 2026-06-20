@@ -20,11 +20,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let bob = try #require(harness.accounts["bob"])
                 let aliceJID = try harness.jid(for: TestCredentials.alice)
 
-                // Fetch Alice's current avatar directly rather than reading
-                // ownAvatarHash — the service has a single shared ownAvatarHash
-                // slot that multi-account connect races can overwrite with
-                // another account's hash, leading cleanup to restore the wrong
-                // operator's avatar.
+                // Fetch Alice's current avatar directly rather than reading the cached own-hash, so cleanup
+                // restores the avatar that's actually on the server regardless of what's cached locally.
                 let originalAvatar = await harness.environment.avatarService.fetchAvatar(for: aliceJID, accountID: alice.accountID)
 
                 harness.addCleanup {
@@ -50,7 +47,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 // verified locally: `publishAvatar` sets `ownAvatarHash` only
                 // after the avatar-data and avatar-metadata PEP publish IQs
                 // both succeed.
-                #expect(harness.environment.avatarService.ownAvatarHash == expectedHash)
+                #expect(harness.environment.avatarService.ownAvatarHash(for: alice.accountID) == expectedHash)
 
                 // Bob sees either the PEP+ metadata publish or the XEP-0153
                 // vCard fallback — both count as cross-account visibility.

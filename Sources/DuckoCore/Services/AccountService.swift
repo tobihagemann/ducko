@@ -29,11 +29,17 @@ public final class AccountService {
     private var redirectCounts: [UUID: Int] = [:]
     private var isAppActive: Bool = true
     private weak var omemoService: OMEMOService?
+    private weak var rosterService: RosterService?
+    private weak var presenceService: PresenceService?
+    private weak var chatService: ChatService?
+    private weak var bookmarksService: BookmarksService?
+    private weak var avatarService: AvatarService?
+    private weak var profileService: ProfileService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
-    /// Fired at the start of a user-initiated `disconnect(accountID:)` (Preferences disconnect, account
-    /// disable/remove, shutdown) — but not on auto-reconnecting drops, which go through `handleDisconnect`.
-    /// `PresenceService` uses it to drop a per-account override that the cancelled event task would otherwise
-    /// keep from reaching the reason-aware cleanup.
+    /// Fired at the start of a user-initiated `disconnect(accountID:)`, before the per-account event task is
+    /// cancelled. `AppEnvironment` uses it to cancel that account's in-flight event-dispatch fan-out tasks so a
+    /// stale event can't repopulate the per-account state the disconnect is about to purge. Not fired on
+    /// auto-reconnecting drops, which go through `handleDisconnect` and deliver `.disconnected` normally.
     var onRequestedDisconnect: ((UUID) -> Void)?
 
     public enum ConnectionState: Sendable {
@@ -116,7 +122,14 @@ public final class AccountService {
     }
 
     public func disconnect(accountID: UUID) async {
+        // User-initiated teardown cancels the event task below before `.disconnected` can reach the services'
+        // handlers, so purge their per-account state here instead. `onRequestedDisconnect` first cancels any
+        // in-flight event-dispatch tasks for the account (AppEnvironment) so a stale event can't repopulate
+        // what we purge. This whole prefix is synchronous (no await until `client.disconnect()` below), so no
+        // dispatch task can interleave between the cancel and the purges. A stream-blip reconnect goes through
+        // `handleDisconnect`, never this, so pinned state survives a blip.
         onRequestedDisconnect?(accountID)
+        purgeServiceCaches(for: accountID)
         cancelReconnect(for: accountID, resetAttempts: true)
         passwords[accountID] = nil
         smResumeStates[accountID] = nil
@@ -217,11 +230,17 @@ public final class AccountService {
         }
     }
 
-    /// Local delete only — does NOT disconnect. Use `AppEnvironment.removeAccount` / `cancelAccount` for full teardown with optional transcript deletion.
+    /// Deletes the account's local data. Fully disconnects first (a no-op when already disconnected) so no live
+    /// client, event task, or suspended loader can repopulate state after the delete. Use
+    /// `AppEnvironment.removeAccount` / `cancelAccount` for full teardown with optional transcript deletion.
     public func deleteAccount(_ id: UUID) async throws {
+        // Disconnect first so the services' connected-client/generation guards see the account gone and no
+        // event task keeps delivering; this also clears the per-account service caches (via `purgeServiceCaches`).
+        await disconnect(accountID: id)
         try await store.deleteAccount(id)
         deletePassword(accountID: id)
-        // Drop in-memory per-account caches that outlive the account row.
+        // The OMEMO seen-device cache is delete-only — it deliberately survives reconnects, so `disconnect`
+        // leaves it intact; drop it here now that the account row is gone.
         omemoService?.purgeSeenDeviceClassifications(accountID: id)
         try await loadAccounts()
     }
@@ -370,6 +389,42 @@ public final class AccountService {
 
     func setOMEMOService(_ service: OMEMOService) {
         omemoService = service
+    }
+
+    func setRosterService(_ service: RosterService) {
+        rosterService = service
+    }
+
+    func setPresenceService(_ service: PresenceService) {
+        presenceService = service
+    }
+
+    func setChatService(_ service: ChatService) {
+        chatService = service
+    }
+
+    func setBookmarksService(_ service: BookmarksService) {
+        bookmarksService = service
+    }
+
+    func setAvatarService(_ service: AvatarService) {
+        avatarService = service
+    }
+
+    func setProfileService(_ service: ProfileService) {
+        profileService = service
+    }
+
+    /// Drops every per-account service cache on a lifecycle teardown that bypasses the services'
+    /// `.disconnected` handlers. Shared by `disconnect(accountID:)` and `deleteAccount(_:)` so the next
+    /// per-account cache added to a service only needs wiring in one place.
+    private func purgeServiceCaches(for accountID: UUID) {
+        rosterService?.purgeAccount(accountID)
+        presenceService?.purgeAccount(accountID)
+        chatService?.purgeAccount(accountID)
+        bookmarksService?.purgeAccount(accountID)
+        avatarService?.purgeAccount(accountID)
+        profileService?.purgeAccount(accountID)
     }
 
     // MARK: - Client Access

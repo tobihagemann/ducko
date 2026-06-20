@@ -1009,7 +1009,7 @@ extension DuckoCLI {
 
                 try await env.avatarService.publishAvatar(imageData: imageData, mimeType: mimeType, accountID: selectedAccount.id)
 
-                let hash = await MainActor.run { env.avatarService.ownAvatarHash ?? "unknown" }
+                let hash = await MainActor.run { env.avatarService.ownAvatarHash(for: selectedAccount.id) ?? "unknown" }
                 print("Avatar published successfully.")
                 print("Hash: \(hash)")
                 print("Size: \(imageData.count) bytes")
@@ -2667,7 +2667,7 @@ private func handleAvatarREPLCommand(_ input: String, context: REPLContext) asyn
     let args = input.dropFirst("/avatar".count).trimmingCharacters(in: .whitespaces)
 
     if args.isEmpty {
-        let hash = await MainActor.run { context.environment.avatarService.ownAvatarHash }
+        let hash = await MainActor.run { context.environment.avatarService.ownAvatarHash(for: context.accountID) }
         if let hash {
             print("Own avatar hash: \(hash)")
         } else {

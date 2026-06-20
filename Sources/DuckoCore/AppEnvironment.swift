@@ -19,9 +19,13 @@ public final class AppEnvironment {
 
     private let filterPipeline: MessageFilterPipeline
     private let onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)?
-    /// Per-event dispatch tasks and the one-shot filter-registration task, each keyed by a UUID and
+    /// One-shot tasks not tied to an account (filter registration, test seam), each keyed by a UUID and
     /// self-removing on completion. Drained by `shutdown(within:)` so they can't race teardown.
     private var pendingTasks: [UUID: Task<Void, Never>] = [:]
+    /// Per-event dispatch fan-out tasks, keyed by account so a user-initiated disconnect can cancel just that
+    /// account's in-flight events (`cancelDispatchTasks(for:)`) before purging its state. Each self-removes on
+    /// completion; all are drained by `shutdown(within:)`.
+    private var dispatchTasksByAccount: [UUID: [UUID: Task<Void, Never>]] = [:]
 
     public init(
         store: any PersistenceStore,
@@ -84,6 +88,15 @@ public final class AppEnvironment {
         omemoService.setAccountService(accountService)
         omemoService.setChatService(chatService)
         accountService.setOMEMOService(omemoService)
+        accountService.setRosterService(rosterService)
+        accountService.setPresenceService(presenceService)
+        accountService.setChatService(chatService)
+        accountService.setBookmarksService(bookmarksService)
+        accountService.setAvatarService(avatarService)
+        accountService.setProfileService(profileService)
+        accountService.onRequestedDisconnect = { [weak self] accountID in
+            self?.cancelDispatchTasks(for: accountID)
+        }
     }
 
     /// Fans each account event out to the consuming services on a stored, self-removing task so the
@@ -93,18 +106,27 @@ public final class AppEnvironment {
         accountService.onEvent = { [weak self] event, accountID in
             guard let self else { return }
             let taskID = UUID()
-            pendingTasks[taskID] = Task { @MainActor [weak self] in
-                defer { self?.pendingTasks[taskID] = nil }
+            dispatchTasksByAccount[accountID, default: [:]][taskID] = Task { @MainActor [weak self] in
+                defer { self?.dispatchTasksByAccount[accountID]?[taskID] = nil }
                 guard let self else { return }
-                // Shutdown cancels this task; bail before fanning out so a cancelled dispatch can't spawn
-                // a child service task after `shutdown` snapshotted the drain stores.
+                // Shutdown and user-initiated disconnect both cancel this task. Re-check between every handler:
+                // bailing before fan-out stops a cancelled dispatch from spawning child work after a `shutdown`
+                // drain snapshot, and re-checking between awaits stops a task that was suspended inside one
+                // handler from resuming into later handlers and repopulating per-account state a
+                // `disconnect`/`deleteAccount` purge just cleared.
                 if Task.isCancelled { return }
                 await chatService.handleEvent(event, accountID: accountID)
+                if Task.isCancelled { return }
                 await presenceService.handleEvent(event, accountID: accountID)
+                if Task.isCancelled { return }
                 await rosterService.handleEvent(event, accountID: accountID)
+                if Task.isCancelled { return }
                 fileTransferService.handleJingleEvent(event, accountID: accountID)
+                if Task.isCancelled { return }
                 await bookmarksService.handleEvent(event, accountID: accountID)
+                if Task.isCancelled { return }
                 await avatarService.handleEvent(event, accountID: accountID)
+                if Task.isCancelled { return }
                 await omemoService.handleEvent(event, accountID: accountID)
             }
             onExternalEvent?(event, accountID)
@@ -131,12 +153,28 @@ public final class AppEnvironment {
         }
     }
 
-    /// Returns this environment's in-flight event/filter task handles and clears the store, so
-    /// `shutdown(within:)` operates on a captured snapshot rather than the live store.
+    /// Returns this environment's in-flight event/filter task handles and clears the stores, so
+    /// `shutdown(within:)` operates on a captured snapshot rather than the live stores.
     private func takePendingTasks() -> [Task<Void, Never>] {
-        let tasks = Array(pendingTasks.values)
+        var tasks = Array(pendingTasks.values)
         pendingTasks.removeAll()
+        for perAccount in dispatchTasksByAccount.values {
+            tasks.append(contentsOf: perAccount.values)
+        }
+        dispatchTasksByAccount.removeAll()
         return tasks
+    }
+
+    /// Cancels and drops every in-flight event-dispatch task for `accountID`. Called from
+    /// `AccountService.onRequestedDisconnect` so a queued/in-flight stale event can't repopulate per-account
+    /// state that the user-initiated disconnect is about to purge. A not-yet-started task bails at its
+    /// top-level `Task.isCancelled` check; an already-suspended roster handler is additionally caught by the
+    /// per-account load-generation guard.
+    private func cancelDispatchTasks(for accountID: UUID) {
+        guard let tasks = dispatchTasksByAccount.removeValue(forKey: accountID) else { return }
+        for task in tasks.values {
+            task.cancel()
+        }
     }
 
     #if DEBUG

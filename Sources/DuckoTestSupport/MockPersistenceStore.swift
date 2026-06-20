@@ -9,8 +9,18 @@ public actor MockPersistenceStore: PersistenceStore {
     /// Test seam: when set, `fetchConversations(for:)` throws this instead of returning, so the
     /// account-aware cache's failed-fetch-leaves-the-slot-intact path is exercisable.
     public var fetchConversationsError: Error?
+    /// Test seam: when installed, `fetchContacts(for:)` signals `entered` (the store read is in flight)
+    /// and then awaits `release` before returning, so a test can interleave a teardown between the read
+    /// and the caller's cache write. Nil → no gating.
+    private var fetchContactsGateEntered: AsyncSemaphore?
+    private var fetchContactsGateRelease: AsyncSemaphore?
 
     public init() {}
+
+    public func installFetchContactsGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
+        fetchContactsGateEntered = entered
+        fetchContactsGateRelease = release
+    }
 
     public func setFetchConversationsError(_ error: Error?) {
         fetchConversationsError = error
@@ -45,7 +55,11 @@ public actor MockPersistenceStore: PersistenceStore {
     // MARK: - Contacts
 
     public func fetchContacts(for accountID: UUID) async throws -> [Contact] {
-        contacts.filter { $0.accountID == accountID }
+        if let entered = fetchContactsGateEntered, let release = fetchContactsGateRelease {
+            await entered.signal()
+            await release.wait()
+        }
+        return contacts.filter { $0.accountID == accountID }
     }
 
     public func upsertContact(_ contact: Contact) async throws {

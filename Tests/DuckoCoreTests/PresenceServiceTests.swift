@@ -302,6 +302,24 @@ enum PresenceServiceTests {
             #expect(service.contactPresences[contactJID] == .away)
             #expect(service.contactPresences[otherJID] == .xa)
         }
+
+        @Test
+        @MainActor
+        func `Aggregate contactStatusMessages merges all accounts`() async throws {
+            let service = makePresenceService()
+            let account1 = UUID()
+            let account2 = UUID()
+
+            let from = try JID.full(#require(FullJID(bareJID: contactJID, resourcePart: "res")))
+            let otherJID = try #require(BareJID(localPart: "other", domainPart: "example.com"))
+            let otherFrom = try JID.full(#require(FullJID(bareJID: otherJID, resourcePart: "res")))
+
+            await service.handleEvent(.presenceUpdated(from: from, presence: makePresence(show: .away, status: "On A")), accountID: account1)
+            await service.handleEvent(.presenceUpdated(from: otherFrom, presence: makePresence(show: .xa, status: "On B")), accountID: account2)
+
+            #expect(service.contactStatusMessages[contactJID] == "On A")
+            #expect(service.contactStatusMessages[otherJID] == "On B")
+        }
     }
 
     struct AccountScopedReads {
@@ -910,6 +928,9 @@ private func makeTwoConnectedAccounts() async throws -> TwoConnectedAccountsFixt
     let accountService = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
     let presenceService = PresenceService()
     presenceService.setAccountService(accountService)
+    // `purgeAccount` clears the per-account override on a user-initiated disconnect, which needs the reverse
+    // wiring (`AccountService` → `PresenceService`).
+    accountService.setPresenceService(presenceService)
 
     let aliceID = try await accountService.createAccount(jidString: "alice@example.com", host: "example.com", port: 5222)
     let bobID = try await accountService.createAccount(jidString: "bob@example.com", host: "example.com", port: 5222)
@@ -939,34 +960,4 @@ private func makeUnconnectedService() -> (AccountService, PresenceService) {
     let presenceService = PresenceService()
     presenceService.setAccountService(accountService)
     return (accountService, presenceService)
-}
-
-// MARK: - Test Helpers
-
-/// Counting permit-based async semaphore used to gate test progress at a
-/// specific suspension point inside the system under test. `signal` before
-/// any `wait` increments a permit so the next `wait` returns immediately —
-/// signals are never dropped.
-private actor AsyncSemaphore {
-    private var pending: [CheckedContinuation<Void, Never>] = []
-    private var permits = 0
-
-    func signal() {
-        if let next = pending.first {
-            pending.removeFirst()
-            next.resume()
-        } else {
-            permits += 1
-        }
-    }
-
-    func wait() async {
-        if permits > 0 {
-            permits -= 1
-            return
-        }
-        await withCheckedContinuation { continuation in
-            pending.append(continuation)
-        }
-    }
 }

@@ -42,6 +42,22 @@ public final class BookmarksService {
         chatService = service
     }
 
+    // MARK: - Lifecycle
+
+    /// Drops one account's bookmarks on a lifecycle teardown that bypasses the `.disconnected` event handler
+    /// (user-initiated `AccountService.disconnect`, account delete). Mirrors the `.disconnected` clear.
+    func purgeAccount(_ accountID: UUID) {
+        bookmarksByAccount.removeValue(forKey: accountID)
+    }
+
+    #if DEBUG
+        /// Test seam: seeds per-account bookmarks without a live PEP fetch, so per-account purge/isolation
+        /// can be exercised in unit tests.
+        func setBookmarksForTesting(_ bookmarks: [RoomBookmark], accountID: UUID) {
+            bookmarksByAccount[accountID] = bookmarks
+        }
+    #endif
+
     // MARK: - Public API
 
     public func loadBookmarks(accountID: UUID) async {
@@ -51,6 +67,9 @@ public final class BookmarksService {
         do {
             let items = try await pepModule.retrieveItems(node: XMPPNamespaces.bookmarks2)
             let parsed = items.compactMap { Bookmark.parse(itemID: $0.id, payload: $0.payload) }
+            // The same client must still be connected after the fetch: a disconnect/purge during the await
+            // tore the account down, and republishing would resurrect a just-cleared account's bookmarks.
+            guard accountService?.connectedClient(for: accountID) === client else { return }
             bookmarksByAccount[accountID] = parsed.map { mapToRoomBookmark($0) }
             await autojoinRooms(from: parsed, accountID: accountID)
         } catch {
@@ -114,7 +133,7 @@ public final class BookmarksService {
             where node == XMPPNamespaces.bookmarks2:
             await handleBookmarksRetracted(from: from, itemIDs: itemIDs, accountID: accountID)
         case .disconnected:
-            bookmarksByAccount.removeValue(forKey: accountID)
+            purgeAccount(accountID)
         case .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,

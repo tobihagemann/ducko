@@ -192,6 +192,21 @@ enum RosterServiceTests {
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts.isEmpty)
         }
+
+        @Test
+        @MainActor
+        func `Roster item change refreshes the cached groups`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // An add must publish into the stored `groups` cache, not just the store.
+            await service.handleEvent(.rosterItemChanged(makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"])), accountID: testAccountID)
+            #expect(service.groups.first?.contacts.first?.jid == contactJID1)
+
+            // A subsequent remove must refresh the cache, leaving no contacts.
+            await service.handleEvent(.rosterItemChanged(makeRosterItem(jid: contactJID1, subscription: .remove)), accountID: testAccountID)
+            #expect(service.groups.flatMap(\.contacts).isEmpty)
+        }
     }
 
     struct GroupBuilding {
@@ -475,6 +490,149 @@ enum RosterServiceTests {
 
             let friends = try #require(service.groups.first { $0.name == "Friends" })
             #expect(friends.contacts.map(\.name) == ["Alice", "Bob"])
+        }
+    }
+
+    struct Disconnect {
+        @Test
+        @MainActor
+        func `Disconnect event clears the cached groups for the account`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: testAccountID)
+            #expect(!service.groups.isEmpty)
+
+            await service.handleEvent(.disconnected(.requested), accountID: testAccountID)
+            #expect(service.groups.isEmpty)
+        }
+
+        @Test
+        @MainActor
+        func `Disconnect clears only the disconnected account's groups`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            let accountA = UUID()
+            let accountB = UUID()
+
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
+            #expect(service.groups.flatMap(\.contacts).count == 2)
+
+            // Tearing down account A must leave account B's contacts in the merged cache.
+            await service.handleEvent(.disconnected(.requested), accountID: accountA)
+
+            let remaining = service.groups.flatMap(\.contacts)
+            #expect(remaining.count == 1)
+            #expect(remaining.first?.jid == contactJID2)
+        }
+
+        @Test
+        @MainActor
+        func `A roster load racing a purge does not repopulate the cleared groups`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            // Seed a contact so a completed load would publish a non-empty merge.
+            try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
+
+            let entered = AsyncSemaphore()
+            let release = AsyncSemaphore()
+            await store.installFetchContactsGate(entered: entered, release: release)
+
+            let load = Task { @MainActor in try await service.loadContacts(for: testAccountID) }
+
+            // Park the load at its store read, then tear the account down so the generation counter bumps.
+            await entered.wait()
+            service.purgeAccount(testAccountID)
+
+            // Release the read; the resumed load must observe the bumped generation and bail without publishing.
+            await release.signal()
+            try await load.value
+
+            #expect(service.groups.isEmpty)
+        }
+
+        @Test
+        @MainActor
+        func `A roster-loaded event racing a purge neither repopulates groups nor mutates the store`() async {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+
+            let entered = AsyncSemaphore()
+            let release = AsyncSemaphore()
+            await store.installFetchContactsGate(entered: entered, release: release)
+
+            let load = Task { @MainActor in
+                await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: testAccountID)
+            }
+
+            // Park the handler at its store read, then tear the account down.
+            await entered.wait()
+            service.purgeAccount(testAccountID)
+
+            await release.signal()
+            await load.value
+
+            // The pre-persistence guard must bail before the upsert, so the store stays empty too — not just the cache.
+            #expect(service.groups.isEmpty)
+            #expect(await store.contacts.isEmpty)
+        }
+
+        @Test
+        @MainActor
+        func `A roster-item-changed event racing a purge neither repopulates groups nor adds the contact`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            // Pre-seed Alice (ungated) so we can prove the racing change neither publishes nor writes Bob.
+            try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
+
+            let entered = AsyncSemaphore()
+            let release = AsyncSemaphore()
+            await store.installFetchContactsGate(entered: entered, release: release)
+
+            let load = Task { @MainActor in
+                await service.handleEvent(.rosterItemChanged(makeRosterItem(jid: contactJID2, name: "Bob")), accountID: testAccountID)
+            }
+
+            // Park at the first store read, tear the account down, then release. The pre-persistence guard
+            // must bail before the upsert (and before the second fetch), so Bob is never written.
+            await entered.wait()
+            service.purgeAccount(testAccountID)
+            await release.signal()
+            await load.value
+
+            #expect(service.groups.isEmpty)
+            #expect(await !store.contacts.contains { $0.jid == contactJID2 })
+        }
+
+        @Test
+        @MainActor
+        func `updateLastSeen racing a purge neither republishes groups nor writes lastSeen`() async throws {
+            let store = makeStore()
+            let service = makeRosterService(store: store)
+            // Seed the contact updateLastSeen would touch (it only acts on an existing contact).
+            try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
+
+            let entered = AsyncSemaphore()
+            let release = AsyncSemaphore()
+            await store.installFetchContactsGate(entered: entered, release: release)
+
+            // An unavailable presence drives `updateLastSeen` through `handleEvent`.
+            let from = try JID.full(#require(FullJID(bareJID: contactJID1, resourcePart: "res")))
+            let task = Task { @MainActor in
+                await service.handleEvent(.presenceUpdated(from: from, presence: XMPPPresence(type: .unavailable)), accountID: testAccountID)
+            }
+
+            await entered.wait()
+            service.purgeAccount(testAccountID)
+            await release.signal()
+            await task.value
+
+            // The generation guard must bail before the upsert, so lastSeen is never written and groups stay cleared.
+            #expect(service.groups.isEmpty)
+            let stored = await store.contacts.first { $0.jid == contactJID1 }
+            #expect(stored?.lastSeen == nil)
         }
     }
 

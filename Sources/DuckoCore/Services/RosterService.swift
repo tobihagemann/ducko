@@ -3,23 +3,21 @@ import Foundation
 
 @MainActor @Observable
 public final class RosterService {
+    /// Per-account groups. `groups` is the rebuilt merge of every slot, so a roster load on one
+    /// account never drops another's. Source of truth behind the published merge — mutate slots
+    /// through `setGroups`/`clearGroups` so the cache stays current.
     private var groupsByAccount: [UUID: [ContactGroup]] = [:]
+    /// Load-generation counter, bumped on every `clearGroups(for:)`. A suspended roster-load handler
+    /// captures the generation before its store read and re-checks it before publishing, so a teardown
+    /// during the await can't resurrect a just-cleared account. Mirrors `OMEMOService.seenDeviceLoadGeneration`.
+    private var groupsLoadGeneration: [UUID: UInt64] = [:]
 
     /// Per-account groups merged into one section per name (Adium-style), so a
     /// multi-account setup doesn't show duplicate same-named sections. Each row
     /// keeps its account-scoped selection identity via `Contact.accountID`, and the
     /// name is a safe `ForEach`/`onlineCounts` id because names are unique post-merge.
-    public var groups: [ContactGroup] {
-        var merged: [String: [Contact]] = [:]
-        for accountGroups in groupsByAccount.values {
-            for group in accountGroups {
-                merged[group.name, default: []].append(contentsOf: group.contacts)
-            }
-        }
-        return sortedGroupKeys(merged.keys).map { name in
-            ContactGroup(id: name, name: name, contacts: sortedByDisplayName(merged[name] ?? []))
-        }
-    }
+    /// Stored (not computed) so `@Observable` tracks it and the merge runs once per mutation, not per read.
+    public private(set) var groups: [ContactGroup] = []
 
     private let store: any PersistenceStore
     private weak var accountService: AccountService?
@@ -77,8 +75,25 @@ public final class RosterService {
     }
 
     public func loadContacts(for accountID: UUID) async throws {
+        let generationBeforeAwait = groupsLoadGeneration[accountID, default: 0]
         let contacts = try await store.fetchContacts(for: accountID)
-        groupsByAccount[accountID] = buildGroups(from: contacts, accountID: accountID)
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
+        setGroups(buildGroups(from: contacts, accountID: accountID), for: accountID)
+    }
+
+    /// The current content generation for `accountID`. An external caller that mutates a contact and then
+    /// refreshes the roster should capture this before its first `await`, re-check it before its own store
+    /// write, and reload via `loadContacts(for:ifGenerationUnchangedSince:)` — so a `purgeAccount`/disconnect
+    /// during the await can't republish a just-cleared account (plain `loadContacts` captures its own fresh
+    /// generation, so an unguarded reload after an await is the hazard this prevents).
+    public func contentGeneration(for accountID: UUID) -> UInt64 {
+        groupsLoadGeneration[accountID, default: 0]
+    }
+
+    /// Reloads `accountID`'s contacts only if its content generation is unchanged since `captured`.
+    public func loadContacts(for accountID: UUID, ifGenerationUnchangedSince captured: UInt64) async throws {
+        guard generationUnchanged(captured, for: accountID) else { return }
+        try await loadContacts(for: accountID)
     }
 
     public func addContact(jid: BareJID, name: String?, groups: [String], accountID: UUID) async throws {
@@ -133,18 +148,25 @@ public final class RosterService {
     }
 
     public func renameContact(_ contact: Contact, newAlias: String, accountID: UUID) async throws {
+        let generationBeforeAwait = groupsLoadGeneration[accountID, default: 0]
         var updated = contact
         updated.localAlias = newAlias.isEmpty ? nil : newAlias
         try await store.upsertContact(updated)
+        // A purge during the upsert would otherwise let the follow-up loadContacts (fresh generation) republish.
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
         try await loadContacts(for: accountID)
     }
 
     func updateLastSeen(jid: BareJID, date: Date, accountID: UUID) async {
+        let generationBeforeAwait = groupsLoadGeneration[accountID, default: 0]
         let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
         guard let contact = contacts.first(where: { $0.jid == jid }) else { return }
         var updated = contact
         updated.lastSeen = date
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
         try? await store.upsertContact(updated)
+        // A purge during the upsert would otherwise let the follow-up loadContacts (fresh generation) republish.
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
         try? await loadContacts(for: accountID)
     }
 
@@ -185,7 +207,7 @@ public final class RosterService {
                 await updateLastSeen(jid: from.bareJID, date: Date(), accountID: accountID)
             }
         case .disconnected:
-            groupsByAccount.removeValue(forKey: accountID)
+            clearGroups(for: accountID)
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .presenceSubscriptionRequest,
@@ -212,30 +234,36 @@ public final class RosterService {
     }
 
     private func handleRosterLoaded(_ items: [RosterItem], accountID: UUID) async {
+        let generationBeforeAwait = groupsLoadGeneration[accountID, default: 0]
         let existingContacts = await (try? store.fetchContacts(for: accountID)) ?? []
 
         // Empty roster response with a cached version means "up-to-date" — use cached contacts
         if items.isEmpty {
             if !existingContacts.isEmpty {
-                groupsByAccount[accountID] = buildGroups(from: existingContacts, accountID: accountID)
+                guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
+                setGroups(buildGroups(from: existingContacts, accountID: accountID), for: accountID)
                 return
             }
         }
 
         let rosterJIDs = Set(items.map(\.jid))
 
+        // Re-check between each write: a purge mid-loop would otherwise re-add rows after the account's deletion.
         for contact in existingContacts where !rosterJIDs.contains(contact.jid) {
+            guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
             try? await store.deleteContact(contact.id)
         }
 
         var updatedContacts: [Contact] = []
         for item in items {
+            guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
             let contact = mapRosterItem(item, accountID: accountID, existingContacts: existingContacts)
             try? await store.upsertContact(contact)
             updatedContacts.append(contact)
         }
 
-        groupsByAccount[accountID] = buildGroups(from: updatedContacts, accountID: accountID)
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
+        setGroups(buildGroups(from: updatedContacts, accountID: accountID), for: accountID)
     }
 
     private func handleRosterVersionChanged(_ version: String, accountID: UUID) async {
@@ -246,7 +274,10 @@ public final class RosterService {
     }
 
     private func handleRosterItemChanged(_ item: RosterItem, accountID: UUID) async {
+        let generationBeforeAwait = groupsLoadGeneration[accountID, default: 0]
         let existingContacts = await (try? store.fetchContacts(for: accountID)) ?? []
+
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
 
         if item.subscription == .remove {
             if let existing = existingContacts.first(where: { $0.jid == item.jid }) {
@@ -258,7 +289,8 @@ public final class RosterService {
         }
 
         let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
-        groupsByAccount[accountID] = buildGroups(from: contacts, accountID: accountID)
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
+        setGroups(buildGroups(from: contacts, accountID: accountID), for: accountID)
     }
 
     private func mapRosterItem(_ item: RosterItem, accountID: UUID, existingContacts: [Contact]) -> Contact {
@@ -290,26 +322,82 @@ public final class RosterService {
     }
 
     private func handleBlockListLoaded(_ jids: [BareJID], accountID: UUID) async {
+        let generationBeforeAwait = groupsLoadGeneration[accountID, default: 0]
         let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
         let blockedSet = Set(jids)
         for contact in contacts {
             let shouldBeBlocked = blockedSet.contains(contact.jid)
             if contact.isBlocked != shouldBeBlocked {
+                // Re-check before each write: a clear/purge during an earlier await tore the account down.
+                guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
                 var updated = contact
                 updated.isBlocked = shouldBeBlocked
                 try? await store.upsertContact(updated)
             }
         }
+        // Re-check before the republish so a purge during the writes can't resurrect the account via loadContacts.
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
         try? await loadContacts(for: accountID)
     }
 
     private func handleBlockStateChanged(_ jid: BareJID, isBlocked: Bool, accountID: UUID) async {
+        let generationBeforeAwait = groupsLoadGeneration[accountID, default: 0]
         let contacts = await (try? store.fetchContacts(for: accountID)) ?? []
         guard let contact = contacts.first(where: { $0.jid == jid }) else { return }
         var updated = contact
         updated.isBlocked = isBlocked
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
         try? await store.upsertContact(updated)
+        // Re-check before the republish so a purge during the upsert can't resurrect the account via loadContacts.
+        guard generationUnchanged(generationBeforeAwait, for: accountID) else { return }
         try? await loadContacts(for: accountID)
+    }
+
+    // MARK: - Lifecycle
+
+    /// Drops one account's roster state on a lifecycle teardown that bypasses the `.disconnected`
+    /// event handler (user-initiated `AccountService.disconnect`, account delete).
+    func purgeAccount(_ accountID: UUID) {
+        clearGroups(for: accountID)
+    }
+
+    // MARK: - Group Cache
+
+    /// Replaces one account's groups slot and republishes the merge. The single landing point for a
+    /// per-account roster result so cross-account derived reads stay current.
+    private func setGroups(_ groups: [ContactGroup], for accountID: UUID) {
+        groupsByAccount[accountID] = groups
+        rebuildGroups()
+    }
+
+    /// Drops one account's groups slot, bumps the load generation so any in-flight load bails, and
+    /// republishes the merge. Both the `.disconnected` handler and `purgeAccount` route through here.
+    private func clearGroups(for accountID: UUID) {
+        groupsByAccount.removeValue(forKey: accountID)
+        groupsLoadGeneration[accountID, default: 0] &+= 1
+        rebuildGroups()
+    }
+
+    /// True when no `clearGroups`/`purgeAccount` ran for `accountID` since `captured` was read — i.e. the
+    /// account wasn't torn down during an intervening `store` await. A suspending handler captures the
+    /// generation before its await and re-checks via this before any store mutation or cache publish, so a
+    /// teardown can't resurrect a just-cleared account.
+    private func generationUnchanged(_ captured: UInt64, for accountID: UUID) -> Bool {
+        groupsLoadGeneration[accountID, default: 0] == captured
+    }
+
+    /// Rebuilds the published `groups` as the by-name merge of every account slot. Coalesces same-named
+    /// per-account sections into one, sorted by `sortedGroupKeys` with contacts by display name.
+    private func rebuildGroups() {
+        var merged: [String: [Contact]] = [:]
+        for accountGroups in groupsByAccount.values {
+            for group in accountGroups {
+                merged[group.name, default: []].append(contentsOf: group.contacts)
+            }
+        }
+        groups = sortedGroupKeys(merged.keys).map { name in
+            ContactGroup(id: name, name: name, contacts: sortedByDisplayName(merged[name] ?? []))
+        }
     }
 
     private func buildGroups(from contacts: [Contact], accountID: UUID) -> [ContactGroup] {

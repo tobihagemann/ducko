@@ -1388,12 +1388,9 @@ public final class ChatService {
         case let .mucSelfPingFailed(room, reason):
             await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
         case .disconnected:
-            clearLocks(accountID: accountID)
-            typingStates.removeValue(forKey: accountID)
-            // Drop room state owned by the disconnecting account only — a
-            // global `removeAll` would erase rooms belonging to other still-
-            // connected accounts in a multi-account session.
-            await clearRoomState(forAccount: accountID)
+            // Same clears as the user-initiated `purgeAccount` path; scoped to the disconnecting account so a
+            // global `removeAll` can't erase rooms belonging to other still-connected accounts.
+            purgeAccount(accountID)
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -1901,13 +1898,25 @@ public final class ChatService {
         newlyCreatedRoomKeys.remove(key)
     }
 
-    /// Per-account disconnect clear. Re-derives the disconnecting account's rooms from persisted
-    /// conversations and drops each one's keyed state, leaving other accounts' rooms intact.
-    private func clearRoomState(forAccount accountID: UUID) async {
-        let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
-        for conversation in conversations where conversation.type == .groupchat {
-            clearRoomState(for: conversation.jid, accountID: accountID)
-        }
+    /// Per-account disconnect clear. Drops every room-keyed entry belonging to the account, leaving other
+    /// accounts' rooms intact. Filters the `(accountID, room)`-keyed maps directly (synchronous) rather than
+    /// re-deriving rooms from persisted conversations, so it can run in `disconnect`'s no-await prefix.
+    private func clearRoomState(forAccount accountID: UUID) {
+        roomParticipants = roomParticipants.filter { $0.key.accountID != accountID }
+        roomFlags = roomFlags.filter { $0.key.accountID != accountID }
+        newlyCreatedRoomKeys = newlyCreatedRoomKeys.filter { $0.accountID != accountID }
+    }
+
+    // MARK: - Lifecycle
+
+    /// Drops one account's live chat state — peer resource locks, incoming typing indicators, and room-keyed
+    /// state — on a lifecycle teardown that bypasses the `.disconnected` event handler (user-initiated
+    /// `AccountService.disconnect`, account delete). Mirrors the `.disconnected` MUC handler's clears.
+    /// Persisted conversations are intentionally left intact (they survive offline).
+    func purgeAccount(_ accountID: UUID) {
+        clearLocks(accountID: accountID)
+        typingStates.removeValue(forKey: accountID)
+        clearRoomState(forAccount: accountID)
     }
 
     // MARK: - Private: Group OMEMO
