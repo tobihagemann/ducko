@@ -165,7 +165,7 @@ public final class AvatarService {
 
         // Update vCard photo if server doesn't do conversion
         if !serverSupportsConversion(for: accountID) {
-            await updateVCardPhoto(bytes: Array(imageData), mimeType: mimeType, accountID: accountID)
+            await updateVCardPhoto(client: client, bytes: Array(imageData), mimeType: mimeType, accountID: accountID)
         }
 
         // A disconnect/purge during the publish tore the account down; don't restore its cleared hash.
@@ -189,7 +189,7 @@ public final class AvatarService {
         )
 
         if !serverSupportsConversion(for: accountID) {
-            await clearVCardPhoto(accountID: accountID)
+            await clearVCardPhoto(client: client, accountID: accountID)
         }
 
         // A disconnect/purge during the removal tore the account down; leave the purged state alone.
@@ -428,12 +428,13 @@ public final class AvatarService {
         try? await rosterService?.loadContacts(for: accountID, ifGenerationUnchangedSince: rosterGeneration ?? 0)
     }
 
-    private func updateVCardPhoto(bytes: [UInt8], mimeType: String, accountID: UUID) async {
-        guard let client = accountService?.connectedClient(for: accountID) else { return }
+    private func updateVCardPhoto(client: XMPPClient, bytes: [UInt8], mimeType: String, accountID: UUID) async {
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
 
         do {
             var vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true) ?? VCardModule.VCard()
+            // A disconnect/purge during the fetch tore the account down; don't publish a stale vCard.
+            guard accountService?.connectedClient(for: accountID) === client else { return }
             vcard.photoData = bytes
             vcard.photoType = mimeType
             vcard.photoHash = sha1Hex(bytes)
@@ -443,12 +444,13 @@ public final class AvatarService {
         }
     }
 
-    private func clearVCardPhoto(accountID: UUID) async {
-        guard let client = accountService?.connectedClient(for: accountID) else { return }
+    private func clearVCardPhoto(client: XMPPClient, accountID: UUID) async {
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
 
         do {
             var vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true) ?? VCardModule.VCard()
+            // A disconnect/purge during the fetch tore the account down; don't publish a stale vCard.
+            guard accountService?.connectedClient(for: accountID) === client else { return }
             vcard.photoData = nil
             vcard.photoType = nil
             vcard.photoHash = nil

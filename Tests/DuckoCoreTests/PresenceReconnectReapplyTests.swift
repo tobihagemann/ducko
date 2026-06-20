@@ -45,20 +45,12 @@ enum PresenceReconnectReapplyTests {
             let accountID = try await accountService.createAccount(
                 jidString: "alice@example.com", host: "example.com", port: 5222
             )
-            let connectTask = Task { @MainActor in
-                try await accountService.connect(accountID: accountID, password: "secret")
-            }
-            await simulateNoTLSConnect(transport)
-            // Initial presence (stanza 5) + entity caps (stanza 6) — once caps is on the wire the readiness
-            // gate opens, so the reapply's `awaitInitialPresenceSent()` won't block.
-            await transport.waitForSent(count: 6)
-
-            var connected = false
-            for _ in 0 ..< 100 {
-                if accountService.connectedClient(for: accountID) != nil { connected = true; break }
-                try await Task.sleep(for: .milliseconds(20))
-            }
-            #expect(connected)
+            let (_, connectTask) = try await driveMockConnect(
+                accountService,
+                accountID: accountID,
+                transport: transport,
+                awaitInitialPresence: true
+            )
 
             let boundJID = try #require(FullJID.parse("alice@example.com/ducko"))
 
