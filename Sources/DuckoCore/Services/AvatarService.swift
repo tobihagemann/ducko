@@ -286,10 +286,16 @@ public final class AvatarService {
             return
         }
 
-        let hash = info.attribute("id")
+        // XEP-0084 requires the <info> id (the image's SHA-1). Without it there is no stable hash to compare or
+        // record, so a peer publishing id-less metadata would otherwise force a fetch on every notification.
+        // Treat it as malformed and ignore it, consistent with the record-hash-then-suppress model.
+        guard let hash = info.attribute("id"), !hash.isEmpty else {
+            log.warning("Ignoring PEP avatar metadata without the required info id")
+            return
+        }
         guard let contact = await findContact(jid: from, accountID: accountID) else { return }
 
-        if let hash, contact.avatarHash == hash { return }
+        if contact.avatarHash == hash { return }
 
         await fetchAndStoreAvatar(for: contact, hash: hash, accountID: accountID, rosterGeneration: rosterGeneration)
     }
@@ -350,21 +356,27 @@ public final class AvatarService {
 
     /// Writes a peer's fetched avatar to its contact and republishes the roster, guarded by the roster
     /// `rosterGeneration` captured before the fetch so a disconnect/purge during the await can't resurrect a
-    /// torn-down account. `data == nil` records only the hash (oversized/undecodable payloads) and skips the
-    /// reload; a nil `hash` with nil `data` is a no-op.
+    /// torn-down account. `data == nil` (oversized/undecodable payloads) records the new hash and clears any
+    /// previously stored bytes — keeping the stale image would pin it, since the recorded hash suppresses
+    /// re-fetches. The roster reload runs only when visible avatar state actually changed; a nil `hash` with nil
+    /// `data` is a no-op.
     private func storeContactAvatar(_ data: Data?, hash: String?, for contact: Contact, accountID: UUID, rosterGeneration: UInt64?) async {
         guard rosterGenerationUnchanged(rosterGeneration, accountID: accountID) else { return }
         var updated = contact
+        let shouldReload: Bool
         if let data {
             updated.avatarData = data
             updated.avatarHash = hash ?? sha1Hex(Array(data))
+            shouldReload = true
         } else if let hash {
+            updated.avatarData = nil
             updated.avatarHash = hash
+            shouldReload = contact.avatarData != nil
         } else {
             return
         }
         try? await store.upsertContact(updated)
-        guard data != nil else { return }
+        guard shouldReload else { return }
         try? await rosterService?.loadContacts(for: accountID, ifGenerationUnchangedSince: rosterGeneration ?? 0)
     }
 
@@ -381,7 +393,9 @@ public final class AvatarService {
             guard let metaItem = metaItems.first,
                   let info = metaItem.payload.child(named: "info") else { return nil }
 
-            let hash = info.attribute("id") ?? ""
+            // XEP-0084 requires the <info> id (the image SHA-1). Treat missing/empty as malformed and fall back to
+            // vCard rather than returning an avatar under an invalid cache key, matching the notification path.
+            guard let hash = info.attribute("id"), !hash.isEmpty else { return nil }
             let mimeType = info.attribute("type") ?? "image/png"
 
             let dataItems = try await pepModule.retrieveItems(

@@ -108,11 +108,15 @@ private func avatarMetadataElement(id: String, type: String = "image/png") -> St
 }
 
 /// A PEP avatar-metadata notification item, as delivered by `.pepItemsPublished`. Its payload is the
-/// `<metadata><info id=…>` element `handleAvatarMetadataPublished` parses to drive the data fetch.
-private func avatarMetadataItem(id: String, type: String = "image/png") -> PEPItem {
+/// `<metadata><info id=…>` element `handleAvatarMetadataPublished` parses to drive the data fetch. A nil `id`
+/// omits the `<info>` `id` attribute and an empty `id` emits `<info id=''/>` — both are the malformed cases
+/// `handleAvatarMetadataPublished` ignores, since XEP-0084 requires the id.
+private func avatarMetadataItem(id: String?, type: String = "image/png") -> PEPItem {
     var metadata = DuckoXMPP.XMLElement(name: "metadata", namespace: XMPPNamespaces.avatarMetadata)
-    metadata.addChild(DuckoXMPP.XMLElement(name: "info", attributes: ["id": id, "type": type]))
-    return PEPItem(id: id, payload: metadata)
+    var attributes = ["type": type]
+    if let id { attributes["id"] = id }
+    metadata.addChild(DuckoXMPP.XMLElement(name: "info", attributes: attributes))
+    return PEPItem(id: id ?? "current", payload: metadata)
 }
 
 @MainActor
@@ -304,6 +308,66 @@ enum AvatarServiceTests {
 
             await connected.accountService.disconnect(accountID: connected.accountID)
         }
+
+        @Test
+        @MainActor
+        func `re-delivering a matching vCard hash skips the re-fetch`() async throws {
+            let connected = try await connectAvatarService()
+            let hash = "vcard-stable-hash"
+
+            let task = Task { @MainActor in
+                await connected.service.handleEvent(
+                    .vcardAvatarHashReceived(from: connected.peerJID, hash: hash), accountID: connected.accountID
+                )
+            }
+            try await answerGet(
+                connected.transport, sentIndex: 4, from: "peer@example.com",
+                body: vcardBody(binval: AvatarPayloads.validPNGBase64)
+            )
+            await task.value
+            let contact = try await fetchPeerContact(connected)
+            #expect(contact.avatarHash == hash)
+
+            await connected.service.handleEvent(
+                .vcardAvatarHashReceived(from: connected.peerJID, hash: hash), accountID: connected.accountID
+            )
+            // No second fetch: still just 4 handshake + 1 vCard get.
+            let sentCount = await connected.transport.sentBytes.count
+            #expect(sentCount == 5)
+
+            await connected.accountService.disconnect(accountID: connected.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `re-delivering an over-cap vCard hash skips the re-fetch`() async throws {
+            let connected = try await connectAvatarService()
+            let hash = "vcard-over-cap-stable-hash"
+
+            let task = Task { @MainActor in
+                await connected.service.handleEvent(
+                    .vcardAvatarHashReceived(from: connected.peerJID, hash: hash), accountID: connected.accountID
+                )
+            }
+            try await answerGet(
+                connected.transport, sentIndex: 4, from: "peer@example.com",
+                body: vcardBody(binval: AvatarPayloads.innerOverCapBase64)
+            )
+            await task.value
+            // The oversized photo was dropped (data nil) but its hash recorded — the reason the drop path stores
+            // the hash at all is so the next notification carrying it is suppressed rather than re-fetched.
+            let contact = try await fetchPeerContact(connected)
+            #expect(contact.avatarData == nil)
+            #expect(contact.avatarHash == hash)
+
+            await connected.service.handleEvent(
+                .vcardAvatarHashReceived(from: connected.peerJID, hash: hash), accountID: connected.accountID
+            )
+            let sentCount = await connected.transport.sentBytes.count
+            #expect(sentCount == 5)
+
+            await connected.accountService.disconnect(accountID: connected.accountID)
+        }
     }
 
     struct PEPMetadataIngestion {
@@ -396,6 +460,185 @@ enum AvatarServiceTests {
             let contact = try await fetchPeerContact(connected)
             #expect(contact.avatarData == nil)
             #expect(contact.avatarHash == hash)
+
+            await connected.accountService.disconnect(accountID: connected.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `re-delivering a matching PEP metadata hash skips the re-fetch`() async throws {
+            let connected = try await connectAvatarService()
+            let hash = "pep-stable-hash"
+
+            let task = Task { @MainActor in
+                await connected.service.handleEvent(
+                    .pepItemsPublished(
+                        from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                        items: [avatarMetadataItem(id: hash)]
+                    ),
+                    accountID: connected.accountID
+                )
+            }
+            try await answerGet(
+                connected.transport, sentIndex: 4, from: "peer@example.com",
+                body: pepItemsBody(
+                    node: XMPPNamespaces.avatarData, itemID: hash,
+                    payload: avatarDataElement(AvatarPayloads.validPNGBase64)
+                )
+            )
+            await task.value
+            let contact = try await fetchPeerContact(connected)
+            #expect(contact.avatarHash == hash)
+
+            await connected.service.handleEvent(
+                .pepItemsPublished(
+                    from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                    items: [avatarMetadataItem(id: hash)]
+                ),
+                accountID: connected.accountID
+            )
+            // No second fetch: still just 4 handshake + 1 data get.
+            let sentCount = await connected.transport.sentBytes.count
+            #expect(sentCount == 5)
+
+            await connected.accountService.disconnect(accountID: connected.accountID)
+        }
+
+        @Test(arguments: [nil, ""] as [String?])
+        @MainActor
+        func `malformed PEP metadata is ignored without disturbing an existing avatar`(malformedID: String?) async throws {
+            // A missing (`nil`) and an empty (`""`) <info> id are the two malformed cases XEP-0084's required id
+            // rules out; both must be ignored, not treated as an avatar-removal clear.
+            let connected = try await connectAvatarService()
+            let seededHash = "pep-seeded-hash"
+
+            // Seed a valid avatar first so the malformed delivery can be shown to preserve it rather than clear it.
+            let seedTask = Task { @MainActor in
+                await connected.service.handleEvent(
+                    .pepItemsPublished(
+                        from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                        items: [avatarMetadataItem(id: seededHash)]
+                    ),
+                    accountID: connected.accountID
+                )
+            }
+            try await answerGet(
+                connected.transport, sentIndex: 4, from: "peer@example.com",
+                body: pepItemsBody(
+                    node: XMPPNamespaces.avatarData, itemID: seededHash,
+                    payload: avatarDataElement(AvatarPayloads.validPNGBase64)
+                )
+            )
+            await seedTask.value
+            #expect(try await fetchPeerContact(connected).avatarHash == seededHash)
+
+            await connected.service.handleEvent(
+                .pepItemsPublished(
+                    from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                    items: [avatarMetadataItem(id: malformedID)]
+                ),
+                accountID: connected.accountID
+            )
+            // Malformed metadata is ignored: no data get goes out (still 4 handshake + 1 seed fetch) and the
+            // seeded avatar survives untouched.
+            let sentCount = await connected.transport.sentBytes.count
+            #expect(sentCount == 5)
+            let contact = try await fetchPeerContact(connected)
+            #expect(contact.avatarData != nil)
+            #expect(contact.avatarHash == seededHash)
+
+            await connected.accountService.disconnect(accountID: connected.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `re-delivering an over-cap PEP metadata hash skips the re-fetch`() async throws {
+            let connected = try await connectAvatarService()
+            let hash = "pep-over-cap-stable-hash"
+
+            let task = Task { @MainActor in
+                await connected.service.handleEvent(
+                    .pepItemsPublished(
+                        from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                        items: [avatarMetadataItem(id: hash)]
+                    ),
+                    accountID: connected.accountID
+                )
+            }
+            try await answerGet(
+                connected.transport, sentIndex: 4, from: "peer@example.com",
+                body: pepItemsBody(
+                    node: XMPPNamespaces.avatarData, itemID: hash,
+                    payload: avatarDataElement(AvatarPayloads.innerOverCapBase64)
+                )
+            )
+            await task.value
+            // The oversized payload was dropped (data nil) but its hash recorded, so the next notification carrying
+            // the same hash is suppressed before any data get.
+            let contact = try await fetchPeerContact(connected)
+            #expect(contact.avatarData == nil)
+            #expect(contact.avatarHash == hash)
+
+            await connected.service.handleEvent(
+                .pepItemsPublished(
+                    from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                    items: [avatarMetadataItem(id: hash)]
+                ),
+                accountID: connected.accountID
+            )
+            let sentCount = await connected.transport.sentBytes.count
+            #expect(sentCount == 5)
+
+            await connected.accountService.disconnect(accountID: connected.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `an over-cap update clears a previously stored PEP avatar`() async throws {
+            let connected = try await connectAvatarService()
+
+            let seedTask = Task { @MainActor in
+                await connected.service.handleEvent(
+                    .pepItemsPublished(
+                        from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                        items: [avatarMetadataItem(id: "pep-seed-hash")]
+                    ),
+                    accountID: connected.accountID
+                )
+            }
+            try await answerGet(
+                connected.transport, sentIndex: 4, from: "peer@example.com",
+                body: pepItemsBody(
+                    node: XMPPNamespaces.avatarData, itemID: "pep-seed-hash",
+                    payload: avatarDataElement(AvatarPayloads.validPNGBase64)
+                )
+            )
+            await seedTask.value
+            #expect(try await fetchPeerContact(connected).avatarData != nil)
+
+            let dropTask = Task { @MainActor in
+                await connected.service.handleEvent(
+                    .pepItemsPublished(
+                        from: connected.peerJID, node: XMPPNamespaces.avatarMetadata,
+                        items: [avatarMetadataItem(id: "pep-over-cap-hash")]
+                    ),
+                    accountID: connected.accountID
+                )
+            }
+            try await answerGet(
+                connected.transport, sentIndex: 5, from: "peer@example.com",
+                body: pepItemsBody(
+                    node: XMPPNamespaces.avatarData, itemID: "pep-over-cap-hash",
+                    payload: avatarDataElement(AvatarPayloads.innerOverCapBase64)
+                )
+            )
+            await dropTask.value
+
+            // The oversized update dropped the new bytes and recorded its hash, clearing the previously stored image
+            // so a stale avatar isn't pinned behind the suppressing hash.
+            let contact = try await fetchPeerContact(connected)
+            #expect(contact.avatarData == nil)
+            #expect(contact.avatarHash == "pep-over-cap-hash")
 
             await connected.accountService.disconnect(accountID: connected.accountID)
         }
@@ -543,6 +786,33 @@ enum AvatarServiceTests {
             let result = await task.value
 
             #expect(result == nil)
+
+            await connected.accountService.disconnect(accountID: connected.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `fetchAvatar falls back to vCard when PEP metadata has an empty id`() async throws {
+            let connected = try await connectAvatarService()
+
+            let task = Task { @MainActor in
+                await connected.service.fetchAvatar(for: connected.peerJID, accountID: connected.accountID)
+            }
+            // PEP metadata carries an empty <info> id → fetchPEPAvatar rejects it as malformed → vCard fallback runs.
+            try await answerGet(
+                connected.transport, sentIndex: 4, from: "peer@example.com",
+                body: pepItemsBody(
+                    node: XMPPNamespaces.avatarMetadata, itemID: "current",
+                    payload: avatarMetadataElement(id: "")
+                )
+            )
+            try await answerGet(
+                connected.transport, sentIndex: 5, from: "peer@example.com",
+                body: vcardBody(binval: AvatarPayloads.validPNGBase64)
+            )
+            let result = await task.value
+
+            #expect(result != nil)
 
             await connected.accountService.disconnect(accountID: connected.accountID)
         }
