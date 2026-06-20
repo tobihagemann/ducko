@@ -1387,10 +1387,8 @@ public final class ChatService {
             clearRoomState(for: room, accountID: accountID)
         case let .mucSelfPingFailed(room, reason):
             await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
-        case .disconnected:
-            // Same clears as the user-initiated `purgeAccount` path; scoped to the disconnecting account so a
-            // global `removeAll` can't erase rooms belonging to other still-connected accounts.
-            purgeAccount(accountID)
+        case let .disconnected(reason):
+            handleMUCDisconnect(reason: reason, accountID: accountID)
         case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -1411,6 +1409,16 @@ public final class ChatService {
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break
+        }
+    }
+
+    /// Clears the blip-safe live state (locks/typing/rooms) on every disconnect, scoped to the disconnecting
+    /// account so a global `removeAll` can't erase other still-connected accounts' rooms. Drops pending invites
+    /// only on intentional `.requested` teardown; a `streamError`/`connectionLost`/`redirect` blip preserves them.
+    private func handleMUCDisconnect(reason: DisconnectReason, accountID: UUID) {
+        clearLiveChatState(for: accountID)
+        if case .requested = reason {
+            pendingInvites.removeAll { $0.accountID == accountID }
         }
     }
 
@@ -1910,13 +1918,22 @@ public final class ChatService {
     // MARK: - Lifecycle
 
     /// Drops one account's live chat state — peer resource locks, incoming typing indicators, and room-keyed
-    /// state — on a lifecycle teardown that bypasses the `.disconnected` event handler (user-initiated
-    /// `AccountService.disconnect`, account delete). Mirrors the `.disconnected` MUC handler's clears.
-    /// Persisted conversations are intentionally left intact (they survive offline).
-    func purgeAccount(_ accountID: UUID) {
+    /// state. Shared by the `.disconnected` handler and `purgeAccount` so the two stay in lockstep. Clears only
+    /// state that must reset on a blip: locks, typing, and room occupancy are rebuilt on reconnect/rejoin.
+    private func clearLiveChatState(for accountID: UUID) {
         clearLocks(accountID: accountID)
         typingStates.removeValue(forKey: accountID)
         clearRoomState(forAccount: accountID)
+    }
+
+    /// Drops one account's chat state on a lifecycle teardown that bypasses the `.disconnected` event handler
+    /// (user-initiated `AccountService.disconnect`, account delete) — the single entry point both reach via
+    /// `AccountService.purgeServiceCaches`. Clears the blip-safe live state plus pending room invites: unlike
+    /// locks/typing/rooms, invites are one-shot messages the server never re-delivers on reconnect, so this
+    /// user-initiated teardown is the only one that should discard them. Persisted conversations survive offline.
+    func purgeAccount(_ accountID: UUID) {
+        clearLiveChatState(for: accountID)
+        pendingInvites.removeAll { $0.accountID == accountID }
     }
 
     // MARK: - Private: Group OMEMO

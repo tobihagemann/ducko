@@ -290,5 +290,60 @@ enum ChatServiceMUCTests {
             #expect(!service.roomFlags(forRoomJIDString: roomB.description, accountID: accountB).isEmpty)
             #expect(service.isRoomNewlyCreated(jidString: roomB.description, accountID: accountB))
         }
+
+        /// Pending room invites are one-shot messages the server never re-delivers, so they must outlive a
+        /// transient blip (`connectionLost`/`streamError`/`redirect`) but drop on a user-initiated teardown.
+        /// `purgeAccount` is the real disconnect/delete path; the `.disconnected(.requested)` branch is the
+        /// defensive symmetry with `PresenceService`. Both clears are scoped to the one account, never global.
+        @Test
+        @MainActor
+        func `invites survive a blip but clear on user-initiated teardown`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let accountA = UUID()
+            let accountB = UUID()
+            let room = try #require(BareJID.parse("room@conference.example.com"))
+            let inviter = try #require(BareJID.parse("inviter@example.com"))
+            let invite = RoomInvite(room: room, from: .bare(inviter))
+
+            await service.handleEvent(.roomInviteReceived(invite), accountID: accountA)
+            await service.handleEvent(.roomInviteReceived(invite), accountID: accountB)
+            #expect(service.pendingInvites.contains { $0.accountID == accountA })
+            #expect(service.pendingInvites.contains { $0.accountID == accountB })
+
+            // Seed live room state on A so the blip below proves the divergence: a blip clears the blip-safe
+            // live state (rooms/locks/typing) while preserving invites — not the other way around.
+            let occupancy = RoomOccupancy(
+                nickname: "me",
+                occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                subject: nil,
+                flags: [.logged]
+            )
+            await service.handleEvent(.roomJoined(room: room, occupancy: occupancy, isNewlyCreated: true), accountID: accountA)
+            #expect(!service.roomFlags(forRoomJIDString: room.description, accountID: accountA).isEmpty)
+
+            // A blip preserves invites but still clears live room state: dropped connection, stream error, and
+            // redirect all leave invites intact.
+            await service.handleEvent(.disconnected(.connectionLost("network down")), accountID: accountA)
+            #expect(service.pendingInvites.contains { $0.accountID == accountA })
+            #expect(service.roomFlags(forRoomJIDString: room.description, accountID: accountA).isEmpty)
+            await service.handleEvent(.disconnected(.streamError(nil, text: nil)), accountID: accountA)
+            #expect(service.pendingInvites.contains { $0.accountID == accountA })
+            await service.handleEvent(.disconnected(.redirect(host: "example.com", port: 5222)), accountID: accountA)
+            #expect(service.pendingInvites.contains { $0.accountID == accountA })
+
+            // User-initiated teardown drops only A's invites; B's still-connected invite stays (no global clear).
+            service.purgeAccount(accountA)
+            #expect(!service.pendingInvites.contains { $0.accountID == accountA })
+            #expect(service.pendingInvites.contains { $0.accountID == accountB })
+
+            // Defensive symmetry: the `.requested` branch clears invites if the event ever reaches the handler.
+            await service.handleEvent(.roomInviteReceived(invite), accountID: accountA)
+            #expect(service.pendingInvites.contains { $0.accountID == accountA })
+            await service.handleEvent(.disconnected(.requested), accountID: accountA)
+            #expect(!service.pendingInvites.contains { $0.accountID == accountA })
+            #expect(service.pendingInvites.contains { $0.accountID == accountB })
+        }
     }
 }

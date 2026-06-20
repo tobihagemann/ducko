@@ -31,6 +31,8 @@ enum LifecyclePurgeTests {
             let accountID = try await env.accountService.createAccount(jidString: "alice@example.com")
             let peerJID = try #require(BareJID(localPart: "bob", domainPart: "example.com"))
             let peerFrom = try JID.full(#require(FullJID(bareJID: peerJID, resourcePart: "res")))
+            let room = try #require(BareJID.parse("room@conference.example.com"))
+            let inviter = try #require(BareJID.parse("inviter@example.com"))
 
             await env.rosterService.handleEvent(
                 .rosterLoaded([RosterItem(jid: peerJID, name: "Bob", subscription: .both, ask: false, groups: [])]),
@@ -40,6 +42,10 @@ enum LifecyclePurgeTests {
                 .presenceUpdated(from: peerFrom, presence: makePresence(show: .away, status: "Busy")),
                 accountID: accountID
             )
+            await env.chatService.handleEvent(
+                .roomInviteReceived(RoomInvite(room: room, from: .bare(inviter))),
+                accountID: accountID
+            )
             env.bookmarksService.setBookmarksForTesting([RoomBookmark(jidString: "room@conference.example.com")], accountID: accountID)
             env.avatarService.setOwnAvatarHashForTesting("hash", accountID: accountID)
             env.profileService.setOwnProfileForTesting(ProfileInfo(fullName: "Alice"), accountID: accountID)
@@ -47,6 +53,7 @@ enum LifecyclePurgeTests {
             #expect(!env.rosterService.groups.isEmpty)
             #expect(!env.presenceService.contactPresences.isEmpty)
             #expect(!env.presenceService.contactStatusMessages.isEmpty)
+            #expect(!env.chatService.pendingInvites.isEmpty)
             #expect(!env.bookmarksService.bookmarks.isEmpty)
             #expect(env.avatarService.ownAvatarHash(for: accountID) != nil)
             #expect(env.profileService.ownProfile(for: accountID) != nil)
@@ -59,6 +66,7 @@ enum LifecyclePurgeTests {
             #expect(env.rosterService.groups.isEmpty)
             #expect(env.presenceService.contactPresences.isEmpty)
             #expect(env.presenceService.contactStatusMessages.isEmpty)
+            #expect(env.chatService.pendingInvites.isEmpty)
             #expect(env.bookmarksService.bookmarks.isEmpty)
             #expect(env.avatarService.ownAvatarHash(for: accountID) == nil)
             #expect(env.profileService.ownProfile(for: accountID) == nil)
