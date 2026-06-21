@@ -28,6 +28,15 @@ public enum ContactListSizing {
         return min(max(needed, floor), maxWidth)
     }
 
+    /// Height that fits the off-screen-measured row total, clamped at `maxHeight`.
+    /// Returns the `fallbackHeight` (the flat estimate) clamped at `maxHeight`
+    /// when nothing valid has been measured yet (`measuredHeight <= 0` or
+    /// non-finite). Rounds up to avoid sub-point churn driving needless resizes.
+    public static func fittedHeight(measuredHeight: Double, fallbackHeight: Double, maxHeight: Double) -> Double {
+        guard measuredHeight.isFinite, measuredHeight > 0 else { return min(fallbackHeight, maxHeight) }
+        return min(measuredHeight.rounded(.up), maxHeight)
+    }
+
     /// Total height of all currently-visible rows: each group header, the
     /// contacts of expanded groups, and the rooms section when present and
     /// expanded.

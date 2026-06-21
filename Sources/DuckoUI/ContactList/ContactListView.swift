@@ -24,6 +24,21 @@ private let contactRowInsets = EdgeInsets(top: 2, leading: 4, bottom: 2, trailin
 private let maxMeasuredNames = 200
 private let maxMeasuredNameLength = 64
 
+/// Cap on the hidden row-measuring layer's row count, the vertical twin of
+/// `maxMeasuredNames`, so a server-controlled roster can't drive unbounded
+/// layout work. `maxMeasuredRows × plainMinRowHeight` far exceeds `maxListHeight`,
+/// so truncating the prefix only drops rows that wouldn't fit anyway —
+/// `fittedContentHeight` falls back to the clamped estimate for an overflowing roster.
+private let maxMeasuredRows = 200
+
+/// The `.listStyle(.plain)` `List` floors every row at its minimum row height:
+/// a short group-header row (content + insets ≈ 22) renders at 24, while taller
+/// contact/room rows (avatar/icon-dominated, ≈ 44+) pass through unchanged.
+/// Measured empirically by comparing the real list's `.listRowBackground` cell
+/// heights against the off-screen replica; mirroring the floor per row makes the
+/// summed measurement match the real list exactly, with no per-row-type constant.
+private let plainMinRowHeight: CGFloat = 24
+
 struct ContactListView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(ThemeEngine.self) private var theme
@@ -31,6 +46,7 @@ struct ContactListView: View {
     let searchText: String
     let preferences: ContactListPreferences
     @State private var selection: ConversationKey?
+    @State private var measuredContentHeight: CGFloat = 0
     @AppStorage(ContactListSizingDefaults.autoSizeVerticalKey, store: PreferencesDefaults.store)
     private var autoSizeVertical = true
     @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
@@ -58,7 +74,7 @@ struct ContactListView: View {
         let rooms = roomConversations
         let unfilteredGroups = environment.rosterService.groups
         let contentHeight: CGFloat? = autoSizeVertical
-            ? min(listContentHeight(groups: groups, rooms: rooms), maxListHeight)
+            ? fittedContentHeight(groups: groups, rooms: rooms)
             : nil
 
         List(selection: $selection) {
@@ -141,6 +157,16 @@ struct ContactListView: View {
                 nameMeasuringLayer(names: visibleNames(groups: groups, rooms: rooms))
             }
         }
+        // Vertical auto-size measurement: render the visible rows off-screen and
+        // sum their real heights via `ContentHeightKey`, feeding `contentHeight`
+        // above so the frame fits rows of any height (two-line status, varying
+        // `avatarSize`) instead of the flat per-row estimate.
+        .background(alignment: .topLeading) {
+            if autoSizeVertical {
+                rowMeasuringLayer(groups: groups, rooms: rooms)
+            }
+        }
+        .onPreferenceChange(ContentHeightKey.self) { measuredContentHeight = $0 }
         // Drop a selection whose row was filtered or collapsed out of view, so
         // a hidden row doesn't stay logically selected.
         .onChange(of: visibleSelectableIDs(groups: groups, rooms: rooms)) { _, ids in
@@ -158,6 +184,19 @@ struct ContactListView: View {
             roomsExpanded: preferences.isGroupExpanded(roomsSectionKey),
             groupRowHeight: Double(groupRowHeight),
             rowHeight: Double(theme.current.avatarSize + contactRowChrome)
+        ))
+    }
+
+    /// The list's auto-sized height. On overflow (more than `maxMeasuredRows`
+    /// visible rows) the measured sum is only a truncated prefix, so `0` is passed
+    /// to take `fittedHeight`'s all-rows fallback — which for a roster that large
+    /// clamps to `maxListHeight` and scrolls.
+    private func fittedContentHeight(groups: [ContactGroup], rooms: [Conversation]) -> CGFloat {
+        let overflowing = measuringRowDescriptors(groups: groups, rooms: rooms).count > maxMeasuredRows
+        return CGFloat(ContactListSizing.fittedHeight(
+            measuredHeight: overflowing ? 0 : Double(measuredContentHeight),
+            fallbackHeight: Double(listContentHeight(groups: groups, rooms: rooms)),
+            maxHeight: Double(maxListHeight)
         ))
     }
 
@@ -244,6 +283,70 @@ struct ContactListView: View {
         .accessibilityHidden(true)
     }
 
+    /// One entry per row the `List` renders, in body order: a header per group,
+    /// that group's contacts when expanded, then the Rooms header and rooms when
+    /// present and expanded. Shared by the measuring layer (`.prefix(maxMeasuredRows)`)
+    /// and `fittedContentHeight`'s overflow count so the two can't drift — the height
+    /// twin of `visibleNames` / `visibleSelectableIDs`.
+    private func measuringRowDescriptors(groups: [ContactGroup], rooms: [Conversation]) -> [RowDescriptor] {
+        var descriptors: [RowDescriptor] = []
+        for group in groups {
+            descriptors.append(.header)
+            if preferences.isGroupExpanded(group.name) {
+                descriptors.append(contentsOf: group.contacts.map { .contact($0) })
+            }
+        }
+        if !rooms.isEmpty {
+            descriptors.append(.header)
+            if preferences.isGroupExpanded(roomsSectionKey) {
+                descriptors.append(contentsOf: rooms.map { .room($0) })
+            }
+        }
+        return descriptors
+    }
+
+    /// Off-screen copies of the visible rows at their intrinsic height, each
+    /// publishing its height so `ContentHeightKey` sums them — the basis for the
+    /// window's vertical auto-fit. Renders the *bare* rows (not the menu wrappers,
+    /// which carry context menus and an auto-opening settings sheet) and the
+    /// decode-free `ContactRow`. `.fixedSize(vertical:)` keeps each row at its
+    /// intrinsic height so the framed list's background proposal can't compress
+    /// the measurement and feed a shrinking height back into the frame.
+    private func rowMeasuringLayer(groups: [ContactGroup], rooms: [Conversation]) -> some View {
+        VStack(spacing: 0) {
+            ForEach(Array(measuringRowDescriptors(groups: groups, rooms: rooms).prefix(maxMeasuredRows).enumerated()), id: \.offset) { _, descriptor in
+                measuringRow(for: descriptor)
+                    .background { rowHeightReader }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .hidden()
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func measuringRow(for descriptor: RowDescriptor) -> some View {
+        switch descriptor {
+        case .header:
+            // The name is irrelevant to height (single line, and floored to
+            // `plainMinRowHeight`), so the bare header measures with an empty one.
+            GroupHeaderRow(name: "", isExpanded: false, toggle: {})
+                .padding(groupRowInsets)
+        case let .contact(contact):
+            ContactRow(contact: contact, forMeasurement: true)
+                .padding(contactRowInsets)
+        case let .room(room):
+            RoomRow(conversation: room)
+                .padding(contactRowInsets)
+        }
+    }
+
+    private var rowHeightReader: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(key: ContentHeightKey.self, value: max(proxy.size.height, plainMinRowHeight))
+        }
+    }
+
     private var sortedAndFilteredGroups: [ContactGroup] {
         // Key the last-message map by account+JID: two accounts' conversations with the same peer
         // JID would otherwise collide and the "recent conversation" sort would read the wrong date.
@@ -289,6 +392,24 @@ struct MaxNameWidthKey: PreferenceKey {
     }
 }
 
+/// Sums the measured heights of every off-screen row so `ContactListView` can
+/// size the list to its real content (Adium's vertical auto-fit). Diverges from
+/// `MaxNameWidthKey` only in the reducer: **sum** rather than `max`.
+struct ContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value += nextValue()
+    }
+}
+
+/// One measured row in body order. The measuring layer maps each case to the
+/// bare row view (`GroupHeaderRow` / `ContactRow` / `RoomRow`).
+private enum RowDescriptor {
+    case header
+    case contact(Contact)
+    case room(Conversation)
+}
+
 /// A collapsible group header. The whole row toggles expansion (not just the
 /// chevron), matching Adium, and is excluded from list selection by the caller.
 private struct GroupHeaderRow: View {
@@ -313,6 +434,7 @@ private struct GroupHeaderRow: View {
                 Text(name)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
                 Spacer()
 

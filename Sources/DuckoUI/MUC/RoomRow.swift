@@ -32,6 +32,7 @@ struct RoomRow: View {
                     Text("\(participantCount) participants")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
 

@@ -81,6 +81,33 @@ struct ContactListSizingTests {
         #expect(width == 280)
     }
 
+    // MARK: - fittedHeight
+
+    @Test func `fittedHeight returns the fallback when nothing has been measured`() {
+        // Measured 0 → fall back to the estimate (120), which is below the cap.
+        #expect(ContactListSizing.fittedHeight(measuredHeight: 0, fallbackHeight: 120, maxHeight: 600) == 120)
+    }
+
+    @Test func `fittedHeight returns the fallback for a non-finite measurement`() {
+        #expect(ContactListSizing.fittedHeight(measuredHeight: .nan, fallbackHeight: 120, maxHeight: 600) == 120)
+        #expect(ContactListSizing.fittedHeight(measuredHeight: .infinity, fallbackHeight: 120, maxHeight: 600) == 120)
+    }
+
+    @Test func `fittedHeight rounds a fractional measurement up`() {
+        // 123.2 rounds up to 124, within the cap.
+        #expect(ContactListSizing.fittedHeight(measuredHeight: 123.2, fallbackHeight: 80, maxHeight: 600) == 124)
+    }
+
+    @Test func `fittedHeight caps a measurement above the maximum`() {
+        // 900 measured, clamped down to 600.
+        #expect(ContactListSizing.fittedHeight(measuredHeight: 900, fallbackHeight: 80, maxHeight: 600) == 600)
+    }
+
+    @Test func `fittedHeight caps the fallback at the maximum`() {
+        // Unmeasured, but the estimate (900) exceeds the cap, so it clamps to 600.
+        #expect(ContactListSizing.fittedHeight(measuredHeight: 0, fallbackHeight: 900, maxHeight: 600) == 600)
+    }
+
     // MARK: - listContentHeight
 
     @Test func `listContentHeight sums headers and only expanded contacts`() {
