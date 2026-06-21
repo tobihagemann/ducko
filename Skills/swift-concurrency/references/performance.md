@@ -324,6 +324,8 @@ Task { @concurrent in
 }
 ```
 
+Match a `Task`'s entry isolation to its synchronous prefix (everything before the first `await`): start `@concurrent` when nothing in the prefix needs the main actor, and keep the inherited `@MainActor` start otherwise. This is most impactful in `defaultIsolation(MainActor.self)` modules, where a bare `Task {}` would otherwise start the heavy synchronous work on the main actor. See the "Task entry isolation" section in `tasks.md`.
+
 ## Choosing Execution Style
 
 ### Decision checklist

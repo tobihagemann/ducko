@@ -22,6 +22,13 @@ Collect:
 - Data flow: state, environment, observable models.
 - Symptoms and reproduction steps.
 
+Ask the user to classify the symptom if possible — this steers the review and any later profiling request:
+- CPU spike or battery drain
+- Janky scrolling or dropped frames
+- High memory or image pressure
+- Hangs or unresponsive interactions
+- Excessive or unexpectedly broad view updates
+
 Focus on:
 - View invalidation storms from broad state changes.
 - Unstable identity in lists (`id` churn, `UUID()` per render).
@@ -30,6 +37,8 @@ Focus on:
 - Layout thrash (deep stacks, `GeometryReader`, preference chains).
 - Large images without downsampling or resizing.
 - Over-animated hierarchies (implicit animations on large trees).
+
+Use `references/code-smells.md` for the detailed smell catalog, Observation-specific fan-out guidance (iOS 17+ `@Observable` vs iOS 16- `ObservableObject`), the triage order, and remediation patterns.
 
 Provide:
 - Likely root causes with code references.
@@ -48,6 +57,8 @@ Ask for:
 - Trace export or screenshots of SwiftUI lanes + Time Profiler call tree.
 - Device/OS/build configuration.
 
+Use `references/profiling-intake.md` for the full intake checklist, default profiling request, artifacts to collect, and common traps (Debug-build timing distortion, Simulator blind spots).
+
 ## 3. Analyze and Diagnose
 
 Prioritize likely SwiftUI culprits:
@@ -59,128 +70,21 @@ Prioritize likely SwiftUI culprits:
 - Large images without downsampling or resizing.
 - Over-animated hierarchies (implicit animations on large trees).
 
-Summarize findings with evidence from traces/logs.
+Summarize findings with evidence from traces/logs. Distinguish code-level suspicion from trace-backed evidence, and call out when profiling is still insufficient and what additional evidence would reduce uncertainty.
 
 ## 4. Remediate
 
 Apply targeted fixes:
 - Narrow state scope (`@State`/`@Observable` closer to leaf views).
 - Stabilize identities for `ForEach` and lists.
-- Move heavy work out of `body` (precompute, cache, `@State`).
-- Use `equatable()` or value wrappers for expensive subtrees.
+- Move heavy work out of `body` into derived state updated from inputs, model-layer precomputation, memoized helpers, or background preprocessing. Use `@State` only for view-owned state, not as an ad hoc cache for arbitrary computation.
+- Use `equatable()` only when equality is cheaper than recomputing the subtree and the inputs are truly value-semantic — not as a blanket fix.
 - Downsample images before rendering.
 - Reduce layout complexity or use fixed sizing where possible.
 
 ## Common Code Smells (and Fixes)
 
-Look for these patterns during code review.
-
-### Expensive formatters in `body`
-
-```swift
-var body: some View {
-    let number = NumberFormatter() // slow allocation
-    let measure = MeasurementFormatter() // slow allocation
-    Text(measure.string(from: .init(value: meters, unit: .meters)))
-}
-```
-
-Prefer cached formatters in a model or a dedicated helper:
-
-```swift
-final class DistanceFormatter {
-    static let shared = DistanceFormatter()
-    let number = NumberFormatter()
-    let measure = MeasurementFormatter()
-}
-```
-
-### Computed properties that do heavy work
-
-```swift
-var filtered: [Item] {
-    items.filter { $0.isEnabled } // runs on every body eval
-}
-```
-
-Prefer precompute or cache on change:
-
-```swift
-@State private var filtered: [Item] = []
-// update filtered when inputs change
-```
-
-### Sorting/filtering in `body` or `ForEach`
-
-```swift
-List {
-    ForEach(items.sorted(by: sortRule)) { item in
-        Row(item)
-    }
-}
-```
-
-Prefer sort once before view updates:
-
-```swift
-let sortedItems = items.sorted(by: sortRule)
-```
-
-### Inline filtering in `ForEach`
-
-```swift
-ForEach(items.filter { $0.isEnabled }) { item in
-    Row(item)
-}
-```
-
-Prefer a prefiltered collection with stable identity.
-
-### Unstable identity
-
-```swift
-ForEach(items, id: \.self) { item in
-    Row(item)
-}
-```
-
-Avoid `id: \.self` for non-stable values; use a stable ID.
-
-### Top-level conditional view swapping
-
-```swift
-var content: some View {
-    if isEditing {
-        editingView
-    } else {
-        readOnlyView
-    }
-}
-```
-
-Prefer one stable base view and localize conditions to sections/modifiers (for example inside `toolbar`, row content, `overlay`, or `disabled`). This reduces root identity churn and helps SwiftUI diffing stay efficient.
-
-### Image decoding on the main thread
-
-```swift
-Image(uiImage: UIImage(data: data)!)
-```
-
-Prefer decode/downsample off the main thread and store the result.
-
-### Broad dependencies in observable models
-
-```swift
-@Observable class Model {
-    var items: [Item] = []
-}
-
-var body: some View {
-    Row(isFavorite: model.items.contains(item))
-}
-```
-
-Prefer granular view models or per-item state to reduce update fan-out.
+See `references/code-smells.md` for the full catalog — expensive formatters and heavy computed work in `body`, sorting/filtering during render, unstable identity, top-level conditional view swapping, main-thread image decode, and Observation fan-out (split by iOS 17+ `@Observable` vs iOS 16- `ObservableObject`) — plus the `@State`-is-not-a-cache and conditional-`equatable()` remediation notes and the impact-ordered triage list.
 
 ## 5. Verify
 
@@ -194,7 +98,13 @@ Provide:
 - Top issues (ordered by impact).
 - Proposed fixes with estimated effort.
 
+Use `references/report-template.md` when formatting the final audit.
+
 ## References
+
+- Common code smells and remediation patterns: `references/code-smells.md`
+- Profiling intake and collection checklist: `references/profiling-intake.md`
+- Audit output template: `references/report-template.md`
 
 Add Apple documentation and WWDC resources under `references/` as they are supplied by the user.
 - Optimizing SwiftUI performance with Instruments: `references/optimizing-swiftui-performance-instruments.md`

@@ -200,7 +200,9 @@ No need to:
 Tests run in parallel by default:
 
 ```swift
-@Suite(.serialized)  // Run tests in this suite serially
+// On a suite, `.serialized` runs the suite's tests serially relative to each
+// other (and serializes any parameterized test's cases too). See async-tests.md.
+@Suite(.serialized)
 struct SerialTests {
     @Test func first() { }
     @Test func second() { }

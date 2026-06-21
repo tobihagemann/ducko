@@ -62,20 +62,25 @@ struct CounterStore {
 
 ## `.serialized` as a targeted tool
 
-- Apply `.serialized` to suites when tests must run one-at-a-time.
+- `.serialized` is **scope-dependent** (see `async-tests.md`): on a **suite** (`@Suite(.serialized)`) it serializes the suite's contained test functions (parameterized or not) and sub-suites relative to each other; on a **parameterized `@Test`** it serializes that test's argument cases; on a **bare non-parameterized function** it has no effect.
+- Apply it to a suite when that suite's tests must not run concurrently with each other (e.g. they share mutable state).
 - Use it as a transitional safety measure during migration from serial XCTest suites.
 - Refactor toward parallel-safe tests before normalizing serialization everywhere.
-- Serialized suites can still run alongside unrelated suites in parallel.
+- Serialized suites can still run alongside unrelated suites in parallel — `.serialized` only governs the scope it is attached to, not the whole run.
+- `@Suite(.serialized)` *will* stop two non-parameterized tests in that suite from running concurrently — but isolating their shared state is still the more durable fix (it survives the tests being split across suites or run with `--no-parallel` toggled).
 
 ### Transitional serialization example
 
 ```swift
 import Testing
 
+// On a suite, `.serialized` serializes ALL contained tests relative to each
+// other — these two ordinary tests will not run concurrently, and any
+// parameterized test's cases are serialized too.
 @Suite(.serialized)
 struct LegacyDatabaseTests {
- @Test func migrationStepA() { #expect(true) }
- @Test func migrationStepB() { #expect(true) }
+ @Test func migrateUp() { #expect(apply(.up)) }
+ @Test func migrateDown() { #expect(apply(.down)) }
 }
 ```
 
@@ -86,6 +91,37 @@ struct LegacyDatabaseTests {
   - use in-memory substitutes
   - create separate serial test plan for integration path
 - Prefer architecture that supports both fast in-memory tests and selective real integration tests.
+
+### Shared on-disk state across cases of the same suite
+
+When every test in a suite mutates the same well-known on-disk file (e.g. a
+file-backed credential store under `~/Library/Application Support/...`,
+`/tmp` artifacts written under a fixed name, a single SQLite file the suite
+seeds and tears down), default parallel execution lets one test's `delete()`
+race another test's `save()`, producing intermittent `noSuchFile` errors.
+
+The durable fix is to remove the shared fixed path, not to serialize: refactor
+toward an injectable backend each test can point at its own temporary
+directory, so the tests carry no shared on-disk state to race over. Pair that
+with a leading `delete()` (or equivalent reset) at the top of each test so a
+prior crash can't leak state into the next run.
+
+```swift
+@Test func roundTrip() throws {
+    let store = CredentialStore(directory: makeTempDir())  // per-test isolation
+    store.delete()       // reset in case a prior run leaked state
+    try store.save(...)
+    // ...
+    store.delete()
+}
+```
+
+`@Suite(.serialized)` *can* paper over this race — it stops the suite's tests
+from running concurrently, so the shared-path `delete()`/`save()` no longer
+interleave. But prefer isolating the backing state: serialization is a coarse,
+suite-local guard that breaks the moment the tests are split across suites or
+someone runs a single test in isolation, whereas per-test temp directories
+carry no shared state to race over in the first place.
 
 ## Do / Don't
 

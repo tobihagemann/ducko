@@ -381,6 +381,9 @@ End of example.
 - [references/components/theming.md](references/components/theming.md) — theming and appearance.
 - [references/components/title-menus.md](references/components/title-menus.md) — title bar menus.
 - [references/components/top-bar.md](references/components/top-bar.md) — top bar patterns.
+- [references/components/async-state.md](references/components/async-state.md) — `.task`/`.task(id:)`, cancellation, and debounced async state.
+- [references/components/previews.md](references/components/previews.md) — `#Preview` coverage, fixtures, and injected mock dependencies.
+- [references/components/scroll-reveal.md](references/components/scroll-reveal.md) — scroll-driven reveal of secondary detail surfaces.
 
 
 ## Philosophy

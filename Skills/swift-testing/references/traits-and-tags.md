@@ -15,7 +15,7 @@ Use this file when controlling test execution behavior, linking bug context, and
 ```swift
 import Testing
 
-@Test("Uploads complete quickly", .timeLimit(.seconds(10)))
+@Test("Uploads complete quickly", .timeLimit(.minutes(1)))  // .timeLimit only accepts .minutes(_), not .seconds(_)
 func uploadWithinTimeLimit() async throws {
  #expect(true)
 }
@@ -100,10 +100,33 @@ struct CheckoutTests {
 - Apply at suite level when broadly true; apply per test when specific.
 - Keep trait intent explicit to avoid accidental broad behavior changes.
 
+## Reusing condition traits across suites
+
+When the same `.enabled(if:)` / `.disabled(if:)` literal appears on multiple suites, factor it into a `Trait` extension so the gate condition lives in one place. The canonical pattern uses Swift's same-type generic constraint to attach the static property at exactly the trait shape `Testing.ConditionTrait`:
+
+```swift
+extension Trait where Self == Testing.ConditionTrait {
+    static var requiresContainerRuntime: Self {
+        .enabled(if: ContainerRuntime.detected != nil)
+    }
+}
+
+@Suite(.requiresContainerRuntime)
+struct AccountRepositoryTests { ... }
+
+@Suite(.requiresContainerRuntime)
+struct CharacterRepositoryTests { ... }
+```
+
+This is the same shape upstream Swift Testing uses for `.enabled(if:)`, `.disabled(...)`, etc. (see `Sources/Testing/Traits/ConditionTrait+Macro.swift`). Defining the static on `Trait where Self == ConditionTrait` keeps autocomplete clean — the new trait shows up next to the built-in ones at every `@Suite(.…)` / `@Test(.…)` site.
+
+Suites still skip cleanly when the autoclosure evaluates `false`; Swift Testing emits a structured skip outcome via the framework reporter. The extension only refactors *where* the condition lives, not the skip semantics.
+
 ## Do / Don't
 
 - Do put shared tags at suite level for consistency.
 - Do attach bug links for temporary disables or known failures.
+- Do lift repeated `.enabled(if:)` / `.disabled(if:)` literals into a `Trait where Self == ConditionTrait` static.
 - Don't use tags as a replacement for meaningful suite grouping.
 - Don't overuse `.serialized` as a blanket reliability fix.
 
@@ -112,3 +135,4 @@ struct CheckoutTests {
 - Every disabled test has a reason (and ideally a bug link).
 - Tags reflect domain concerns and are reused consistently.
 - Availability and condition traits are applied to the smallest correct scope.
+- Repeated condition literals are factored into a shared `Trait where Self == ConditionTrait` static.

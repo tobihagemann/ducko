@@ -14,6 +14,30 @@ func synchronousMethod() {
 }
 ```
 
+## Task entry isolation
+
+Choose an unstructured `Task`'s startup isolation from its **synchronous prefix** — everything that runs before the first `await`. This matters most in `defaultIsolation(MainActor.self)` codebases, where a bare `Task {}` inherits `@MainActor` even when nothing in its prefix needs the main actor.
+
+- If the synchronous prefix needs main-actor access (reads or mutates UI-owned state), keep the inherited `@MainActor` entry.
+- If the prefix needs no main-actor access, use `Task { @concurrent in ... }` so the work starts off the main actor, then hop back via `await MainActor.run { ... }` only for the UI mutation.
+- A trivial non-main statement (e.g. `print`) does **not** justify `@concurrent` when main-actor work already exists in the same prefix — the extra hop costs more than it saves.
+
+```swift
+// ❌ Inherits @MainActor, but the prefix only hops away — nothing needs main here
+Task {
+    let data = await loadData()
+    update(data) // UI mutation
+}
+
+// ✅ Start off-main; hop back only for the UI update
+Task { @concurrent in
+    let data = await loadData()
+    await MainActor.run { update(data) }
+}
+```
+
+For delayed retries, timers, and backoff, keep the wait off the main actor even when the final state update belongs on it — separate the sleep from the UI mutation.
+
 ## Task References
 
 Storing a reference is optional but enables cancellation and result waiting:

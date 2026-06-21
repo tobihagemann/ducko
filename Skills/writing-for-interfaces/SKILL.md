@@ -11,6 +11,7 @@ description: >
   interface copy review is implied. Do NOT trigger for content marketing, blog posts, app
   store listings, API docs, brand guides, cover letters, or interview questions — this is a
   technical writing skill for interface language.
+license: MIT
 context: fork
 ---
 
@@ -297,3 +298,6 @@ document, or an essay, keep refining.
 For detailed guidance on alerts, errors, empty states, onboarding, notifications,
 accessibility labels, destructive actions, buttons, and instructional copy — see
 `references/patterns.md`.
+
+For the source material behind this guidance — Apple Human Interface Guidelines and the
+relevant WWDC sessions — see `references/sources.md`.

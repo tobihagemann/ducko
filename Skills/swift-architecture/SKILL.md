@@ -10,6 +10,8 @@ license: MIT
 
 Use this skill to pick the best Swift architecture playbook for SwiftUI/UIKit codebases and apply it to the user’s task.
 
+For quick navigation across playbooks, use `references/_index.md`.
+
 ## Workflow
 
 ### Step 1: Analyze the Request Context
@@ -18,7 +20,14 @@ Before selecting an architecture, capture:
 - task type (new feature, refactor, PR review, debugging)
 - UI stack (SwiftUI, UIKit, or mixed)
 - scope (single screen, multi-screen, app-wide)
+- state and effect complexity
+- team familiarity and dependency tolerance
 - existing conventions to preserve
+
+Then choose a delivery mode for the rest of the workflow:
+
+- **Quick Recommendation Mode** — use when the scope is one feature or screen, constraints are clear enough to recommend one primary pattern, and the user mainly needs a recommendation, scaffold, or review checklist. Deliver: fit result (`fit` or `mismatch`), 1-2 reasons grounded in the request, the selected reference file, and concrete structure, state, dependency, async, and testing guidance scoped to the feature.
+- **Deep Refactor Mode** — use when the request spans multiple modules or screens, the codebase already mixes architectures, or the user is migrating from one pattern to another. Deliver: current-state assessment, target architecture recommendation with fit or mismatch result, an incremental migration path with boundary changes called out, and risks, trade-offs, and verification points for the transition.
 
 ### Step 2: Select the Architecture
 
@@ -46,6 +55,14 @@ When code already exists:
 - detect current architecture and DI style
 - note concurrency model (async/await, Combine, GCD, mixed)
 - align recommendations to local conventions
+
+### Guardrails
+
+- Do not force an architecture switch for a small feature when the current local pattern is still a reasonable fit.
+- Preserve existing conventions unless the mismatch is severe enough to justify change.
+- Do not introduce new framework dependencies such as TCA unless the user explicitly accepts that trade-off or the codebase already uses them.
+- Prefer the smallest architecture change that solves the request cleanly.
+- Keep guidance architecture-specific; do not blend playbooks unless the boundary between patterns is explicit.
 
 ### Step 4: Produce Concrete Deliverables
 

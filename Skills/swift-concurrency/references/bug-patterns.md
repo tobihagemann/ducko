@@ -122,3 +122,51 @@ do {
 **Failure:** A class is marked `@unchecked Sendable` to suppress compiler errors, but its mutable `var` properties have no synchronization. The data race still exists at runtime.
 
 **Fix:** Restructure to use value types, use an `actor`, or move state behind a lock. See `bridging.md`.
+
+
+## Self-await deadlock: cancel + await `value` from inside the very task
+
+**Failure:** A handler running inside a stored unstructured `Task` cancels that task and then awaits its `value` to "wait for cleanup". The handler is the task — it cannot make progress while waiting for itself, and the await never returns.
+
+```swift
+// BUG: the read loop calls handle(_:), which calls tearDown(), which awaits
+// `connectionTask.value` — but the read loop *is* connectionTask.
+private var connectionTask: Task<Void, Never>?
+
+func openConnection() {
+    connectionTask = Task {
+        for await message in inbound.messages(...) {
+            await handle(message)
+        }
+    }
+}
+
+func tearDown() async {
+    connectionTask?.cancel()
+    await connectionTask?.value   // deadlock: awaiting the running task from inside itself
+    connectionTask = nil
+}
+```
+
+**Fix:** Cancel from inside, but let the task unwind naturally — clear state in the *parent* `Task`'s `defer`, or detach the cleanup so it isn't running on the awaited task.
+
+```swift
+connectionTask = Task {
+    defer {
+        Task { @MainActor in
+            self.connectionTask = nil
+            self.connectionState = .disconnected
+        }
+    }
+    for await message in inbound.messages(...) {
+        await handle(message)
+    }
+}
+
+func tearDown() async {
+    connectionTask?.cancel()   // unblocks the iterator with CancellationError
+    // do NOT await connectionTask?.value here — the parent's defer clears state.
+}
+```
+
+If the caller is **outside** the awaited task (e.g. a SwiftUI menu action, not a closure dispatched from the read loop), `await task.value` is safe. The pitfall only applies when the await would block the task that needs to complete to fulfill the await.

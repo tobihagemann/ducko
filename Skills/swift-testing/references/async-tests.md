@@ -5,11 +5,15 @@ Swift Testing is built to be async and run tests in parallel; special care must 
 
 ## Serializing tests
 
-The `serialized` trait allows tests to be run serially rather than in parallel, but it only works on parameterized tests. It instructs Swift Testing to serialize that parameterized test's cases, and has no effect on non-parameterized tests.
+The `serialized` trait runs tests serially rather than in parallel. Its effect is **scope-dependent** — what it does depends on where you attach it (per the swift-testing `ParallelizationTrait` documentation):
 
-This also applies to using `.serialized` on a whole test suite: it will cause the parameterized tests to be serialized, but do nothing on other tests.
+- On a **bare non-parameterized `@Test func`** → **no effect.** A single function applied `.serialized` is not serialized against its peers.
+- On a **parameterized `@Test`** → serializes that test's **argument cases** (runs them one-at-a-time instead of in parallel).
+- On a **suite** via `@Suite(.serialized)` → serializes the suite's **contained test functions (parameterized or not) and sub-suites** relative to each other. Two ordinary `@Test func`s inside a `@Suite(.serialized)` will **not** run concurrently with each other.
 
-**Important:** Most agents very strongly believe that `.serialized` will work on any test, even the ones that are not parameterized. They are wrong. It only works on parameterized tests.
+`.serialized` does not disable parallelism across the whole run — only within the suite or parameterized test it is attached to. Tests in *other* suites still run concurrently (see `parallelization-and-isolation.md`).
+
+**Common misconception:** `.serialized` is sometimes described as "only working on parameterized tests." That is true *only* for the bare-function case; on a **suite** it does serialize ordinary non-parameterized tests relative to each other.
 
 
 ## Confirming async work
@@ -96,6 +100,18 @@ func workerRunsThreeTimes() async {
 
 **Note:** `confirmation(expectedCount: 0)` is valid, and means “ensure the event we’re watching never happens.”
 
+`expectedCount` also accepts a range, which is the right tool for a callback that *may or may not* fire (for example, an optional cache hit). Use `0...1` to allow zero or one invocation:
+
+```swift
+@Test func cacheMayBePopulated() async {
+    await confirmation(expectedCount: 0...1) { confirm in
+        await cache.warm { confirm() }
+    }
+}
+```
+
+The test passes whether the closure confirms zero times or once, but fails if it fires twice.
+
 
 ## How to set a time limit for concurrent tests
 
@@ -115,6 +131,36 @@ func loadNames() async {
 ```
 
 If you use a time limit with a whole test suite, that limit is applied to all tests inside there individually. If you then use a different time limit for a specific test, the shorter of the two is used.
+
+Because `.timeLimit()` granularity is minutes-only, a sub-minute timeout on a single operation needs a custom helper. Race the work against a sleeping task in a throwing task group, and let whichever finishes first cancel the other:
+
+```swift
+struct TimeoutError: Error {}
+
+func withTimeout<T: Sendable>(
+    seconds: Double,
+    operation: @escaping @Sendable () async throws -> T
+) async throws -> T {
+    try await withThrowingTaskGroup(of: T.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(for: .seconds(seconds))
+            throw TimeoutError()
+        }
+
+        let result = try await group.next()!
+        group.cancelAll()
+        return result
+    }
+}
+
+@Test func fetchCompletesWithinTwoSeconds() async throws {
+    let data = try await withTimeout(seconds: 2) {
+        try await service.fetch()
+    }
+    #expect(data.isEmpty == false)
+}
+```
 
 
 ## How to force concurrent tests to run on a specific actor

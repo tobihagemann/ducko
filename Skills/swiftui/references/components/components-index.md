@@ -29,6 +29,9 @@ Use this file to find component-specific guidance. Each entry lists when to use 
 - Menu bar commands: `menu-bar.md` — Use when adding or customizing macOS/iPadOS menu bar commands.
 - Loading & placeholders: `loading-placeholders.md` — Use for redacted skeletons, empty states, and loading UX.
 - Lightweight clients: `lightweight-clients.md` — Use for small, closure-based API clients injected into stores.
+- Async state and task lifecycle: `async-state.md` — Use for `.task`/`.task(id:)`, cancellation, and debounced async work.
+- Previews: `previews.md` — Use for `#Preview` coverage, fixtures, and injected mock dependencies.
+- Scroll-reveal detail surfaces: `scroll-reveal.md` — Use when secondary content is revealed by scrolling the primary surface away.
 
 ## Adding entries
 

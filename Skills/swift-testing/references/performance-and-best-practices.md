@@ -158,13 +158,16 @@ struct CurrencyTests {
 
 ## 7) Use `.serialized` narrowly
 
+`.serialized` is scope-dependent (see `async-tests.md`): `@Suite(.serialized)` serializes the suite's contained tests relative to each other, a parameterized `@Test` serializes its argument cases, and a bare non-parameterized function is unaffected. It is a coarse, suite-local guard — prefer isolating shared state, which survives tests being split across suites or run individually.
+
 ```swift
 import Testing
 
+// On a suite, `.serialized` keeps these tests from running concurrently.
 @Suite(.serialized)
 struct TemporarySerialDBTests {
- @Test func migrationA() async throws { #expect(true) }
- @Test func migrationB() async throws { #expect(true) }
+ @Test func seedThenRead() async throws { #expect(try await seedAndRead()) }
+ @Test func writeThenVerify() async throws { #expect(try await writeAndVerify()) }
 }
 ```
 

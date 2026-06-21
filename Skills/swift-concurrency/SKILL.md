@@ -26,7 +26,7 @@ If any of these are unknown, ask the developer to confirm before giving migratio
 Before diving in, inspect the build settings:
 
 - **SwiftPM**: check `Package.swift` for
-  - `// swift-tools-version: ...`
+  - `// swift-tools-version: ...` (a hint, not authoritative for language mode — prefer `swiftLanguageModes`/`swiftLanguageVersions` or an explicit `-swift-version`)
   - `.defaultIsolation(MainActor.self)`
   - `.enableUpcomingFeature("NonisolatedNonsendingByDefault")`
   - `.enableExperimentalFeature("StrictConcurrency=targeted")` (or similar)
@@ -120,6 +120,8 @@ Task {
     await updateUI()
 }
 ```
+
+Choose the task's entry isolation from its synchronous prefix (everything before the first `await`): keep the inherited `@MainActor` start only when that prefix needs main-actor access, otherwise use `Task { @concurrent in ... }` and hop back via `await MainActor.run { ... }` for UI mutation. A trivial non-main line (e.g. `print`) does not justify `@concurrent` when main-actor work already exists in the prefix. This matters most in `defaultIsolation(MainActor.self)` codebases — see [references/tasks.md](references/tasks.md).
 
 **`withTaskGroup` / `withThrowingTaskGroup`** — dynamic parallel operations:
 

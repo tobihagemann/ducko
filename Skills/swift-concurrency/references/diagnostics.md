@@ -53,6 +53,15 @@ The protocol and the type describe different call boundaries. Fix the boundary m
 These are different boundary choices, not interchangeable suppressions.
 
 
+## "... cannot satisfy conformance requirement for a 'Sendable' type parameter" (`SendableMetatype`)
+
+An isolated conformance (e.g., `extension X: @MainActor Y`) cannot satisfy a `SendableMetatype` requirement. This surfaces when passing the type's metatype (`X.self`) into a generic function whose type parameter requires `Sendable`.
+
+| First check | Smallest safe fix |
+|---|---|
+| Does the conformance carry global-actor isolation? | Remove the actor isolation from the conformance, or avoid passing the metatype across the isolation boundary. See the `SendableMetatype` note in `actors.md`. |
+
+
 ## "Expression is 'async' but is not marked with 'await'"
 
 A call crosses an isolation boundary and requires an async hop. This often surprises when calling actor-isolated methods from outside the actor, or when accessing `@MainActor` state from a non-isolated context.

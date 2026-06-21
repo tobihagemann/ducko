@@ -279,6 +279,49 @@ extension PersonViewModel: @MainActor Equatable {
 Enable with the `InferIsolatedConformances` upcoming feature.
 
 
+## `SendableMetatype` error with isolated conformances (Swift 6.2+)
+
+An isolated conformance **cannot** satisfy a `SendableMetatype` requirement. This surfaces when you pass a metatype (`MyType.self`) to a generic function whose type parameter requires `Sendable`:
+
+```swift
+protocol P {
+    static func doSomething()
+}
+
+// Explicitly requires a Sendable type/metatype:
+func doSomethingStatic<T: P & SendableMetatype>(_ type: T.Type) { }
+
+@MainActor
+final class C {}
+
+extension C: @MainActor P {
+    static func doSomething() {}
+}
+
+@MainActor
+func test(c: C) {
+    doSomethingStatic(C.self)
+    // ❌ main actor-isolated conformance of 'C' to 'P' cannot satisfy
+    //    conformance requirement for a 'Sendable' type parameter
+}
+```
+
+Three fixes:
+
+1. Drop the actor isolation from the conformance if its requirements don't touch actor state:
+
+   ```swift
+   @MainActor
+   final class C: P {
+       nonisolated static func doSomething() {}  // ✅ non-isolated requirement
+   }
+   ```
+
+2. Avoid passing the metatype across the isolation boundary — call the static method directly instead of routing through the generic function.
+
+3. Make the generic function actor-aware so it accepts an isolated conformance (changes the callee's signature).
+
+
 ## `#isolation` macro
 
 Inherit the caller's isolation for generic code:
@@ -401,6 +444,38 @@ final class TouchesCapturer: Sendable {
 | Legacy code integration | ✅ | ❌ |
 
 Use **Mutex** when you need synchronous access, fine-grained locking, or legacy non-async API integration. Use an **Actor** when you can adopt async/await, need logical isolation, or are already in an async context.
+
+### Capturing a Mutex into a `@Sendable` closure
+
+`Synchronization.Mutex<T>` is `~Copyable`. It cannot be captured by a `@Sendable` closure for cross-scope read-after-completion — code like "let mutex = Mutex<Result?>(nil); somePackage.runAsync { mutex.withLock { … } }; let value = mutex.withLock { … }" does not compile because the closure can't capture the noncopyable value by reference, and copying it would lose the lock identity.
+
+The standard fix is a class wrapper: the closure captures the class reference (Sendable, by-reference), and the outer scope reads through the same reference after the closure returns:
+
+```swift
+final class ResponseBox: Sendable {
+    private let storage = Mutex<Response?>(nil)
+
+    func set(_ value: Response) {
+        storage.withLock { $0 = value }
+    }
+
+    func take() -> Response? {
+        storage.withLock { let value = $0; $0 = nil; return value }
+    }
+}
+
+let box = ResponseBox()
+try await client.connect { ... in
+    // closure is @Sendable; box (a class) is captured by reference
+    let response = try await ...
+    box.set(response)
+}
+guard let response = box.take() else { throw .noResponse }
+```
+
+Alternatives when a class wrapper feels too heavy: an `actor` that holds the value (forces the outer scope into `await`), or a single-element `AsyncStream` (the closure yields, the outer scope iterates and breaks). All three are valid; pick whichever matches the surrounding async shape.
+
+`@unchecked Sendable` is not a fix — it bypasses the compiler's safety check without addressing the underlying noncopyability.
 
 
 ## Assertions

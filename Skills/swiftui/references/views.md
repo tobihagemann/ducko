@@ -1,6 +1,7 @@
 # SwiftUI Views
 
 - Strongly prefer to avoid breaking up view bodies using computed properties or methods that return `some View`, even if `@ViewBuilder` is used. Extract them into separate `View` structs instead, placing each into its own file.
+- If the user has created a handful of small, private helper `some View` properties for structural readability, and they both belong to the same concern as `body` and would fit in `body` at an acceptable length if inlined, these can be left alone. Otherwise, they should be extracted to new `View` structs.
 - Flag `body` properties that are excessively long; they should be broken into extracted subviews.
 - Button actions should be extracted from view bodies into separate methods, to avoid mixing layout and logic.
 - Similarly, general business logic should not live inline in `task()`, `onAppear()` or elsewhere in `body`.

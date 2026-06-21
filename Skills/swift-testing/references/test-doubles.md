@@ -241,3 +241,31 @@ Benefits:
 - Available to all test targets
 - Lives with the contract it implements
 - Zero production overhead with `#if DEBUG`
+
+## Actor dependencies need a protocol seam
+
+Swift `actor`s are not subclassable, so a concrete-actor type used as a dependency has no subclass-mock seam. Tests can construct the real actor, but stubbing one method while leaving the rest real is impossible without a protocol.
+
+Pattern: declare a `Sendable` protocol with `async` requirements, have the production actor conform, and type the dependency as `any Protocol`:
+
+```swift
+public protocol AdminWorldRouter: Sendable {
+    func loggedInPlayerCount() async -> Int
+    func kickByCharacterName(_ name: String) async -> Bool
+}
+
+public actor WorldRouter: AdminWorldRouter { ... }
+
+// Dependency bag types against the protocol:
+public struct AdminConnectionDependencies {
+    public let worldRouter: any AdminWorldRouter
+}
+
+// Tests substitute a struct stub:
+struct StubAdminWorldRouter: AdminWorldRouter {
+    func loggedInPlayerCount() async -> Int { 12 }
+    func kickByCharacterName(_ name: String) async -> Bool { true }
+}
+```
+
+Make every protocol requirement `async`. Actor-isolated methods automatically satisfy `async` requirements via cross-actor isolation hops; `nonisolated` is only needed for non-`async` requirements, which forces actor-isolated state out of reach. Keep the protocol surface narrow — only the methods the consumer actually calls — so the stub stays small.

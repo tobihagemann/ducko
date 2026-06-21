@@ -137,9 +137,28 @@ let user = try #require(user)
 Issue.record("Unreachable")
 ```
 
+## `#expect` does not propagate `throws` through comparison expressions
+
+`#expect(try await fn() == nil)` fails to compile with `errors thrown from here are not handled` because the macro's expansion wraps the comparison in a non-throwing closure for the value-capture machinery. The `try` is in scope syntactically but not in the macro's evaluation context.
+
+Bind to a `let` first, then assert:
+
+```swift
+// Doesn't compile — `errors thrown from here are not handled`
+#expect(try await repo.findByName("nonexistent") == nil)
+
+// Bind first, then assert
+let fetched = try await repo.findByName("nonexistent")
+#expect(fetched == nil)
+```
+
+This applies any time the inner expression `throws`. A bare `#expect(throws: ...)` block, or `try #require(...)`, are the supported macros for asserting on throwing calls; equality / arithmetic / property lookups need the explicit `let` binding.
+
 ## Do / Don't
 
 - Do use `#require` when later checks depend on a value.
 - Do keep `withKnownIssue` scopes narrow.
+- Do bind `try await` results to a `let` before passing them through `#expect` comparisons.
 - Don't use XCTest assertions in Swift Testing tests.
 - Don't hide prerequisite failures inside later optional chaining.
+- Don't write `#expect(try await fn() == ...)` — the macro can't propagate `throws` through comparison expressions.
