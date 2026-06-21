@@ -52,7 +52,7 @@ enum ConnectOrderingTests {
             #expect(plainPresenceIndex < capsPresenceIndex)
             #expect(capsPresenceIndex < omemoIndex)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -77,7 +77,7 @@ enum ConnectOrderingTests {
             // line after the await proves it resolved rather than hung.
             await client.awaitInitialPresenceSent()
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test func `resolves immediately on a resumed session`() async throws {
@@ -292,7 +292,7 @@ enum ConnectOrderingTests {
             #expect(opened)
 
             waiter.cancel()
-            await client.disconnect()
+            await disconnectFast(client)
             connectTask.cancel()
         }
 
@@ -357,7 +357,7 @@ enum ConnectOrderingTests {
             #expect(opened)
 
             waiter.cancel()
-            await client.disconnect()
+            await disconnectFast(client)
             connectTask.cancel()
         }
     }

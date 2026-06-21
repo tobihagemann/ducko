@@ -145,7 +145,7 @@ enum JingleIBBFallbackTests {
             #expect(acceptIQ != nil)
             #expect(acceptIQ?.contains("urn:xmpp:jingle:transports:ibb:1") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -172,13 +172,13 @@ enum JingleIBBFallbackTests {
             let events = try await eventsTask.value
             guard case let .jingleFileTransferFailed(sid, reason) = events.last else {
                 Issue.record("Expected jingleFileTransferFailed event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-ibb-test")
             #expect(reason == "transport-reject")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -207,7 +207,7 @@ enum JingleIBBFallbackTests {
             let ackIQ = sentStrings.first { $0.contains("type=\"result\"") && $0.contains("ibb-data-1") }
             #expect(ackIQ != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -234,13 +234,13 @@ enum JingleIBBFallbackTests {
             let events = try await eventsTask.value
             guard case let .jingleFileTransferCompleted(sid, transport) = events.last else {
                 Issue.record("Expected jingleFileTransferCompleted event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-ibb-test")
             #expect(transport == .ibb)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -268,7 +268,7 @@ enum JingleIBBFallbackTests {
             await mock.simulateReceive(sessionTerminateXML(reason: "success"))
             try? await Task.sleep(for: .milliseconds(100))
 
-            await client.disconnect()
+            await disconnectFast(client)
 
             let events = try await eventsTask.value
             let completions = events.filter {

@@ -48,7 +48,7 @@ enum CSIModuleTests {
             let inactive = sentStrings.first { $0.contains("<inactive") && $0.contains("urn:xmpp:csi:0") }
             #expect(inactive != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -72,7 +72,7 @@ enum CSIModuleTests {
             let active = sentStrings.first { $0.contains("<active") && $0.contains("urn:xmpp:csi:0") }
             #expect(active != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -94,7 +94,7 @@ enum CSIModuleTests {
             let sentData = await mock.sentBytes
             #expect(sentData.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -116,7 +116,7 @@ enum CSIModuleTests {
             let sentData = await mock.sentBytes
             #expect(sentData.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -137,7 +137,7 @@ enum CSIModuleTests {
             let sentData = await mock.sentBytes
             #expect(sentData.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 

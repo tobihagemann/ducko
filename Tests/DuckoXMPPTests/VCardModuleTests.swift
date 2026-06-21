@@ -60,7 +60,7 @@ enum VCardModuleTests {
             #expect(vcard?.nickname == "alice")
             #expect(vcard?.photoData == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -97,7 +97,7 @@ enum VCardModuleTests {
             let hashIsNotEmpty = vcard?.photoHash?.isEmpty == false
             #expect(hashIsNotEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -135,7 +135,7 @@ enum VCardModuleTests {
             let hasVCardIQ = newSentData.map { String(decoding: $0, as: UTF8.self) }.contains { $0.contains("vcard-temp") }
             #expect(!hasVCardIQ)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -179,7 +179,7 @@ enum VCardModuleTests {
             let vcard = try await fetchTask2.value
             #expect(vcard?.fullName == "Alice Updated")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -205,7 +205,7 @@ enum VCardModuleTests {
             """)
 
             let vcard = try await fetchTask.value
-            await client.disconnect()
+            await disconnectFast(client)
             return vcard
         }
 
@@ -340,7 +340,7 @@ enum VCardModuleTests {
 
             await mock.simulateReceive("<iq type='result' id='\(iqID)'/>")
             try await publishTask.value
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -363,7 +363,7 @@ enum VCardModuleTests {
             let cached = try await module.fetchVCard(for: jid)
 
             verifyCachedFields(cached)
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         // MARK: - Helpers
@@ -457,7 +457,7 @@ enum VCardModuleTests {
 
             try await publishTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -491,7 +491,7 @@ enum VCardModuleTests {
             let vcard = try await fetchTask.value
             #expect(vcard?.fullName == "My Name")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -527,7 +527,7 @@ enum VCardModuleTests {
             let hasVCardIQ = newSentData.map { String(decoding: $0, as: UTF8.self) }.contains { $0.contains("vcard-temp") }
             #expect(!hasVCardIQ)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

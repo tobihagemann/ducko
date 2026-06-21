@@ -352,7 +352,7 @@ enum OMEMOModuleTests {
             let devices = try await task.value
             #expect(devices == [42, 43])
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test func `Cache hit returns without IQ`() async throws {
@@ -377,7 +377,7 @@ enum OMEMOModuleTests {
             let after = await mock.sentBytes.count
             #expect(after == baseline)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test func `Force refresh emits omemoDeviceListReceived`() async throws {
@@ -415,7 +415,7 @@ enum OMEMOModuleTests {
             #expect(jid == peerJID)
             #expect(devices == [42, 99])
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -452,7 +452,7 @@ enum OMEMOModuleTests {
             #expect(keys.count == 1)
             #expect(keys.first?.attribute("rid") == "\(dev2)")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -470,7 +470,7 @@ enum OMEMOModuleTests {
                 )
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test func `All recipients item-not-found throws`() async throws {
@@ -497,7 +497,7 @@ enum OMEMOModuleTests {
                 _ = try await task.value
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Locks the emit-before-throw contract: `omemoRecipientsPartial`
@@ -546,7 +546,7 @@ enum OMEMOModuleTests {
             #expect(conversation == peerJID)
             #expect(dropped.count == 2)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -639,7 +639,7 @@ enum OMEMOModuleTests {
                 #expect(!xml.contains("<retract"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Previously-seen orphan: device-list re-published trimmed first, then
@@ -663,7 +663,7 @@ enum OMEMOModuleTests {
             let last = await stub.lastUpdate
             #expect(last == Set([]))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Previously-seen but healthy device must NOT be retracted — the
@@ -695,7 +695,7 @@ enum OMEMOModuleTests {
                 #expect(!xml.contains("<retract"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Previously-seen device returning a non-itemNotFound stanza error
@@ -721,7 +721,7 @@ enum OMEMOModuleTests {
                 #expect(!xml.contains("<retract"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Empty `<items/>` response classifies as `.transient`, NOT `.stale`
@@ -750,7 +750,7 @@ enum OMEMOModuleTests {
                 #expect(!xml.contains("<retract"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Mixed seen+unseen stale IDs: when one orphan was previously seen
@@ -788,7 +788,7 @@ enum OMEMOModuleTests {
             }
             #expect(retractIDs == [99])
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Empty peer device list (single-client account): pruneStaleBundles
@@ -814,7 +814,7 @@ enum OMEMOModuleTests {
             let last = await stub.lastUpdate
             #expect(last == Set([]))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Malformed bundle payload (well-formed PEP item containing payload
@@ -845,7 +845,7 @@ enum OMEMOModuleTests {
             }
             #expect(retractFound)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Probe cap: an attacker-shaped huge device list causes prune to
@@ -897,7 +897,7 @@ enum OMEMOModuleTests {
             let last = await stub.lastUpdate
             #expect(last == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Retract IQs use itemID `"current"` so the publish and retract
@@ -926,7 +926,7 @@ enum OMEMOModuleTests {
             let xml = try #require(retractIQ.map { String(decoding: $0, as: UTF8.self) })
             #expect(xml.contains("<item id=\"current\"/>"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Re-publish failure: when `publishDeviceList` throws during the
@@ -993,7 +993,7 @@ enum OMEMOModuleTests {
             let last = await stub.lastUpdate
             #expect(last == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         // MARK: - Two-Stale Healthy-Observation Gate
@@ -1034,7 +1034,7 @@ enum OMEMOModuleTests {
             #expect(record.staleStreak == 1)
             #expect(record.hasObservedHealthy == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// `healthy → stale → healthy` resets the streak to 0 and does not
@@ -1071,7 +1071,7 @@ enum OMEMOModuleTests {
             #expect(record.staleStreak == 0)
             #expect(record.hasObservedHealthy == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// `unseen → stale → stale` reaches staleStreak: 2 but
@@ -1110,7 +1110,7 @@ enum OMEMOModuleTests {
             #expect(record.staleStreak == 2)
             #expect(record.hasObservedHealthy == false)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// `.transient` mid-streak preserves the previous record verbatim.
@@ -1142,7 +1142,7 @@ enum OMEMOModuleTests {
             #expect(record.staleStreak == 1)
             #expect(record.hasObservedHealthy == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Bypass-defense: a previously-healthy device that disappears from
@@ -1174,7 +1174,7 @@ enum OMEMOModuleTests {
             #expect(snapshot[88] == nil)
             #expect(snapshot[99]?.lastClassification == .healthy)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         /// Encrypt-path concurrency cap: chunked iteration completes every
@@ -1226,7 +1226,7 @@ enum OMEMOModuleTests {
                 _ = try await task.value
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1277,7 +1277,7 @@ enum OMEMOModuleTests {
             #expect(dropped[0].jid == peerJID)
             #expect(dropped[0].deviceID != dev2)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1326,7 +1326,7 @@ enum OMEMOModuleTests {
             #expect(dropped.count == 1)
             #expect(dropped[0].jid == peerJID)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1387,7 +1387,7 @@ enum OMEMOModuleTests {
             }
             #expect(dropped.contains { $0.deviceID == 777 })
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1418,7 +1418,7 @@ enum OMEMOModuleTests {
             #expect(deviceListIQ.contains("var=\"pubsub#max_items\""))
             #expect(deviceListIQ.contains("<value>1</value>"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1450,7 +1450,7 @@ enum OMEMOModuleTests {
                 #expect(!(xml.contains("<publish") && xml.contains("node=\"\(XMPPNamespaces.omemoDevices)\"")))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1522,8 +1522,8 @@ enum OMEMOModuleTests {
             // The targeted pre-key was consumed during the responder key agreement.
             #expect(recipientOmemo.consumedPreKeyIDs() == [targetedPreKeyID])
 
-            await initiatorClient.disconnect()
-            await recipientClient.disconnect()
+            await disconnectFast(initiatorClient)
+            await disconnectFast(recipientClient)
         }
     }
 }

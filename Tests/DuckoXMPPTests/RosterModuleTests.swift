@@ -80,7 +80,7 @@ enum RosterModuleTests {
             #expect(bob?.subscription == .to)
             #expect(bob?.groups == ["Friends"])
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -109,7 +109,7 @@ enum RosterModuleTests {
             #expect(item.name == "New")
             #expect(item.subscription == .both)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -135,7 +135,7 @@ enum RosterModuleTests {
             }
             #expect(item.subscription == .remove)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -162,7 +162,7 @@ enum RosterModuleTests {
                 // Expected: timeout means foreign push was rejected
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -196,7 +196,7 @@ enum RosterModuleTests {
 
             try await addTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -226,7 +226,7 @@ enum RosterModuleTests {
 
             try await removeTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -271,7 +271,7 @@ enum RosterModuleTests {
             #expect(sentString.contains("type=\"subscribed\""))
             #expect(sentString.contains("to=\"contact@example.com\""))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -289,7 +289,7 @@ enum RosterModuleTests {
             let sentData = await mock.sentBytes
             #expect(sentData.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -315,7 +315,7 @@ enum RosterModuleTests {
             let rosterResponse = "<iq type='result' id='ducko-2'><query xmlns='jabber:iq:roster'><item jid='alice@example.com' subscription='both'/></query></iq>"
             let client = try await makeConnectedClient(mock: mock, rosterResponse: rosterResponse)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

@@ -98,7 +98,7 @@ enum PEPModuleTests {
             #expect(items.first?.id == "item-1")
             #expect(items.first?.payload.name == "metadata")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -132,7 +132,7 @@ enum PEPModuleTests {
             #expect(node == testNode)
             #expect(itemIDs == ["item-1"])
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -160,7 +160,7 @@ enum PEPModuleTests {
                 }
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
             let events = try await eventsTask.value
 
             let hasPEP = events.contains { event in
@@ -200,7 +200,7 @@ enum PEPModuleTests {
             }
 
             try await publishTask.value
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -232,7 +232,7 @@ enum PEPModuleTests {
             }
 
             try await publishTask.value
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -272,7 +272,7 @@ enum PEPModuleTests {
             #expect(items[0].payload.name == "metadata")
             #expect(items[1].id == "item-2")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -300,7 +300,7 @@ enum PEPModuleTests {
             }
 
             try await retractTask.value
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -329,7 +329,7 @@ enum PEPModuleTests {
             }
 
             try await deleteTask.value
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

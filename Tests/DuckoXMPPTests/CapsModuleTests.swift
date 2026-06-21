@@ -128,7 +128,7 @@ enum CapsModuleTests {
             #expect(capsPresence?.contains("node=\"https://ducko.app\"") == true)
             #expect(capsPresence?.contains("ver=") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -158,7 +158,7 @@ enum CapsModuleTests {
             capsModule.cacheFeatures(["feature-a"], for: "testver123")
             #expect(capsModule.isFeatureSupported("feature-a", by: contactJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -214,7 +214,7 @@ enum CapsModuleTests {
             #expect(capsModule.isFeatureSupported("urn:xmpp:ping", by: peerJID))
             #expect(capsModule.isFeatureSupported("urn:xmpp:receipts", by: peerJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -259,7 +259,7 @@ enum CapsModuleTests {
             let evilJID = try #require(BareJID.parse("evil@example.com"))
             #expect(!capsModule.isFeatureSupported("urn:xmpp:poisoned", by: evilJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -319,7 +319,7 @@ enum CapsModuleTests {
             let peerJID = try #require(BareJID.parse("form@example.com"))
             #expect(capsModule.isFeatureSupported("urn:xmpp:ping", by: peerJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -363,7 +363,7 @@ enum CapsModuleTests {
             let unknownJID = try #require(BareJID.parse("unknown@example.com"))
             #expect(!capsModule.isFeatureSupported("urn:xmpp:jingle:1", by: unknownJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -395,7 +395,7 @@ enum CapsModuleTests {
             await capsModule.handleDisconnect()
             #expect(!capsModule.isFeatureSupported("urn:xmpp:jingle:1", by: peerJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

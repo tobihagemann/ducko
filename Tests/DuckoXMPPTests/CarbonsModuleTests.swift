@@ -38,7 +38,7 @@ enum CarbonsModuleTests {
         func `Sends enable IQ on connect`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -57,7 +57,7 @@ enum CarbonsModuleTests {
             try? await Task.sleep(for: .milliseconds(100))
 
             // Disconnect without responding to the enable IQ — cancels the pending IQ
-            await client.disconnect()
+            await disconnectFast(client)
 
             // Connect should still succeed (or have already completed before disconnect)
             try? await connectTask.value
@@ -99,7 +99,7 @@ enum CarbonsModuleTests {
             #expect(forwarded.message.body == "Hello from other resource")
             #expect(forwarded.timestamp == "2026-03-01T12:00:00Z")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -135,7 +135,7 @@ enum CarbonsModuleTests {
             #expect(forwarded.message.body == "Sent from other device")
             #expect(forwarded.timestamp == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -174,7 +174,7 @@ enum CarbonsModuleTests {
                 // Expected: timeout means no carbon event was emitted
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

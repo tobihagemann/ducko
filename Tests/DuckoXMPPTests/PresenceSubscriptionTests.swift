@@ -45,7 +45,7 @@ enum PresenceSubscriptionTests {
             }
             #expect(from.description == "contact@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -72,7 +72,7 @@ enum PresenceSubscriptionTests {
             }
             #expect(from.description == "contact@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -105,7 +105,7 @@ enum PresenceSubscriptionTests {
             }
             #expect(!hasSubscriptionEvent)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

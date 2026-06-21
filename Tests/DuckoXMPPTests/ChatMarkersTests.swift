@@ -39,7 +39,7 @@ enum ChatMarkersTests {
             let msg = sentStrings.first { $0.contains("<markable") && $0.contains("urn:xmpp:chat-markers:0") }
             #expect(msg != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -58,7 +58,7 @@ enum ChatMarkersTests {
             let msg = sentStrings.first { $0.contains("<markable") }
             #expect(msg == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -81,7 +81,7 @@ enum ChatMarkersTests {
             }
             #expect(msg != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -104,7 +104,7 @@ enum ChatMarkersTests {
             #expect(msg.contains("type=\"chat\""))
             #expect(msg.contains("<private"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -125,7 +125,7 @@ enum ChatMarkersTests {
             #expect(msg.contains("type=\"groupchat\""))
             #expect(!msg.contains("<private"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

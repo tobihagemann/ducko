@@ -86,7 +86,7 @@ enum MAMModuleTests {
             let result = try await queryTask.value
             #expect(result.fin.complete)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -117,7 +117,7 @@ enum MAMModuleTests {
             let result = try await queryTask.value
             #expect(result.fin.complete)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -142,7 +142,7 @@ enum MAMModuleTests {
             verifySecondMessage(result.messages[1])
             verifyFin(result.fin)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -166,7 +166,7 @@ enum MAMModuleTests {
             let finCount = result.fin.count
             #expect(finCount == 0)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -199,7 +199,7 @@ enum MAMModuleTests {
             #expect(messages.isEmpty)
             #expect(fin.complete)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -226,7 +226,7 @@ enum MAMModuleTests {
             let result = try await queryTask.value
             #expect(result.fin.complete)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -258,7 +258,7 @@ enum MAMModuleTests {
             let result = try await queryTask.value
             #expect(result.fin.complete)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -288,7 +288,7 @@ enum MAMModuleTests {
             let result = try await queryTask.value
             #expect(result.fin.complete)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -324,7 +324,7 @@ enum MAMModuleTests {
             let result = try await queryTask.value
             #expect(result.fin.complete)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

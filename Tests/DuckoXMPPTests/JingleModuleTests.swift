@@ -188,7 +188,7 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleFileTransferReceived(offer) = events.last else {
                 Issue.record("Expected jingleFileTransferReceived event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(offer.sid == "sid-123")
@@ -197,7 +197,7 @@ enum JingleModuleTests {
             #expect(offer.mediaType == "text/plain")
             #expect(offer.from.description == "peer@example.com/res")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -227,13 +227,13 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleFileTransferCompleted(sid, transport) = events.last else {
                 Issue.record("Expected jingleFileTransferCompleted event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-123")
             #expect(transport == .ibb)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -257,13 +257,13 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleFileTransferFailed(sid, reason) = events.last else {
                 Issue.record("Expected jingleFileTransferFailed event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-123")
             #expect(reason == "cancel")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -291,7 +291,7 @@ enum JingleModuleTests {
             #expect(terminateIQ != nil)
             #expect(terminateIQ?.contains("<decline/>") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -320,7 +320,7 @@ enum JingleModuleTests {
             let ackIQ = sentStrings.first { $0.contains("type=\"result\"") && $0.contains("ibb-open-1") }
             #expect(ackIQ != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -342,7 +342,7 @@ enum JingleModuleTests {
                 }
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
 
             let events = try await eventsTask.value
             guard case let .jingleFileTransferFailed(sid, reason) = events.last else {
@@ -372,14 +372,14 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleFileRequestReceived(request) = events.last else {
                 Issue.record("Expected jingleFileRequestReceived event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(request.sid == "sid-123")
             #expect(request.fileDescription.name == "test.txt")
             #expect(request.from.description == "peer@example.com/res")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -401,12 +401,12 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleFileTransferReceived(offer) = events.last else {
                 Issue.record("Expected jingleFileTransferReceived event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(offer.sid == "sid-123")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -428,11 +428,11 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case .jingleFileTransferReceived = events.last else {
                 Issue.record("Expected jingleFileTransferReceived event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -459,7 +459,7 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleChecksumReceived(sid, checksum) = events.last else {
                 Issue.record("Expected jingleChecksumReceived event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-123")
@@ -467,7 +467,7 @@ enum JingleModuleTests {
             #expect(checksum.hash == "dGVzdA==")
             #expect(checksum.contentName == "a-file-offer")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -481,7 +481,7 @@ enum JingleModuleTests {
             let result = module.verifyChecksum(sid: "nonexistent", receivedData: [1, 2, 3])
             #expect(result == .noPendingChecksum)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -499,7 +499,7 @@ enum JingleModuleTests {
             let result = module.verifyChecksum(sid: "sid-123", receivedData: [1, 2, 3])
             #expect(result == .verified)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -517,7 +517,7 @@ enum JingleModuleTests {
             let result = module.verifyChecksum(sid: "sid-123", receivedData: [1, 2, 3])
             #expect(result == .mismatch(expected: "wronghash==", computed: "A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc+4E="))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -535,7 +535,7 @@ enum JingleModuleTests {
             let result = module.verifyChecksum(sid: "sid-123", receivedData: [1, 2, 3])
             #expect(result == .unsupportedAlgorithm("sha-512"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -562,7 +562,7 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleContentAddReceived(sid, contentName, offer) = events.last else {
                 Issue.record("Expected jingleContentAddReceived event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-123")
@@ -570,7 +570,7 @@ enum JingleModuleTests {
             #expect(offer.fileName == "extra.pdf")
             #expect(offer.fileSize == 2048)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -596,13 +596,13 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleContentRejected(sid, contentName) = events.last else {
                 Issue.record("Expected jingleContentRejected event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-123")
             #expect(contentName == "file-1")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -630,13 +630,13 @@ enum JingleModuleTests {
             let events = try await eventsTask.value
             guard case let .jingleContentRemoved(sid, contentName) = events.last else {
                 Issue.record("Expected jingleContentRemoved event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-123")
             #expect(contentName == "file-1")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

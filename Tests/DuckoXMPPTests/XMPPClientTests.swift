@@ -83,7 +83,7 @@ enum XMPPClientTests {
             let isTLS = await mock.isTLSUpgraded
             #expect(isTLS)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -102,7 +102,7 @@ enum XMPPClientTests {
             let isTLS = await mock.isTLSUpgraded
             #expect(!isTLS)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -121,7 +121,7 @@ enum XMPPClientTests {
             let isTLS = await mock.isTLSUpgraded
             #expect(isTLS)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -151,7 +151,7 @@ enum XMPPClientTests {
                 }
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -167,7 +167,7 @@ enum XMPPClientTests {
             await simulateSessionConnectFlow(mock)
             try await connectTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -198,7 +198,7 @@ enum XMPPClientTests {
             #expect(jid.bareJID.domainPart == "example.com")
             #expect(jid.resourcePart == "ducko")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -241,7 +241,7 @@ enum XMPPClientTests {
                 throw XMPPClientError.unexpectedStreamState("Expected authenticationFailed event")
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -274,7 +274,7 @@ enum XMPPClientTests {
             let result = try await iqTask.value
             #expect(result?.name == "query")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -308,7 +308,7 @@ enum XMPPClientTests {
                 #expect(error.condition == .itemNotFound)
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -388,7 +388,7 @@ enum XMPPClientTests {
             }
 
             await mock.waitForSent(count: 5) // connect sends 4, test IQ is 5
-            await client.disconnect()
+            await disconnectFast(client)
 
             do {
                 _ = try await iqTask.value
@@ -433,7 +433,7 @@ enum XMPPClientTests {
             #expect(message.body == "Hello!")
             #expect(message.from?.description == "contact@example.com/res")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -466,7 +466,7 @@ enum XMPPClientTests {
             }
             #expect(presence.show == .away)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -500,7 +500,7 @@ enum XMPPClientTests {
             #expect(iq.isGet)
             #expect(iq.id == "server-1")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -518,7 +518,7 @@ enum XMPPClientTests {
             await simulateNoTLSConnect(mock)
             try await connectTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
 
             // Other disconnect tests use `collectEvents`, which breaks on a
             // predicate match and would still pass if `finish()` were dropped.
@@ -569,6 +569,145 @@ enum XMPPClientTests {
                 // Expected
             } else {
                 throw XMPPClientError.unexpectedStreamState("Expected streamError reason, got \(reason)")
+            }
+        }
+    }
+
+    struct StreamCloseHandshake {
+        @Test
+        func `disconnect resolves on the server's stream-close reply, not the timeout`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let reasonTask = Task { () -> DisconnectReason? in
+                for await event in client.events {
+                    if case let .disconnected(reason) = event { return reason }
+                }
+                return nil
+            }
+
+            // A long timeout proves resolution came from the reply: a broken reply path would stall for the full
+            // 5 s and blow past the 500 ms bound, rather than masking the regression behind a quick fallback.
+            let clock = ContinuousClock()
+            let start = clock.now
+            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .seconds(5)) }
+
+            let sentClose = await mock.waitForSent(matching: { $0.contains("</stream:stream>") })
+            #expect(sentClose != nil)
+            await mock.simulateReceive("</stream:stream>")
+
+            await disconnectTask.value
+            #expect(clock.now - start < .milliseconds(500))
+
+            guard case .requested = await reasonTask.value else {
+                Issue.record("Expected .requested disconnect reason")
+                return
+            }
+        }
+
+        @Test
+        func `disconnect falls back to teardown when no stream-close reply arrives`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let reasonTask = Task { () -> DisconnectReason? in
+                for await event in client.events {
+                    if case let .disconnected(reason) = event { return reason }
+                }
+                return nil
+            }
+
+            // Never inject the server's closing tag — the bounded fallback must still complete the disconnect.
+            await client.disconnect(streamCloseTimeout: .milliseconds(50))
+
+            guard case .requested = await reasonTask.value else {
+                Issue.record("Expected .requested disconnect reason")
+                return
+            }
+        }
+
+        @Test
+        func `stream-close reply arriving the instant the close is sent resolves without hanging`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let disconnectTask = Task { await client.disconnect() }
+
+            // Inject the reply only once the close is confirmed on the wire. Register-before-send guarantees the
+            // waiter slot is already installed, so a reply at the earliest possible moment resolves it.
+            let sentClose = await mock.waitForSent(matching: { $0.contains("</stream:stream>") })
+            #expect(sentClose != nil)
+            await mock.simulateReceive("</stream:stream>")
+
+            await disconnectTask.value
+
+            await #expect(throws: XMPPClientError.self) {
+                _ = try await client.sendIQ(XMPPIQ(type: .get, id: "post-disconnect"))
+            }
+        }
+
+        @Test
+        func `concurrent teardown during the stream-close wait completes the disconnect`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let reasonTask = Task { () -> DisconnectReason? in
+                for await event in client.events {
+                    if case let .disconnected(reason) = event { return reason }
+                }
+                return nil
+            }
+
+            // A long timeout parks disconnect on the waiter; a stream error winning the race must drain the
+            // waiter via cleanUp so the disconnect completes promptly. The 500 ms bound (vs the 5 s timeout)
+            // fails fast if the drain regresses.
+            let clock = ContinuousClock()
+            let start = clock.now
+            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .seconds(5)) }
+
+            let sentClose = await mock.waitForSent(matching: { $0.contains("</stream:stream>") })
+            #expect(sentClose != nil)
+            await mock.simulateReceive(
+                "<error><system-shutdown xmlns='urn:ietf:params:xml:ns:xmpp-streams'/></error>"
+            )
+
+            await disconnectTask.value
+            #expect(clock.now - start < .milliseconds(500))
+            guard case .requested = await reasonTask.value else {
+                Issue.record("Expected .requested disconnect reason")
+                return
             }
         }
     }
@@ -701,7 +840,7 @@ enum XMPPClientTests {
             let chatModule = await client.module(ofType: ChatModule.self)
             #expect(chatModule != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -725,7 +864,7 @@ enum XMPPClientTests {
             let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
             #expect(bindIQ?.contains("<resource>myphone</resource>") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -747,7 +886,7 @@ enum XMPPClientTests {
             let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
             #expect(bindIQ?.contains("<resource>my phone</resource>") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -769,7 +908,7 @@ enum XMPPClientTests {
             let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
             #expect(bindIQ?.contains("<resource>") != true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -790,7 +929,7 @@ enum XMPPClientTests {
             let streamOpen = try #require(sentData.first.map { String(decoding: $0, as: UTF8.self) })
             #expect(streamOpen.contains("bücher.example"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -825,7 +964,7 @@ enum XMPPClientTests {
             #expect(streamOpen.contains("bücher.example"))
             #expect(!streamOpen.contains("xn--bcher-kva.example"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -846,7 +985,7 @@ enum XMPPClientTests {
             let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
             #expect(bindIQ?.contains("<resource>") != true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -862,7 +1001,7 @@ enum XMPPClientTests {
             #expect(id1 == "ducko-1")
             #expect(id2 == "ducko-2")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -897,7 +1036,7 @@ enum XMPPClientTests {
                 }
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -934,7 +1073,7 @@ enum XMPPClientTests {
             let result = try await iqTask.value
             #expect(result?.name == "query")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -964,7 +1103,7 @@ enum XMPPClientTests {
             let result = try await iqTask.value
             #expect(result?.name == "query")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -997,7 +1136,7 @@ enum XMPPClientTests {
             let result = try await iqTask.value
             #expect(result?.name == "query")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1036,7 +1175,7 @@ enum XMPPClientTests {
             let result = try await iqTask.value
             #expect(result?.name == "accept")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1075,7 +1214,7 @@ enum XMPPClientTests {
             let result = try await iqTask.value
             #expect(result?.name == "accept")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1120,7 +1259,7 @@ enum XMPPClientTests {
             #expect(!hasMessage)
             #expect(hasPresence)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1155,7 +1294,7 @@ enum XMPPClientTests {
             }
             #expect(message.body == "Allowed!")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1177,7 +1316,7 @@ enum XMPPClientTests {
             #expect(features.contains("urn:xmpp:feature-a2"))
             #expect(features.contains("urn:xmpp:feature-b1"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1191,7 +1330,7 @@ enum XMPPClientTests {
             let features = await client.availableFeatures
             #expect(features.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1214,7 +1353,7 @@ enum XMPPClientTests {
             try await connectTask.value
 
             #expect(!module.wasDisconnected)
-            await client.disconnect()
+            await disconnectFast(client)
             #expect(module.wasDisconnected)
         }
     }

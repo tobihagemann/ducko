@@ -42,7 +42,7 @@ enum PingModuleTests {
             #expect(pongIQ != nil)
             #expect(pongIQ?.contains("to=\"example.com\"") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -67,7 +67,7 @@ enum PingModuleTests {
                 await mock.simulateReceive("<iq type='result' id='\(iqID)'/>")
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -75,7 +75,7 @@ enum PingModuleTests {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
-            await client.disconnect()
+            await disconnectFast(client)
             await mock.clearSentBytes()
 
             // Wait longer than the keepalive interval

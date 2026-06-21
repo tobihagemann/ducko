@@ -35,7 +35,7 @@ private func disconnectAndAck(_ client: XMPPClient, sm: StreamManagementModule, 
     let wasEnabled = sm.isEnabled
     let baseline = sm.resumeState?.outgoingCounter ?? 0
     let snapshotCount = await mock.sentBytes.count
-    let task = Task { await client.disconnect() }
+    let task = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
     if wasEnabled {
         await mock.waitForSent(count: snapshotCount + 2)
         await mock.simulateReceive("<a xmlns='urn:xmpp:sm:3' h='\(baseline &+ 1)'/>")
@@ -110,7 +110,7 @@ enum StreamManagementModuleTests {
 
             try await connectTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -138,7 +138,7 @@ enum StreamManagementModuleTests {
             let enableSent = sentStrings.contains { $0.contains("<enable") && $0.contains("urn:xmpp:sm:3") }
             #expect(!enableSent)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -243,7 +243,7 @@ enum StreamManagementModuleTests {
             // baseline 5 from `makeConnectedClient` plus unavailable +
             // `<r/>`), simulate the matching `<a/>` so the handshake
             // completes.
-            let disconnectTask = Task { await client.disconnect() }
+            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
             await mock.waitForSent(count: 7)
             await mock.simulateReceive("<a xmlns='urn:xmpp:sm:3' h='\(baseline &+ 1)'/>")
             await disconnectTask.value
@@ -556,7 +556,7 @@ enum StreamManagementModuleTests {
             // `<a/>`, then 8 = `</stream:stream>`.
             let baseline = sm.resumeState?.outgoingCounter ?? 0
 
-            let disconnectTask = Task { await client.disconnect() }
+            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
 
             await mock.waitForSent(count: 6)
             await mock.waitForSent(count: 7)
@@ -598,7 +598,7 @@ enum StreamManagementModuleTests {
             // After SASL2 connect: sentBytes count = 3, SM enabled inline.
             #expect(sm.isEnabled)
 
-            let disconnectTask = Task { await client.disconnect() }
+            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
             await mock.waitForSent(count: 4) // unavailable
             await mock.waitForSent(count: 5) // <r/>
 
@@ -717,7 +717,7 @@ enum StreamManagementModuleTests {
             // Synchronous `await disconnect()` — must NOT block on
             // `<r/>`/`<a/>` because `sm.isEnabled == false` short-circuits
             // the handshake.
-            await client.disconnect()
+            await disconnectFast(client)
 
             let sent = await mock.sentBytes
             let strings = sent.map { String(decoding: $0, as: UTF8.self) }

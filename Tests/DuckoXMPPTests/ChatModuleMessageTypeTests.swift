@@ -50,7 +50,7 @@ enum ChatModuleMessageTypeTests {
             #expect(newBody == "Hello (corrected)")
             #expect(from.bareJID.description == "contact@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -80,7 +80,7 @@ enum ChatModuleMessageTypeTests {
             #expect(originalID == "msg-1")
             #expect(from.bareJID.description == "contact@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -117,7 +117,7 @@ enum ChatModuleMessageTypeTests {
             }
             #expect(!hasCorrected)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

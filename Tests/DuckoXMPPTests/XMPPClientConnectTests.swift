@@ -136,5 +136,5 @@ func `Direct TLS connect skips STARTTLS`() async throws {
     let sentCount = await mock.sentBytes.count
     #expect(sentCount == 4)
 
-    await client.disconnect()
+    await disconnectFast(client)
 }

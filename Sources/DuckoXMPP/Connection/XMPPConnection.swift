@@ -93,10 +93,9 @@ actor XMPPConnection {
 
     // MARK: - Disconnecting
 
-    /// Sends the closing `</stream:stream>` tag and briefly waits for the server's response.
+    /// Sends the closing `</stream:stream>` tag only. Callers own any wait for the server's matching close.
     func sendStreamClose() async {
         try? await transport.send(XMPPStreamWriter.streamClosing())
-        try? await Task.sleep(for: .milliseconds(100))
     }
 
     /// Clean shutdown: stops tasks, closes parser, disconnects transport, finishes event stream.

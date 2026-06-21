@@ -126,7 +126,7 @@ enum JingleSOCKS5Tests {
 
             // The transport-info should be processed without errors
             // (No crash, no unhandled case)
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -153,13 +153,13 @@ enum JingleSOCKS5Tests {
             let events = try await eventsTask.value
             guard case let .jingleFileTransferFailed(sid, reason) = events.last else {
                 Issue.record("Expected jingleFileTransferFailed event")
-                await client.disconnect()
+                await disconnectFast(client)
                 return
             }
             #expect(sid == "sid-123")
             #expect(reason == "candidate-error")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 

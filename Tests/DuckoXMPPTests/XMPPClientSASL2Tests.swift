@@ -33,7 +33,7 @@ enum XMPPClientSASL2Tests {
             // SM should be enabled inline
             #expect(sm.isResumable)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -62,7 +62,7 @@ enum XMPPClientSASL2Tests {
             let sasl2Sent = sentStrings.first { $0.contains("urn:xmpp:sasl:2") }
             #expect(sasl2Sent == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -95,7 +95,7 @@ enum XMPPClientSASL2Tests {
             let count = separateSMEnable.count
             #expect(count == 0)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -123,7 +123,7 @@ enum XMPPClientSASL2Tests {
             let count = carbonsIQ.count
             #expect(count == 0)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

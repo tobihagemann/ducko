@@ -24,6 +24,7 @@ public actor XMPPClient {
     private var disconnectInFlight: Bool = false
     private var readerTask: Task<Void, Never>?
     private var pendingIQs: [String: PendingIQ] = [:]
+    private var pendingStreamClose: PendingStreamClose?
     private let idCounter = Atomic<UInt64>(0)
     private let tlsInfoLock = OSAllocatedUnfairLock<TLSInfo?>(initialState: nil)
     private let connectedJIDLock = OSAllocatedUnfairLock<FullJID?>(initialState: nil)
@@ -37,6 +38,11 @@ public actor XMPPClient {
     private struct PendingIQ {
         let continuation: CheckedContinuation<XMLElement?, any Error>
         let expectedFrom: BareJID?
+        let timeoutTask: Task<Void, Never>
+    }
+
+    private struct PendingStreamClose {
+        let continuation: CheckedContinuation<Bool, Never>
         let timeoutTask: Task<Void, Never>
     }
 
@@ -446,7 +452,7 @@ public actor XMPPClient {
 
     // MARK: - Disconnect
 
-    public func disconnect() async {
+    public func disconnect(streamCloseTimeout: Duration = .milliseconds(500)) async {
         // Reentrancy guard: module `handleDisconnect` can re-call `disconnect()`, and `cleanUp` is reachable from
         // non-disconnect paths (stream errors, redirect, connection lost). Check-and-set is actor-atomic before any
         // await; one-way flag is fine because XMPPClient is terminal after cleanUp.
@@ -468,9 +474,50 @@ public actor XMPPClient {
             }
         }
 
-        await connection.sendStreamClose()
+        // Send `</stream:stream>` and wait for the server's matching close (RFC 6120 §4.4) instead of a fixed
+        // sleep — usually faster, and bounded by `streamCloseTimeout`. Guard on `readerTask`, not `state`: a
+        // concurrent `cleanUp` (e.g. server closed during the sync-ack window) nils `readerTask` *before* setting
+        // `state = .disconnected`, so a `state` check could register a waiter with no reader left to deliver
+        // `.streamClosed` and re-send the close into a torn-down stream.
+        if readerTask != nil {
+            let serverReplied = await awaitStreamClose(timeout: streamCloseTimeout)
+            if !serverReplied {
+                log.debug("Stream close timed out waiting for server reply; tearing down anyway")
+            }
+        }
         await cleanUp(reason: .requested)
         await connection.disconnect()
+    }
+
+    /// Sends `</stream:stream>` and waits for the server's matching close, resolving the instant the
+    /// `.streamClosed` event arrives (see `handleEvent`) or `timeout` elapses. Best-effort and non-throwing:
+    /// returns `true` if the server replied, `false` on timeout. The waiter slot is registered *before* the close
+    /// is sent so a reply can never arrive before the slot exists; the send is then awaited so a short timeout can
+    /// never let the caller tear down the transport before the close write reaches it.
+    private func awaitStreamClose(timeout: Duration) async -> Bool {
+        var sendTask: Task<Void, Never>?
+        let serverReplied = await withCheckedContinuation { continuation in
+            let timeoutTask = Task { [weak self] in
+                try? await Task.sleep(for: timeout)
+                guard !Task.isCancelled else { return }
+                await self?.expireStreamClose()
+            }
+
+            pendingStreamClose = PendingStreamClose(continuation: continuation, timeoutTask: timeoutTask)
+
+            sendTask = Task { [connection] in
+                await connection.sendStreamClose()
+            }
+        }
+        await sendTask?.value
+        return serverReplied
+    }
+
+    private func expireStreamClose() {
+        if let pending = pendingStreamClose {
+            pendingStreamClose = nil
+            pending.continuation.resume(returning: false)
+        }
     }
 
     // MARK: - Sending
@@ -821,7 +868,15 @@ public actor XMPPClient {
         case let .stanzaReceived(element):
             dispatchStanza(element)
         case .streamClosed:
-            await cleanUp(reason: mapDisconnectReason(.streamError(nil, text: "Stream closed by server")))
+            if let pending = pendingStreamClose {
+                // A `disconnect()` is awaiting this reply. Resolve it and let that path own teardown so `cleanUp`
+                // stays single-sourced during a requested disconnect.
+                pendingStreamClose = nil
+                pending.timeoutTask.cancel()
+                pending.continuation.resume(returning: true)
+            } else {
+                await cleanUp(reason: mapDisconnectReason(.streamError(nil, text: "Stream closed by server")))
+            }
         case let .error(error):
             await cleanUp(reason: mapDisconnectReason(.connectionLost(error.message)))
         }
@@ -992,6 +1047,11 @@ public actor XMPPClient {
             pending.continuation.resume(throwing: XMPPClientError.notConnected)
         }
         pendingIQs.removeAll()
+        if let pending = pendingStreamClose {
+            pending.timeoutTask.cancel()
+            pendingStreamClose = nil
+            pending.continuation.resume(returning: false)
+        }
         // Resolve any service still awaiting the readiness signal so it doesn't hang on this dead client.
         settleInitialPresenceReadiness(open: true)
 

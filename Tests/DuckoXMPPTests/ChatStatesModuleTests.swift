@@ -48,7 +48,7 @@ enum ChatStatesModuleTests {
             #expect(from.description == "contact@example.com")
             #expect(state == .composing)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -75,7 +75,7 @@ enum ChatStatesModuleTests {
             }
             #expect(state == .active)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -102,7 +102,7 @@ enum ChatStatesModuleTests {
             }
             #expect(state == .paused)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -125,7 +125,7 @@ enum ChatStatesModuleTests {
             }
             #expect(composingMsg != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -159,7 +159,7 @@ enum ChatStatesModuleTests {
             #expect(msg?.contains("<active") == true)
             #expect(msg?.contains("http://jabber.org/protocol/chatstates") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -191,7 +191,7 @@ enum ChatStatesModuleTests {
             let hasActive = msg?.contains("<active") ?? false
             #expect(!hasActive)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -212,7 +212,7 @@ enum ChatStatesModuleTests {
             let goneMsg = sentStrings.first { $0.contains("<gone") }
             #expect(goneMsg == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -231,7 +231,7 @@ enum ChatStatesModuleTests {
             let composingMsg = sentStrings.first { $0.contains("<composing") }
             #expect(composingMsg != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -261,7 +261,7 @@ enum ChatStatesModuleTests {
             }
             #expect(state == .gone)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

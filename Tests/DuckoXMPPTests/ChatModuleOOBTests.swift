@@ -49,7 +49,7 @@ enum ChatModuleOOBTests {
                 #expect(msg.contains("<body>https://upload.example.com/files/photo.jpg</body>"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

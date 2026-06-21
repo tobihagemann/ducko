@@ -38,7 +38,7 @@ enum ServiceDiscoveryModuleTests {
             #expect(response?.contains("type=\"pc\"") == true)
             #expect(response?.contains("name=\"Ducko\"") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -58,7 +58,7 @@ enum ServiceDiscoveryModuleTests {
             #expect(response != nil)
             #expect(response?.contains("node=\"\(capsNode)\"") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -76,7 +76,7 @@ enum ServiceDiscoveryModuleTests {
             #expect(response != nil)
             #expect(response?.contains("node=") == false)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -119,7 +119,7 @@ enum ServiceDiscoveryModuleTests {
             #expect(result.features.contains("http://jabber.org/protocol/disco#info"))
             #expect(result.features.contains("http://jabber.org/protocol/disco#items"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -168,7 +168,7 @@ enum ServiceDiscoveryModuleTests {
             #expect(result[3].name == nil)
             #expect(result[3].node == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -198,7 +198,7 @@ enum ServiceDiscoveryModuleTests {
             let result = try await queryTask.value
             #expect(result.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

@@ -54,7 +54,7 @@ enum OOBModuleTests {
             #expect(offer.desc == "A text file")
             #expect(offer.from.bareJID.description == "sender@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -80,7 +80,7 @@ enum OOBModuleTests {
             let errorIQ = sentStrings.first { $0.contains("service-unavailable") }
             #expect(errorIQ != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -112,7 +112,7 @@ enum OOBModuleTests {
             #expect(resultIQ != nil)
             #expect(resultIQ?.contains("to=\"sender@example.com/res\"") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -144,7 +144,7 @@ enum OOBModuleTests {
             #expect(errorIQ != nil)
             #expect(errorIQ?.contains("not-acceptable") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 

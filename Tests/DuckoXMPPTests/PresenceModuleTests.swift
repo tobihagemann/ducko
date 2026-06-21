@@ -35,7 +35,7 @@ enum PresenceModuleTests {
             let hasPresence = sentStrings.contains { $0.contains("<presence") }
             #expect(hasPresence)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -59,7 +59,7 @@ enum PresenceModuleTests {
             #expect(unwrapped.contains("<show>away</show>"))
             #expect(unwrapped.contains("<status>brb</status>"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -81,7 +81,7 @@ enum PresenceModuleTests {
             #expect(!unwrapped.contains("<show>"))
             #expect(!unwrapped.contains("<status>"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -102,7 +102,7 @@ enum PresenceModuleTests {
             #expect(presences.count == 1)
             #expect(presences.first?.show == .away)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -128,7 +128,7 @@ enum PresenceModuleTests {
 
             #expect(module.presences(for: bareJID).isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -154,7 +154,7 @@ enum PresenceModuleTests {
             #expect(from.description == "contact@example.com/res")
             #expect(presence.show == .dnd)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -179,7 +179,7 @@ enum PresenceModuleTests {
             }
             #expect(from.description == "stranger@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -196,7 +196,7 @@ enum PresenceModuleTests {
             let bareJID = try #require(BareJID.parse("contact@example.com"))
             #expect(!module.presences(for: bareJID).isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
 
             #expect(module.presences(for: bareJID).isEmpty)
         }
@@ -219,7 +219,7 @@ enum PresenceModuleTests {
             let presences = module.presences(for: bareJID)
             #expect(presences.count == 2)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

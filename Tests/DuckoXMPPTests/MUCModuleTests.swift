@@ -67,7 +67,7 @@ enum MUCModuleTests {
             #expect(occupancy.nickname == "me")
             #expect(occupancy.occupants.count == 2)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -81,7 +81,7 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "Ni\u{00A0}ck") // NO-BREAK SPACE
             #expect(module.nickname(in: testRoomJID) == "Ni ck")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -94,7 +94,7 @@ enum MUCModuleTests {
                 try await module.joinRoom(testRoomJID, nickname: "bad\u{0007}nick")
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -108,7 +108,7 @@ enum MUCModuleTests {
                 try await module.kickOccupant(nickname: "bad\u{0007}nick", from: testRoomJID)
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -133,7 +133,7 @@ enum MUCModuleTests {
             await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
             try await kickTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -174,7 +174,7 @@ enum MUCModuleTests {
             _ = try await leaveTask.value
             #expect(module.nickname(in: testRoomJID) == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -187,7 +187,7 @@ enum MUCModuleTests {
 
             #expect(module.joinedRoomFullJIDs.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -212,7 +212,7 @@ enum MUCModuleTests {
             #expect(fullJIDs.count == 1)
             #expect(fullJIDs.first?.description == "room@conference.example.com/me")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -249,7 +249,7 @@ enum MUCModuleTests {
             #expect(occupancy.flags.contains(.nonAnonymous))
             #expect(!occupancy.flags.contains(.logged))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -284,7 +284,7 @@ enum MUCModuleTests {
             #expect(!occupancy.flags.contains(.nonAnonymous))
             #expect(occupancy.flags.contains(.logged))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -320,7 +320,7 @@ enum MUCModuleTests {
             #expect(occupant.nickname == "newcomer")
             #expect(occupant.role == .participant)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -367,7 +367,7 @@ enum MUCModuleTests {
             #expect(occupant.nickname == "leaver")
             #expect(reason == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -400,7 +400,7 @@ enum MUCModuleTests {
             #expect(message.body == "Hello group!")
             #expect(message.from?.bareJID == testRoomJID)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -433,7 +433,7 @@ enum MUCModuleTests {
             #expect(room == testRoomJID)
             #expect(subject == "New topic")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -468,7 +468,7 @@ enum MUCModuleTests {
             #expect(invite.reason == "Join us!")
             #expect(invite.isDirect == false)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -499,7 +499,7 @@ enum MUCModuleTests {
             #expect(invite.reason == "Come join")
             #expect(invite.isDirect == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -528,7 +528,7 @@ enum MUCModuleTests {
             #expect(invite.isContinuation == true)
             #expect(invite.thread == "t1")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -549,7 +549,7 @@ enum MUCModuleTests {
             #expect(sent.contains("thread=\"t1\""))
             #expect(sent.contains(XMPPNamespaces.mucDirectInvite))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -573,7 +573,7 @@ enum MUCModuleTests {
             #expect(sent.contains("Not interested"))
             #expect(sent.contains(XMPPNamespaces.mucUser))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -621,7 +621,7 @@ enum MUCModuleTests {
             #expect(occupant.nickname == "troublemaker")
             #expect(reason == OccupantLeaveReason.kicked(reason: nil))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -667,7 +667,7 @@ enum MUCModuleTests {
             #expect(occupant.nickname == "spammer")
             #expect(reason == .banned(reason: "spam"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -709,7 +709,7 @@ enum MUCModuleTests {
             }
             #expect(reason == .affiliationChanged(reason: nil))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -751,7 +751,7 @@ enum MUCModuleTests {
             }
             #expect(reason == .serviceShutdown)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -784,7 +784,7 @@ enum MUCModuleTests {
             }
             #expect(message.body == "My message")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -820,7 +820,7 @@ enum MUCModuleTests {
             #expect(rooms[0].jid == testRoomJID)
             #expect(rooms[0].name == "General Chat")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -844,7 +844,7 @@ enum MUCModuleTests {
             #expect(sent.contains("maxstanzas"))
             #expect(sent.contains("history"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -863,7 +863,7 @@ enum MUCModuleTests {
             #expect(sent.contains("since"))
             #expect(sent.contains("2024-01-01T00:00:00Z"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -882,7 +882,7 @@ enum MUCModuleTests {
             let containsHistory = sent.contains("<history")
             #expect(!containsHistory)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -923,7 +923,7 @@ enum MUCModuleTests {
             #expect(occupancy.nickname == "me")
             #expect(isNewlyCreated)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -958,7 +958,7 @@ enum MUCModuleTests {
             let created = isNewlyCreated
             #expect(!created)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1017,7 +1017,7 @@ enum MUCModuleTests {
             #expect(oldNickname == "oldnick")
             #expect(occupant.nickname == "newnick")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1073,7 +1073,7 @@ enum MUCModuleTests {
             #expect(joinedEvents.count == 1) // only the initial join
             #expect(nickChangeEvents.count == 1)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1104,7 +1104,7 @@ enum MUCModuleTests {
             await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
             try await grantTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1131,7 +1131,7 @@ enum MUCModuleTests {
             await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
             try await revokeTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1175,7 +1175,7 @@ enum MUCModuleTests {
             #expect(items[1].jid.description == "bob@example.com")
             #expect(items[1].nickname == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1204,7 +1204,7 @@ enum MUCModuleTests {
             await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
             try await setTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1236,7 +1236,7 @@ enum MUCModuleTests {
             await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
             try await destroyTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1286,7 +1286,7 @@ enum MUCModuleTests {
             #expect(reason == "Moving to a new room")
             #expect(alternate?.description == "newroom@conference.example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1333,7 +1333,7 @@ enum MUCModuleTests {
             let roomName = fields.first { $0.variable == "muc#roomconfig_roomname" }
             #expect(roomName?.values == ["Test Room"])
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1360,7 +1360,7 @@ enum MUCModuleTests {
             await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
             try await acceptTask.value
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1389,7 +1389,7 @@ enum MUCModuleTests {
             let nickname = module.nickname(in: testRoomJID)
             #expect(nickname == "me")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1419,7 +1419,7 @@ enum MUCModuleTests {
             let nickname = module.nickname(in: testRoomJID)
             #expect(nickname == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -1469,7 +1469,7 @@ enum MUCModuleTests {
             #expect(fullJID.resourcePart == "alice")
             #expect(fullJID.bareJID == testRoomJID)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1501,7 +1501,7 @@ enum MUCModuleTests {
                 // Expected: timeout because no mucPrivateMessageReceived was emitted
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1533,7 +1533,7 @@ enum MUCModuleTests {
             #expect(sent.contains("Secret message"))
             #expect(sent.contains("http://jabber.org/protocol/muc#user"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -1576,7 +1576,7 @@ enum MUCModuleTests {
                 throw XMPPClientError.unexpectedStreamState("Expected roomInviteReceived, not mucPrivateMessageReceived")
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

@@ -115,7 +115,7 @@ enum HTTPUploadModuleTests {
             #expect(result?.jid == "upload.example.com")
             #expect(result?.maxFileSize == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -140,7 +140,7 @@ enum HTTPUploadModuleTests {
             let maxSize = try #require(result?.maxFileSize)
             #expect(maxSize == 10_485_760)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -166,7 +166,7 @@ enum HTTPUploadModuleTests {
             #expect(slot.getURL == "https://upload.example.com/get/abc")
             #expect(slot.putHeaders.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -194,7 +194,7 @@ enum HTTPUploadModuleTests {
             #expect(slot.putHeaders["Authorization"] == "Basic dXNlcjpwYXNz")
             #expect(slot.putHeaders["X-Custom"] == "value123")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -225,7 +225,7 @@ enum HTTPUploadModuleTests {
                 }
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -280,7 +280,7 @@ enum HTTPUploadModuleTests {
                 // Expected
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -320,7 +320,7 @@ enum HTTPUploadModuleTests {
             let result2 = try await discoverTask2.value
             #expect(result2?.maxFileSize == 8_000_000)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

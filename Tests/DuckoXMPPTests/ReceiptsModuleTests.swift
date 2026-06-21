@@ -42,7 +42,7 @@ enum ReceiptsModuleTests {
             )
             #expect(receiptReply != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -68,7 +68,7 @@ enum ReceiptsModuleTests {
             )
             #expect(receiptReply == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -90,7 +90,7 @@ enum ReceiptsModuleTests {
             )
             #expect(receiptReply == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -120,7 +120,7 @@ enum ReceiptsModuleTests {
             #expect(messageID == "original-msg")
             #expect(from.bareJID.description == "contact@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -150,7 +150,7 @@ enum ReceiptsModuleTests {
             #expect(messageID == "msg-42")
             #expect(markerType == .displayed)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

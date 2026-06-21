@@ -66,7 +66,7 @@ enum ChatModuleRetractionTests {
             #expect(originalID == "orig-msg-1")
             #expect(from.bareJID.description == "contact@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -95,7 +95,7 @@ enum ChatModuleRetractionTests {
                 #expect(msg.contains("urn:xmpp:hints"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -144,7 +144,7 @@ enum ChatModuleRetractionTests {
             #expect(originalID == "orig-gc-1")
             #expect(from.bareJID.description == "room@conference.example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -198,7 +198,7 @@ enum ChatModuleRetractionTests {
             #expect(room.description == "room@conference.example.com")
             #expect(reason == "Spam")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -251,7 +251,7 @@ enum ChatModuleRetractionTests {
             }
             #expect(!hasModeration)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 

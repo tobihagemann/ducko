@@ -51,7 +51,7 @@ enum AvatarTests {
             #expect(from.description == "alice@example.com")
             #expect(hash == "abc123def456")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -80,7 +80,7 @@ enum AvatarTests {
             }
             #expect(hash == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -102,7 +102,7 @@ enum AvatarTests {
                 }
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
             let events = try await eventsTask.value
 
             let hasAvatarEvent = events.contains { event in
@@ -133,7 +133,7 @@ enum AvatarTests {
                 }
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
             let events = try await eventsTask.value
 
             let hasAvatarEvent = events.contains { event in
@@ -162,7 +162,7 @@ enum AvatarTests {
             #expect(sentString.contains("vcard-temp:x:update"))
             #expect(sentString.contains("<photo>deadbeef1234</photo>"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -182,7 +182,7 @@ enum AvatarTests {
             #expect(sentString.contains("vcard-temp:x:update"))
             #expect(sentString.contains("<photo/>"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -210,7 +210,7 @@ enum AvatarTests {
             #expect(sentString.contains("vcard-temp:x:update"))
             #expect(sentString.contains("<photo>cafebabe</photo>"))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -265,7 +265,7 @@ enum AvatarTests {
             #expect(info?.attribute("type") == "image/png")
             #expect(info?.attribute("bytes") == "1024")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -310,7 +310,7 @@ enum AvatarTests {
             let info = items.first?.payload.child(named: "info")
             #expect(info == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

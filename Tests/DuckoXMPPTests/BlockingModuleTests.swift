@@ -65,7 +65,7 @@ enum BlockingModuleTests {
             let module = try #require(await client.module(ofType: BlockingModule.self))
             #expect(module.blockedJIDs.count == 2)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -97,7 +97,7 @@ enum BlockingModuleTests {
             }
 
             try await blockTask.value
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -126,7 +126,7 @@ enum BlockingModuleTests {
             }
 
             try await unblockTask.value
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -155,7 +155,7 @@ enum BlockingModuleTests {
             #expect(jid.description == "spammer@example.com")
             #expect(module.blockedJIDs.contains(jid))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -187,7 +187,7 @@ enum BlockingModuleTests {
             #expect(jid.description == "spammer@example.com")
             #expect(!module.blockedJIDs.contains(jid))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -203,7 +203,7 @@ enum BlockingModuleTests {
 
             #expect(module.blockedJIDs.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -219,7 +219,7 @@ enum BlockingModuleTests {
             try? await Task.sleep(for: .milliseconds(100))
             #expect(!module.blockedJIDs.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
 
             #expect(module.blockedJIDs.isEmpty)
         }

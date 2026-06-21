@@ -271,7 +271,7 @@ enum Caps2HashTests {
             #expect(capsPresence?.contains("urn:xmpp:hashes:2") == true)
             #expect(capsPresence?.contains("algo=\"sha-256\"") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -310,7 +310,7 @@ enum Caps2HashTests {
             // Should use caps2 ver, not the XEP-0115 ver
             #expect(capsModule.isFeatureSupported("caps2-feature", by: peerJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -338,7 +338,7 @@ enum Caps2HashTests {
             let peerJID = try #require(BareJID.parse("peer@example.com"))
             #expect(capsModule.isFeatureSupported("legacy-feature", by: peerJID))
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

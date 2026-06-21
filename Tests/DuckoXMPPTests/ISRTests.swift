@@ -209,7 +209,7 @@ enum ISRTests {
             #expect(sm.hasISRToken)
             #expect(sm.isrToken == "initial-isr-token")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -234,7 +234,7 @@ enum ISRTests {
             let authSent = sentStrings.first { $0.contains("urn:xmpp:sasl:2") }
             #expect(authSent?.contains("isr-enable") == true)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -259,7 +259,7 @@ enum ISRTests {
 
             // Snapshot SM state for reconnect
             let smState = sm.resumeState
-            await client.disconnect()
+            await disconnectFast(client)
 
             // Phase 2: Reconnect with ISR token
             let mock2 = MockTransport()
@@ -297,7 +297,7 @@ enum ISRTests {
             let isrAuth = sentStrings.first { $0.contains("HT-SHA-256-ENDP") }
             #expect(isrAuth != nil)
 
-            await client2.disconnect()
+            await disconnectFast(client2)
         }
 
         @Test
@@ -319,7 +319,7 @@ enum ISRTests {
             #expect(sm.isrToken == "initial-isr-token")
 
             let smState = sm.resumeState
-            await client.disconnect()
+            await disconnectFast(client)
 
             // Phase 2: ISR resume — server provides refreshed token
             let mock2 = MockTransport()
@@ -338,7 +338,7 @@ enum ISRTests {
 
             #expect(sm2.isrToken == "refreshed-token")
 
-            await client2.disconnect()
+            await disconnectFast(client2)
         }
 
         @Test
@@ -359,7 +359,7 @@ enum ISRTests {
             try await connectTask.value
 
             let smState = sm.resumeState
-            await client.disconnect()
+            await disconnectFast(client)
 
             // Phase 2: ISR fails, fallback to normal SASL2
             let mock2 = MockTransport()
@@ -393,7 +393,7 @@ enum ISRTests {
             // ISR token should be cleared after failure
             #expect(!sm2.hasISRToken)
 
-            await client2.disconnect()
+            await disconnectFast(client2)
         }
 
         @Test
@@ -426,7 +426,7 @@ enum ISRTests {
             let sasl2Auth = sentStrings.first { $0.contains("mechanism=\"PLAIN\"") }
             #expect(sasl2Auth != nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -465,7 +465,7 @@ enum ISRTests {
             let isrAuth = sentStrings.first { $0.contains("HT-SHA-256-ENDP") }
             #expect(isrAuth == nil)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

@@ -55,7 +55,7 @@ enum MUCModuleCorrectionTests {
             #expect(newBody == "Hello (corrected)")
             #expect(from.bareJID == testRoomJID)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -86,7 +86,7 @@ enum MUCModuleCorrectionTests {
                 // Expected — timeout because no messageCorrected event was emitted
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -112,7 +112,7 @@ enum MUCModuleCorrectionTests {
                 #expect(msg.contains("type=\"groupchat\""))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

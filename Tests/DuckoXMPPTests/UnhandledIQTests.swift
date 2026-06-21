@@ -45,7 +45,7 @@ enum UnhandledIQTests {
                 #expect(iq.contains("to=\"server@example.com\""))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -70,7 +70,7 @@ enum UnhandledIQTests {
                 #expect(iq.contains("service-unavailable"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
 
         @Test
@@ -91,7 +91,7 @@ enum UnhandledIQTests {
             let sentData = await mock.sentBytes
             #expect(sentData.isEmpty)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }

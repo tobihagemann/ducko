@@ -50,7 +50,7 @@ enum ChatModuleCorrectionTests {
             #expect(newBody == "Hello (corrected)")
             #expect(from.bareJID.description == "contact@example.com")
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -76,7 +76,7 @@ enum ChatModuleCorrectionTests {
                 #expect(msg.contains("Fixed text"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -107,7 +107,7 @@ enum ChatModuleCorrectionTests {
                 #expect(msg.contains("Reply text"))
             }
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 
@@ -140,7 +140,7 @@ enum ChatModuleCorrectionTests {
             #expect(from.bareJID.description == "contact@example.com")
             #expect(error.condition == .serviceUnavailable)
 
-            await client.disconnect()
+            await disconnectFast(client)
         }
     }
 }
