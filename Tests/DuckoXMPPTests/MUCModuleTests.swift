@@ -71,6 +71,113 @@ enum MUCModuleTests {
         }
     }
 
+    struct NicknameNormalization {
+        @Test
+        func `joinRoom stores the OpaqueString-normalized nickname`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "Ni\u{00A0}ck") // NO-BREAK SPACE
+            #expect(module.nickname(in: testRoomJID) == "Ni ck")
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `joinRoom rejects a nickname that fails to normalize`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            await #expect(throws: MUCModule.MUCError.self) {
+                try await module.joinRoom(testRoomJID, nickname: "bad\u{0007}nick")
+            }
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Admin operations reject a nickname that fails to normalize`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            // kick/grantVoice/revokeVoice all route through setRole, which normalizes the nick.
+            await #expect(throws: MUCModule.MUCError.self) {
+                try await module.kickOccupant(nickname: "bad\u{0007}nick", from: testRoomJID)
+            }
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Admin operations normalize the target nickname in the sent IQ`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            await mock.clearSentBytes()
+
+            let kickTask = Task {
+                try await module.kickOccupant(nickname: "Ni\u{00A0}ck", from: testRoomJID) // NO-BREAK SPACE
+            }
+
+            try? await Task.sleep(for: .milliseconds(200))
+            let sentData = await mock.sentBytes
+            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+            #expect(sent.contains("nick=\"Ni ck\""))
+
+            let iqID = try #require(extractIQID(from: sent))
+            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            try await kickTask.value
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Normalized self-presence matches the stored nickname for leave detection`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: MUCModule.self))
+
+            try await module.joinRoom(testRoomJID, nickname: "Ni\u{00A0}ck")
+
+            // Self-presence echo carries the OpaqueString-normalized nickname (ASCII space), parsed via FullJID.
+            await mock.simulateReceive("""
+            <presence from='room@conference.example.com/Ni ck'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='participant'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+
+            let leaveTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .roomOccupantLeft = event { return true }
+                    return false
+                }
+            }
+
+            // Self-leave matches the stored normalized nickname → room is removed.
+            await mock.simulateReceive("""
+            <presence type='unavailable' from='room@conference.example.com/Ni ck'>\
+            <x xmlns='http://jabber.org/protocol/muc#user'>\
+            <item affiliation='member' role='none'/>\
+            <status code='110'/>\
+            </x>\
+            </presence>
+            """)
+
+            _ = try await leaveTask.value
+            #expect(module.nickname(in: testRoomJID) == nil)
+
+            await client.disconnect()
+        }
+    }
+
     struct JoinedRoomFullJIDs {
         @Test
         func `Returns empty when no rooms joined`() async throws {

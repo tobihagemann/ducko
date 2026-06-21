@@ -11,6 +11,8 @@ public actor MockTransport: XMPPTransport {
     public private(set) var isTLSUpgraded = false
     public private(set) var connectedHost: String?
     public private(set) var connectedPort: UInt16?
+    /// The most recent TLS server name (SNI) passed to `connectWithTLS`/`upgradeTLS`.
+    public private(set) var tlsServerName: String?
 
     private let connectError: (any Error)?
     private var nextConnectError: (any Error)?
@@ -57,6 +59,7 @@ public actor MockTransport: XMPPTransport {
         isTLSUpgraded = true
         connectedHost = host
         connectedPort = port
+        tlsServerName = serverName
     }
 
     /// Resolves the error (if any) the current connect attempt should throw. The permanent
@@ -75,6 +78,7 @@ public actor MockTransport: XMPPTransport {
             throw MockTransportError.notConnected
         }
         isTLSUpgraded = true
+        tlsServerName = serverName
     }
 
     public func send(_ bytes: [UInt8]) async throws {

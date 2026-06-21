@@ -6,10 +6,31 @@ public struct BareJID: Hashable, Sendable {
     public init?(localPart: String?, domainPart: String) {
         guard !domainPart.isEmpty else { return nil }
         if let localPart, localPart.isEmpty { return nil }
-        // RFC 7622 §3.3: localpart uses UsernameCaseMapped (case-folded to lowercase)
-        // RFC 7622 §3.2: domainpart uses IDNA2008 (case-insensitive, normalized to lowercase)
-        self.localPart = localPart?.lowercased()
-        self.domainPart = domainPart.lowercased()
+        // RFC 7622 §3.3.1: localpart is PRECIS UsernameCaseMapped (width map, validate, lowercase,
+        // NFC, Bidi) plus the XMPP-specific excluded characters.
+        if let localPart {
+            guard let normalized = PRECIS.usernameCaseMapped(localPart),
+                  !Self.containsExcludedLocalpartCharacter(normalized) else { return nil }
+            self.localPart = normalized
+        } else {
+            self.localPart = nil
+        }
+        // RFC 7622 §3.2.1: domainpart is IDNA2008, stored as the U-label canonical form.
+        guard let normalizedDomain = IDNA.toUnicode(domainPart) else { return nil }
+        self.domainPart = normalizedDomain
+    }
+
+    /// RFC 7622 §3.3.1 excludes these from the localpart. They are printable ASCII (PVALID under
+    /// PRECIS ASCII7), so this explicit check — not the PRECIS pass — is what rejects them.
+    private static func containsExcludedLocalpartCharacter(_ localPart: String) -> Bool {
+        localPart.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x22, 0x26, 0x27, 0x2F, 0x3A, 0x3C, 0x3E, 0x40: // " & ' / : < > @
+                return true
+            default:
+                return false
+            }
+        }
     }
 }
 
@@ -65,8 +86,11 @@ public struct FullJID: Hashable, Sendable {
 
     public init?(bareJID: BareJID, resourcePart: String) {
         guard !resourcePart.isEmpty else { return nil }
+        // RFC 7622 §3.4.1: resourcepart is PRECIS OpaqueString (non-ASCII spaces → U+0020, NFC,
+        // case preserved).
+        guard let normalized = PRECIS.opaqueString(resourcePart) else { return nil }
         self.bareJID = bareJID
-        self.resourcePart = resourcePart
+        self.resourcePart = normalized
     }
 }
 
@@ -94,6 +118,12 @@ extension FullJID: Codable {
 }
 
 public extension FullJID {
+    /// Normalizes a resourcepart (e.g. a MUC occupant nickname) via PRECIS OpaqueString, matching
+    /// what `FullJID.init?` applies.
+    static func normalizeResourcePart(_ resourcePart: String) -> String? {
+        PRECIS.opaqueString(resourcePart)
+    }
+
     /// Parses a full JID string. The resource may contain slashes per RFC 6120.
     static func parse(_ string: String) -> FullJID? {
         guard !string.isEmpty else { return nil }

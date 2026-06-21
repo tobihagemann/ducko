@@ -10,6 +10,7 @@ included:
 excluded:
   - .build
   - DerivedData
+  - Sources/DuckoXMPP/Stanzas/Normalization/UnicodeTables.generated.swift
   - IntegrationTests
 
 disabled_rules:

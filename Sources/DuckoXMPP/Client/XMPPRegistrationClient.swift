@@ -21,15 +21,18 @@ public enum XMPPRegistrationClient {
     ) async throws -> RegistrationModule.RegistrationForm {
         let connection = XMPPConnection(transport: POSIXTransport())
         let reader = EventReader(connection.events)
+        guard let names = IDNA.names(for: domain) else {
+            throw RegistrationClientError.connectionFailed("Invalid domain: \(domain)")
+        }
 
         do {
             if let host {
                 try await connection.connect(host: host, port: port)
             } else {
-                try await connection.connect(domain: domain)
+                try await connection.connect(domain: names.lookup)
             }
 
-            try await negotiateStream(connection: connection, reader: reader, domain: domain)
+            try await negotiateStream(connection: connection, reader: reader, domain: names.stream, serverName: names.lookup)
 
             var iq = XMPPIQ(type: .get, id: "reg1")
             let query = XMLElement(name: "query", namespace: XMPPNamespaces.register)
@@ -63,15 +66,18 @@ public enum XMPPRegistrationClient {
     ) async throws {
         let connection = XMPPConnection(transport: POSIXTransport())
         let reader = EventReader(connection.events)
+        guard let names = IDNA.names(for: domain) else {
+            throw RegistrationClientError.connectionFailed("Invalid domain: \(domain)")
+        }
 
         do {
             if let host {
                 try await connection.connect(host: host, port: port)
             } else {
-                try await connection.connect(domain: domain)
+                try await connection.connect(domain: names.lookup)
             }
 
-            try await negotiateStream(connection: connection, reader: reader, domain: domain)
+            try await negotiateStream(connection: connection, reader: reader, domain: names.stream, serverName: names.lookup)
 
             var iq = XMPPIQ(type: .set, id: "reg1")
             let query = RegistrationModule.buildRegistrationQuery(username: username, password: password, email: email)
@@ -109,7 +115,8 @@ public enum XMPPRegistrationClient {
     private static func negotiateStream(
         connection: XMPPConnection,
         reader: EventReader,
-        domain: String
+        domain: String,
+        serverName: String
     ) async throws {
         try await connection.send(XMPPStreamWriter.streamOpening(to: domain))
         let features = try await awaitFeatures(reader)
@@ -124,7 +131,7 @@ public enum XMPPRegistrationClient {
                 throw RegistrationClientError.tlsNegotiationFailed
             }
 
-            try await connection.upgradeTLS(serverName: domain)
+            try await connection.upgradeTLS(serverName: serverName)
             await connection.resetStream()
 
             // Reopen stream after TLS

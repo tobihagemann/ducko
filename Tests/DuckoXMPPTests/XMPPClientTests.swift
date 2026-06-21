@@ -729,6 +729,106 @@ enum XMPPClientTests {
         }
 
         @Test
+        func `Bind IQ normalizes preferredResource via OpaqueString`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false,
+                preferredResource: "my\u{00A0}phone" // NO-BREAK SPACE → U+0020
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
+            #expect(bindIQ?.contains("<resource>my phone</resource>") == true)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Bind IQ omits resource when preferredResource fails to normalize`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false,
+                preferredResource: "bad\u{0007}resource" // control character → OpaqueString rejects
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let sentData = await mock.sentBytes
+            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
+            let bindIQ = sentStrings.first { $0.contains("<bind") && $0.contains("urn:ietf:params:xml:ns:xmpp-bind") }
+            #expect(bindIQ?.contains("<resource>") != true)
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `xn-- domain is canonicalized to its U-label for the stream`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "xn--bcher-kva.example",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connectWithTLS(host: "host.example", port: 5223) }
+            await simulateDirectTLSConnect(mock)
+            try await connectTask.value
+
+            #expect(await mock.tlsServerName == "xn--bcher-kva.example")
+            let sentData = await mock.sentBytes
+            let streamOpen = try #require(sentData.first.map { String(decoding: $0, as: UTF8.self) })
+            #expect(streamOpen.contains("bücher.example"))
+
+            await client.disconnect()
+        }
+
+        @Test
+        func `Connect fails closed for a domain with no A-label`() async {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "bad domain.example", // space is not LDH; no A-label can be derived
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await #expect(throws: XMPPClientError.self) {
+                try await client.connect(host: "host.example", port: 5222)
+            }
+        }
+
+        @Test
+        func `IDN domain uses the A-label for TLS SNI while the stream keeps the U-label`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "bücher.example",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connectWithTLS(host: "host.example", port: 5223) }
+            await simulateDirectTLSConnect(mock)
+            try await connectTask.value
+
+            #expect(await mock.tlsServerName == "xn--bcher-kva.example")
+            let sentData = await mock.sentBytes
+            let streamOpen = try #require(sentData.first.map { String(decoding: $0, as: UTF8.self) })
+            #expect(streamOpen.contains("bücher.example"))
+            #expect(!streamOpen.contains("xn--bcher-kva.example"))
+
+            await client.disconnect()
+        }
+
+        @Test
         func `Bind IQ omits resource when preferredResource is nil`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(

@@ -181,6 +181,90 @@ enum JIDTests {
         }
     }
 
+    struct Normalization {
+        @Test(arguments: [
+            "user@example.com",
+            "user@chat.example.com",
+            "a-b.c@example.com"
+        ])
+        func `Valid ASCII JIDs are byte-identical`(input: String) throws {
+            let jid = try #require(BareJID.parse(input))
+            #expect(jid.description == input)
+        }
+
+        @Test
+        func `Mixed-case ASCII description lowercases predictably`() throws {
+            let jid = try #require(BareJID.parse("User@Example.COM"))
+            #expect(jid.description == "user@example.com")
+        }
+
+        @Test
+        func `Sharp s stays distinct from ss`() throws {
+            let sharp = try #require(BareJID.parse("\u{00DF}@example.com"))
+            #expect(sharp.localPart == "\u{00DF}")
+            #expect(sharp != BareJID.parse("ss@example.com"))
+        }
+
+        @Test
+        func `Decomposed and composed localparts share a description`() throws {
+            let decomposed = try #require(BareJID.parse("e\u{0301}@example.com"))
+            let composed = try #require(BareJID.parse("é@example.com"))
+            #expect(decomposed.description == composed.description)
+            #expect(decomposed.description == "é@example.com")
+        }
+
+        @Test
+        func `Fullwidth localpart is width-mapped to ASCII`() throws {
+            let jid = try #require(BareJID.parse("\u{FF21}@example.com"))
+            #expect(jid.localPart == "a")
+        }
+
+        @Test(arguments: [
+            "a b@example.com", // SPACE
+            "a\u{0007}b@example.com", // control
+            "a\u{00D7}b@example.com", // DISALLOWED symbol
+            "a\"b@example.com", // XMPP exclusion "
+            "a&b@example.com", // &
+            "a'b@example.com", // '
+            "a:b@example.com", // :
+            "a<b@example.com", // <
+            "a>b@example.com" // >
+        ])
+        func `Prohibited and excluded localparts are rejected`(input: String) {
+            #expect(BareJID.parse(input) == nil)
+        }
+
+        @Test
+        func `Mixed RTL and LTR localpart is rejected`() {
+            #expect(BareJID.parse("\u{05D0}a@example.com") == nil)
+        }
+
+        @Test(arguments: ["a/b", "a@b"])
+        func `Direct construction rejects / and @ in localpart`(localPart: String) {
+            // `parse` consumes `/` and `@`, so the exclusion is only reachable via direct init.
+            #expect(BareJID(localPart: localPart, domainPart: "example.com") == nil)
+        }
+
+        @Test
+        func `Non-ASCII domain carries the U-label`() throws {
+            let jid = try #require(BareJID.parse("user@Bücher.example"))
+            #expect(jid.domainPart == "bücher.example")
+            #expect(jid.description == "user@bücher.example")
+        }
+
+        @Test(arguments: ["user@192.168.1.1", "user@[2001:db8::1]"])
+        func `IP-literal domains are accepted`(input: String) throws {
+            let jid = try #require(BareJID.parse(input))
+            #expect(jid.description == input)
+        }
+
+        @Test
+        func `Resourcepart maps non-ASCII space and preserves case`() throws {
+            let jid = try #require(FullJID.parse("user@example.com/My\u{00A0}Res"))
+            #expect(jid.resourcePart == "My Res")
+        }
+    }
+
     struct Description {
         @Test(arguments: [
             ("user@example.com", "user@example.com"),

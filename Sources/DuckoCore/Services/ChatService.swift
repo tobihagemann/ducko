@@ -776,6 +776,7 @@ public final class ChatService {
     public func joinRoom(jid: BareJID, nickname: String, password: String? = nil, accountID: UUID) async throws {
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        guard let nickname = FullJID.normalizeResourcePart(nickname) else { throw ChatServiceError.invalidJID(nickname) }
 
         try await mucModule.joinRoom(jid, nickname: nickname, password: password)
         _ = try await findOrCreateGroupConversation(for: jid, nickname: nickname, accountID: accountID)
@@ -935,6 +936,7 @@ public final class ChatService {
         }
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
+        guard let nickname = FullJID.normalizeResourcePart(nickname) else { throw ChatServiceError.invalidJID(nickname) }
 
         let content = MessageContent(body: body)
         let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
@@ -972,6 +974,7 @@ public final class ChatService {
         guard let roomJID = BareJID.parse(roomJIDString) else {
             throw ChatServiceError.invalidJID(roomJIDString)
         }
+        guard let nickname = FullJID.normalizeResourcePart(nickname) else { throw ChatServiceError.invalidJID(nickname) }
         let conversation = try await findOrCreateMUCPMConversation(for: roomJID, nickname: nickname, accountID: accountID)
         try await setConversations(store.fetchConversations(for: accountID), for: accountID)
         return conversation

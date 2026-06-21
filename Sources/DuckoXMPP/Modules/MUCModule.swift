@@ -5,6 +5,20 @@ private let log = Logger(label: "im.ducko.xmpp.muc")
 
 /// Implements XEP-0045 Multi-User Chat — room join/leave, occupant tracking, group messaging, and invitations.
 public final class MUCModule: XMPPModule, Sendable {
+    /// Errors from the MUC module.
+    public enum MUCError: Error {
+        case invalidNickname(String)
+    }
+
+    /// Normalizes a user-supplied nickname via PRECIS OpaqueString, throwing on failure so every
+    /// nickname-bearing entry point rejects an invalid nick consistently.
+    private static func normalizedNickname(_ nickname: String) throws -> String {
+        guard let normalized = FullJID.normalizeResourcePart(nickname) else {
+            throw MUCError.invalidNickname(nickname)
+        }
+        return normalized
+    }
+
     // MARK: - State
 
     /// Self-ping interval for detecting silent MUC disconnections (XEP-0410).
@@ -393,6 +407,9 @@ public final class MUCModule: XMPPModule, Sendable {
     /// Joins a MUC room with the given nickname.
     public func joinRoom(_ room: BareJID, nickname: String, password: String? = nil, history: RoomHistoryFetch = .initial) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
+        // Normalize once at the room-state boundary so the stored nickname matches the
+        // OpaqueString-normalized form that incoming presence (parsed via FullJID) carries.
+        let nickname = try Self.normalizedNickname(nickname)
 
         let (existingPingTask, effectivePassword) = state.withLock { state -> (Task<Void, Never>?, String?) in
             let task = state.rooms[room]?.selfPingTask
@@ -451,6 +468,7 @@ public final class MUCModule: XMPPModule, Sendable {
         to room: BareJID, nickname: String, body: String, id: String? = nil
     ) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
+        let nickname = try Self.normalizedNickname(nickname)
         guard let fullJID = FullJID(bareJID: room, resourcePart: nickname) else { return }
         let stanzaID = id ?? context.generateID()
         var message = XMPPMessage(type: .chat, to: .full(fullJID), id: stanzaID)
@@ -569,6 +587,7 @@ public final class MUCModule: XMPPModule, Sendable {
     /// Changes the user's nickname in a room.
     public func changeNickname(in room: BareJID, to newNickname: String) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
+        let newNickname = try Self.normalizedNickname(newNickname)
         guard let fullJID = FullJID(bareJID: room, resourcePart: newNickname) else { return }
         let presence = XMPPPresence(to: .full(fullJID), id: context.generateID())
         try await context.sendStanza(presence)
@@ -608,6 +627,9 @@ public final class MUCModule: XMPPModule, Sendable {
 
     public func setRole(nickname: String, in room: BareJID, to role: MUCRole, reason: String? = nil) async throws {
         guard let context = state.withLock({ $0.context }) else { return }
+        // Normalize so the targeted `nick` matches the occupant's stored OpaqueString form (kick,
+        // grantVoice, and revokeVoice all route through here).
+        let nickname = try Self.normalizedNickname(nickname)
         var iq = XMPPIQ(type: .set, to: .bare(room), id: context.generateID())
         var query = XMLElement(name: "query", namespace: XMPPNamespaces.mucAdmin)
         var item = XMLElement(name: "item", attributes: ["nick": nickname, "role": role.rawValue])

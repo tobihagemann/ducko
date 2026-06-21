@@ -40,4 +40,12 @@ struct XMPPRegistrationClientTests {
             Issue.record("Wrong case")
         }
     }
+
+    @Test
+    func `Retrieving a form for a domain with no A-label fails closed`() async {
+        // The IDNA guard throws before any network I/O (a space is not LDH, so no A-label).
+        await #expect(throws: XMPPRegistrationClient.RegistrationClientError.self) {
+            _ = try await XMPPRegistrationClient.retrieveForm(domain: "bad domain.example")
+        }
+    }
 }

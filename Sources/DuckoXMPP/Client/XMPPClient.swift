@@ -11,7 +11,12 @@ private let log = Logger(label: "im.ducko.xmpp.client")
 /// are exposed via ``events``.
 public actor XMPPClient {
     private let connection: XMPPConnection
+    /// U-label canonical form, used for stream headers and JID construction.
     private let domain: String
+    /// A-label form of `domain` for DNS/SRV resolution and TLS SNI; equals `domain` for ASCII
+    /// domains. `nil` when `domain` cannot be converted to an A-label, in which case connecting
+    /// fails closed rather than putting a non-lookup name on the wire.
+    private let serverName: String?
     private let credentials: Credentials
     private var modules: [ObjectIdentifier: any XMPPModule] = [:]
     private var interceptors: [any StanzaInterceptor] = []
@@ -82,7 +87,10 @@ public actor XMPPClient {
         let (stream, continuation) = AsyncStream.makeStream(of: XMPPEvent.self)
         self.events = stream
         self.eventContinuation = continuation
-        self.domain = domain
+        // Canonicalize to the U-label form for stream headers/JIDs; derive the A-label for DNS/TLS.
+        let canonicalDomain = IDNA.toUnicode(domain) ?? domain
+        self.domain = canonicalDomain
+        self.serverName = IDNA.toASCII(canonicalDomain)
         self.credentials = credentials
         self.connection = XMPPConnection(transport: transport ?? POSIXTransport())
         self.requireTLS = requireTLS
@@ -134,13 +142,15 @@ public actor XMPPClient {
 
     /// SRV-aware connect: resolves SRV records then runs the full XMPP handshake.
     public func connect() async throws {
-        try await performConnect { [connection, domain] in
-            try await connection.connect(domain: domain)
+        guard let serverName else { throw XMPPClientError.invalidDomain(domain) }
+        try await performConnect { [connection] in
+            try await connection.connect(domain: serverName)
         }
     }
 
     /// Direct connect to a specific host and port, bypassing SRV resolution.
     public func connect(host: String, port: UInt16) async throws {
+        guard serverName != nil else { throw XMPPClientError.invalidDomain(domain) }
         try await performConnect { [connection] in
             try await connection.connect(host: host, port: port)
         }
@@ -148,8 +158,9 @@ public actor XMPPClient {
 
     /// Direct TLS connect — TLS from the first byte, no STARTTLS upgrade.
     public func connectWithTLS(host: String, port: UInt16) async throws {
-        try await performConnect { [connection, domain] in
-            try await connection.connectWithTLS(host: host, port: port, serverName: domain)
+        guard let serverName else { throw XMPPClientError.invalidDomain(domain) }
+        try await performConnect { [connection] in
+            try await connection.connectWithTLS(host: host, port: port, serverName: serverName)
         }
     }
 
@@ -537,7 +548,8 @@ public actor XMPPClient {
             throw XMPPClientError.tlsNegotiationFailed("Server rejected STARTTLS: \(element.name)")
         }
 
-        try await connection.upgradeTLS(serverName: domain)
+        guard let serverName else { throw XMPPClientError.invalidDomain(domain) }
+        try await connection.upgradeTLS(serverName: serverName)
     }
 
     /// Attempts to resume a previous SM session. Returns `true` if resumed.
@@ -743,9 +755,15 @@ public actor XMPPClient {
         var bindIQ = XMPPIQ(type: .set, id: generateID())
         var bindChild = XMLElement(name: "bind", namespace: XMPPNamespaces.bind)
         if let resource = preferredResource, !resource.isEmpty {
-            var resourceElement = XMLElement(name: "resource")
-            resourceElement.addText(resource)
-            bindChild.addChild(resourceElement)
+            // Normalize through OpaqueString so the requested resource matches what the now-stricter
+            // FullJID.parse accepts when the server echoes the bound JID; on failure, let the server assign.
+            if let normalized = FullJID.normalizeResourcePart(resource) {
+                var resourceElement = XMLElement(name: "resource")
+                resourceElement.addText(normalized)
+                bindChild.addChild(resourceElement)
+            } else {
+                log.warning("preferredResource failed OpaqueString normalization; letting server assign")
+            }
         }
         bindIQ.element.addChild(bindChild)
 
