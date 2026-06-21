@@ -1,4 +1,5 @@
 import Foundation
+import os
 import Testing
 
 extension DuckoIntegrationTests.CLILayer {
@@ -87,6 +88,79 @@ extension DuckoIntegrationTests.CLILayer {
                 )
                 #expect(output.exitCode == 0)
                 #expect(output.stdout.contains("Cancelled."))
+            }
+        }
+
+        @Test(arguments: ["plain", "json", "ansi"])
+        @MainActor func `account check-registration shows the form or errors cleanly`(format: String) async throws {
+            try await CLIProcess.withProcess { cli in
+                // Pre-auth form retrieval needs no seeded account.
+                let output = try await cli.run([
+                    "account", "check-registration",
+                    "--server", TestCredentials.testServerDomain,
+                    "--output", format
+                ])
+
+                // Load-bearing guard: the command must exit cleanly (no crash/hang). A bare
+                // non-zero-exit disjunction would also pass on a TLS/connection/parser failure.
+                #expect(output.terminationReason == .exit)
+
+                // On any non-`result` response (including registration-disabled), the pre-auth
+                // `retrieveForm` throws the generic `unexpectedResponse`, which `CheckRegistration.run`
+                // lets propagate to ArgumentParser → an "Error:" stderr prefix regardless of --output.
+                let formAnchor = format == "json" ? "registration_form" : "Registration Form"
+                let succeeded = output.exitCode == 0 && output.stdout.contains(formAnchor)
+                let failedCleanly = output.exitCode != 0 && output.stderr.contains("Error:")
+                #expect(succeeded || failedCleanly)
+            }
+        }
+
+        @Test(.enabled(if: TestCredentials.isRegistrationTestingEnabled, "DUCKO_TEST_REGISTRATION not set"), .timeLimit(.minutes(2)))
+        @MainActor func `account register then unregister round-trips an ephemeral account`() async throws {
+            try await CLIProcess.withProcess { cli in
+                let username = TestCredentials.ephemeralUsername()
+                let password = UUID().uuidString
+                let domain = TestCredentials.testServerDomain
+                let jid = "\(username)@\(domain)"
+
+                // `registerAccount` calls `createAndConnect`, persisting and connecting the account
+                // in this profile's store (the connect publishes the ephemeral account's own OMEMO
+                // devicelist — removed with the account on XEP-0077 cancel below).
+                let registered = try await cli.run([
+                    "account", "register",
+                    "--server", domain,
+                    "--username", username,
+                    "--password", password
+                ])
+                #expect(registered.exitCode == 0)
+                #expect(registered.stdout.contains("Account registered: \(jid)"))
+
+                // Register failure-surfacing cleanup immediately, in a fresh process — the register
+                // connection may be dead, and a body-unregister failure must still run orphan cleanup.
+                let bodyUnregisterSucceeded = OSAllocatedUnfairLock(initialState: false)
+                await cli.addCleanup {
+                    guard let teardown = try? await cli.run(["account", "unregister", jid], stdin: "yes\n") else {
+                        Issue.record("Ephemeral account \(jid) cleanup did not complete; it may be orphaned on the server")
+                        return
+                    }
+                    let alreadyGone = teardown.stdout.contains("Account not found") || teardown.stderr.contains("Account not found")
+                    // "Account not found" is clean only when the body already unregistered the account.
+                    // Without that, it can also mean register succeeded server-side but rolled the local
+                    // account back — a server orphan the CLI cannot cancel (it needs a local account).
+                    let cleanlyGone = alreadyGone && bodyUnregisterSucceeded.withLock { $0 }
+                    if teardown.exitCode != 0, !cleanlyGone {
+                        Issue.record("Ephemeral account \(jid) was not cleanly unregistered (exit \(teardown.exitCode)); it may be orphaned on the server: \(teardown.stdout)\(teardown.stderr)")
+                    }
+                }
+
+                // Exercise the explicit unregister; `cancelAccount` removes the local account, so the
+                // cleanup above then hits the "Account not found" clean path.
+                let unregistered = try await cli.run(["account", "unregister", jid], stdin: "yes\n")
+                #expect(unregistered.exitCode == 0)
+                #expect(unregistered.stdout.contains("Account unregistered: \(jid)"))
+                if unregistered.exitCode == 0 {
+                    bodyUnregisterSucceeded.withLock { $0 = true }
+                }
             }
         }
 

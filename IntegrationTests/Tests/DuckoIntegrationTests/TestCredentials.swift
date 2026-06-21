@@ -62,6 +62,22 @@ enum TestCredentials {
             && env("DUCKO_TEST_DAVE_PASSWORD") != nil
     }
 
+    /// Opt-in gate for the destructive `account register`/`unregister`
+    /// round-trip in `CLIAccountTests`. Off by default, mirroring the
+    /// `DUCKO_RESET_FIXTURES` gate on `ResetTestServerState` — enable only
+    /// against a server whose XEP-0077 in-band registration is known-good.
+    static var isRegistrationTestingEnabled: Bool {
+        env("DUCKO_TEST_REGISTRATION") == "1"
+    }
+
+    /// High-entropy ephemeral username for the destructive registration
+    /// round-trip, e.g. `ducko-it-3f2a1b9c1d2e`. Randomized so concurrent runs
+    /// against the shared server do not collide; the test using it surfaces a
+    /// conflict rather than silently reusing an existing account.
+    static func ephemeralUsername() -> String {
+        "ducko-it-" + UUID().uuidString.prefix(12).lowercased()
+    }
+
     static var alice: Credential {
         credential(jidVar: "DUCKO_TEST_ALICE_JID", passwordVar: "DUCKO_TEST_ALICE_PASSWORD", label: "alice")
     }

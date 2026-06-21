@@ -74,6 +74,12 @@ DUCKO_RESET_FIXTURES=1 swift test --package-path IntegrationTests --filter Reset
 
 It is skipped by default and requires all four `DUCKO_TEST_*` credential pairs.
 
+`DUCKO_TEST_REGISTRATION=1` opts into the destructive `account register`/`unregister` round-trip in `CLIAccountTests` (off by default, like `DUCKO_RESET_FIXTURES`). It registers a randomized ephemeral `ducko-it-*` account and immediately unregisters it, so enable it only against a server whose XEP-0077 in-band registration is known-good:
+
+```
+DUCKO_TEST_REGISTRATION=1 swift test --package-path IntegrationTests --filter CLIAccount
+```
+
 `TestHarness` runs a bootstrap probe before the first test executes and auto-runs the OMEMO reset when any account's PEP devicelist crosses `autoResetDevicelistThreshold` (32 entries). The env-gated suite remains useful for non-OMEMO drift (roster subscription baselines, the dave-empty invariant) since the auto-reset only touches the OMEMO devicelist path.
 
 ## Packaging

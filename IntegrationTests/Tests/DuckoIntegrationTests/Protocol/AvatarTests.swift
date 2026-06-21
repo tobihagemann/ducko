@@ -36,7 +36,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     }
                 }
 
-                let imageData = Self.minimalPNGData()
+                let imageData = AvatarFixtures.minimalPNG()
                 let expectedHash = sha1Hex(Array(imageData))
                 try await harness.environment.avatarService.publishAvatar(
                     imageData: imageData, mimeType: "image/png", accountID: alice.accountID
@@ -97,7 +97,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     }
                 }
 
-                let imageData = Self.minimalPNGData()
+                let imageData = AvatarFixtures.minimalPNG()
                 let expectedHash = sha1Hex(Array(imageData))
                 try await harness.environment.avatarService.publishAvatar(
                     imageData: imageData, mimeType: "image/png", accountID: bob.accountID
@@ -115,30 +115,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
         /// the live tests above assert `result.hash == sha1Hex(Array(imageData))`,
         /// which is self-referential because both sides use the same helper.
         @Test func `Minimal PNG fixture hashes to pinned SHA-1`() {
-            #expect(sha1Hex(Array(Self.minimalPNGData())) == "6de4acdaec8ea4383383217fac75f48070ad1076")
-        }
-
-        // MARK: - Helpers
-
-        /// Returns a minimal valid 1x1 PNG. Bytes are deterministic and
-        /// dependency-free (no CoreGraphics) so the test runs identically in
-        /// every environment.
-        private static func minimalPNGData() -> Data {
-            Data([
-                // PNG signature
-                0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-                // IHDR chunk
-                0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-                0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-                0x08, 0x00, 0x00, 0x00, 0x00, 0x3B, 0x7E, 0x9B, 0x55,
-                // IDAT chunk
-                0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54,
-                0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00, 0x05,
-                0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4,
-                // IEND chunk
-                0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44,
-                0xAE, 0x42, 0x60, 0x82
-            ])
+            #expect(sha1Hex(Array(AvatarFixtures.minimalPNG())) == AvatarFixtures.minimalPNGSHA1)
         }
     }
 }
