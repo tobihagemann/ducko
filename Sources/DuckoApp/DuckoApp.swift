@@ -22,10 +22,6 @@ struct DuckoApp: App {
     @FocusedValue(\.contactListWindowState) private var focusedContactListWindowState
     @Environment(\.openWindow) private var openWindow
     @State private var isShowingAdiumImport = false
-    @AppStorage(ContactListSizingDefaults.autoSizeVerticalKey, store: PreferencesDefaults.store)
-    private var contactsAutoSizeVertical = true
-    @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
-    private var contactsAutoSizeHorizontal = true
 
     init() {
         LoggingConfiguration.bootstrap()
@@ -87,11 +83,12 @@ struct DuckoApp: App {
         .defaultSize(width: 280, height: 320)
         .defaultPosition(.topLeading)
         .defaultLaunchBehavior(.presented)
-        // Lock the window to its content only when both axes auto-size; if either
-        // is manual, let the content set a minimum and the user resize freely.
-        .windowResizability(
-            contactsAutoSizeVertical && contactsAutoSizeHorizontal ? .contentSize : .contentMinSize
-        )
+        // The coordinator owns the frame; the `windowWillResize` gate vetoes
+        // user drags on the auto-size axes. `.automatic` resolves to
+        // `.contentMinSize` for a `Window`, so the matched `.frame(minWidth:
+        // minHeight:)` must track the coordinator's lower bound — otherwise
+        // SwiftUI snaps the window when the chrome grows.
+        .windowResizability(.automatic)
 
         Window("Chat", id: "chat") {
             ChatContainerView()
@@ -228,7 +225,7 @@ struct DuckoApp: App {
             guard !conversation.isMuted else { return }
             guard conversation.id != environment.chatService.activeConversationID else { return }
 
-            let senderName = conversation.displayName ?? conversation.jid.description
+            let senderName = conversation.displayTitle
             notificationManager.postMessageNotification(
                 from: senderName,
                 body: message.body,

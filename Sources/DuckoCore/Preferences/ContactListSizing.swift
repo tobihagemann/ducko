@@ -37,32 +37,6 @@ public enum ContactListSizing {
         return min(measuredHeight.rounded(.up), maxHeight)
     }
 
-    /// Total height of all currently-visible rows: each group header, the
-    /// contacts of expanded groups, and the rooms section when present and
-    /// expanded.
-    public static func listContentHeight(
-        groups: [(contactCount: Int, isExpanded: Bool)],
-        roomCount: Int,
-        roomsExpanded: Bool,
-        groupRowHeight: Double,
-        rowHeight: Double
-    ) -> Double {
-        var height = 0.0
-        for group in groups {
-            height += groupRowHeight
-            if group.isExpanded {
-                height += Double(group.contactCount) * rowHeight
-            }
-        }
-        if roomCount > 0 {
-            height += groupRowHeight
-            if roomsExpanded {
-                height += Double(roomCount) * rowHeight
-            }
-        }
-        return height
-    }
-
     /// Online/total counts for a group header, taken from the unfiltered roster
     /// so the total stays stable regardless of the hide-offline or search
     /// filters applied for display. Falls back to `displayedContacts` when the

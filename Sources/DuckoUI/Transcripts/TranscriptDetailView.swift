@@ -17,7 +17,7 @@ struct TranscriptDetailView: View {
             VStack(spacing: 0) {
                 HStack {
                     VStack(alignment: .leading) {
-                        Text(conversation.displayName ?? conversation.jid.description)
+                        Text(conversation.displayTitle)
                             .font(.headline)
                         Text(conversation.jid.description)
                             .font(.caption)
@@ -42,7 +42,7 @@ struct TranscriptDetailView: View {
                     Task { await state.performTranscriptSearch() }
                 }
             ), placement: .toolbar, prompt: "Search in conversation")
-            .navigationTitle(conversation.displayName ?? conversation.jid.description)
+            .navigationTitle(conversation.displayTitle)
         } else {
             ContentUnavailableView(
                 "Select a Conversation",

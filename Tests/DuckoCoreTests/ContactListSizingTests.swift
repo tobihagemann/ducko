@@ -108,51 +108,6 @@ struct ContactListSizingTests {
         #expect(ContactListSizing.fittedHeight(measuredHeight: 0, fallbackHeight: 900, maxHeight: 600) == 600)
     }
 
-    // MARK: - listContentHeight
-
-    @Test func `listContentHeight sums headers and only expanded contacts`() {
-        // Group 1: header + 3 rows; group 2: header only (collapsed).
-        let height = ContactListSizing.listContentHeight(
-            groups: [(contactCount: 3, isExpanded: true), (contactCount: 5, isExpanded: false)],
-            roomCount: 0,
-            roomsExpanded: false,
-            groupRowHeight: 24,
-            rowHeight: 50
-        )
-        // Group 1: header (24) + 3 rows (50). Group 2: header only (24).
-        let expected: Double = 198
-        #expect(height == expected)
-    }
-
-    @Test func `listContentHeight adds the rooms section only when rooms exist`() {
-        let withoutRooms = ContactListSizing.listContentHeight(
-            groups: [(contactCount: 2, isExpanded: true)],
-            roomCount: 0, roomsExpanded: true,
-            groupRowHeight: 24, rowHeight: 50
-        )
-        // One group header (24) + 2 contacts (50 each).
-        let contactsSectionHeight: Double = 124
-        #expect(withoutRooms == contactsSectionHeight)
-
-        let withRooms = ContactListSizing.listContentHeight(
-            groups: [(contactCount: 2, isExpanded: true)],
-            roomCount: 2, roomsExpanded: true,
-            groupRowHeight: 24, rowHeight: 50
-        )
-        // Plus a rooms header (24) + 2 rooms (50 each).
-        let roomsSectionHeight: Double = 124
-        #expect(withRooms == contactsSectionHeight + roomsSectionHeight)
-    }
-
-    @Test func `listContentHeight keeps a collapsed rooms header but drops its rows`() {
-        let height = ContactListSizing.listContentHeight(
-            groups: [],
-            roomCount: 3, roomsExpanded: false,
-            groupRowHeight: 24, rowHeight: 50
-        )
-        #expect(height == 24)
-    }
-
     // MARK: - onlineCounts
 
     @Test func `onlineCounts counts the total against the unfiltered roster`() {

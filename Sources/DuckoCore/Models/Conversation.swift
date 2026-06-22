@@ -61,4 +61,9 @@ public struct Conversation: Sendable, Identifiable {
         self.lastReadTimestamp = lastReadTimestamp
         self.createdAt = createdAt
     }
+
+    /// Non-empty title: the set name, else the JID's local part, else the full JID.
+    public var displayTitle: String {
+        displayName ?? jid.localPart ?? jid.description
+    }
 }

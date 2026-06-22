@@ -13,10 +13,10 @@ struct TranscriptSidebarRow: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(conversation.displayName ?? conversation.jid.description)
+                Text(conversation.displayTitle)
                     .lineLimit(1)
 
-                if conversation.displayName != nil {
+                if conversation.displayTitle != conversation.jid.description {
                     Text(conversation.jid.description)
                         .font(.caption)
                         .foregroundStyle(.secondary)

@@ -3,13 +3,10 @@ import SwiftUI
 
 struct ContactListWindow: View {
     @Environment(AppEnvironment.self) private var environment
-    @Environment(ThemeEngine.self) private var theme
     @Environment(\.openChat) private var openChat
     @State private var state = ContactListWindowState()
-    @State private var maxNameWidth: CGFloat = 0
+    @State private var chromeHeight: CGFloat = 0
 
-    @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
-    private var autoSizeHorizontal = true
     @AppStorage(ContactListSizingDefaults.maxWidthKey, store: PreferencesDefaults.store)
     private var maxWidthPreference = ContactListSizingDefaults.defaultMaxWidth
 
@@ -22,13 +19,6 @@ struct ContactListWindow: View {
             .sorted { $0.uuidString < $1.uuidString }
     }
 
-    /// Floor so the "me" header stays comfortable when names are short.
-    private static let floorWidth: CGFloat = 200
-    /// Fixed row chrome (insets + status dot + spacing + avatar) plus the points
-    /// by which a `List` row renders its name wider than the off-screen label,
-    /// so a single small gap remains before the avatar.
-    private static let rowChrome: CGFloat = 70
-
     /// The user's Maximum Width preference, clamped to the slider's valid range
     /// (and guarded against a non-finite persisted value) so a stray stored
     /// number can't collapse or invalidate the window frame.
@@ -36,48 +26,56 @@ struct ContactListWindow: View {
         CGFloat(ContactListSizing.clampMaxWidth(maxWidthPreference))
     }
 
-    /// Width that fits the widest visible contact name, capped at the user's
-    /// Maximum Width — the horizontal half of Adium's auto-sizing. A `List` is
-    /// greedy-width and reports no intrinsic content width, so the width is
-    /// derived from the contact-name labels `ContactListView` measures
-    /// off-screen and publishes via `MaxNameWidthKey`.
-    private var fittedWidth: CGFloat {
-        CGFloat(ContactListSizing.fittedWidth(
-            maxNameWidth: Double(maxNameWidth),
-            avatarSize: Double(theme.current.avatarSize),
-            rowChrome: Double(Self.rowChrome),
-            floorWidth: Double(Self.floorWidth),
-            maxWidth: Double(clampedMaxWidth)
-        ))
-    }
-
     var body: some View {
         @Bindable var state = state
 
         VStack(spacing: 0) {
-            StatusBarView()
+            // The chrome above the list. Its measured height is published via
+            // `ChromeHeightKey` and fed to `ContactListTableView`, so when it
+            // grows or shrinks (⌘F search, a subscription-request or room-invite
+            // banner) the resize rides the coordinator's animation instead of
+            // `.contentMinSize` snapping the window outside the transaction.
+            VStack(spacing: 0) {
+                StatusBarView()
 
-            Divider()
-
-            if state.isSearching {
-                ContactSearchField(state: state)
                 Divider()
+
+                if state.isSearching {
+                    ContactSearchField(state: state)
+                    Divider()
+                }
+
+                SubscriptionRequestBanner()
+
+                RoomInviteBanner()
+            }
+            // Pin the chrome to its natural height so a short window can never
+            // compress it — otherwise the measured `ChromeHeightKey` shrinks,
+            // the coordinator drives the window shorter still, and the header
+            // collapses in a feedback loop.
+            .fixedSize(horizontal: false, vertical: true)
+            .background {
+                GeometryReader { proxy in
+                    Color.clear.preference(key: ChromeHeightKey.self, value: proxy.size.height)
+                }
             }
 
-            SubscriptionRequestBanner()
-
-            RoomInviteBanner()
-
-            ContactListView(searchText: state.searchText, preferences: state.preferences)
+            ContactListView(searchText: state.searchText, preferences: state.preferences, chromeHeight: chromeHeight)
+                .frame(maxHeight: .infinity)
+                .layoutPriority(1)
         }
+        // Share the coordinator's lower width bound so AppKit's min clamp can't
+        // fight an animated sub-floor width. Match the height minimum to the
+        // measured chrome, not a static floor: the coordinator sizes the window
+        // to `chrome + list`, so a taller minimum would — via the frame's
+        // default centering — spill the "me" header under the title bar. `.top`
+        // pins the header so any shortfall clips the list below instead.
         .frame(
-            // Manual mode: cap the floor at the chosen Maximum Width so a
-            // sub-floor preference can't invert minWidth above idealWidth.
-            minWidth: autoSizeHorizontal ? fittedWidth : min(Self.floorWidth, clampedMaxWidth),
-            idealWidth: autoSizeHorizontal ? fittedWidth : clampedMaxWidth,
-            maxWidth: autoSizeHorizontal ? fittedWidth : .infinity
+            minWidth: min(ContactListWidthMetrics.floor, clampedMaxWidth),
+            minHeight: chromeHeight,
+            alignment: .top
         )
-        .onPreferenceChange(MaxNameWidthKey.self) { maxNameWidth = $0 }
+        .onPreferenceChange(ChromeHeightKey.self) { chromeHeight = $0 }
         .focusedSceneValue(\.contactListWindowState, state)
         // Launch connect is owned by `ContentView`, not here — this task only loads cached data.
         .task(id: enabledAccountIDs) {
@@ -137,6 +135,17 @@ struct ContactListWindow: View {
     }
 }
 
+/// Publishes the measured height of the chrome stack above the list so
+/// `ContactListTableView`'s coordinator can size the window absolutely
+/// (`chromeHeight + listHeight`) and animate chrome show/hide as an input
+/// change rather than a synchronous `.contentMinSize` snap.
+struct ChromeHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 /// Search field revealed by ⌘F (Find). Takes focus on appear and dismisses on
 /// Escape, clearing the query so the list returns to its full state.
 private struct ContactSearchField: View {
@@ -170,9 +179,9 @@ private struct ContactSearchField: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        // Defer focus one main-actor turn: vertical auto-size grows the window
-        // as this field is inserted, and that frame change clears first
-        // responder if focus is set synchronously in the same pass.
+        // Defer focus one main-actor turn: the window resizes as this field is
+        // inserted (chrome grows), and that frame change clears first responder
+        // if focus is set synchronously in the same pass.
         .onAppear {
             Task { @MainActor in isFocused = true }
         }

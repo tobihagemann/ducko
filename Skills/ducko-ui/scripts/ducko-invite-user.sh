@@ -72,17 +72,14 @@ on run argv
             if not menuFound then return "ERROR: Invite User menu item not found"
             delay 0.5
 
-            -- Fill the JID field in the invite dialog (match by placeholder text)
+            -- Fill the JID field in the invite dialog (match by AXIdentifier)
             set allElems to entire contents of contactWin
             set jidField to missing value
             repeat with elem in allElems
                 try
-                    if role of elem is "AXTextField" then
-                        set placeholder to value of attribute "AXPlaceholderValue" of elem
-                        if placeholder contains "JID" then
-                            set jidField to elem
-                            exit repeat
-                        end if
+                    if value of attribute "AXIdentifier" of elem is "invite-user-jid-field" then
+                        set jidField to elem
+                        exit repeat
                     end if
                 end try
             end repeat

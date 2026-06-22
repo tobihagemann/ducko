@@ -47,7 +47,7 @@ final class TranscriptViewerState {
 
         if !searchText.isEmpty {
             result = result.filter { conversation in
-                let name = conversation.displayName ?? conversation.jid.description
+                let name = conversation.displayTitle
                 return name.localizedCaseInsensitiveContains(searchText)
                     || conversation.jid.description.localizedCaseInsensitiveContains(searchText)
             }

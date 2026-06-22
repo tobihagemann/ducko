@@ -5,12 +5,6 @@ struct ContactRow: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(ThemeEngine.self) private var theme
     let contact: Contact
-    /// When true, render a zero-decode avatar placeholder of the same
-    /// `avatarSize × avatarSize` frame instead of the real `AvatarView`. Used by
-    /// the off-screen row-measuring layer so measuring every off-screen row does
-    /// not trigger an uncached ImageIO decode per contact — the avatar's height
-    /// contribution is exactly `avatarSize` regardless of image content.
-    var forMeasurement = false
 
     private var presence: PresenceService.PresenceStatus? {
         environment.presenceService.presence(for: contact.jid, accountID: contact.accountID)
@@ -76,12 +70,7 @@ struct ContactRow: View {
             Spacer()
 
             if theme.current.showAvatars {
-                if forMeasurement {
-                    Color.clear
-                        .frame(width: theme.current.avatarSize, height: theme.current.avatarSize)
-                } else {
-                    AvatarView(contact: contact, size: theme.current.avatarSize)
-                }
+                AvatarView(contact: contact, size: theme.current.avatarSize)
             }
         }
         .padding(.vertical, 2)

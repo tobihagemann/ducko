@@ -83,7 +83,7 @@ struct ChatHeaderView: View {
 
     private var roomIdentity: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(conversation.displayName ?? conversation.jid.description)
+            Text(conversation.displayTitle)
                 .font(.headline)
                 .lineLimit(1)
 
@@ -144,7 +144,7 @@ struct ChatHeaderView: View {
             if let contact {
                 AvatarView(contact: contact, size: 32)
             } else {
-                AvatarView(imageData: nil, name: conversation.displayName ?? conversation.jid.description, size: 32)
+                AvatarView(imageData: nil, name: conversation.displayTitle, size: 32)
             }
 
             VStack(alignment: .leading, spacing: 2) {

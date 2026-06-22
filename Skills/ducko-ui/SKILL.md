@@ -52,6 +52,8 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `start-chat-button` | Start Chat button in sheet | Contacts |
 | `add-contact-jid-field` | JID field in Add Contact sheet | Contacts |
 | `add-contact-button` | Add Contact button in sheet | Contacts |
+| `rename-contact-field` | Display-name field in the Rename Contact sheet | Contacts |
+| `rename-contact-button` | Save button in the Rename Contact sheet | Contacts |
 | `jid-field` | JID field in account setup | Contacts |
 | `password-field` | Password field in account setup | Contacts |
 | `connect-button` | Connect button in account setup | Contacts |
@@ -65,6 +67,9 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `room-nickname-field` | Nickname field in Join Room dialog | Contacts |
 | `join-room-button` | Join button in Join Room dialog | Contacts |
 | `browse-rooms-button` | Browse Rooms button in Join Room dialog | Contacts |
+| `invite-user-jid-field` | JID field in the Invite User sheet | Contacts |
+| `invite-user-reason-field` | Reason field in the Invite User sheet | Contacts |
+| `invite-user-button` | Invite button in the Invite User sheet | Contacts |
 | `room-subject-view` | Room topic banner (editable) | Chat |
 | `participant-sidebar` | Participant sidebar list | Chat |
 | `toggle-participant-sidebar` | Sidebar toggle button (person.2 icon) | Chat |

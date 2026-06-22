@@ -19,7 +19,7 @@ struct RoomRow: View {
                 .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(conversation.displayName ?? conversation.jid.localPart ?? conversation.jid.description)
+                Text(conversation.displayTitle)
                     .fontWeight(.medium)
                     .lineLimit(1)
 
