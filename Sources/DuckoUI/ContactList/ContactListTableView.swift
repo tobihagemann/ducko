@@ -3,18 +3,6 @@ import DuckoCore
 import QuartzCore
 import SwiftUI
 
-/// Shared width bounds for the auto-sizing contact-list window. The coordinator
-/// targets these and `ContactListWindow` derives its content-minimum from the
-/// same `floor` so AppKit's min-size clamp can't fight the coordinator's
-/// animated width.
-enum ContactListWidthMetrics {
-    /// Floor so the "me" header stays comfortable when names are short.
-    static let floor: CGFloat = 200
-    /// Fixed row chrome (insets + status dot + spacing + avatar) added to the
-    /// widest measured name to reach the window width.
-    static let rowChrome: CGFloat = 70
-}
-
 /// Caps on name and row measurement so a server-controlled roster (very many
 /// entries or pathologically long names) can't drive unbounded layout work.
 private let maxMeasuredNames = 200
@@ -25,6 +13,29 @@ private let maxMeasuredRows = 200
 /// overflowing roster (clamps up to the screen cap) and an empty one (collapses
 /// to zero), and for rows past the measurement cap.
 private let estimatedRowChrome: CGFloat = 12
+
+/// The inputs the SwiftUI `ContactListTableView` pushes into its coordinator on
+/// each `updateNSView`, bundled into one value so the push is a single
+/// assignment rather than a property-by-property triple-touch (declare, assign,
+/// read). `@MainActor` because the ref/closure inputs never leave the main
+/// actor; each property keeps its prior per-var default so `Inputs()` reproduces
+/// the coordinator's initial state.
+@MainActor
+private struct Inputs {
+    var environment: AppEnvironment?
+    var theme: ThemeEngine?
+    var openChat = OpenChatAction { _, _ in }
+    var openWindow: OpenWindowAction?
+    var transcriptScope: TranscriptScope?
+    var presentSheet: (ContactListRowSheet) -> Void = { _ in }
+    var preferences: ContactListPreferences?
+    var incomingRows: [ContactListRow] = []
+    var chromeHeight: CGFloat = 0
+    var autoSizeVertical = true
+    var autoSizeHorizontal = true
+    var maxWidthPreference = ContactListSizingDefaults.defaultMaxWidth
+    var hasConnectedAccount = false
+}
 
 /// AppKit contact list: a view-based `NSTableView` whose cells host the
 /// SwiftUI rows, owning both the animated row diff and a top-left-anchored
@@ -56,19 +67,21 @@ struct ContactListTableView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let coordinator = context.coordinator
-        coordinator.environment = environment
-        coordinator.theme = theme
-        coordinator.openChat = openChat
-        coordinator.openWindow = openWindow
-        coordinator.transcriptScope = transcriptScope
-        coordinator.presentSheet = presentSheet
-        coordinator.preferences = preferences
-        coordinator.incomingRows = rows
-        coordinator.chromeHeight = chromeHeight
-        coordinator.autoSizeVertical = autoSizeVertical
-        coordinator.autoSizeHorizontal = autoSizeHorizontal
-        coordinator.maxWidthPreference = maxWidthPreference
-        coordinator.hasConnectedAccount = hasConnectedAccount
+        coordinator.inputs = Inputs(
+            environment: environment,
+            theme: theme,
+            openChat: openChat,
+            openWindow: openWindow,
+            transcriptScope: transcriptScope,
+            presentSheet: presentSheet,
+            preferences: preferences,
+            incomingRows: rows,
+            chromeHeight: chromeHeight,
+            autoSizeVertical: autoSizeVertical,
+            autoSizeHorizontal: autoSizeHorizontal,
+            maxWidthPreference: maxWidthPreference,
+            hasConnectedAccount: hasConnectedAccount
+        )
         coordinator.reconcile()
     }
 
@@ -77,19 +90,7 @@ struct ContactListTableView: NSViewRepresentable {
     /// `NSObject` solely to adopt the AppKit table/menu delegate protocols.
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
-        var environment: AppEnvironment?
-        var theme: ThemeEngine?
-        var openChat = OpenChatAction { _, _ in }
-        var openWindow: OpenWindowAction?
-        var transcriptScope: TranscriptScope?
-        var presentSheet: (ContactListRowSheet) -> Void = { _ in }
-        var preferences: ContactListPreferences?
-        var incomingRows: [ContactListRow] = []
-        var chromeHeight: CGFloat = 0
-        var autoSizeVertical = true
-        var autoSizeHorizontal = true
-        var maxWidthPreference = ContactListSizingDefaults.defaultMaxWidth
-        var hasConnectedAccount = false
+        fileprivate var inputs = Inputs()
 
         private var rows: [ContactListRow] = []
         private var rowHeights: [CGFloat] = []
@@ -162,7 +163,7 @@ struct ContactListTableView: NSViewRepresentable {
             container.setAccessibilityElement(true)
             container.setAccessibilityRole(.group)
             container.setAccessibilityIdentifier("contact-list")
-            container.setAccessibilityValue(hasConnectedAccount ? "connected" : "connecting")
+            container.setAccessibilityValue(inputs.hasConnectedAccount ? "connected" : "connecting")
 
             self.container = container
             self.scrollView = scrollView
@@ -173,19 +174,19 @@ struct ContactListTableView: NSViewRepresentable {
         // MARK: - Reconciliation
 
         func reconcile() {
-            guard let theme, environment != nil, preferences != nil,
+            guard let theme = inputs.theme, inputs.environment != nil, inputs.preferences != nil,
                   let tableView, let scrollView else { return }
 
-            container?.setAccessibilityValue(hasConnectedAccount ? "connected" : "connecting")
+            container?.setAccessibilityValue(inputs.hasConnectedAccount ? "connected" : "connecting")
 
             let contentWidth = resolvedContentWidth()
-            let measureCount = min(incomingRows.count, maxMeasuredRows)
-            let measuredHeights = (0 ..< measureCount).map { measureHeight(for: incomingRows[$0], width: contentWidth) }
+            let measureCount = min(inputs.incomingRows.count, maxMeasuredRows)
+            let measuredHeights = (0 ..< measureCount).map { measureHeight(for: inputs.incomingRows[$0], width: contentWidth) }
             let flatRowHeight = theme.current.avatarSize + estimatedRowChrome
-            let newHeights = (0 ..< incomingRows.count).map { $0 < measureCount ? measuredHeights[$0] : flatRowHeight }
+            let newHeights = (0 ..< inputs.incomingRows.count).map { $0 < measureCount ? measuredHeights[$0] : flatRowHeight }
             let listHeight = targetListHeight(
                 measuredHeights: measuredHeights,
-                totalRowCount: incomingRows.count,
+                totalRowCount: inputs.incomingRows.count,
                 flatRowHeight: flatRowHeight
             )
 
@@ -195,13 +196,13 @@ struct ContactListTableView: NSViewRepresentable {
             // avatars while rows insert/remove during a resize. Manual mode lets
             // the user shrink the window below the roster, so the scroller must
             // stay available there.
-            scrollView.hasVerticalScroller = !autoSizeVertical || listHeight >= maxListHeight
+            scrollView.hasVerticalScroller = !inputs.autoSizeVertical || listHeight >= maxListHeight
 
             let window = tableView.window
             let targetContentSize = targetContentSize(window: window, contentWidth: contentWidth, listHeight: listHeight)
             let scale = window?.backingScaleFactor ?? scrollView.window?.backingScaleFactor ?? 2
             let key = ContactListResize.LayoutKey(
-                rowIDs: incomingRows.map(\.id),
+                rowIDs: inputs.incomingRows.map(\.id),
                 contentSize: targetContentSize,
                 scale: scale
             )
@@ -210,28 +211,29 @@ struct ContactListTableView: NSViewRepresentable {
             // still differ, so re-host the visible cells. `rowIDs` are part of the
             // key, so they're identical on a bail and swapping rows is safe.
             guard key != lastAppliedKey else {
-                refreshPersistingCells(newRows: incomingRows)
-                rows = incomingRows
+                refreshPersistingCells(newRows: inputs.incomingRows)
+                rows = inputs.incomingRows
                 return
             }
 
             applyLayout(newHeights: newHeights, targetContentSize: targetContentSize, key: key, window: window, tableView: tableView)
         }
 
-        /// Target *content* size after per-axis gating: an auto-size-on axis
-        /// takes its computed target (width clamped to the shared lower bound),
-        /// a manual axis carries the window's current value so `setFrame` is a
-        /// no-op there. The vertical target adds the title-bar inset because the
-        /// Contacts window uses a full-size content view — SwiftUI insets its
-        /// content below the title bar's safe area, so the frame's content area
-        /// must reserve that strip on top of `chrome + list`.
+        /// Measures the AppKit terms — the title-bar inset and the window's
+        /// current content size — and delegates the per-axis composition to
+        /// `ContactListSizing.targetContentSize`, which owns that contract.
         private func targetContentSize(window: NSWindow?, contentWidth: CGFloat, listHeight: CGFloat) -> CGSize {
-            let currentContentSize = window.map { $0.contentRect(forFrameRect: $0.frame).size }
-            let minContentWidth = min(ContactListWidthMetrics.floor, clampedMaxWidth)
-            let width = autoSizeHorizontal ? max(contentWidth, minContentWidth) : (currentContentSize?.width ?? contentWidth)
-            let autoHeight = chromeHeight + listHeight + titlebarInset(window)
-            let height = autoSizeVertical ? autoHeight : (currentContentSize?.height ?? autoHeight)
-            return CGSize(width: width, height: height)
+            ContactListSizing.targetContentSize(
+                autoSizeHorizontal: inputs.autoSizeHorizontal,
+                autoSizeVertical: inputs.autoSizeVertical,
+                contentWidth: contentWidth,
+                listHeight: listHeight,
+                chromeHeight: inputs.chromeHeight,
+                titlebarInset: titlebarInset(window),
+                floorWidth: ContactListWidthMetrics.floor,
+                maxWidth: clampedMaxWidth,
+                currentContentSize: window.map { $0.contentRect(forFrameRect: $0.frame).size }
+            )
         }
 
         /// Strip the full-size-content title bar reserves above SwiftUI's safe
@@ -252,11 +254,11 @@ struct ContactListTableView: NSViewRepresentable {
             tableView: ContactListTableControl
         ) {
             let oldIDs = rows.map(\.id)
-            let newIDs = incomingRows.map(\.id)
+            let newIDs = inputs.incomingRows.map(\.id)
             let heightsChanged = newHeights != rowHeights
 
             guard let window else {
-                rows = incomingRows
+                rows = inputs.incomingRows
                 rowHeights = newHeights
                 tableView.reloadData()
                 return
@@ -264,13 +266,13 @@ struct ContactListTableView: NSViewRepresentable {
             lastAppliedKey = key
             installResizeGate(on: window)
 
-            let drivesFrame = autoSizeVertical || autoSizeHorizontal
+            let drivesFrame = inputs.autoSizeVertical || inputs.autoSizeHorizontal
             let targetFrame: CGRect? = drivesFrame ? frame(for: targetContentSize, window: window) : nil
             let animate = !pendingInitialApply && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             pendingInitialApply = false
 
             guard animate else {
-                rows = incomingRows
+                rows = inputs.incomingRows
                 rowHeights = newHeights
                 tableView.reloadData()
                 if let targetFrame { setFrameAllowingResize(window, targetFrame) }
@@ -282,8 +284,8 @@ struct ContactListTableView: NSViewRepresentable {
             // group header on collapse and down out of it on expand, in lockstep
             // with the window edge. `allowProgrammaticResize` lets the gate's
             // `windowWillResize` pass this through while still vetoing user drags.
-            refreshPersistingCells(newRows: incomingRows)
-            rows = incomingRows
+            refreshPersistingCells(newRows: inputs.incomingRows)
+            rows = inputs.incomingRows
             rowHeights = newHeights
             resizeGate.allowProgrammaticResize = true
             NSAnimationContext.runAnimationGroup { context in
@@ -315,8 +317,8 @@ struct ContactListTableView: NSViewRepresentable {
         /// `styleMask`, so `windowWillResize` is the only hook that holds; the
         /// proxy forwards every other delegate message to SwiftUI's delegate.
         private func installResizeGate(on window: NSWindow) {
-            resizeGate.lockWidth = autoSizeHorizontal
-            resizeGate.lockHeight = autoSizeVertical
+            resizeGate.lockWidth = inputs.autoSizeHorizontal
+            resizeGate.lockHeight = inputs.autoSizeVertical
             guard !didInstallGate else { return }
             if window.delegate !== resizeGate {
                 resizeGate.downstream = window.delegate
@@ -371,7 +373,7 @@ struct ContactListTableView: NSViewRepresentable {
         // MARK: - Measurement
 
         private var clampedMaxWidth: CGFloat {
-            CGFloat(ContactListSizing.clampMaxWidth(maxWidthPreference))
+            CGFloat(ContactListSizing.clampMaxWidth(inputs.maxWidthPreference))
         }
 
         private var maxListHeight: CGFloat {
@@ -382,8 +384,8 @@ struct ContactListTableView: NSViewRepresentable {
         /// auto-size is on, otherwise the window's current content width (the
         /// coordinator never drives a manual axis).
         private func resolvedContentWidth() -> CGFloat {
-            guard let theme else { return ContactListWidthMetrics.floor }
-            if autoSizeHorizontal {
+            guard let theme = inputs.theme else { return ContactListWidthMetrics.floor }
+            if inputs.autoSizeHorizontal {
                 return CGFloat(ContactListSizing.fittedWidth(
                     maxNameWidth: Double(measuredMaxNameWidth()),
                     avatarSize: Double(theme.current.avatarSize),
@@ -402,12 +404,12 @@ struct ContactListTableView: NSViewRepresentable {
         /// with the row font. Capped so a pathological roster can't drive
         /// unbounded measurement.
         private func measuredMaxNameWidth() -> CGFloat {
-            guard let environment else { return 0 }
+            guard let environment = inputs.environment else { return 0 }
             let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
             let attributes: [NSAttributedString.Key: Any] = [.font: font]
             var maxWidth: CGFloat = 0
             var measured = 0
-            for row in incomingRows where measured < maxMeasuredNames {
+            for row in inputs.incomingRows where measured < maxMeasuredNames {
                 let name: String? = switch row {
                 case .header:
                     nil
@@ -438,7 +440,7 @@ struct ContactListTableView: NSViewRepresentable {
         /// reused off-screen `NSHostingView`.
         private func measureHeight(for row: ContactListRow, width: CGFloat) -> CGFloat {
             guard let content = cellContent(for: row) else {
-                return (theme?.current.avatarSize ?? 40) + estimatedRowChrome
+                return (inputs.theme?.current.avatarSize ?? 40) + estimatedRowChrome
             }
             let host: NSHostingView<ContactListCellContent>
             if let measuringHost {
@@ -469,13 +471,13 @@ struct ContactListTableView: NSViewRepresentable {
         // MARK: - Cell content
 
         private func cellContent(for row: ContactListRow) -> ContactListCellContent? {
-            guard let environment, let theme else { return nil }
+            guard let environment = inputs.environment, let theme = inputs.theme else { return nil }
             return ContactListCellContent(
                 row: row,
                 environment: environment,
                 theme: theme,
-                openChat: openChat,
-                toggle: { [weak self] sectionKey in self?.preferences?.toggleGroupExpanded(sectionKey) },
+                openChat: inputs.openChat,
+                toggle: { [weak self] sectionKey in self?.inputs.preferences?.toggleGroupExpanded(sectionKey) },
                 showMenu: { [weak self] in self?.showAccessibilityMenu(forRowID: row.id) }
             )
         }
@@ -504,7 +506,7 @@ struct ContactListTableView: NSViewRepresentable {
 
         private func openRow(_ index: Int) {
             guard rows.indices.contains(index), let key = rows[index].selectionKey else { return }
-            openChat(key.jid, accountID: key.accountID)
+            inputs.openChat(key.jid, accountID: key.accountID)
         }
 
         private func openSelectedRow() {
@@ -533,7 +535,7 @@ struct ContactListTableView: NSViewRepresentable {
         /// and AX identifiers must stay in sync with the integration suite that
         /// polls them; the sheets are SwiftUI, presented via `presentSheet`.
         private func contextMenu(forRow index: Int) -> NSMenu? {
-            guard rows.indices.contains(index), let environment else { return nil }
+            guard rows.indices.contains(index), let environment = inputs.environment else { return nil }
             switch rows[index] {
             case .header:
                 return nil
@@ -550,16 +552,16 @@ struct ContactListTableView: NSViewRepresentable {
             }
             let menu = NSMenu()
             menu.addItem(item("Start Chat") { [weak self] in
-                self?.openChat(contact.jid.description, accountID: contact.accountID)
+                self?.inputs.openChat(contact.jid.description, accountID: contact.accountID)
             })
             menu.addItem(item("Get Info", identifier: "contact-context-get-info") { [weak self] in
-                self?.openWindow?(id: "contact-info", value: ContactInfoRef(accountID: contact.accountID, jid: contact.jid.description))
+                self?.inputs.openWindow?(id: "contact-info", value: ContactInfoRef(accountID: contact.accountID, jid: contact.jid.description))
             })
             menu.addItem(item("History", identifier: "contact-context-history") { [weak self] in
                 let ref = conversation.map { ConversationRef(conversation: $0) }
                     ?? ConversationRef(accountID: contact.accountID, jid: contact.jid.description, type: .chat)
-                self?.transcriptScope?.request(ref)
-                self?.openWindow?(id: "transcripts")
+                self?.inputs.transcriptScope?.request(ref)
+                self?.inputs.openWindow?(id: "transcripts")
             })
             menu.addItem(.separator())
             if let conversation {
@@ -569,7 +571,7 @@ struct ContactListTableView: NSViewRepresentable {
                 menu.addItem(.separator())
             }
             menu.addItem(item("Rename…") { [weak self] in
-                self?.presentSheet(.rename(contact))
+                self?.inputs.presentSheet(.rename(contact))
             })
             menu.addItem(item("Send Directed Presence", identifier: "send-directed-presence-menu-item") {
                 Task { try? await environment.presenceService.sendDirectedPresence(to: contact.jid.description, accountID: contact.accountID) }
@@ -593,7 +595,7 @@ struct ContactListTableView: NSViewRepresentable {
         private func roomMenu(for conversation: Conversation, environment: AppEnvironment) -> NSMenu {
             let menu = NSMenu()
             menu.addItem(item("Open Chat") { [weak self] in
-                self?.openChat(conversation.jid.description, accountID: conversation.accountID)
+                self?.inputs.openChat(conversation.jid.description, accountID: conversation.accountID)
             })
             guard let accountID = conversation.accountID else { return menu }
             menu.addItem(.separator())
@@ -602,12 +604,12 @@ struct ContactListTableView: NSViewRepresentable {
             }
             menu.addItem(.separator())
             menu.addItem(item("Invite User…") { [weak self] in
-                self?.presentSheet(.invite(conversation))
+                self?.inputs.presentSheet(.invite(conversation))
             })
             if canManageRoom(conversation, accountID: accountID, environment: environment) {
                 menu.addItem(.separator())
                 menu.addItem(item("Room Settings…", identifier: "room-settings-menu-item") { [weak self] in
-                    self?.presentSheet(.roomSettings(conversation))
+                    self?.inputs.presentSheet(.roomSettings(conversation))
                 })
             }
             menu.addItem(.separator())
@@ -672,7 +674,7 @@ struct ContactListTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            rowHeights.indices.contains(row) ? rowHeights[row] : (theme?.current.avatarSize ?? 40) + estimatedRowChrome
+            rowHeights.indices.contains(row) ? rowHeights[row] : (inputs.theme?.current.avatarSize ?? 40) + estimatedRowChrome
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {

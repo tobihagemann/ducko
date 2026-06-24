@@ -108,6 +108,83 @@ struct ContactListSizingTests {
         #expect(ContactListSizing.fittedHeight(measuredHeight: 0, fallbackHeight: 900, maxHeight: 600) == 600)
     }
 
+    // MARK: - targetContentSize
+
+    @Test func `targetContentSize with both axes auto fits the target and sums the height`() {
+        // Width above the floor passes through; height is chrome + list + inset.
+        let size = ContactListSizing.targetContentSize(
+            autoSizeHorizontal: true, autoSizeVertical: true,
+            contentWidth: 210, listHeight: 300, chromeHeight: 70, titlebarInset: 28,
+            floorWidth: 200, maxWidth: 280, currentContentSize: nil
+        )
+        #expect(size.width == 210)
+        #expect(size.height == 398)
+    }
+
+    @Test func `targetContentSize raises a below-floor width to the floor`() {
+        // 150 is below the 200 floor, so the width is raised to the floor.
+        let size = ContactListSizing.targetContentSize(
+            autoSizeHorizontal: true, autoSizeVertical: true,
+            contentWidth: 150, listHeight: 100, chromeHeight: 70, titlebarInset: 28,
+            floorWidth: 200, maxWidth: 280, currentContentSize: nil
+        )
+        #expect(size.width == 200)
+    }
+
+    @Test func `targetContentSize caps the floor at a smaller maxWidth`() {
+        // The 200 floor is itself capped at the 180 maxWidth before raising.
+        let size = ContactListSizing.targetContentSize(
+            autoSizeHorizontal: true, autoSizeVertical: true,
+            contentWidth: 100, listHeight: 100, chromeHeight: 70, titlebarInset: 28,
+            floorWidth: 200, maxWidth: 180, currentContentSize: nil
+        )
+        #expect(size.width == 180)
+    }
+
+    @Test func `targetContentSize carries the current width on a manual horizontal axis`() {
+        // Horizontal auto off: the window's current width passes through unchanged.
+        let size = ContactListSizing.targetContentSize(
+            autoSizeHorizontal: false, autoSizeVertical: true,
+            contentWidth: 210, listHeight: 300, chromeHeight: 70, titlebarInset: 28,
+            floorWidth: 200, maxWidth: 280, currentContentSize: CGSize(width: 320, height: 400)
+        )
+        #expect(size.width == 320)
+        #expect(size.height == 398)
+    }
+
+    @Test func `targetContentSize carries the current height on a manual vertical axis`() {
+        // Vertical auto off: the window's current height passes through unchanged.
+        let size = ContactListSizing.targetContentSize(
+            autoSizeHorizontal: true, autoSizeVertical: false,
+            contentWidth: 210, listHeight: 300, chromeHeight: 70, titlebarInset: 28,
+            floorWidth: 200, maxWidth: 280, currentContentSize: CGSize(width: 320, height: 500)
+        )
+        #expect(size.width == 210)
+        #expect(size.height == 500)
+    }
+
+    @Test func `targetContentSize falls back to the computed value when there is no window`() {
+        // Both axes manual but no current size: each falls back to its computed value.
+        let size = ContactListSizing.targetContentSize(
+            autoSizeHorizontal: false, autoSizeVertical: false,
+            contentWidth: 250, listHeight: 300, chromeHeight: 70, titlebarInset: 28,
+            floorWidth: 200, maxWidth: 280, currentContentSize: nil
+        )
+        #expect(size.width == 250)
+        #expect(size.height == 398)
+    }
+
+    @Test func `targetContentSize mixes an auto width with a manual height`() {
+        // Width fits the target; height carries the window's current value.
+        let size = ContactListSizing.targetContentSize(
+            autoSizeHorizontal: true, autoSizeVertical: false,
+            contentWidth: 150, listHeight: 300, chromeHeight: 70, titlebarInset: 28,
+            floorWidth: 200, maxWidth: 280, currentContentSize: CGSize(width: 320, height: 500)
+        )
+        #expect(size.width == 200)
+        #expect(size.height == 500)
+    }
+
     // MARK: - onlineCounts
 
     @Test func `onlineCounts counts the total against the unfiltered roster`() {

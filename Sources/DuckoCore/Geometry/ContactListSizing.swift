@@ -37,6 +37,36 @@ public enum ContactListSizing {
         return min(measuredHeight.rounded(.up), maxHeight)
     }
 
+    // swiftlint:disable function_parameter_count
+    /// Target *content* size after per-axis gating: an auto-size-on axis takes
+    /// its computed target (width raised to the shared lower bound), a manual
+    /// axis carries the window's current value so `setFrame` is a no-op there.
+    /// The vertical target adds `titlebarInset` because the Contacts window uses
+    /// a full-size content view — SwiftUI insets its content below the title
+    /// bar's safe area, so the frame's content area must reserve that strip on
+    /// top of `chrome + list`. `titlebarInset` is measured in AppKit and passed
+    /// in to keep this pure. `currentContentSize` is nil when there's no window
+    /// yet; a manual axis then falls back to the computed value.
+    public static func targetContentSize(
+        autoSizeHorizontal: Bool,
+        autoSizeVertical: Bool,
+        contentWidth: CGFloat,
+        listHeight: CGFloat,
+        chromeHeight: CGFloat,
+        titlebarInset: CGFloat,
+        floorWidth: CGFloat,
+        maxWidth: CGFloat,
+        currentContentSize: CGSize?
+    ) -> CGSize {
+        let minContentWidth = min(floorWidth, maxWidth)
+        let width = autoSizeHorizontal ? max(contentWidth, minContentWidth) : (currentContentSize?.width ?? contentWidth)
+        let autoHeight = chromeHeight + listHeight + titlebarInset
+        let height = autoSizeVertical ? autoHeight : (currentContentSize?.height ?? autoHeight)
+        return CGSize(width: width, height: height)
+    }
+
+    // swiftlint:enable function_parameter_count
+
     /// Online/total counts for a group header, taken from the unfiltered roster
     /// so the total stays stable regardless of the hide-offline or search
     /// filters applied for display. Falls back to `displayedContacts` when the
