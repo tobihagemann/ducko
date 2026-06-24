@@ -53,10 +53,12 @@ struct InviteUserSheet: View {
 
     private func inviteUser() {
         let trimmed = jidString.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed.contains("@") else {
-            errorMessage = "Invalid JID: \(jidString)"
+        guard !trimmed.isEmpty else { return }
+        guard JIDValidation.isValidUserOrRoomJID(trimmed) else {
+            errorMessage = "Invalid JID: \(trimmed)"
             return
         }
+        errorMessage = nil
         let reasonText = reason.isEmpty ? nil : reason.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let accountID = conversation.accountID else { return }
         Task {

@@ -230,6 +230,11 @@ struct RoomJoinDialog: View {
                 resolvedJID = "\(normalized)@\(service)"
             }
 
+            guard JIDValidation.isValidUserOrRoomJID(resolvedJID) else {
+                errorMessage = "Invalid room JID: \(resolvedJID)"
+                return
+            }
+
             do {
                 try await environment.chatService.joinRoomAwaitingEcho(
                     jidString: resolvedJID, nickname: trimmedNick, password: pw, accountID: accountID

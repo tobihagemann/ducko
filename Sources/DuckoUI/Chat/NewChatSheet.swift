@@ -69,7 +69,7 @@ struct NewChatSheet: View {
     private func startChat() {
         let trimmed = jidString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        guard trimmed.contains("@") else {
+        guard JIDValidation.isValidUserOrRoomJID(trimmed) else {
             errorMessage = "Invalid JID: \(trimmed)"
             return
         }

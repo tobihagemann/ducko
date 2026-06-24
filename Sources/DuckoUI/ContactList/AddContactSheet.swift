@@ -59,8 +59,7 @@ struct AddContactSheet: View {
     private func addContact() {
         let trimmed = jidString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let parts = trimmed.split(separator: "@")
-        guard parts.count == 2, !parts[0].isEmpty, !parts[1].isEmpty else {
+        guard JIDValidation.isValidUserOrRoomJID(trimmed) else {
             errorMessage = "Invalid JID: \(trimmed)"
             return
         }
