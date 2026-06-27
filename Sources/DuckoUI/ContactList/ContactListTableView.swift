@@ -37,6 +37,62 @@ private struct Inputs {
     var hasConnectedAccount = false
 }
 
+/// Cheap fingerprint of everything the fitted-width measurement reads, so a
+/// reconcile whose width inputs are unchanged reuses the cached width instead
+/// of re-running the font measurement over the names. `.auto` carries the exact
+/// capped strings `measuredNames()` produces — so any rename or account-label
+/// change busts it; `.manual` carries the window content width the manual path
+/// returns. (`measuredNames()` itself still runs each reconcile to build the key;
+/// the memo only skips the per-name `NSString` sizing.)
+private enum WidthMeasurementKey: Equatable {
+    case manual(width: CGFloat)
+    case auto(names: [String], avatarSize: CGFloat, maxWidth: CGFloat)
+}
+
+/// Whether a measured row shows its optional second (caption) line, the only
+/// per-row content that moves its height — every text element is `lineLimit(1)`,
+/// so the line's *text* doesn't matter, only its presence.
+private enum RowHeightSignature: Equatable {
+    case header
+    case contact(hasSecondLine: Bool)
+    case room(hasSecondLine: Bool)
+}
+
+/// The theme terms that move row height: the avatar (its size, and whether it
+/// shows at all). `showStatusMessages` is folded into each row's
+/// `RowHeightSignature` second-line flag, and the 8-pt presence dot never
+/// exceeds the text/avatar height, so neither belongs here. Properties are read
+/// only via the synthesized `==`, which Periphery can't see.
+private struct RowHeightThemeSignature: Equatable {
+    // periphery:ignore
+    let avatarSize: CGFloat
+    // periphery:ignore
+    let showAvatars: Bool
+}
+
+/// Cheap fingerprint of everything the per-row height measurement reads, so a
+/// reconcile whose height inputs are unchanged reuses the cached heights instead
+/// of laying out up to `maxMeasuredRows` `NSHostingView`s. Properties are read
+/// only via the synthesized `==`, which Periphery can't see.
+private struct HeightMeasurementKey: Equatable {
+    // periphery:ignore
+    let width: CGFloat
+    // periphery:ignore
+    let totalRowCount: Int
+    // periphery:ignore
+    let maxListHeight: CGFloat
+    // periphery:ignore
+    let rows: [RowHeightSignature]
+    // periphery:ignore
+    let theme: RowHeightThemeSignature
+}
+
+/// The memoized output of the per-row height measurement.
+private struct MeasuredGeometry {
+    let newHeights: [CGFloat]
+    let listHeight: CGFloat
+}
+
 /// AppKit contact list: a view-based `NSTableView` whose cells host the
 /// SwiftUI rows, owning both the animated row diff and a top-left-anchored
 /// `NSWindow` frame resize so the two co-animate in one transaction.
@@ -97,6 +153,12 @@ struct ContactListTableView: NSViewRepresentable {
         private var lastAppliedKey: ContactListResize.LayoutKey?
         private var pendingInitialApply = true
         private var measuringHost: NSHostingView<ContactListCellContent>?
+        // Geometry memos in front of the expensive measurement: a matching key
+        // means the measured output is identical, so the name scan / per-row
+        // `NSHostingView` layout can be skipped. Both keys are rebuilt from live
+        // service state every reconcile, so they invalidate on any input change.
+        private var widthMemo: (key: WidthMeasurementKey, width: CGFloat)?
+        private var heightMemo: (key: HeightMeasurementKey, geometry: MeasuredGeometry)?
         private let resizeGate = ContactListResizeGate()
         private var didInstallGate = false
 
@@ -179,16 +241,22 @@ struct ContactListTableView: NSViewRepresentable {
 
             container?.setAccessibilityValue(inputs.hasConnectedAccount ? "connected" : "connecting")
 
-            let contentWidth = resolvedContentWidth()
+            // Window policy (the resize-gate axis locks) must track the auto-size
+            // prefs on every pass, before the layout-key bail below: a pure
+            // preference toggle doesn't change the key, so applying it only in
+            // `applyLayout` would leave the gate stale until an unrelated reconcile.
+            updateResizeGateLocks()
+
+            let contentWidth = memoizedContentWidth()
             let measureCount = min(inputs.incomingRows.count, maxMeasuredRows)
-            let measuredHeights = (0 ..< measureCount).map { measureHeight(for: inputs.incomingRows[$0], width: contentWidth) }
             let flatRowHeight = theme.current.avatarSize + estimatedRowChrome
-            let newHeights = (0 ..< inputs.incomingRows.count).map { $0 < measureCount ? measuredHeights[$0] : flatRowHeight }
-            let listHeight = targetListHeight(
-                measuredHeights: measuredHeights,
-                totalRowCount: inputs.incomingRows.count,
+            let geometry = memoizedHeights(
+                contentWidth: contentWidth,
+                measureCount: measureCount,
                 flatRowHeight: flatRowHeight
             )
+            let newHeights = geometry.newHeights
+            let listHeight = geometry.listHeight
 
             // Auto-size mode fits the window to the roster, so a scroller is only
             // needed when the roster exceeds the screen cap; keeping it off
@@ -312,13 +380,18 @@ struct ContactListTableView: NSViewRepresentable {
             resizeGate.allowProgrammaticResize = false
         }
 
+        /// Syncs the resize gate's per-axis veto with the current auto-size prefs.
+        private func updateResizeGateLocks() {
+            resizeGate.lockWidth = inputs.autoSizeHorizontal
+            resizeGate.lockHeight = inputs.autoSizeVertical
+        }
+
         /// Installs the window-delegate proxy that vetoes user resize on the
         /// auto-size axes. SwiftUI re-asserts `.resizable` / `contentMaxSize` /
         /// `styleMask`, so `windowWillResize` is the only hook that holds; the
-        /// proxy forwards every other delegate message to SwiftUI's delegate.
+        /// proxy forwards every other delegate message to SwiftUI's delegate. The
+        /// axis locks themselves are kept current by `updateResizeGateLocks`.
         private func installResizeGate(on window: NSWindow) {
-            resizeGate.lockWidth = inputs.autoSizeHorizontal
-            resizeGate.lockHeight = inputs.autoSizeVertical
             guard !didInstallGate else { return }
             if window.delegate !== resizeGate {
                 resizeGate.downstream = window.delegate
@@ -380,36 +453,41 @@ struct ContactListTableView: NSViewRepresentable {
             (NSScreen.main?.visibleFrame.height ?? 800) - 160
         }
 
-        /// Content width the rows render at: the auto-fit width when horizontal
-        /// auto-size is on, otherwise the window's current content width (the
-        /// coordinator never drives a manual axis).
-        private func resolvedContentWidth() -> CGFloat {
-            guard let theme = inputs.theme else { return ContactListWidthMetrics.floor }
-            if inputs.autoSizeHorizontal {
-                return CGFloat(ContactListSizing.fittedWidth(
-                    maxNameWidth: Double(measuredMaxNameWidth()),
-                    avatarSize: Double(theme.current.avatarSize),
-                    rowChrome: Double(ContactListWidthMetrics.rowChrome),
-                    floorWidth: Double(ContactListWidthMetrics.floor),
-                    maxWidth: Double(clampedMaxWidth)
-                ))
+        /// Content width the rows render at, memoized: the auto-fit width when
+        /// horizontal auto-size is on, otherwise the window's current content
+        /// width (the coordinator never drives a manual axis). The capped name
+        /// scan runs each reconcile to build the key; on a match the per-name font
+        /// measurement and fitted-width calc are what's skipped.
+        private func memoizedContentWidth() -> CGFloat {
+            let key: WidthMeasurementKey = inputs.autoSizeHorizontal
+                ? .auto(names: measuredNames(), avatarSize: inputs.theme?.current.avatarSize ?? 0, maxWidth: clampedMaxWidth)
+                : .manual(width: manualContentWidth())
+            if let widthMemo, widthMemo.key == key { return widthMemo.width }
+            let width: CGFloat = switch key {
+            case let .auto(names, avatarSize, maxWidth): fittedContentWidth(names: names, avatarSize: avatarSize, maxWidth: maxWidth)
+            case let .manual(width): width
             }
+            widthMemo = (key, width)
+            return width
+        }
+
+        private func manualContentWidth() -> CGFloat {
             if let window = tableView?.window {
                 return window.contentRect(forFrameRect: window.frame).width
             }
             return scrollView?.bounds.width ?? ContactListWidthMetrics.floor
         }
 
-        /// Widest visible name plus its account-disambiguation label, measured
-        /// with the row font. Capped so a pathological roster can't drive
-        /// unbounded measurement.
-        private func measuredMaxNameWidth() -> CGFloat {
-            guard let environment = inputs.environment else { return 0 }
-            let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font]
-            var maxWidth: CGFloat = 0
-            var measured = 0
-            for row in inputs.incomingRows where measured < maxMeasuredNames {
+        /// The capped contact/room names the fitted-width scan measures, in row
+        /// order: each contact's display name plus its account-disambiguation
+        /// label, each room's title; headers skipped. Capped so a pathological
+        /// roster can't drive unbounded measurement. Shared with the width memo
+        /// key so the cache invalidates on exactly the renames and account-label
+        /// changes that move the fitted width.
+        private func measuredNames() -> [String] {
+            guard let environment = inputs.environment else { return [] }
+            var names: [String] = []
+            for row in inputs.incomingRows where names.count < maxMeasuredNames {
                 let name: String? = switch row {
                 case .header:
                     nil
@@ -419,11 +497,25 @@ struct ContactListTableView: NSViewRepresentable {
                     room.displayTitle
                 }
                 guard let name else { continue }
-                let capped = String(name.prefix(maxMeasuredNameLength))
-                maxWidth = max(maxWidth, (capped as NSString).size(withAttributes: attributes).width)
-                measured += 1
+                names.append(String(name.prefix(maxMeasuredNameLength)))
             }
-            return maxWidth
+            return names
+        }
+
+        /// Fits the window width to the widest measured name, via the row font.
+        /// `avatarSize` and `maxWidth` come from the memo key so the cached width
+        /// and the key that gates it are computed from identical inputs.
+        private func fittedContentWidth(names: [String], avatarSize: CGFloat, maxWidth: CGFloat) -> CGFloat {
+            let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
+            let attributes: [NSAttributedString.Key: Any] = [.font: font]
+            let maxNameWidth = names.reduce(CGFloat(0)) { max($0, ($1 as NSString).size(withAttributes: attributes).width) }
+            return CGFloat(ContactListSizing.fittedWidth(
+                maxNameWidth: Double(maxNameWidth),
+                avatarSize: Double(avatarSize),
+                rowChrome: Double(ContactListWidthMetrics.rowChrome),
+                floorWidth: Double(ContactListWidthMetrics.floor),
+                maxWidth: Double(maxWidth)
+            ))
         }
 
         private func measuringName(for contact: Contact, environment: AppEnvironment) -> String {
@@ -434,6 +526,67 @@ struct ContactListTableView: NSViewRepresentable {
                 return contact.displayName
             }
             return "\(contact.displayName)  \(label)"
+        }
+
+        /// The per-row heights and the auto-sized list height, memoized: on a key
+        /// match the per-row `NSHostingView` layout loop is skipped.
+        private func memoizedHeights(contentWidth: CGFloat, measureCount: Int, flatRowHeight: CGFloat) -> MeasuredGeometry {
+            let key = HeightMeasurementKey(
+                width: contentWidth,
+                totalRowCount: inputs.incomingRows.count,
+                maxListHeight: maxListHeight,
+                rows: (0 ..< measureCount).map { rowHeightSignature(for: inputs.incomingRows[$0]) },
+                theme: themeHeightSignature()
+            )
+            if let heightMemo, heightMemo.key == key { return heightMemo.geometry }
+            let measuredHeights = (0 ..< measureCount).map { measureHeight(for: inputs.incomingRows[$0], width: contentWidth) }
+            let newHeights = (0 ..< inputs.incomingRows.count).map { $0 < measureCount ? measuredHeights[$0] : flatRowHeight }
+            let listHeight = targetListHeight(
+                measuredHeights: measuredHeights,
+                totalRowCount: inputs.incomingRows.count,
+                flatRowHeight: flatRowHeight
+            )
+            let geometry = MeasuredGeometry(newHeights: newHeights, listHeight: listHeight)
+            heightMemo = (key, geometry)
+            return geometry
+        }
+
+        /// The layout-affecting fingerprint of one row: its kind, and for the two
+        /// kinds with an optional caption line, whether that line shows. Derives
+        /// `hasSecondLine` from the same `ContactCaption`/`RoomCaption` resolvers
+        /// the row views render from, so the memo predicts the 1- vs 2-line height
+        /// without hosting the view and can't drift from what renders.
+        private func rowHeightSignature(for row: ContactListRow) -> RowHeightSignature {
+            switch row {
+            case .header:
+                return .header
+            case let .contact(_, contact):
+                return .contact(hasSecondLine: contactHasSecondLine(contact))
+            case let .room(room):
+                return .room(hasSecondLine: roomHasSecondLine(room))
+            }
+        }
+
+        private func contactHasSecondLine(_ contact: Contact) -> Bool {
+            guard let environment = inputs.environment, let theme = inputs.theme else { return false }
+            return ContactCaption.resolve(
+                for: contact,
+                showStatusMessages: theme.current.showStatusMessages,
+                presenceService: environment.presenceService
+            ).hasSecondLine
+        }
+
+        private func roomHasSecondLine(_ room: Conversation) -> Bool {
+            guard let environment = inputs.environment else { return false }
+            return RoomCaption.resolve(for: room, chatService: environment.chatService).hasSecondLine
+        }
+
+        private func themeHeightSignature() -> RowHeightThemeSignature {
+            let theme = inputs.theme?.current
+            return RowHeightThemeSignature(
+                avatarSize: theme?.avatarSize ?? 0,
+                showAvatars: theme?.showAvatars ?? false
+            )
         }
 
         /// Self-sized height of one row at the target content width, via a
@@ -754,17 +907,21 @@ final class ContactListResizeGate: NSObject, NSWindowDelegate {
         return size
     }
 
-    /// Suppress the edge resize cursor when both axes are locked: SwiftUI keeps
+    /// Keep the edge resize affordance in sync with the axis locks. When both
+    /// axes are locked, suppress the misleading resize cursor: SwiftUI keeps
     /// re-adding `.resizable` (a one-time removal doesn't hold), so re-remove it
-    /// here whenever it reappears. `windowWillResize` already vetoes the resize;
-    /// this just stops the misleading cursor. Programmatic `setFrame` works
-    /// without `.resizable`, so the coordinator's animation is unaffected. Mixed
-    /// auto/manual modes keep `.resizable` (the manual axis stays draggable) and
-    /// rely on the per-axis veto.
+    /// whenever it reappears (`windowWillResize` already vetoes the drag, and
+    /// programmatic `setFrame` works without `.resizable`). Otherwise restore
+    /// `.resizable` if it's missing, so unlocking an axis at runtime brings the
+    /// handle back immediately rather than waiting for SwiftUI's next re-assert.
+    /// Mixed auto/manual modes keep `.resizable` and rely on the per-axis veto.
     func windowDidUpdate(_ notification: Notification) {
-        guard lockWidth, lockHeight, let window = notification.object as? NSWindow,
-              window.styleMask.contains(.resizable) else { return }
-        window.styleMask.remove(.resizable)
+        guard let window = notification.object as? NSWindow else { return }
+        if lockWidth, lockHeight {
+            if window.styleMask.contains(.resizable) { window.styleMask.remove(.resizable) }
+        } else if !window.styleMask.contains(.resizable) {
+            window.styleMask.insert(.resizable)
+        }
     }
 
     override func responds(to aSelector: Selector!) -> Bool {

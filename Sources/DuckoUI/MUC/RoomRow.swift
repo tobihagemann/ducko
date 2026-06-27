@@ -7,9 +7,8 @@ struct RoomRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let conversation: Conversation
 
-    private var participantCount: Int {
-        guard let accountID = conversation.accountID else { return 0 }
-        return environment.chatService.participantCount(forRoomJIDString: conversation.jid.description, accountID: accountID)
+    private var caption: RoomCaption {
+        RoomCaption.resolve(for: conversation, chatService: environment.chatService)
     }
 
     var body: some View {
@@ -23,16 +22,19 @@ struct RoomRow: View {
                     .fontWeight(.medium)
                     .lineLimit(1)
 
-                if let subject = conversation.roomSubject, !subject.isEmpty {
+                switch caption {
+                case let .subject(subject):
                     Text(subject)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                } else if participantCount > 0 {
-                    Text("\(participantCount) participants")
+                case let .participants(count):
+                    Text("\(count) participants")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                case .none:
+                    EmptyView()
                 }
             }
 

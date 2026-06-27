@@ -69,4 +69,12 @@ struct ContactListResizeGateTests {
         gate.windowDidUpdate(Notification(name: NSWindow.didUpdateNotification, object: window))
         #expect(window.styleMask.contains(.resizable))
     }
+
+    @Test func `windowDidUpdate restores resizable when neither axis is locked`() {
+        let gate = ContactListResizeGate()
+        let window = makeWindow()
+        window.styleMask.remove(.resizable)
+        gate.windowDidUpdate(Notification(name: NSWindow.didUpdateNotification, object: window))
+        #expect(window.styleMask.contains(.resizable))
+    }
 }

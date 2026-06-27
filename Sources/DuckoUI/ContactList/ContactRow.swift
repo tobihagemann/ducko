@@ -6,16 +6,12 @@ struct ContactRow: View {
     @Environment(ThemeEngine.self) private var theme
     let contact: Contact
 
-    private var presence: PresenceService.PresenceStatus? {
-        environment.presenceService.presence(for: contact.jid, accountID: contact.accountID)
-    }
-
     private var display: ContactPresenceDisplay {
         ContactPresenceDisplay.resolve(for: contact, accountID: contact.accountID, presenceService: environment.presenceService)
     }
 
-    private var statusMessage: String? {
-        environment.presenceService.statusMessage(for: contact.jid, accountID: contact.accountID)
+    private var caption: ContactCaption {
+        ContactCaption.resolve(for: contact, showStatusMessages: theme.current.showStatusMessages, presenceService: environment.presenceService)
     }
 
     /// The disambiguation label shown when this contact's JID is on more than one account; nil otherwise.
@@ -49,21 +45,24 @@ struct ContactRow: View {
                     }
                 }
 
-                if theme.current.showStatusMessages, let statusText = statusMessage ?? presence?.displayName {
+                switch caption {
+                case let .status(statusText):
                     Text(statusText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                } else if contact.isPendingSubscription {
+                case .pendingApproval:
                     Text("Pending approval")
                         .font(.caption)
                         .foregroundStyle(.orange)
                         .lineLimit(1)
-                } else if presence == nil, let lastSeen = contact.lastSeen {
-                    Text("Last seen \(lastSeen, style: .relative)")
+                case let .lastSeen(date):
+                    Text("Last seen \(date, style: .relative)")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
+                case .none:
+                    EmptyView()
                 }
             }
 
