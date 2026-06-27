@@ -10,13 +10,13 @@
 # so the two are individually addressable. `list` prints whatever form is in use;
 # pass that exact string to `select`/`close`.
 #
-# Limitation: each tab chip carries `.accessibilityElement(children: .combine)`,
-# so the `chat-tab-{jid}` / `chat-tab-close-{jid}` identifiers are reported to
-# osascript and Peekaboo as the parent `chat-tab-bar` (the chip surfaces only its
-# JID/display-name label). A direct Swift AXUIElement query still resolves the
-# per-chip identifier — the integration suite drives this control that way and is
-# authoritative (see UIContactInfoTests) — so this script's list/select/close are
-# best-effort under osascript and may not find an individual chip.
+# The tab bar is an accessibility container (`.accessibilityElement(children:
+# .contain)`), so each `chat-tab-{jid}` chip is exposed as its own element —
+# `list` and `select` resolve it under osascript. `close` is
+# best-effort: its `chat-tab-close-{jid}` button is revealed only on hover and is
+# merged into the chip's own combined element, so the identifier may not resolve.
+# The integration suite (UIContactInfoTests) drives this control via Swift
+# AXUIElement and is authoritative.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then

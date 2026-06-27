@@ -263,7 +263,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-edit-profile.sh` | Edit profile fields and optionally save | `[--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]` |
 | `ducko-remove-contact.sh` | Remove a contact via context menu | `JID` |
 | `ducko-contact-info.sh` | Open the Contact Info window via context menu, optionally block/remove | `JID [block\|remove]` |
-| `ducko-chat-tabs.sh` | List, select, or close bottom chat tabs (best-effort; the combined tab-chip identifiers are not osascript-addressable — see UIContactInfoTests) | `<list\|select\|close> [JID]` |
+| `ducko-chat-tabs.sh` | List, select, or close bottom chat tabs (close is best-effort; the hover-revealed close button is merged into the chip's combined element) | `<list\|select\|close> [JID]` |
 | `ducko-chat-header.sh` | Click a chat-header toolbar button (Profile info / History) | `<info\|history>` |
 | `ducko-invite-user.sh` | Invite a user to a room via context menu | `ROOM_JID INVITEE_JID` |
 | `ducko-destroy-room.sh` | Destroy a room via Room Settings sheet | `ROOM_JID` |

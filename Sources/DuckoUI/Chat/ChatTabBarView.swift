@@ -63,6 +63,14 @@ struct ChatTabBarView: View {
             .padding(.horizontal, horizontalInset)
         }
         .frame(height: barHeight)
+        // Keep the bar a container that vends each chip as its own accessibility
+        // element. Without this, SwiftUI merges a lone tab chip (which combines
+        // its own children and adds an `.isButton` trait) up into the bar, so the
+        // bar surfaces as a single AXButton and each chip's element — with its
+        // per-tab `chat-tab-<jid>` identifier — disappears, leaving neither
+        // VoiceOver (which navigates the element) nor UI automation (which
+        // targets the identifier) able to address an individual tab.
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-tab-bar")
     }
 
