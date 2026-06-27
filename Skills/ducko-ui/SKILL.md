@@ -241,7 +241,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-avatar.sh` | Upload an avatar image via profile sheet | `IMAGE_PATH` |
 | `ducko-avatar-remove.sh` | Remove current avatar via profile sheet | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
-| `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Appearance\|Notifications\|Advanced>` |
+| `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Status\|Appearance\|Notifications\|Advanced>` |
 | `ducko-status.sh` | Set presence status and optional status message (best-effort; the borderless status `Menu` isn't reliably scriptable via osascript — see UIPresenceTests) | `STATUS [MESSAGE]` (`STATUS`: available\|away\|xa\|dnd\|offline) |
 | `ducko-bookmarks.sh` | Open the Bookmarks sheet from the File menu (⌘⇧B) | none |
 | `ducko-add-bookmark.sh` | Add a bookmark via the Bookmarks sheet | `ROOM_JID [NICKNAME]` |
@@ -256,14 +256,14 @@ Right-click a participant in the chat window sidebar:
 | `ducko-private-message.sh` | Send a MUC private message via the participant sidebar context menu | `NICKNAME` |
 | `ducko-room-topic.sh` | View or set the room topic | `[TEXT]` (optional; no args prints current topic) |
 | `ducko-channel-search.sh` | Search for channels in the Join Room dialog | `QUERY` |
-| `ducko-connection-info.sh` | Open Connection Info sheet from Preferences > Accounts | none |
+| `ducko-connection-info.sh` | Open Connection Info sheet from Preferences > Accounts (best-effort; needs a connected account and a `List(selection:)` that synthetic clicks may not trigger) | none |
 | `ducko-register.sh` | Register a new account via in-band registration | `SERVER USERNAME PASSWORD [EMAIL]` |
-| `ducko-change-password.sh` | Change account password via Preferences > Accounts | `NEW_PASSWORD` |
+| `ducko-change-password.sh` | Change account password via Preferences > Accounts (best-effort; needs a connected account and a `List(selection:)` that synthetic clicks may not trigger) | `NEW_PASSWORD` |
 | `ducko-toggle-preference.sh` | Toggle any preference checkbox by identifier | `IDENTIFIER` (e.g., chatStatesToggle, encryptByDefaultToggle, tofuToggle) |
 | `ducko-edit-profile.sh` | Edit profile fields and optionally save | `[--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]` |
 | `ducko-remove-contact.sh` | Remove a contact via context menu | `JID` |
 | `ducko-contact-info.sh` | Open the Contact Info window via context menu, optionally block/remove | `JID [block\|remove]` |
-| `ducko-chat-tabs.sh` | List, select, or close bottom chat tabs | `<list\|select\|close> [JID]` |
+| `ducko-chat-tabs.sh` | List, select, or close bottom chat tabs (best-effort; the combined tab-chip identifiers are not osascript-addressable — see UIContactInfoTests) | `<list\|select\|close> [JID]` |
 | `ducko-chat-header.sh` | Click a chat-header toolbar button (Profile info / History) | `<info\|history>` |
 | `ducko-invite-user.sh` | Invite a user to a room via context menu | `ROOM_JID INVITEE_JID` |
 | `ducko-destroy-room.sh` | Destroy a room via Room Settings sheet | `ROOM_JID` |
@@ -279,9 +279,9 @@ Right-click a participant in the chat window sidebar:
 
 For first-time setup when no account exists:
 
-**Complete the Welcome screen first.** On a fresh profile the first-run Welcome onboarding window holds key/first-responder status. Contact-list actions like Add Contact are gated behind a focus check (Contacts must be the key window), and synthetic automation can't force that focus while Welcome is up — so contact/chat steps silently fail until Welcome is gone. Welcome can't simply be dismissed; you must *complete* it by logging in through it. The Welcome screen defaults to **Import** mode, and `ducko-login.sh` assumes **Login** mode is already selected — against the Import view it prints "Login initiated" without actually logging in — so select the Login segment of the `setup-mode-picker` segmented control *before* running it.
+**Complete the Welcome screen first.** On a fresh profile the first-run Welcome onboarding window holds key/first-responder status. Contact-list actions like Add Contact are gated behind a focus check (Contacts must be the key window), and synthetic automation can't force that focus while Welcome is up — so contact/chat steps silently fail until Welcome is gone. Welcome can't simply be dismissed; you must *complete* it by logging in through it. The Welcome screen defaults to **Import** mode, and `ducko-login.sh` assumes **Login** mode is already selected, so select the Login segment of the `setup-mode-picker` segmented control *before* running it.
 
-> **Not yet verified end-to-end on macOS 26.** `ducko-login.sh` still locates its fields via `entire contents of window "Welcome"`, which collapses to zero on the Welcome window's nested SwiftUI hierarchy (the same issue `ducko-select-mode.sh` works around) — so step 3 can silently no-op and still print "Login initiated". Until the Welcome scripts are hardened, the **Relaunch** workflow (persisted account, no Welcome) is the reliable path.
+The Welcome scripts (`ducko-login.sh`, `ducko-register.sh`, `ducko-import.sh`) walk the Welcome window via the recursive `findByAttr` handler (like `ducko-select-mode.sh`) and gate their success message on the osascript result, so a missing field reports an error instead of false success. The login screen's identifiers are covered by `UILoginTests` (which drives them through the test harness's Swift AX helpers, not this script); the register/import segments have no integration test, so for all three the script's traversal and success-gating are verified by construction.
 
 ```bash
 SCRIPTS="Skills/ducko-ui/scripts"
@@ -776,7 +776,8 @@ To allow these scripts in `settings.local.json` without prompts:
 - Scripts use `keystroke` (not `set value`) to trigger SwiftUI bindings.
 - App activation uses `set frontmost of process` (works with SwiftPM builds).
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
-- Element targeting uses `entire contents` + `AXIdentifier` matching for reliability across window sizes. Exception: `ducko-select-mode.sh` walks the UI-element tree directly, because `entire contents of window "Welcome"` collapses to zero on that window's deeply-nested SwiftUI hierarchy on macOS 26.
+- Element targeting uses recursive UI-element-tree walks (`findByAttr` and siblings) rather than `entire contents`, which silently collapses on the deeply-nested SwiftUI / NSTableView accessibility trees on macOS 26 (contact/room rows, the Welcome window, chat transcript, profile/room-settings sheets). Helper-consumer scripts share these handlers via `ducko-helpers.sh`'s `ducko_as_handlers`; quoted-heredoc scripts (the Welcome family, profile/room-settings, etc.) inline the same handler — mirroring `ducko-select-mode.sh` — because a quoted heredoc can't expand `$(...)`. Scripts whose targets are shallow (small sheets like New Chat, Add Contact, Join Room) still use `entire contents` where it reliably reaches them. SwiftUI segmented `Picker` segments and Room Settings tabs expose their label via `AXDescription` (not `name`/`AXTitle`), so they are matched on that.
+- The scripts marked best-effort in the Script Reference table (`ducko-status.sh`, `ducko-chat-tabs.sh`, `ducko-connection-info.sh`, `ducko-change-password.sh`) hit osascript limitations covered authoritatively by the integration suite instead; each table row names the specific control and test.
 - The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Arguments passed via `osascript - "$ARG" << 'APPLESCRIPT'` + `on run argv` (no shell injection).
 - Credentials are arguments, never hardcoded.

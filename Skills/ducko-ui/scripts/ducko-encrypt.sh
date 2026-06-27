@@ -59,7 +59,7 @@ on run argv
             else
                 return "ERROR: unknown action: " & encAction
             end if
-            -- Strategy 1: search within the menu button's own menu
+            -- Strategy 1: search within the menu attached to the encryption button
             try
                 set menuElems to entire contents of menu 1 of menuBtn
                 repeat with elem in menuElems

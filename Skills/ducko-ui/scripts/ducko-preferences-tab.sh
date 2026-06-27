@@ -2,15 +2,15 @@
 # Switch to a specific tab in the Preferences (Settings) window.
 # The Preferences window must already be open (use ducko-preferences.sh first).
 # Note: macOS titles this window after the selected tab (e.g. "General", "Accounts").
-# Usage: ducko-preferences-tab.sh <General|Accounts|Appearance|Notifications|Advanced>
+# Usage: ducko-preferences-tab.sh <General|Accounts|Chat|Status|Appearance|Notifications|Advanced>
 set -euo pipefail
 
-TAB="${1:?Usage: ducko-preferences-tab.sh <General|Accounts|Appearance|Notifications|Advanced>}"
+TAB="${1:?Usage: ducko-preferences-tab.sh <General|Accounts|Chat|Status|Appearance|Notifications|Advanced>}"
 
 RESULT=$(osascript - "$TAB" << 'APPLESCRIPT'
 on run argv
     set tabName to item 1 of argv
-    set tabNames to {"General", "Accounts", "Appearance", "Notifications", "Advanced"}
+    set tabNames to {"General", "Accounts", "Chat", "Status", "Appearance", "Notifications", "Advanced"}
     if tabName is not in tabNames then return "ERROR: unknown tab: " & tabName
     tell application "System Events"
         set frontmost of process "DuckoApp" to true

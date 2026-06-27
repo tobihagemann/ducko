@@ -20,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
 
 RESULT=$(osascript - "$FILE_PATH" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set filePath to item 1 of argv
 

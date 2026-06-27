@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
 
 RESULT=$(osascript - "$JID" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set contactJID to item 1 of argv
     set targetId to "contact-row-" & contactJID

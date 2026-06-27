@@ -17,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
 
 RESULT=$(osascript - "$JID" "$ACTION" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set contactJID to item 1 of argv
     set infoAction to item 2 of argv
@@ -53,6 +54,7 @@ case "$ACTION" in
 esac
 
 ACTION_RESULT=$(osascript - "$BUTTON_ID" "$ACTION" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set buttonId to item 1 of argv
     set infoAction to item 2 of argv

@@ -31,7 +31,7 @@ tell application "System Events"
         -- visible label against AXDescription / AXTitle. SwiftUI
         -- `Button("Save") { ... }` publishes the label through
         -- AXDescription on macOS 26. The button is nested inside the
-        -- sheet's `HStack`, so `entire contents of theSheet` walks the
+        -- `HStack` inside the sheet, so `entire contents of theSheet` walks the
         -- subtree — `buttons of theSheet` would only see direct children.
         repeat with win in windows
             try

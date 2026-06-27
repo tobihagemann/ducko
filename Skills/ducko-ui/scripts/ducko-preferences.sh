@@ -11,7 +11,7 @@ tell application "System Events"
     delay 0.3
     tell process "DuckoApp"
         -- The Settings window title matches the active tab name.
-        set tabNames to {"General", "Accounts", "Appearance", "Notifications", "Advanced"}
+        set tabNames to {"General", "Accounts", "Chat", "Status", "Appearance", "Notifications", "Advanced"}
         set settingsOpen to false
         repeat with win in windows
             if name of win is in tabNames then

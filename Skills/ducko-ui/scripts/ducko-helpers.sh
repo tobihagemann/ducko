@@ -5,6 +5,86 @@
 # AppleScript snippet generators output code for use inside a
 # `tell process "DuckoApp"` block. The calling script uses an unquoted
 # heredoc (<< APPLESCRIPT) so that $() expansions are evaluated by the shell.
+#
+# The element-finding snippets call recursive `my findByAttr` /
+# `my findByRoleAndName` / `my collectStaticTexts` handlers instead of
+# `entire contents`, which silently truncates the deeply-nested SwiftUI /
+# NSTableView accessibility trees on macOS 26 (contact/room rows, Welcome
+# fields, chat transcript). Each osascript block that uses these snippets must
+# emit `$(ducko_as_handlers)` at its top level (before `on run`) so the
+# handlers are defined — a block missing them fails with "handler not defined".
+
+# --- AppleScript top-level handler definitions ---
+
+# Recursive UI-element-tree handlers, defined at script top level (handlers
+# cannot live inside a `tell process` block). Emit once per osascript block.
+ducko_as_handlers() {
+    cat << 'EOF'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
+on findByRoleAndName(el, roleWanted, nameWanted, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (role of c) is roleWanted and (name of c) is nameWanted then return c
+                end try
+                set found to my findByRoleAndName(c, roleWanted, nameWanted, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByRoleAndName
+
+on collectStaticTexts(el, depth, maxDepth)
+    set acc to {}
+    tell application "System Events"
+        if depth > maxDepth then return acc
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (role of c) is "AXStaticText" then set end of acc to (contents of c)
+                end try
+                set acc to acc & (my collectStaticTexts(c, depth + 1, maxDepth))
+            end repeat
+        end try
+    end tell
+    return acc
+end collectStaticTexts
+
+on collectByRole(el, roleWanted, depth, maxDepth)
+    set acc to {}
+    tell application "System Events"
+        if depth > maxDepth then return acc
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (role of c) is roleWanted then set end of acc to (contents of c)
+                end try
+                set acc to acc & (my collectByRole(c, roleWanted, depth + 1, maxDepth))
+            end repeat
+        end try
+    end tell
+    return acc
+end collectByRole
+EOF
+}
 
 # --- AppleScript snippet generators ---
 
@@ -18,16 +98,10 @@ ducko_as_find_window_by_id() {
     cat << EOF
             set ${var_name} to missing value
             repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "${identifier}" then
-                            set ${var_name} to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if ${var_name} is not missing value then exit repeat
+                if (my findByAttr(win, "AXIdentifier", "${identifier}", 0, 30)) is not missing value then
+                    set ${var_name} to win
+                    exit repeat
+                end if
             end repeat
             if ${var_name} is missing value then return "ERROR: ${error_msg}"
 EOF
@@ -44,16 +118,7 @@ ducko_as_find_element_by_id() {
     local error_msg="${3:-element not found}"
     local var_name="${4:-targetElem}"
     cat << EOF
-            set ${var_name} to missing value
-            set allElems to entire contents of ${window_var}
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is ${id_expr} then
-                        set ${var_name} to elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
+            set ${var_name} to my findByAttr(${window_var}, "AXIdentifier", ${id_expr}, 0, 30)
             if ${var_name} is missing value then return "ERROR: ${error_msg}"
 EOF
 }
@@ -69,7 +134,9 @@ ducko_as_click_element_by_id() {
 }
 
 # Find a message by text content within a window variable.
-# Searches AXStaticText elements. If search_text_var is empty, selects the last match.
+# Searches AXStaticText elements, scoped to the transcript (message-list) when
+# present to bound the walk. If search_text_var is empty, selects the last
+# message; otherwise the first message whose text contains search_text_var.
 # Sets the AppleScript variable $var_name (default: targetElem).
 # Args: search_text_var [window_var] [error_msg] [var_name]
 ducko_as_find_message_by_text() {
@@ -78,26 +145,30 @@ ducko_as_find_message_by_text() {
     local error_msg="${3:-no matching message found}"
     local var_name="${4:-targetElem}"
     cat << EOF
-            set allElems to entire contents of ${window_var}
+            set msgRoot to my findByAttr(${window_var}, "AXIdentifier", "message-list", 0, 30)
+            if msgRoot is missing value then set msgRoot to ${window_var}
+            set msgTexts to my collectStaticTexts(msgRoot, 0, 30)
             set ${var_name} to missing value
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXStaticText" then
-                        set elemVal to value of elem
-                        if ${search_text_var} is "" then
-                            set ${var_name} to elem
-                        else if elemVal contains ${search_text_var} then
-                            set ${var_name} to elem
+            if ${search_text_var} is "" then
+                if (count of msgTexts) > 0 then set ${var_name} to item -1 of msgTexts
+            else
+                repeat with mt in msgTexts
+                    try
+                        if (value of mt) contains ${search_text_var} then
+                            set ${var_name} to contents of mt
                             exit repeat
                         end if
-                    end if
-                end try
-            end repeat
+                    end try
+                end repeat
+            end if
             if ${var_name} is missing value then return "ERROR: ${error_msg}"
 EOF
 }
 
 # Right-click an element and select a named menu item.
+# After AXShowMenu the transient SwiftUI menu may render at process level (a
+# sibling of the windows) or under the window, so search the process's menus
+# first, then fall back to walking the window subtree.
 # Args: menu_item_name source_var [window_var] [error_msg]
 ducko_as_click_context_menu_item() {
     local menu_item_name="$1"
@@ -107,16 +178,15 @@ ducko_as_click_context_menu_item() {
     cat << EOF
             perform action "AXShowMenu" of ${source_var}
             delay 0.5
-            set allElems to entire contents of ${window_var}
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXMenuItem" and name of elem is "${menu_item_name}" then
-                        click elem
-                        return "ok"
-                    end if
-                end try
+            set menuItem to missing value
+            repeat with m in menus
+                set menuItem to my findByRoleAndName(m, "AXMenuItem", "${menu_item_name}", 0, 8)
+                if menuItem is not missing value then exit repeat
             end repeat
-            return "ERROR: ${error_msg}"
+            if menuItem is missing value then set menuItem to my findByRoleAndName(${window_var}, "AXMenuItem", "${menu_item_name}", 0, 30)
+            if menuItem is missing value then return "ERROR: ${error_msg}"
+            click menuItem
+            return "ok"
 EOF
 }
 

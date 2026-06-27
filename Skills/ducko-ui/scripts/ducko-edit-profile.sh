@@ -1,6 +1,9 @@
 #!/bin/bash
 # Edit profile fields and optionally save.
 # Opens the profile sheet first if not already open.
+#
+# Walks the profile sheet via findByAttr rather than `entire contents`, which
+# collapses on the nested profile form on macOS 26.
 # Usage: ducko-edit-profile.sh [--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]
 set -euo pipefail
 
@@ -29,6 +32,35 @@ SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 sleep 0.5
 
 RESULT=$(osascript - "$FULLNAME" "$NICKNAME" "$EMAIL" "$SAVE" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
+on fillField(win, fieldId, fieldValue)
+    set theField to my findByAttr(win, "AXIdentifier", fieldId, 0, 30)
+    if theField is missing value then return false
+    tell application "System Events"
+        set focused of theField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke fieldValue
+    end tell
+    return true
+end fillField
+
 on run argv
     set fullnameArg to item 1 of argv
     set nicknameArg to item 2 of argv
@@ -37,56 +69,26 @@ on run argv
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.3
-        tell process "DuckoApp"
-            -- Find the window containing the profile edit view
-            set profileWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "profile-edit-view" then
-                            set profileWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if profileWin is not missing value then exit repeat
-            end repeat
-            if profileWin is missing value then return "ERROR: profile sheet not found"
+        -- Find the window containing the profile edit view.
+        set profileWin to missing value
+        repeat with win in (windows of process "DuckoApp")
+            if (my findByAttr(win, "AXIdentifier", "profile-edit-view", 0, 30)) is not missing value then
+                set profileWin to win
+                exit repeat
+            end if
+        end repeat
+        if profileWin is missing value then return "ERROR: profile sheet not found"
 
-            set allElems to entire contents of profileWin
+        if fullnameArg is not "__none__" then my fillField(profileWin, "profile-fullname-field", fullnameArg)
+        if nicknameArg is not "__none__" then my fillField(profileWin, "profile-nickname-field", nicknameArg)
+        if emailArg is not "__none__" then my fillField(profileWin, "profile-email-field-0", emailArg)
 
-            repeat with elem in allElems
-                try
-                    set elemId to value of attribute "AXIdentifier" of elem
-                    if elemId is "profile-fullname-field" and fullnameArg is not "__none__" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke fullnameArg
-                    end if
-                    if elemId is "profile-nickname-field" and nicknameArg is not "__none__" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke nicknameArg
-                    end if
-                    if elemId is "profile-email-field-0" and emailArg is not "__none__" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke emailArg
-                    end if
-                    if elemId is "profile-save-button" and saveArg is "yes" then
-                        click elem
-                    end if
-                end try
-            end repeat
-            return "ok"
-        end tell
+        if saveArg is "yes" then
+            set saveBtn to my findByAttr(profileWin, "AXIdentifier", "profile-save-button", 0, 30)
+            if saveBtn is missing value then return "ERROR: profile-save-button not found"
+            click saveBtn
+        end if
+        return "ok"
     end tell
 end run
 APPLESCRIPT

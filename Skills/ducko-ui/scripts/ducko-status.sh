@@ -79,7 +79,7 @@ on run argv
 
             -- Find and click the target status menu item. The SwiftUI Menu
             -- opens as a process-level menu (a sibling of the windows), not
-            -- under the button or window — so search the process's menus.
+            -- under the button or window — so search the process-level menus.
             -- The borderless Menu is awkward to drive via osascript;
             -- UIPresenceTests is the authoritative check for this path.
             set clicked to false
@@ -95,7 +95,7 @@ on run argv
             if not clicked then return "ERROR: status menu item " & targetLabel & " not found"
             delay 0.3
 
-            -- Set a custom status message via the pull-down's "Custom…" sheet,
+            -- Set a custom status message via the Custom… sheet from the pull-down,
             -- which opens pre-set to the presence just selected above.
             if messageArg is not "__none__" then
                 set pickerBtn to missing value

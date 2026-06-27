@@ -20,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
 
 RESULT=$(osascript - "$BUTTON_ID" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set buttonId to item 1 of argv
     tell application "System Events"

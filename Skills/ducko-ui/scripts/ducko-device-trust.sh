@@ -1,6 +1,9 @@
 #!/bin/bash
 # Trust, untrust, or verify an OMEMO device in the DeviceFingerprintsSheet.
 # The fingerprints sheet must already be open (via ducko-encrypt.sh fingerprints).
+#
+# Walks the sheet via findByAttr rather than `entire contents`, which collapses
+# on the nested device list on macOS 26.
 # Usage: ducko-device-trust.sh DEVICE_ID ACTION
 #   DEVICE_ID: the numeric device ID
 #   ACTION: trust|untrust|verify
@@ -15,11 +18,26 @@ DEVICE_ID="$1"
 ACTION="$2"
 
 RESULT=$(osascript - "$DEVICE_ID" "$ACTION" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
 on run argv
     set deviceID to item 1 of argv
     set trustAction to item 2 of argv
 
-    -- Map action to button identifier prefix
     set btnPrefix to ""
     if trustAction is "trust" then
         set btnPrefix to "trust-button-"
@@ -36,22 +54,14 @@ on run argv
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.5
-
-        tell process "DuckoApp"
-            -- Scan entire contents of all windows for the target button
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is targetId then
-                            click elem
-                            return "ok"
-                        end if
-                    end try
-                end repeat
-            end repeat
-            return "ERROR: button not found for device " & deviceID & " (wrong trust state?)"
-        end tell
+        repeat with win in (windows of process "DuckoApp")
+            set btn to my findByAttr(win, "AXIdentifier", targetId, 0, 30)
+            if btn is not missing value then
+                click btn
+                return "ok"
+            end if
+        end repeat
+        return "ERROR: button not found for device " & deviceID & " (wrong trust state?)"
     end tell
 end run
 APPLESCRIPT

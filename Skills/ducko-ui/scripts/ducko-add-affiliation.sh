@@ -1,6 +1,9 @@
 #!/bin/bash
 # Add a JID to a room's affiliation list via Room Settings > Members tab.
 # Opens Room Settings first, switches to Members tab, fills JID, and clicks Add.
+#
+# Walks the sheet via findByAttr rather than `entire contents`, which collapses
+# on the nested affiliation form on macOS 26.
 # Usage: ducko-add-affiliation.sh ROOM_JID JID
 #   ROOM_JID: The room JID (must be visible in the Rooms section)
 #   JID:      The JID to add to the affiliation list
@@ -21,31 +24,49 @@ SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 sleep 0.5
 
 RESULT=$(osascript - "$AFF_JID" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
 on run argv
     set affJID to item 1 of argv
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.3
-        tell process "DuckoApp"
-            -- Fill the JID field and click Add
-            set allElems to entire contents of window 1
-            repeat with elem in allElems
-                try
-                    set elemId to value of attribute "AXIdentifier" of elem
-                    if elemId is "affiliation-jid-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke affJID
-                    end if
-                    if elemId is "affiliation-add-button" then
-                        click elem
-                    end if
-                end try
-            end repeat
-            return "ok"
-        end tell
+        -- Find the window/sheet containing the affiliation field.
+        set affField to missing value
+        set affWin to missing value
+        repeat with win in (windows of process "DuckoApp")
+            set affField to my findByAttr(win, "AXIdentifier", "affiliation-jid-field", 0, 30)
+            if affField is not missing value then
+                set affWin to win
+                exit repeat
+            end if
+        end repeat
+        if affField is missing value then return "ERROR: affiliation-jid-field not found (open Room Settings > Members first)"
+
+        set focused of affField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke affJID
+
+        set addBtn to my findByAttr(affWin, "AXIdentifier", "affiliation-add-button", 0, 30)
+        if addBtn is missing value then return "ERROR: affiliation-add-button not found"
+        click addBtn
+        return "ok"
     end tell
 end run
 APPLESCRIPT

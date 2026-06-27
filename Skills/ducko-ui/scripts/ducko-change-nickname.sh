@@ -1,142 +1,78 @@
 #!/bin/bash
 # Change MUC nickname via the participant sidebar context menu.
-# Right-clicks participant rows to find the one with "Change Nickname..." (your own row),
-# then fills in the new nickname in the alert dialog.
+# Right-clicks participant rows to find the one exposing "Change Nickname…"
+# (your own row), then fills the new nickname in the alert dialog.
 # Usage: ducko-change-nickname.sh NICKNAME
 set -euo pipefail
 
 NICKNAME="${1:?Usage: ducko-change-nickname.sh NICKNAME}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 
-RESULT=$(osascript - "$NICKNAME" << 'APPLESCRIPT'
+RESULT=$(osascript - "$NICKNAME" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set newNick to item 1 of argv
-
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.5
-
         tell process "DuckoApp"
-            -- Find the chat window (window containing message-field)
-            set chatWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "message-field" then
-                            set chatWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if chatWin is not missing value then exit repeat
-            end repeat
-            if chatWin is missing value then return "ERROR: chat window not found"
+            $(ducko_as_find_window_by_id "message-field" "chat window not found" "chatWin")
 
-            -- Check if participant sidebar is visible
-            set sidebarElem to missing value
-            set allElems to entire contents of chatWin
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "participant-sidebar" then
-                        set sidebarElem to elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-
-            -- If sidebar not found, toggle it on
+            -- Reveal the participant sidebar if it is not already shown.
+            set sidebarElem to my findByAttr(chatWin, "AXIdentifier", "participant-sidebar", 0, 30)
             if sidebarElem is missing value then
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "toggle-participant-sidebar" then
-                            click elem
-                            delay 0.5
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                -- Re-scan for the sidebar
-                set allElems to entire contents of chatWin
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "participant-sidebar" then
-                            set sidebarElem to elem
-                            exit repeat
-                        end if
-                    end try
-                end repeat
+                set toggleBtn to my findByAttr(chatWin, "AXIdentifier", "toggle-participant-sidebar", 0, 30)
+                if toggleBtn is not missing value then
+                    click toggleBtn
+                    delay 0.5
+                    set sidebarElem to my findByAttr(chatWin, "AXIdentifier", "participant-sidebar", 0, 30)
+                end if
             end if
             if sidebarElem is missing value then return "ERROR: participant sidebar not found"
 
-            -- Get sidebar contents and try right-clicking each row to find "Change Nickname..."
-            set sidebarElems to entire contents of sidebarElem
+            -- "Change Nickname…" only appears on your own row, so probe each row
+            -- context menu until it shows up, dismissing the others.
             set foundMenu to false
-            repeat with elem in sidebarElems
-                try
-                    if role of elem is "AXCell" or role of elem is "AXRow" or role of elem is "AXGroup" then
-                        perform action "AXShowMenu" of elem
-                        delay 0.3
-                        -- Check if "Change Nickname..." appeared in the context menu
-                        set menuElems to entire contents of chatWin
-                        repeat with mElem in menuElems
-                            try
-                                if role of mElem is "AXMenuItem" and name of mElem is "Change Nickname…" then
-                                    click mElem
-                                    set foundMenu to true
-                                    exit repeat
-                                end if
-                            end try
-                        end repeat
-                        if foundMenu then exit repeat
-                        -- Dismiss the context menu if not found
-                        keystroke (ASCII character 27)
-                        delay 0.2
-                    end if
-                end try
+            repeat with r in (my collectByRole(sidebarElem, "AXGroup", 0, 30))
+                perform action "AXShowMenu" of r
+                delay 0.4
+                set menuItem to missing value
+                repeat with m in menus
+                    set menuItem to my findByAttr(m, "AXIdentifier", "change-nickname-menu-item", 0, 8)
+                    if menuItem is not missing value then exit repeat
+                end repeat
+                if menuItem is missing value then set menuItem to my findByAttr(chatWin, "AXIdentifier", "change-nickname-menu-item", 0, 30)
+                if menuItem is not missing value then
+                    click menuItem
+                    set foundMenu to true
+                    exit repeat
+                end if
+                key code 53
+                delay 0.2
             end repeat
             if not foundMenu then return "ERROR: Change Nickname menu item not found (are you in this room?)"
-
             delay 0.5
 
-            -- Find the nickname field in the alert dialog
-            set filled to false
-            set allElems to entire contents of chatWin
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "change-nickname-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke newNick
-                        set filled to true
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if not filled then return "ERROR: change-nickname-field not found"
+            -- Fill the nickname field in the alert dialog.
+            set nickField to my findByAttr(chatWin, "AXIdentifier", "change-nickname-field", 0, 30)
+            if nickField is missing value then return "ERROR: change-nickname-field not found"
+            set focused of nickField to true
+            delay 0.2
+            keystroke "a" using command down
+            delay 0.1
+            keystroke newNick
             delay 0.3
 
-            -- Click the Change button
-            set allElems to entire contents of chatWin
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXButton" and name of elem is "Change" then
-                        click elem
-                        return "ok"
-                    end if
-                end try
-            end repeat
-            return "ERROR: Change button not found"
+            -- Click the Change button.
+            set changeBtn to my findByRoleAndName(chatWin, "AXButton", "Change", 0, 30)
+            if changeBtn is missing value then return "ERROR: Change button not found"
+            click changeBtn
+            return "ok"
         end tell
     end tell
 end run
 APPLESCRIPT
 )
 
-if [[ "$RESULT" == ok ]]; then
-    echo "Nickname changed to $NICKNAME"
-else
-    echo "$RESULT" >&2
-    exit 1
-fi
+ducko_check_result "$RESULT" "Nickname changed to $NICKNAME"

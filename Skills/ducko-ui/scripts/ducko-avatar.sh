@@ -23,6 +23,7 @@ source "$SCRIPT_DIR/ducko-helpers.sh"
 "$SCRIPT_DIR/ducko-profile.sh" > /dev/null 2>&1 || true
 
 RESULT=$(osascript - "$IMAGE_PATH" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set imagePath to item 1 of argv
 

@@ -1,42 +1,54 @@
 #!/bin/bash
 # Switch to a specific tab in the Room Settings sheet.
 # The Room Settings sheet must already be open (use ducko-room-settings.sh first).
+#
+# The tabs are a SwiftUI segmented Picker rendered as AXRadioButtons whose label
+# is exposed via AXDescription (AXTitle/name is empty on macOS 26), and the sheet
+# is found via findByAttr rather than `entire contents`, which collapses on the
+# nested hierarchy.
 # Usage: ducko-room-settings-tab.sh <General|Members>
 set -euo pipefail
 
 TAB="${1:?Usage: ducko-room-settings-tab.sh <General|Members>}"
 
 RESULT=$(osascript - "$TAB" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
 on run argv
     set tabName to item 1 of argv
     set tabNames to {"General", "Members"}
     if tabName is not in tabNames then return "ERROR: unknown tab: " & tabName
     tell application "System Events"
-        set frontmost of process "DuckoApp" to true
+        set proc to process "DuckoApp"
+        set frontmost of proc to true
         delay 0.3
-        tell process "DuckoApp"
-            -- Find the window containing the room settings view
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "room-settings-view" then
-                            -- Click the tab (rendered as radio button by segmented picker)
-                            repeat with el2 in allElems
-                                try
-                                    if role of el2 is "AXRadioButton" and name of el2 is tabName then
-                                        click el2
-                                        return "ok"
-                                    end if
-                                end try
-                            end repeat
-                            return "ERROR: tab " & tabName & " not found in room settings"
-                        end if
-                    end try
-                end repeat
-            end repeat
-            return "ERROR: room settings sheet not found (open it with ducko-room-settings.sh first)"
-        end tell
+        -- Find the window/sheet containing the room settings view.
+        set settingsWin to missing value
+        repeat with win in (windows of proc)
+            if (my findByAttr(win, "AXIdentifier", "room-settings-view", 0, 30)) is not missing value then
+                set settingsWin to win
+                exit repeat
+            end if
+        end repeat
+        if settingsWin is missing value then return "ERROR: room settings sheet not found (open it with ducko-room-settings.sh first)"
+        set tabSeg to my findByAttr(settingsWin, "AXDescription", tabName, 0, 30)
+        if tabSeg is missing value then return "ERROR: tab " & tabName & " not found in room settings"
+        click tabSeg
+        return "ok"
     end tell
 end run
 APPLESCRIPT

@@ -1,104 +1,62 @@
 #!/bin/bash
 # Send a MUC private message via the participant sidebar context menu.
-# Right-clicks participant rows to find the target nickname's row,
-# selects "Send Private Message", then types the message in the new chat window.
+# Right-clicks the target nickname's participant row and selects
+# "Send Private Message", opening a new chat window for the occupant.
 # Usage: ducko-private-message.sh NICKNAME
 set -euo pipefail
 
 NICKNAME="${1:?Usage: ducko-private-message.sh NICKNAME}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 
-RESULT=$(osascript - "$NICKNAME" << 'APPLESCRIPT'
+RESULT=$(osascript - "$NICKNAME" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set targetNick to item 1 of argv
-
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.5
-
         tell process "DuckoApp"
-            -- Find the chat window (window containing message-field)
-            set chatWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "message-field" then
-                            set chatWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if chatWin is not missing value then exit repeat
-            end repeat
-            if chatWin is missing value then return "ERROR: chat window not found"
+            $(ducko_as_find_window_by_id "message-field" "chat window not found" "chatWin")
 
-            -- Check if participant sidebar is visible
-            set sidebarElem to missing value
-            set allElems to entire contents of chatWin
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "participant-sidebar" then
-                        set sidebarElem to elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-
-            -- If sidebar not found, toggle it on
+            -- Reveal the participant sidebar if it is not already shown.
+            set sidebarElem to my findByAttr(chatWin, "AXIdentifier", "participant-sidebar", 0, 30)
             if sidebarElem is missing value then
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "toggle-participant-sidebar" then
-                            click elem
-                            delay 0.5
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                -- Re-scan for the sidebar
-                set allElems to entire contents of chatWin
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "participant-sidebar" then
-                            set sidebarElem to elem
-                            exit repeat
-                        end if
-                    end try
-                end repeat
+                set toggleBtn to my findByAttr(chatWin, "AXIdentifier", "toggle-participant-sidebar", 0, 30)
+                if toggleBtn is not missing value then
+                    click toggleBtn
+                    delay 0.5
+                    set sidebarElem to my findByAttr(chatWin, "AXIdentifier", "participant-sidebar", 0, 30)
+                end if
             end if
             if sidebarElem is missing value then return "ERROR: participant sidebar not found"
 
-            -- Find the target participant row by nickname text
-            set sidebarElems to entire contents of sidebarElem
+            -- Find the participant row holding targetNick and open its context menu.
             set foundMenu to false
-            repeat with elem in sidebarElems
-                try
-                    if role of elem is "AXStaticText" and value of elem is targetNick then
-                        -- Right-click the parent row
-                        set parentElem to elem
-                        try
-                            set parentElem to (first UI element of sidebarElem whose value of attribute "AXIdentifier" contains targetNick)
-                        on error
-                            set parentElem to elem
-                        end try
-                        perform action "AXShowMenu" of parentElem
-                        delay 0.3
-                        -- Find and click "Send Private Message"
-                        set menuElems to entire contents of chatWin
-                        repeat with mElem in menuElems
-                            try
-                                if role of mElem is "AXMenuItem" and name of mElem is "Send Private Message" then
-                                    click mElem
-                                    set foundMenu to true
-                                    exit repeat
-                                end if
-                            end try
-                        end repeat
-                        if foundMenu then exit repeat
-                        keystroke (ASCII character 27)
-                        delay 0.2
+            repeat with r in (my collectByRole(sidebarElem, "AXGroup", 0, 30))
+                set isMatch to false
+                repeat with t in (my collectStaticTexts(r, 0, 6))
+                    try
+                        if (value of t) is targetNick then set isMatch to true
+                    end try
+                end repeat
+                if isMatch then
+                    perform action "AXShowMenu" of r
+                    delay 0.4
+                    set menuItem to missing value
+                    repeat with m in menus
+                        set menuItem to my findByAttr(m, "AXIdentifier", "send-pm-menu-item", 0, 8)
+                        if menuItem is not missing value then exit repeat
+                    end repeat
+                    if menuItem is missing value then set menuItem to my findByAttr(chatWin, "AXIdentifier", "send-pm-menu-item", 0, 30)
+                    if menuItem is not missing value then
+                        click menuItem
+                        set foundMenu to true
+                        exit repeat
                     end if
-                end try
+                    key code 53
+                    delay 0.2
+                end if
             end repeat
             if not foundMenu then return "ERROR: Send Private Message menu item not found for " & targetNick
 
@@ -109,9 +67,4 @@ end run
 APPLESCRIPT
 )
 
-if [[ "$RESULT" == ok ]]; then
-    echo "Opened PM window for $NICKNAME"
-else
-    echo "$RESULT" >&2
-    exit 1
-fi
+ducko_check_result "$RESULT" "Opened PM window for $NICKNAME"

@@ -9,6 +9,14 @@
 # more than one account, each tab is account-qualified as "{jid}|{account-jid}"
 # so the two are individually addressable. `list` prints whatever form is in use;
 # pass that exact string to `select`/`close`.
+#
+# Limitation: each tab chip carries `.accessibilityElement(children: .combine)`,
+# so the `chat-tab-{jid}` / `chat-tab-close-{jid}` identifiers are reported to
+# osascript and Peekaboo as the parent `chat-tab-bar` (the chip surfaces only its
+# JID/display-name label). A direct Swift AXUIElement query still resolves the
+# per-chip identifier — the integration suite drives this control that way and is
+# authoritative (see UIContactInfoTests) — so this script's list/select/close are
+# best-effort under osascript and may not find an individual chip.
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -27,6 +35,7 @@ if [[ "$ACTION" == "select" || "$ACTION" == "close" ]] && [[ -z "$JID" ]]; then
 fi
 
 RESULT=$(osascript - "$ACTION" "$JID" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set tabAction to item 1 of argv
     set tabJID to item 2 of argv

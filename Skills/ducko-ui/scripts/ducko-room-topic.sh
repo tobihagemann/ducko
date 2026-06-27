@@ -1,6 +1,9 @@
 #!/bin/bash
 # View or set the room topic in the active chat window.
 # The RoomSubjectView provides inline editing with a pencil button.
+#
+# Walks the chat window via findByAttr / findByRole rather than `entire
+# contents`, which collapses on the nested chat hierarchy on macOS 26.
 # Usage: ducko-room-topic.sh [TEXT]
 #   No args: prints the current topic
 #   TEXT: set the room topic to TEXT
@@ -9,102 +12,99 @@ set -euo pipefail
 TEXT="${1:-__none__}"
 
 RESULT=$(osascript - "$TEXT" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
+on findByRole(el, roleWanted, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (role of c) is roleWanted then return c
+                end try
+                set found to my findByRole(c, roleWanted, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByRole
+
+on findByRoleAndName(el, roleWanted, nameWanted, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (role of c) is roleWanted and (name of c) is nameWanted then return c
+                end try
+                set found to my findByRoleAndName(c, roleWanted, nameWanted, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByRoleAndName
+
 on run argv
     set topicText to item 1 of argv
-
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.5
-
-        tell process "DuckoApp"
-            -- Find the chat window (window containing message-field)
-            set chatWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "message-field" then
-                            set chatWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if chatWin is not missing value then exit repeat
-            end repeat
-            if chatWin is missing value then return "ERROR: chat window not found"
-
-            -- Find the room-subject-view
-            set subjectView to missing value
-            set allElems to entire contents of chatWin
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "room-subject-view" then
-                        set subjectView to elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if subjectView is missing value then return "ERROR: room-subject-view not found (is this a room?)"
-
-            -- Read mode: return the current topic text
-            if topicText is "__none__" then
-                set subjectElems to entire contents of subjectView
-                repeat with elem in subjectElems
-                    try
-                        if role of elem is "AXStaticText" then
-                            return value of elem
-                        end if
-                    end try
-                end repeat
-                return "No topic set"
+        -- Find the chat window (window containing message-field).
+        set chatWin to missing value
+        repeat with win in (windows of process "DuckoApp")
+            if (my findByAttr(win, "AXIdentifier", "message-field", 0, 30)) is not missing value then
+                set chatWin to win
+                exit repeat
             end if
+        end repeat
+        if chatWin is missing value then return "ERROR: chat window not found"
 
-            -- Edit mode: click the pencil edit button
-            set pencilClicked to false
-            set subjectElems to entire contents of subjectView
-            repeat with elem in subjectElems
-                try
-                    if role of elem is "AXButton" then
-                        click elem
-                        set pencilClicked to true
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if not pencilClicked then return "ERROR: edit button not found in room-subject-view"
-            delay 0.3
+        set subjectView to my findByAttr(chatWin, "AXIdentifier", "room-subject-view", 0, 30)
+        if subjectView is missing value then return "ERROR: room-subject-view not found (is this a room?)"
 
-            -- Find the text field that appears within the subject view after clicking edit
-            set filled to false
-            set subjectElems to entire contents of subjectView
-            repeat with elem in subjectElems
-                try
-                    if role of elem is "AXTextField" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke topicText
-                        set filled to true
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if not filled then return "ERROR: topic text field not found"
-            delay 0.3
+        -- Read mode: return the current topic text.
+        if topicText is "__none__" then
+            set topicLabel to my findByRole(subjectView, "AXStaticText", 0, 10)
+            if topicLabel is missing value then return "No topic set"
+            return value of topicLabel
+        end if
 
-            -- Find and click the Save button
-            set allElems to entire contents of chatWin
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXButton" and name of elem is "Save" then
-                        click elem
-                        return "ok"
-                    end if
-                end try
-            end repeat
-            return "ERROR: Save button not found"
-        end tell
+        -- Edit mode: click the pencil edit button.
+        set pencil to my findByRole(subjectView, "AXButton", 0, 10)
+        if pencil is missing value then return "ERROR: edit button not found in room-subject-view"
+        click pencil
+        delay 0.3
+
+        -- Fill the text field that appears after clicking edit.
+        set topicField to my findByRole(subjectView, "AXTextField", 0, 10)
+        if topicField is missing value then return "ERROR: topic text field not found"
+        set focused of topicField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke topicText
+        delay 0.3
+
+        set saveBtn to my findByRoleAndName(chatWin, "AXButton", "Save", 0, 30)
+        if saveBtn is missing value then return "ERROR: Save button not found"
+        click saveBtn
+        return "ok"
     end tell
 end run
 APPLESCRIPT

@@ -1,46 +1,73 @@
 #!/bin/bash
 # Fill JID and password on the account setup screen, then click Connect.
 # Uses accessibility identifiers for reliable element targeting.
+#
+# Walks the Welcome window's UI-element tree via findByAttr rather than
+# `entire contents`, which collapses on the Welcome window's deeply-nested
+# SwiftUI hierarchy on macOS 26. The success message is gated on the osascript
+# result, so a missing field reports an error instead of false success.
 # Usage: ducko-login.sh JID PASSWORD
 set -euo pipefail
 
 JID="${1:?Usage: ducko-login.sh JID PASSWORD}"
 PASSWORD="${2:?Usage: ducko-login.sh JID PASSWORD}"
 
-osascript - "$JID" "$PASSWORD" << 'APPLESCRIPT'
+RESULT=$(osascript - "$JID" "$PASSWORD" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
 on run argv
     set jid to item 1 of argv
     set pw to item 2 of argv
     tell application "System Events"
-        set frontmost of process "DuckoApp" to true
+        if not (exists process "DuckoApp") then return "ERROR: DuckoApp is not running"
+        set proc to process "DuckoApp"
+        set frontmost of proc to true
         delay 1
-        tell process "DuckoApp"
-            set allElems to entire contents of window "Welcome"
-            repeat with elem in allElems
-                try
-                    set elemId to value of attribute "AXIdentifier" of elem
-                    if elemId is "jid-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke jid
-                    end if
-                    if elemId is "password-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke pw
-                    end if
-                    if elemId is "connect-button" then
-                        click elem
-                    end if
-                end try
-            end repeat
-        end tell
+        if not (exists window "Welcome" of proc) then return "ERROR: Welcome window not found"
+        set win to window "Welcome" of proc
+
+        set jidField to my findByAttr(win, "AXIdentifier", "jid-field", 0, 30)
+        if jidField is missing value then return "ERROR: jid-field not found"
+        set focused of jidField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke jid
+
+        set pwField to my findByAttr(win, "AXIdentifier", "password-field", 0, 30)
+        if pwField is missing value then return "ERROR: password-field not found"
+        set focused of pwField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke pw
+
+        set connectBtn to my findByAttr(win, "AXIdentifier", "connect-button", 0, 30)
+        if connectBtn is missing value then return "ERROR: connect-button not found"
+        click connectBtn
+        return "ok"
     end tell
 end run
 APPLESCRIPT
+)
 
-echo "Login initiated for $JID"
+if [[ "$RESULT" == ok ]]; then
+    echo "Login initiated for $JID"
+else
+    echo "$RESULT" >&2
+    exit 1
+fi

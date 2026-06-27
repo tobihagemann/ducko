@@ -1,6 +1,12 @@
 #!/bin/bash
 # Change account password via Preferences > Accounts.
-# Requires the Preferences window to be open on the Accounts tab.
+# Opens Preferences on the Accounts tab, selects the account, opens the
+# Change Password sheet, fills the fields, and submits.
+#
+# Best-effort: selecting the account row drives a SwiftUI `List(selection:)`,
+# which synthetic clicks cannot reliably trigger. Fields and buttons are located
+# via findByAttr / findByRoleAndName rather than `entire contents`, which
+# collapses on macOS 26.
 # Usage: ducko-change-password.sh NEW_PASSWORD
 #   NEW_PASSWORD: The new password to set
 set -euo pipefail
@@ -19,77 +25,98 @@ NEW_PASSWORD="$1"
 sleep 0.5
 
 RESULT=$(osascript - "$NEW_PASSWORD" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
+on findByRoleAndName(el, roleWanted, nameWanted, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (role of c) is roleWanted and (name of c) is nameWanted then return c
+                end try
+                set found to my findByRoleAndName(c, roleWanted, nameWanted, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByRoleAndName
+
+on findAccountRow(el, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    set v to value of c
+                    if v is not missing value and v contains "@" then return c
+                end try
+                set found to my findAccountRow(c, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findAccountRow
+
 on run argv
     set newPw to item 1 of argv
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.3
-        tell process "DuckoApp"
-            -- Find the Preferences window and click the first account row
-            set prefsWin to missing value
-            repeat with win in windows
+        set prefsWin to missing value
+        repeat with win in (windows of process "DuckoApp")
+            set acctRow to my findAccountRow(win, 0, 30)
+            if acctRow is not missing value then
+                set prefsWin to win
                 try
-                    if name of win contains "Settings" or name of win contains "Preferences" then
-                        set prefsWin to win
-                        exit repeat
-                    end if
+                    click acctRow
                 end try
-            end repeat
-            if prefsWin is missing value then set prefsWin to window 1
+                exit repeat
+            end if
+        end repeat
+        if prefsWin is missing value then return "ERROR: account row not found"
+        delay 0.4
 
-            -- Click first row to show account detail
-            set allElems to entire contents of prefsWin
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXRow" then
-                        click elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            delay 0.5
+        set cpBtn to my findByRoleAndName(prefsWin, "AXButton", "Change Password...", 0, 30)
+        if cpBtn is missing value then return "ERROR: Change Password button not found"
+        click cpBtn
+        delay 0.5
 
-            -- Look for "Change Password" button and click it
-            set allElems to entire contents of prefsWin
-            set cpBtn to missing value
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXButton" and name of elem contains "Change Password" then
-                        set cpBtn to elem
-                        click elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if cpBtn is missing value then return "ERROR: Change Password button not found"
-            delay 0.5
+        set newField to my findByAttr(prefsWin, "AXIdentifier", "new-password-field", 0, 30)
+        if newField is missing value then return "ERROR: new-password-field not found"
+        set focused of newField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke newPw
 
-            -- Fill in the new password and confirmation fields
-            set allElems to entire contents of prefsWin
-            repeat with elem in allElems
-                try
-                    set elemId to value of attribute "AXIdentifier" of elem
-                    if elemId is "new-password-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke newPw
-                    end if
-                    if elemId is "confirm-password-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke newPw
-                    end if
-                end try
-            end repeat
+        set confirmField to my findByAttr(prefsWin, "AXIdentifier", "confirm-password-field", 0, 30)
+        if confirmField is missing value then return "ERROR: confirm-password-field not found"
+        set focused of confirmField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke newPw
+        delay 0.2
 
-            -- Confirm by pressing Return or clicking a Save/Change button
-            keystroke return
-            return "ok"
-        end tell
+        keystroke return
+        return "ok"
     end tell
 end run
 APPLESCRIPT

@@ -12,8 +12,11 @@ fi
 
 ROOM_JID="$1"
 INVITEE_JID="$2"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 
-RESULT=$(osascript - "$ROOM_JID" "$INVITEE_JID" << 'APPLESCRIPT'
+RESULT=$(osascript - "$ROOM_JID" "$INVITEE_JID" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set roomJID to item 1 of argv
     set inviteeJID to item 2 of argv
@@ -22,75 +25,33 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 0.3
         tell process "DuckoApp"
-            -- Find the Contacts window
-            set contactWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "contact-list" then
-                            set contactWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if contactWin is not missing value then exit repeat
-            end repeat
-            if contactWin is missing value then return "ERROR: Contacts window not found"
+            $(ducko_as_find_window_by_id "contact-list" "Contacts window not found" "contactWin")
             perform action "AXRaise" of contactWin
             delay 0.3
+            $(ducko_as_find_element_by_id 'targetId' 'contactWin' 'room row not found for " & roomJID & "' 'targetRow')
 
-            -- Find the room row by accessibility identifier
-            set targetRow to missing value
-            set allElems to entire contents of contactWin
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is targetId then
-                        set targetRow to elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if targetRow is missing value then return "ERROR: room row not found for " & roomJID
-
-            -- Right-click to open context menu
+            -- Open the context menu and select "Invite User…". The menu may render
+            -- at process level (a sibling of the windows) or under the window.
             perform action "AXShowMenu" of targetRow
             delay 0.5
-
-            -- Click "Invite User…"
-            set allElems to entire contents of contactWin
-            set menuFound to false
-            repeat with elem in allElems
-                try
-                    if role of elem is "AXMenuItem" and name of elem contains "Invite User" then
-                        click elem
-                        set menuFound to true
-                        exit repeat
-                    end if
-                end try
+            set menuItem to missing value
+            repeat with m in menus
+                set menuItem to my findByRoleAndName(m, "AXMenuItem", "Invite User…", 0, 8)
+                if menuItem is not missing value then exit repeat
             end repeat
-            if not menuFound then return "ERROR: Invite User menu item not found"
+            if menuItem is missing value then set menuItem to my findByRoleAndName(contactWin, "AXMenuItem", "Invite User…", 0, 30)
+            if menuItem is missing value then return "ERROR: Invite User menu item not found"
+            click menuItem
             delay 0.5
 
-            -- Fill the JID field in the invite dialog (match by AXIdentifier)
-            set allElems to entire contents of contactWin
-            set jidField to missing value
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "invite-user-jid-field" then
-                        set jidField to elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if jidField is missing value then return "ERROR: JID field not found in invite dialog"
+            -- Fill the JID field in the invite dialog.
+            $(ducko_as_find_element_by_id '"invite-user-jid-field"' 'contactWin' 'JID field not found in invite dialog' 'jidField')
             set focused of jidField to true
             delay 0.2
             keystroke "a" using command down
             delay 0.1
             keystroke inviteeJID
             delay 0.2
-            -- Confirm with Return
             keystroke return
             return "ok"
         end tell
@@ -99,9 +60,4 @@ end run
 APPLESCRIPT
 )
 
-if [[ "$RESULT" == ok ]]; then
-    echo "Invited $INVITEE_JID to $ROOM_JID"
-else
-    echo "$RESULT" >&2
-    exit 1
-fi
+ducko_check_result "$RESULT" "Invited $INVITEE_JID to $ROOM_JID"

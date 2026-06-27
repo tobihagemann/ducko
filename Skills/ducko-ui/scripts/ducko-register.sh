@@ -1,5 +1,10 @@
 #!/bin/bash
 # Register a new account via in-band registration.
+#
+# Walks the Welcome window's UI-element tree via findByAttr rather than
+# `entire contents`, which collapses on the deeply-nested SwiftUI hierarchy on
+# macOS 26. The segmented Picker exposes each segment label via AXDescription
+# (AXTitle/name is empty there), so the Register segment is matched on that.
 # Usage: ducko-register.sh SERVER USERNAME PASSWORD [EMAIL]
 #   SERVER:   The XMPP server domain (e.g., xmpp.example.com)
 #   USERNAME: Desired username (local part)
@@ -18,82 +23,68 @@ PASSWORD="$3"
 EMAIL="${4:-__none__}"
 
 RESULT=$(osascript - "$SERVER" "$USERNAME" "$PASSWORD" "$EMAIL" << 'APPLESCRIPT'
+on findByAttr(el, attrName, attrValue, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (value of attribute attrName of c) is attrValue then return c
+                end try
+                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findByAttr
+
+on fillField(win, fieldId, fieldValue)
+    set theField to my findByAttr(win, "AXIdentifier", fieldId, 0, 30)
+    if theField is missing value then return false
+    tell application "System Events"
+        set focused of theField to true
+        delay 0.2
+        keystroke "a" using command down
+        delay 0.1
+        keystroke fieldValue
+    end tell
+    return true
+end fillField
+
 on run argv
     set serverArg to item 1 of argv
     set usernameArg to item 2 of argv
     set passwordArg to item 3 of argv
     set emailArg to item 4 of argv
     tell application "System Events"
-        set frontmost of process "DuckoApp" to true
+        if not (exists process "DuckoApp") then return "ERROR: DuckoApp is not running"
+        set proc to process "DuckoApp"
+        set frontmost of proc to true
         delay 1
-        tell process "DuckoApp"
-            set allElems to entire contents of window "Welcome"
+        if not (exists window "Welcome" of proc) then return "ERROR: Welcome window not found"
+        set win to window "Welcome" of proc
 
-            -- Click the Register tab in the setup mode picker
-            set pickerFound to false
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "setup-mode-picker" then
-                        -- The picker is a segmented control; click the Register segment
-                        set segElems to entire contents of elem
-                        repeat with seg in segElems
-                            try
-                                if name of seg is "Register" then
-                                    click seg
-                                    set pickerFound to true
-                                    exit repeat
-                                end if
-                            end try
-                        end repeat
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if not pickerFound then return "ERROR: setup-mode-picker or Register segment not found"
-            delay 0.5
+        -- Select the Register segment in the setup mode picker.
+        set picker to my findByAttr(win, "AXIdentifier", "setup-mode-picker", 0, 30)
+        if picker is missing value then return "ERROR: setup-mode-picker not found"
+        set seg to my findByAttr(picker, "AXDescription", "Register", 0, 6)
+        if seg is missing value then return "ERROR: Register segment not found"
+        click seg
+        delay 0.5
 
-            -- Re-read elements after mode switch
-            set allElems to entire contents of window "Welcome"
+        -- Fill in the registration fields.
+        if not (my fillField(win, "register-server-field", serverArg)) then return "ERROR: register-server-field not found"
+        if not (my fillField(win, "register-username-field", usernameArg)) then return "ERROR: register-username-field not found"
+        if not (my fillField(win, "register-password-field", passwordArg)) then return "ERROR: register-password-field not found"
+        if emailArg is not "__none__" then
+            my fillField(win, "register-email-field", emailArg)
+        end if
 
-            -- Fill in the registration fields
-            repeat with elem in allElems
-                try
-                    set elemId to value of attribute "AXIdentifier" of elem
-                    if elemId is "register-server-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke serverArg
-                    end if
-                    if elemId is "register-username-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke usernameArg
-                    end if
-                    if elemId is "register-password-field" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke passwordArg
-                    end if
-                    if elemId is "register-email-field" and emailArg is not "__none__" then
-                        set focused of elem to true
-                        delay 0.2
-                        keystroke "a" using command down
-                        delay 0.1
-                        keystroke emailArg
-                    end if
-                    if elemId is "register-button" then
-                        click elem
-                    end if
-                end try
-            end repeat
-            return "ok"
-        end tell
+        set registerBtn to my findByAttr(win, "AXIdentifier", "register-button", 0, 30)
+        if registerBtn is missing value then return "ERROR: register-button not found"
+        click registerBtn
+        return "ok"
     end tell
 end run
 APPLESCRIPT

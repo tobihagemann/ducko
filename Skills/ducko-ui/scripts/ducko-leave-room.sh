@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
 
 RESULT=$(osascript - "$ROOM_JID" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set roomJID to item 1 of argv
     set targetId to "room-row-" & roomJID
