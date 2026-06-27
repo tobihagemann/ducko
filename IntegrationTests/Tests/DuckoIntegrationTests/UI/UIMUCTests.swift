@@ -121,8 +121,12 @@ extension DuckoIntegrationTests.UILayer {
             try await app.clickSheetButton(label: "Save")
             try await app.waitForSheetDismissed()
 
-            // Bring the chat window back to key for the test body.
-            try await app.activateWindow(named: roomJID)
+            // Bring the chat window back to key for the test body. The chat
+            // window is a single tabbed `Window("Chat")` whose title is the
+            // selected conversation's displayName (nil for a freshly-joined
+            // room, so the literal "Chat"), not the room JID — and the room is
+            // already the selected tab, so re-keying "Chat" is sufficient.
+            try await app.activateWindow(named: "Chat")
             return roomJID
         }
     }

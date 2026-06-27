@@ -981,36 +981,47 @@ actor AppAccessor {
             guard err == .success, let windows = windowsValue as? [AXUIElement] else {
                 throw TestHarnessError.elementNotFound(identifier: identifier)
             }
-            for window in windows {
+            let titled = windows.compactMap { window -> (element: AXUIElement, title: String)? in
                 var titleValue: AnyObject?
                 let titleErr = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
-                guard titleErr == .success, let windowTitle = titleValue as? String else { continue }
-                if windowTitle == title || windowTitle.contains(title) {
-                    // `kAXRaiseAction` returns `kAXErrorAttributeUnsupported`
-                    // (-25205) on the Contacts window when a SwiftUI `.sheet`
-                    // is attached to it (room-config save sheet) — even though
-                    // `AXRaise` is in the action list and the underlying setter
-                    // calls below succeed. Treat raise as best-effort and let
-                    // the kAXMain / kAXFocusedWindow setters be the
-                    // authoritative "make this window key" path. Translate the
-                    // setter results so a silent failure on those leaves the
-                    // wrong window key and downstream sheet-button clicks
-                    // would fail with a misleading "elementNotFound" rather
-                    // than a clear AX-routing diagnostic.
-                    _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-                    let mainErr = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
-                    if let mainError = Self.mapPerformError(mainErr, identifier: identifier, action: kAXMainAttribute) {
-                        throw mainError
-                    }
-                    let focusedErr = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
-                    if let focusedError = Self.mapPerformError(focusedErr, identifier: identifier, action: kAXFocusedWindowAttribute) {
-                        throw focusedError
-                    }
-                    return
-                }
+                guard titleErr == .success, let windowTitle = titleValue as? String else { return nil }
+                return (window, windowTitle)
             }
-            throw TestHarnessError.elementNotFound(identifier: identifier)
+            guard let index = Self.windowIndex(matching: title, titles: titled.map(\.title)) else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+            let window = titled[index].element
+            // `kAXRaiseAction` returns `kAXErrorAttributeUnsupported`
+            // (-25205) on the Contacts window when a SwiftUI `.sheet`
+            // is attached to it (room-config save sheet) — even though
+            // `AXRaise` is in the action list and the underlying setter
+            // calls below succeed. Treat raise as best-effort and let
+            // the kAXMain / kAXFocusedWindow setters be the
+            // authoritative "make this window key" path. Translate the
+            // setter results so a silent failure on those leaves the
+            // wrong window key and downstream sheet-button clicks
+            // would fail with a misleading "elementNotFound" rather
+            // than a clear AX-routing diagnostic.
+            _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+            let mainErr = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+            if let mainError = Self.mapPerformError(mainErr, identifier: identifier, action: kAXMainAttribute) {
+                throw mainError
+            }
+            let focusedErr = AXUIElementSetAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, window)
+            if let focusedError = Self.mapPerformError(focusedErr, identifier: identifier, action: kAXFocusedWindowAttribute) {
+                throw focusedError
+            }
         }
+    }
+
+    /// Index of the window to activate for `target`, preferring an exact title
+    /// match over a substring match so a window whose title merely *contains*
+    /// `target` (e.g. "Chat Transcripts" when `target == "Chat"`) can't be
+    /// re-keyed ahead of the intended exact-title window. Returns `nil` when no
+    /// title matches; order-preserving, so the index maps back to the caller's
+    /// matching window handle.
+    static func windowIndex(matching target: String, titles: [String]) -> Int? {
+        titles.firstIndex(of: target) ?? titles.firstIndex { $0.contains(target) }
     }
 
     /// Walks `identifier`'s subtree post-order DFS and returns the
