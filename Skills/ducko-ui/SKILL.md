@@ -222,6 +222,7 @@ Right-click a participant in the chat window sidebar:
 |---|---|---|
 | `ducko-launch.sh` | Build and launch DuckoApp, output window ID | none |
 | `ducko-import.sh` | Switch to Import mode and click Import button | none |
+| `ducko-select-mode.sh` | Select a setup mode segment on the Welcome screen | `<Import\|Login\|Register>` |
 | `ducko-login.sh` | Fill JID + password, click Connect | `JID PASSWORD` |
 | `ducko-new-chat.sh` | Open New Chat sheet from contact list, fill JID, optionally pick the sending account, start chat | `JID [ACCOUNT]` |
 | `ducko-add-contact.sh` | Open Add Contact sheet from contact list, fill JID, submit | `JID` |
@@ -278,29 +279,36 @@ Right-click a participant in the chat window sidebar:
 
 For first-time setup when no account exists:
 
+**Complete the Welcome screen first.** On a fresh profile the first-run Welcome onboarding window holds key/first-responder status. Contact-list actions like Add Contact are gated behind a focus check (Contacts must be the key window), and synthetic automation can't force that focus while Welcome is up — so contact/chat steps silently fail until Welcome is gone. Welcome can't simply be dismissed; you must *complete* it by logging in through it. The Welcome screen defaults to **Import** mode, and `ducko-login.sh` assumes **Login** mode is already selected — against the Import view it prints "Login initiated" without actually logging in — so select the Login segment of the `setup-mode-picker` segmented control *before* running it.
+
+> **Not yet verified end-to-end on macOS 26.** `ducko-login.sh` still locates its fields via `entire contents of window "Welcome"`, which collapses to zero on the Welcome window's nested SwiftUI hierarchy (the same issue `ducko-select-mode.sh` works around) — so step 3 can silently no-op and still print "Login initiated". Until the Welcome scripts are hardened, the **Relaunch** workflow (persisted account, no Welcome) is the reliable path.
+
 ```bash
 SCRIPTS="Skills/ducko-ui/scripts"
 
 # 1. Launch
 $SCRIPTS/ducko-launch.sh
 
-# 2. Login (only needed for fresh install)
+# 2. Select Login mode (Welcome defaults to Import)
+$SCRIPTS/ducko-select-mode.sh Login
+
+# 3. Log in through Welcome (fresh install only)
 $SCRIPTS/ducko-login.sh "USER_JID" "PASSWORD_HERE"
 
-# 3. Screenshot to verify contact list
+# 4. Screenshot to verify contact list
 $SCRIPTS/ducko-screenshot.sh "after-login.png"
 
-# 4. Start a conversation (opens a chat window)
+# 5. Start a conversation (opens a chat window)
 $SCRIPTS/ducko-new-chat.sh "CHAT_PARTNER_JID"
 
-# 5. Send messages in the chat window
+# 6. Send messages in the chat window
 $SCRIPTS/ducko-send.sh "Hello from Ducko!"
 $SCRIPTS/ducko-send.sh "Testing 1-2-3"
 
-# 6. Screenshot to verify
+# 7. Screenshot to verify
 $SCRIPTS/ducko-screenshot.sh "after-messages.png"
 
-# 7. Cleanup
+# 8. Cleanup
 $SCRIPTS/ducko-stop.sh
 ```
 
@@ -768,7 +776,7 @@ To allow these scripts in `settings.local.json` without prompts:
 - Scripts use `keystroke` (not `set value`) to trigger SwiftUI bindings.
 - App activation uses `set frontmost of process` (works with SwiftPM builds).
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
-- Element targeting uses `entire contents` + `AXIdentifier` matching for reliability across window sizes.
+- Element targeting uses `entire contents` + `AXIdentifier` matching for reliability across window sizes. Exception: `ducko-select-mode.sh` walks the UI-element tree directly, because `entire contents of window "Welcome"` collapses to zero on that window's deeply-nested SwiftUI hierarchy on macOS 26.
 - The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Arguments passed via `osascript - "$ARG" << 'APPLESCRIPT'` + `on run argv` (no shell injection).
 - Credentials are arguments, never hardcoded.
