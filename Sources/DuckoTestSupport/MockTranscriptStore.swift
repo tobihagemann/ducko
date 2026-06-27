@@ -68,14 +68,6 @@ public actor MockTranscriptStore: TranscriptStore {
         return applyAmendments(to: matched)
     }
 
-    // periphery:ignore - protocol conformance for MUC moderation serverID lookup
-    public func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage? {
-        let match = messages.first { $0.serverID == serverID && $0.conversationID == conversationID }
-        guard var message = match else { return nil }
-        message = applyAmendments(to: [message]).first ?? message
-        return message
-    }
-
     public func messageExists(stanzaID: String, conversationID: UUID) async throws -> Bool {
         messages.contains { $0.stanzaID == stanzaID && $0.conversationID == conversationID }
     }
@@ -123,19 +115,6 @@ public actor MockTranscriptStore: TranscriptStore {
             counts[day, default: 0] += 1
         }
         return counts.map { ($0.key, $0.value) }.sorted { $0.date > $1.date }
-    }
-
-    public func messageCount(for conversationID: UUID) async throws -> Int {
-        messages.count(where: { $0.conversationID == conversationID })
-    }
-
-    public func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
-        let convMessages = messages.filter { $0.conversationID == conversationID }
-        guard let earliest = convMessages.min(by: { $0.timestamp < $1.timestamp })?.timestamp,
-              let latest = convMessages.max(by: { $0.timestamp < $1.timestamp })?.timestamp else {
-            return nil
-        }
-        return (earliest, latest)
     }
 
     // MARK: - Lifecycle

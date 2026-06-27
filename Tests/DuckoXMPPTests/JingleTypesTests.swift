@@ -29,6 +29,63 @@ enum JingleTypesTests {
         }
     }
 
+    struct SessionContents {
+        private func makeContent(name: String) -> JingleContent {
+            JingleContent(
+                name: name,
+                creator: "initiator",
+                description: JingleFileDescription(name: "\(name).txt", size: 100),
+                transport: .socks5(SOCKS5Transport(sid: "t-\(name)"))
+            )
+        }
+
+        private func makeSession(primaryName: String = "primary") throws -> JingleSession {
+            let bareJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
+            let peer = try #require(FullJID(bareJID: bareJID, resourcePart: "res"))
+            return JingleSession(peer: peer, role: .initiator, content: makeContent(name: primaryName))
+        }
+
+        @Test
+        func `applyAcceptedContent updates the primary when the name matches`() throws {
+            var session = try makeSession()
+            // Responder echoes the primary back (e.g. with a range added).
+            session.applyAcceptedContent(makeContent(name: "primary"))
+            #expect(session.content.description.name == "primary.txt")
+            #expect(session.secondaryContents.isEmpty)
+        }
+
+        @Test
+        func `applyAcceptedContent routes a non-primary name to secondaryContents`() throws {
+            var session = try makeSession()
+            session.applyAcceptedContent(makeContent(name: "file-1"))
+            #expect(session.primaryContentName == "primary")
+            #expect(session.secondaryContents["file-1"] != nil)
+        }
+
+        @Test
+        func `nextAdditionalFileContentName starts at file-1`() throws {
+            let session = try makeSession()
+            #expect(session.nextAdditionalFileContentName() == "file-1")
+        }
+
+        @Test
+        func `nextAdditionalFileContentName skips a name still held by a surviving secondary`() throws {
+            var session = try makeSession()
+            session.secondaryContents["file-1"] = makeContent(name: "file-1")
+            session.secondaryContents["file-2"] = makeContent(name: "file-2")
+            session.secondaryContents.removeValue(forKey: "file-1")
+            // count+1 == 2 would collide with the live file-2, so it must skip to file-3.
+            #expect(session.nextAdditionalFileContentName() == "file-3")
+        }
+
+        @Test
+        func `nextAdditionalFileContentName skips a primary that is itself named file-N`() throws {
+            let session = try makeSession(primaryName: "file-1")
+            // count+1 == 1 collides with the primary's own name, so it must skip to file-2.
+            #expect(session.nextAdditionalFileContentName() == "file-2")
+        }
+    }
+
     struct FileDescriptionParsing {
         @Test
         func `Parses JingleFileDescription from XML element`() {

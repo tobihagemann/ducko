@@ -620,21 +620,6 @@ enum FileTranscriptStoreTests {
 
     struct Stats {
         @Test
-        func `Message count returns correct total`() async throws {
-            let (store, dir) = try makeTempStore()
-            defer { try? FileManager.default.removeItem(at: dir) }
-
-            try await store.appendMessages([
-                makeMessage(body: "one"),
-                makeMessage(body: "two"),
-                makeMessage(body: "three")
-            ])
-
-            let count = try await store.messageCount(for: testConversationID)
-            #expect(count == 3)
-        }
-
-        @Test
         func `Message date counts returns per-day counts sorted newest first`() async throws {
             let (store, dir) = try makeTempStore()
             defer { try? FileManager.default.removeItem(at: dir) }

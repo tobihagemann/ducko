@@ -2395,16 +2395,6 @@ public final class ChatService {
         try await transcripts.fetchMessages(for: conversationID, on: date)
     }
 
-    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
-    public func conversationMessageCount(_ conversationID: UUID) async throws -> Int {
-        try await transcripts.messageCount(for: conversationID)
-    }
-
-    // periphery:ignore - infrastructure for transcript viewer detail pane (not wired up yet)
-    public func conversationDateRange(_ conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
-        try await transcripts.messageDateRange(for: conversationID)
-    }
-
     // MARK: - Server History
 
     public func fetchServerHistory(

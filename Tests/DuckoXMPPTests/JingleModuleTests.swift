@@ -572,6 +572,67 @@ enum JingleModuleTests {
 
             await disconnectFast(client)
         }
+
+        @Test
+        func `Rejects content-add that overwrites the primary content`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+
+            // Collect until the valid secondary add surfaces; the primary-named add
+            // (sent first, "a-file-offer") must be rejected and never emit an event.
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleContentAddReceived(_, "file-1", _) = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(contentAddXML(contentName: "a-file-offer"))
+            await mock.simulateReceive(contentAddXML())
+
+            let events = try await eventsTask.value
+            let rejectedSurfaced = events.contains { event in
+                if case .jingleContentAddReceived(_, "a-file-offer", _) = event { return true }
+                return false
+            }
+            #expect(!rejectedSurfaced)
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `Rejects a content-add reusing an existing secondary name`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+
+            // The first file-1 add surfaces; a second file-1 add (different file)
+            // must be rejected; a file-2 add is the sentinel we collect up to.
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleContentAddReceived(_, "file-2", _) = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(contentAddXML())
+            await mock.simulateReceive(contentAddXML(fileName: "evil.pdf"))
+            await mock.simulateReceive(contentAddXML(contentName: "file-2"))
+
+            let events = try await eventsTask.value
+            let file1Adds = events.filter { event in
+                if case .jingleContentAddReceived(_, "file-1", _) = event { return true }
+                return false
+            }
+            #expect(file1Adds.count == 1)
+
+            await disconnectFast(client)
+        }
     }
 
     struct ContentRejectHandling {
@@ -635,6 +696,114 @@ enum JingleModuleTests {
             }
             #expect(sid == "sid-123")
             #expect(contentName == "file-1")
+
+            // Removing a secondary content must NOT terminate the session.
+            let sentStrings = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(!sentStrings.contains { $0.contains("session-terminate") })
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `Removing the primary content terminates the session`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.clearSentBytes()
+
+            // content-remove targeting the primary ("a-file-offer") tears the session down.
+            await mock.simulateReceive(contentRemoveXML(contentName: "a-file-offer"))
+            try? await Task.sleep(for: .milliseconds(200))
+
+            let sentStrings = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            let terminateIQ = sentStrings.first { $0.contains("session-terminate") }
+            #expect(terminateIQ != nil)
+            #expect(terminateIQ?.contains("<success/>") == true)
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `Outbound removeContent rejects the primary and sends no stanza`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.clearSentBytes()
+
+            await #expect(throws: JingleModule.JingleError.cannotRemovePrimaryContent) {
+                try await module.removeContent(sid: "sid-123", contentName: "a-file-offer")
+            }
+
+            let sentStrings = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(!sentStrings.contains { $0.contains("content-remove") })
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `Outbound removeContent sends content-remove for a secondary content`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.simulateReceive(contentAddXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.clearSentBytes()
+
+            try await module.removeContent(sid: "sid-123", contentName: "file-1")
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let sentStrings = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(sentStrings.contains { $0.contains("content-remove") })
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `Outbound rejectContentAdd allows a primary-named content`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.clearSentBytes()
+
+            // The primary guard is scoped to content-remove, so rejecting a
+            // primary-named content-add is allowed and emits a content-reject.
+            try await module.rejectContentAdd(sid: "sid-123", contentName: "a-file-offer")
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let sentStrings = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(sentStrings.contains { $0.contains("content-reject") })
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `Outbound acceptContentAdd sends content-accept for a secondary content`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            await mock.simulateReceive(sessionInitiateXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.simulateReceive(contentAddXML())
+            try? await Task.sleep(for: .milliseconds(200))
+            await mock.clearSentBytes()
+
+            try await module.acceptContentAdd(sid: "sid-123", contentName: "file-1")
+            try? await Task.sleep(for: .milliseconds(100))
+
+            let sentStrings = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(sentStrings.contains { $0.contains("content-accept") })
 
             await disconnectFast(client)
         }

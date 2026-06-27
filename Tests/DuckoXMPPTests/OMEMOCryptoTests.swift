@@ -2,8 +2,6 @@ import CryptoKit
 import Testing
 @testable import DuckoXMPP
 
-// swiftlint:disable file_length
-
 enum OMEMOCryptoTests {
     // MARK: - Curve Conversion
 
@@ -688,5 +686,3 @@ enum OMEMOCryptoTests {
         }
     }
 }
-
-// swiftlint:enable file_length

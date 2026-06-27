@@ -376,13 +376,17 @@ struct JingleSession {
     let role: Role
     var transportState: TransportState
     var selectedTransport: JingleTransportKind?
-    let primaryContentName: String
-    var contents: [String: JingleContent]
 
-    /// The primary content — deterministic lookup by name.
-    var content: JingleContent {
-        // swiftlint:disable:next force_unwrapping
-        contents[primaryContentName]!
+    /// The primary content negotiated at session-initiate. Updated in place during
+    /// range negotiation; its name stays stable for the session's lifetime.
+    var content: JingleContent
+
+    /// Additional file contents added via content-add (XEP-0234 multi-file), keyed
+    /// by name. Never holds the primary.
+    var secondaryContents: [String: JingleContent]
+
+    var primaryContentName: String {
+        content.name
     }
 
     /// Whether this side initiated or is responding.
@@ -402,8 +406,28 @@ struct JingleSession {
         self.role = role
         self.transportState = transportState
         self.selectedTransport = selectedTransport
-        self.primaryContentName = content.name
-        self.contents = [content.name: content]
+        self.content = content
+        self.secondaryContents = [:]
+    }
+
+    /// Routes a session-accept content to the primary or a secondary by name — the
+    /// responder may echo the primary back with a `<range/>` added.
+    mutating func applyAcceptedContent(_ acceptedContent: JingleContent) {
+        if acceptedContent.name == content.name {
+            content = acceptedContent
+        } else {
+            secondaryContents[acceptedContent.name] = acceptedContent
+        }
+    }
+
+    /// A unique `file-N` name for a new additional content, skipping names still held
+    /// by the primary or surviving secondaries after earlier removals.
+    func nextAdditionalFileContentName() -> String {
+        var index = secondaryContents.count + 1
+        while content.name == "file-\(index)" || secondaryContents["file-\(index)"] != nil {
+            index += 1
+        }
+        return "file-\(index)"
     }
 }
 

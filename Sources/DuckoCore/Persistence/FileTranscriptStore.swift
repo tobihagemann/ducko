@@ -332,31 +332,6 @@ public actor FileTranscriptStore: TranscriptStore {
         }
     }
 
-    public func messageCount(for conversationID: UUID) async throws -> Int {
-        try await messageDateCounts(for: conversationID).reduce(0) { $0 + $1.count }
-    }
-
-    public func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)? {
-        let dateFiles = try listDateFiles(for: conversationID)
-        guard !dateFiles.isEmpty else { return nil }
-
-        var earliest: Date?
-        var latest: Date?
-
-        if let (_, oldestURL) = dateFiles.last {
-            let messages = try readAndMaterialize(fileURL: oldestURL, conversationID: conversationID)
-            earliest = messages.min(by: { $0.timestamp < $1.timestamp })?.timestamp
-        }
-
-        if let (_, newestURL) = dateFiles.first {
-            let messages = try readAndMaterialize(fileURL: newestURL, conversationID: conversationID)
-            latest = messages.max(by: { $0.timestamp < $1.timestamp })?.timestamp
-        }
-
-        guard let earliest, let latest else { return nil }
-        return (earliest, latest)
-    }
-
     // MARK: - Lifecycle
 
     public func deleteTranscripts(for conversationID: UUID) async throws {
@@ -466,17 +441,13 @@ public actor FileTranscriptStore: TranscriptStore {
         return contents.compactMap { UUID(uuidString: $0.lastPathComponent) }
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
     private func readAndMaterialize(fileURL: URL, conversationID: UUID) throws -> [ChatMessage] {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return [] }
         let data = try Data(contentsOf: fileURL)
         guard !data.isEmpty else { return [] }
 
-        var messages: [UUID: ChatMessage] = [:]
-        var messageOrder: [UUID] = []
+        var accumulator = MaterializationAccumulator()
         var amendments: [TranscriptAmendment] = []
-        var stanzaToID: [String: UUID] = [:]
-        var serverToID: [String: UUID] = [:]
         let dateString = fileURL.deletingPathExtension().lastPathComponent
 
         let lines = data.split(separator: UInt8(ascii: "\n"))
@@ -486,14 +457,7 @@ public actor FileTranscriptStore: TranscriptStore {
                 let record = try decoder.decode(TranscriptRecord.self, from: Data(line))
                 switch record {
                 case .message:
-                    if var msg = record.toChatMessage(conversationID: conversationID) {
-                        msg.isDelivered = !msg.isOutgoing
-                        messages[msg.id] = msg
-                        messageOrder.append(msg.id)
-                        indexEntry(id: msg.id, stanzaID: msg.stanzaID, serverID: msg.serverID, conversationID: conversationID, dateString: dateString)
-                        if let sid = msg.stanzaID { stanzaToID[sid] = msg.id }
-                        if let srvid = msg.serverID { serverToID[srvid] = msg.id }
-                    }
+                    ingestMessageRecord(record, conversationID: conversationID, dateString: dateString, into: &accumulator)
                 case .amendment:
                     if let amendment = record.toAmendment() {
                         amendments.append(amendment)
@@ -504,8 +468,32 @@ public actor FileTranscriptStore: TranscriptStore {
             }
         }
 
-        applyAmendments(amendments, to: &messages, stanzaToID: stanzaToID, serverToID: serverToID)
-        return messageOrder.compactMap { messages[$0] }
+        applyAmendments(amendments, to: &accumulator.messages, stanzaToID: accumulator.stanzaToID, serverToID: accumulator.serverToID)
+        return accumulator.order.compactMap { accumulator.messages[$0] }
+    }
+
+    /// Per-file materialization state. `order` preserves insertion order (the dict
+    /// does not); the stanza/server-ID maps route amendments back to their messages.
+    private struct MaterializationAccumulator {
+        var messages: [UUID: ChatMessage] = [:]
+        var order: [UUID] = []
+        var stanzaToID: [String: UUID] = [:]
+        var serverToID: [String: UUID] = [:]
+    }
+
+    private func ingestMessageRecord(
+        _ record: TranscriptRecord,
+        conversationID: UUID,
+        dateString: String,
+        into accumulator: inout MaterializationAccumulator
+    ) {
+        guard var msg = record.toChatMessage(conversationID: conversationID) else { return }
+        msg.isDelivered = !msg.isOutgoing
+        accumulator.messages[msg.id] = msg
+        accumulator.order.append(msg.id)
+        indexEntry(id: msg.id, stanzaID: msg.stanzaID, serverID: msg.serverID, conversationID: conversationID, dateString: dateString)
+        if let sid = msg.stanzaID { accumulator.stanzaToID[sid] = msg.id }
+        if let srvid = msg.serverID { accumulator.serverToID[srvid] = msg.id }
     }
 
     /// Applies amendment records to a mutable message dictionary.

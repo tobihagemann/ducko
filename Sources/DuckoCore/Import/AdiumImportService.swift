@@ -54,7 +54,28 @@ public actor AdiumImportService {
 
     // MARK: - Import
 
-    // swiftlint:disable cyclomatic_complexity function_body_length
+    private struct ContactContext {
+        let contactDir: URL
+        let contactUID: String
+        let source: AdiumServiceAccount
+        let logFiles: [URL]
+        let existingAccounts: [Account]
+        let contactJID: String
+        let accountJID: String
+    }
+
+    private struct ContactImportState {
+        var conversation: Conversation?
+        var knownStanzaIDs: Set<String> = []
+        var latestMessage: ChatMessage?
+    }
+
+    private enum FileImportOutcome {
+        case processed
+        /// The contact's JID is invalid — skip its remaining files.
+        case skipContact
+    }
+
     public func importLogs(
         from sources: [AdiumServiceAccount],
         progress: @Sendable (ImportProgress) -> Void
@@ -72,154 +93,7 @@ public actor AdiumImportService {
 
         for source in sources {
             for contactDir in source.contactDirectories {
-                let contactUID = contactDir.lastPathComponent
-                let logFiles: [URL]
-                do {
-                    logFiles = try AdiumLogDiscovery.logFileURLs(in: contactDir)
-                } catch {
-                    log.warning("Failed to enumerate logs in \(contactDir.path): \(error)")
-                    continue
-                }
-
-                var conversation: Conversation?
-                var knownStanzaIDs: Set<String> = []
-                var latestMessage: ChatMessage?
-
-                for fileURL in logFiles {
-                    try Task.checkCancellation()
-
-                    do {
-                        let parsed = try parseLogFile(at: fileURL, accountUID: source.accountUID)
-
-                        guard !parsed.entries.isEmpty else {
-                            result.completedFiles += 1
-                            continue
-                        }
-
-                        // Determine chat type from first file if not yet resolved
-                        if conversation == nil {
-                            let isGroupchat = detectGroupchat(entries: parsed.entries, accountUID: source.accountUID)
-                            let chatType: Conversation.ConversationType = isGroupchat ? .groupchat : .chat
-                            let jidString = syntheticJID(identifier: contactUID, service: source.service)
-                            let sourceAccountJID = syntheticJID(identifier: source.accountUID, service: source.service)
-                            let matchingAccount = existingAccounts.first { $0.jid.description == sourceAccountJID }
-
-                            let lookupAccountID = matchingAccount?.id
-                            let lookupImportSourceJID: String? = matchingAccount == nil ? sourceAccountJID : nil
-
-                            if let existing = try await store.fetchConversation(jid: jidString, type: chatType, accountID: lookupAccountID, importSourceJID: lookupImportSourceJID) {
-                                conversation = existing
-                                // Seed stanzaID cache for re-import scenario
-                                let existingMessages = try await transcripts.fetchMessages(for: existing.id, before: nil, limit: Int.max)
-                                knownStanzaIDs = Set(existingMessages.compactMap(\.stanzaID))
-                            } else {
-                                guard let bareJID = BareJID.parse(jidString) else {
-                                    result.errors.append(ImportError(file: contactDir.path, message: "Invalid JID: \(jidString)"))
-                                    result.completedFiles += logFiles.count
-                                    break
-                                }
-                                let conv = Conversation(
-                                    id: UUID(),
-                                    accountID: lookupAccountID,
-                                    importSourceJID: lookupImportSourceJID,
-                                    jid: bareJID,
-                                    type: chatType,
-                                    displayName: contactUID,
-                                    isPinned: false,
-                                    isMuted: false,
-                                    unreadCount: 0,
-                                    createdAt: Date()
-                                )
-                                try await store.upsertConversation(conv)
-                                conversation = conv
-                            }
-                        }
-
-                        guard let conv = conversation else { continue }
-
-                        // Write transcript metadata on first file for this contact
-                        if result.completedFiles == 0 || knownStanzaIDs.isEmpty {
-                            try await transcripts.writeMetadata(
-                                TranscriptMetadata(
-                                    conversationID: conv.id,
-                                    accountJID: syntheticJID(identifier: source.accountUID, service: source.service),
-                                    contactJID: syntheticJID(identifier: contactUID, service: source.service),
-                                    type: conv.type.rawValue,
-                                    displayName: contactUID
-                                ),
-                                for: conv.id
-                            )
-                        }
-
-                        let messages = parsed.entries.enumerated().map { index, entry in
-                            let stanzaID = AdiumXMLLogParser.stanzaID(sourcePath: parsed.sourcePath, messageIndex: index)
-                            let isOutgoing = isOutgoingMessage(entry: entry, accountUID: source.accountUID)
-                            let fromJID: String = if conv.type == .groupchat, let slashIndex = entry.sender.firstIndex(of: "/") {
-                                String(entry.sender[entry.sender.index(after: slashIndex)...])
-                            } else {
-                                entry.sender
-                            }
-
-                            return ChatMessage(
-                                id: UUID(),
-                                conversationID: conv.id,
-                                stanzaID: stanzaID,
-                                fromJID: fromJID,
-                                body: entry.body,
-                                htmlBody: entry.htmlBody,
-                                timestamp: entry.timestamp,
-                                isOutgoing: isOutgoing,
-                                isDelivered: true,
-                                isEdited: false,
-                                type: conv.type.rawValue
-                            )
-                        }
-
-                        // Dedup against the in-memory stanza-id set seeded from existing transcripts (avoids a store hit per message).
-                        let newMessages = messages.filter { msg in
-                            guard let sid = msg.stanzaID else { return true }
-                            return !knownStanzaIDs.contains(sid)
-                        }
-
-                        result.skippedDuplicates += messages.count - newMessages.count
-
-                        if !newMessages.isEmpty {
-                            try await transcripts.appendMessages(newMessages)
-                            result.importedMessages += newMessages.count
-
-                            for msg in newMessages {
-                                if let sid = msg.stanzaID {
-                                    knownStanzaIDs.insert(sid)
-                                }
-                            }
-                            if let fileLatest = newMessages.max(by: { $0.timestamp < $1.timestamp }) {
-                                if fileLatest.timestamp > (latestMessage?.timestamp ?? .distantPast) {
-                                    latestMessage = fileLatest
-                                }
-                            }
-                        }
-                    } catch is CancellationError {
-                        throw CancellationError()
-                    } catch {
-                        result.errors.append(ImportError(file: fileURL.path, message: error.localizedDescription))
-                        log.warning("Failed to import \(fileURL.lastPathComponent): \(error)")
-                    }
-
-                    result.completedFiles += 1
-                    if result.completedFiles % 50 == 0 {
-                        progress(result)
-                    }
-                }
-
-                // Update conversation metadata once per contact (not per file)
-                if let conv = conversation, let latestMessage {
-                    if latestMessage.timestamp > (conv.lastMessageDate ?? .distantPast) {
-                        var updated = conv
-                        updated.lastMessageDate = latestMessage.timestamp
-                        updated.lastMessagePreview = String(latestMessage.body.prefix(100))
-                        try await store.upsertConversation(updated)
-                    }
-                }
+                try await importContact(contactDir: contactDir, source: source, existingAccounts: existingAccounts, result: &result, progress: progress)
             }
         }
 
@@ -228,7 +102,199 @@ public actor AdiumImportService {
         return result
     }
 
-    // swiftlint:enable cyclomatic_complexity function_body_length
+    private func importContact(
+        contactDir: URL,
+        source: AdiumServiceAccount,
+        existingAccounts: [Account],
+        result: inout ImportProgress,
+        progress: @Sendable (ImportProgress) -> Void
+    ) async throws {
+        let logFiles: [URL]
+        do {
+            logFiles = try AdiumLogDiscovery.logFileURLs(in: contactDir)
+        } catch {
+            log.warning("Failed to enumerate logs in \(contactDir.path): \(error)")
+            return
+        }
+
+        let contactUID = contactDir.lastPathComponent
+        let context = ContactContext(
+            contactDir: contactDir,
+            contactUID: contactUID,
+            source: source,
+            logFiles: logFiles,
+            existingAccounts: existingAccounts,
+            contactJID: syntheticJID(identifier: contactUID, service: source.service),
+            accountJID: syntheticJID(identifier: source.accountUID, service: source.service)
+        )
+        var state = ContactImportState()
+
+        for fileURL in logFiles {
+            try Task.checkCancellation()
+            do {
+                if try await importLogFile(fileURL, context: context, state: &state, result: &result) == .skipContact {
+                    break
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                result.errors.append(ImportError(file: fileURL.path, message: error.localizedDescription))
+                log.warning("Failed to import \(fileURL.lastPathComponent): \(error)")
+            }
+
+            result.completedFiles += 1
+            if result.completedFiles % 50 == 0 {
+                progress(result)
+            }
+        }
+
+        try await updateConversationMetadata(state: state)
+    }
+
+    private func importLogFile(
+        _ fileURL: URL,
+        context: ContactContext,
+        state: inout ContactImportState,
+        result: inout ImportProgress
+    ) async throws -> FileImportOutcome {
+        let parsed = try parseLogFile(at: fileURL, accountUID: context.source.accountUID)
+        guard !parsed.entries.isEmpty else { return .processed }
+
+        // The conversation is resolved lazily from the first non-empty file.
+        if state.conversation == nil {
+            guard let resolved = try await resolveConversation(context: context, entries: parsed.entries) else {
+                result.errors.append(ImportError(file: context.contactDir.path, message: "Invalid JID: \(context.contactJID)"))
+                result.completedFiles += context.logFiles.count
+                return .skipContact
+            }
+            state.conversation = resolved.conversation
+            state.knownStanzaIDs = resolved.knownStanzaIDs
+        }
+
+        guard let conv = state.conversation else { return .processed }
+
+        // Also write metadata on re-import: a resolved conversation with no stored messages has none yet.
+        if result.completedFiles == 0 || state.knownStanzaIDs.isEmpty {
+            try await writeContactMetadata(conversation: conv, context: context)
+        }
+
+        let messages = buildMessages(from: parsed, conversation: conv, source: context.source)
+        try await appendNewMessages(messages, state: &state, result: &result)
+        return .processed
+    }
+
+    /// Returns `nil` when the contact's synthetic JID is invalid.
+    private func resolveConversation(
+        context: ContactContext,
+        entries: [AdiumLogEntry]
+    ) async throws -> (conversation: Conversation, knownStanzaIDs: Set<String>)? {
+        let isGroupchat = detectGroupchat(entries: entries, accountUID: context.source.accountUID)
+        let chatType: Conversation.ConversationType = isGroupchat ? .groupchat : .chat
+        let matchingAccount = context.existingAccounts.first { $0.jid.description == context.accountJID }
+
+        let lookupAccountID = matchingAccount?.id
+        let lookupImportSourceJID: String? = matchingAccount == nil ? context.accountJID : nil
+
+        if let existing = try await store.fetchConversation(jid: context.contactJID, type: chatType, accountID: lookupAccountID, importSourceJID: lookupImportSourceJID) {
+            // Seed stanzaID cache so a re-import dedups against already-stored messages.
+            let existingMessages = try await transcripts.fetchMessages(for: existing.id, before: nil, limit: Int.max)
+            return (existing, Set(existingMessages.compactMap(\.stanzaID)))
+        }
+
+        guard let bareJID = BareJID.parse(context.contactJID) else { return nil }
+        let conv = Conversation(
+            id: UUID(),
+            accountID: lookupAccountID,
+            importSourceJID: lookupImportSourceJID,
+            jid: bareJID,
+            type: chatType,
+            displayName: context.contactUID,
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            createdAt: Date()
+        )
+        try await store.upsertConversation(conv)
+        return (conv, [])
+    }
+
+    private func writeContactMetadata(conversation conv: Conversation, context: ContactContext) async throws {
+        try await transcripts.writeMetadata(
+            TranscriptMetadata(
+                conversationID: conv.id,
+                accountJID: context.accountJID,
+                contactJID: context.contactJID,
+                type: conv.type.rawValue,
+                displayName: context.contactUID
+            ),
+            for: conv.id
+        )
+    }
+
+    private func buildMessages(
+        from parsed: AdiumLogFile,
+        conversation conv: Conversation,
+        source: AdiumServiceAccount
+    ) -> [ChatMessage] {
+        parsed.entries.enumerated().map { index, entry in
+            let stanzaID = AdiumXMLLogParser.stanzaID(sourcePath: parsed.sourcePath, messageIndex: index)
+            let isOutgoing = isOutgoingMessage(entry: entry, accountUID: source.accountUID)
+            let fromJID: String = if conv.type == .groupchat, let slashIndex = entry.sender.firstIndex(of: "/") {
+                String(entry.sender[entry.sender.index(after: slashIndex)...])
+            } else {
+                entry.sender
+            }
+
+            return ChatMessage(
+                id: UUID(),
+                conversationID: conv.id,
+                stanzaID: stanzaID,
+                fromJID: fromJID,
+                body: entry.body,
+                htmlBody: entry.htmlBody,
+                timestamp: entry.timestamp,
+                isOutgoing: isOutgoing,
+                isDelivered: true,
+                isEdited: false,
+                type: conv.type.rawValue
+            )
+        }
+    }
+
+    private func appendNewMessages(
+        _ messages: [ChatMessage],
+        state: inout ContactImportState,
+        result: inout ImportProgress
+    ) async throws {
+        let newMessages = messages.filter { msg in
+            guard let sid = msg.stanzaID else { return true }
+            return !state.knownStanzaIDs.contains(sid)
+        }
+        result.skippedDuplicates += messages.count - newMessages.count
+        guard !newMessages.isEmpty else { return }
+
+        try await transcripts.appendMessages(newMessages)
+        result.importedMessages += newMessages.count
+
+        for msg in newMessages {
+            if let sid = msg.stanzaID {
+                state.knownStanzaIDs.insert(sid)
+            }
+        }
+        if let fileLatest = newMessages.max(by: { $0.timestamp < $1.timestamp }),
+           fileLatest.timestamp > (state.latestMessage?.timestamp ?? .distantPast) {
+            state.latestMessage = fileLatest
+        }
+    }
+
+    private func updateConversationMetadata(state: ContactImportState) async throws {
+        guard let conv = state.conversation, let latestMessage = state.latestMessage,
+              latestMessage.timestamp > (conv.lastMessageDate ?? .distantPast) else { return }
+        var updated = conv
+        updated.lastMessageDate = latestMessage.timestamp
+        updated.lastMessagePreview = String(latestMessage.body.prefix(100))
+        try await store.upsertConversation(updated)
+    }
 
     private func parseLogFile(at url: URL, accountUID: String) throws -> AdiumLogFile {
         let data = try Data(contentsOf: url)

@@ -190,20 +190,15 @@ package enum AdiumHTMLLogParser {
 
 // MARK: - Numeric HTML Entity Decoding
 
-private let numericEntityRegex = try! NSRegularExpression(pattern: "&#(\\d+);") // swiftlint:disable:this force_try
-
 private extension String {
     /// Replaces `&#NNN;` numeric character references with their Unicode characters.
     func replacingNumericEntities() -> String {
-        let nsRange = NSRange(startIndex..., in: self)
-        var result = self
-        for match in numericEntityRegex.matches(in: self, range: nsRange).reversed() {
-            guard let fullRange = Range(match.range, in: result),
-                  let digitsRange = Range(match.range(at: 1), in: result),
-                  let codePoint = UInt32(result[digitsRange]),
-                  let scalar = Unicode.Scalar(codePoint) else { continue }
-            result.replaceSubrange(fullRange, with: String(scalar))
+        replacing(/&#(\d+);/) { match in
+            guard let codePoint = UInt32(match.output.1),
+                  let scalar = Unicode.Scalar(codePoint) else {
+                return String(match.output.0)
+            }
+            return String(scalar)
         }
-        return result
     }
 }

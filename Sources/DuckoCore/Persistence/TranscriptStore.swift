@@ -24,8 +24,6 @@ public protocol TranscriptStore: Sendable {
     /// `ducko-N` counter collisions. Implementations must perform a full multi-file scan, not the
     /// single-valued stanza-index fast path.
     func findMessages(stanzaID: String, conversationID: UUID) async throws -> [ChatMessage]
-    // periphery:ignore - used by MUC moderation (XEP-0425) serverID lookup path
-    func findMessage(serverID: String, conversationID: UUID) async throws -> ChatMessage?
     func messageExists(stanzaID: String, conversationID: UUID) async throws -> Bool
     func messageExists(serverID: String, conversationID: UUID) async throws -> Bool
     /// XEP-0359 stanza-id values are unique only *per sender*, so callers that
@@ -41,9 +39,7 @@ public protocol TranscriptStore: Sendable {
 
     // MARK: - Stats
 
-    func messageCount(for conversationID: UUID) async throws -> Int
     func messageDateCounts(for conversationID: UUID) async throws -> [(date: Date, count: Int)]
-    func messageDateRange(for conversationID: UUID) async throws -> (earliest: Date, latest: Date)?
 
     // MARK: - Lifecycle
 

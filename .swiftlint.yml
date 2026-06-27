@@ -24,6 +24,9 @@ disabled_rules:
 opt_in_rules:
   - redundant_sendable
 
+cyclomatic_complexity:
+  ignores_case_statements: true
+
 identifier_name:
   min_length: 1
   allowed_symbols:

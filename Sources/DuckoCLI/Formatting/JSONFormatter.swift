@@ -265,7 +265,6 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
     private func formatMiscEvent(_ event: XMPPEvent, account: String) -> String? {
         switch event {
         case let .presenceSubscriptionRequest(from: jid):

@@ -13,10 +13,12 @@ public final class JingleModule: XMPPModule, Sendable {
     // MARK: - Types
 
     /// Errors from the Jingle module.
-    public enum JingleError: Error {
+    public enum JingleError: Error, Equatable {
         case notConnected
         case sessionNotFound
         case noConnectedJID
+        /// The primary content cannot be removed via content-remove; terminate the session instead.
+        case cannotRemovePrimaryContent
         case transportNegotiationFailed(String)
     }
 
@@ -153,7 +155,6 @@ public final class JingleModule: XMPPModule, Sendable {
         return false
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
     private func handleJingleIQ(_ iq: XMPPIQ, jingle: XMLElement) {
         guard let actionStr = jingle.attribute("action"),
               let action = JingleAction(rawValue: actionStr),
@@ -293,7 +294,15 @@ public final class JingleModule: XMPPModule, Sendable {
                 continue
             }
 
-            state.withLock { $0.sessions[sid]?.contents[content.name] = content }
+            // Reject a content-add reusing an existing secondary name: overwriting
+            // tracked metadata/transport would let a peer swap an already-offered
+            // content out from under accept/remove (XEP-0234 names are unique).
+            if session.secondaryContents[content.name] != nil {
+                log.warning("content-add: rejected duplicate content name for sid: \(sid)")
+                continue
+            }
+
+            state.withLock { $0.sessions[sid]?.secondaryContents[content.name] = content }
 
             let offer = JingleFileOffer(
                 sid: sid,
@@ -318,24 +327,29 @@ public final class JingleModule: XMPPModule, Sendable {
     private func handleContentReject(_ jingle: XMLElement, sid: String, context: ModuleContext) {
         for contentElement in jingle.children(named: "content") {
             guard let name = contentElement.attribute("name") else { continue }
-            state.withLock { _ = $0.sessions[sid]?.contents.removeValue(forKey: name) }
+            state.withLock { _ = $0.sessions[sid]?.secondaryContents.removeValue(forKey: name) }
             context.emitEvent(.jingleContentRejected(sid: sid, contentName: name))
         }
     }
 
     private func handleContentRemove(_ jingle: XMLElement, sid: String, context: ModuleContext) {
+        var primaryRemoved = false
         for contentElement in jingle.children(named: "content") {
             guard let name = contentElement.attribute("name") else { continue }
-            state.withLock { _ = $0.sessions[sid]?.contents.removeValue(forKey: name) }
+            let isPrimary = state.withLock { state -> Bool in
+                guard let session = state.sessions[sid] else { return false }
+                if name == session.primaryContentName { return true }
+                state.sessions[sid]?.secondaryContents.removeValue(forKey: name)
+                return false
+            }
+            primaryRemoved = primaryRemoved || isPrimary
             context.emitEvent(.jingleContentRemoved(sid: sid, contentName: name))
         }
 
-        // Terminate if all contents removed or primary content removed
-        let shouldTerminate = state.withLock { state -> Bool in
-            guard let session = state.sessions[sid] else { return false }
-            return session.contents.isEmpty || session.contents[session.primaryContentName] == nil
-        }
-        if shouldTerminate {
+        // Removing the primary content tears the session down; secondary-only
+        // removals leave it live. The primary lives in `JingleSession.content`, not
+        // the dictionary, so there is no entry to drop and no primary-less window.
+        if primaryRemoved {
             Task { try? await terminateSession(sid: sid, reason: .success) }
         }
     }
@@ -344,7 +358,7 @@ public final class JingleModule: XMPPModule, Sendable {
         // Update stored content from session-accept (responder may have added a range)
         if let contentElement = jingle.child(named: "content"),
            let acceptedContent = JingleContent(from: contentElement) {
-            state.withLock { $0.sessions[sid]?.contents[acceptedContent.name] = acceptedContent }
+            state.withLock { $0.sessions[sid]?.applyAcceptedContent(acceptedContent) }
         }
 
         // Initiator begins transport connection after session-accept
@@ -832,8 +846,8 @@ public final class JingleModule: XMPPModule, Sendable {
                 description: rangedDescription,
                 transport: base.transport
             )
-            // Store the ranged content so sendFileData/receiveFileData can use it
-            state.withLock { $0.sessions[sid]?.contents[base.name] = rangedContent }
+            // Persist the ranged primary so subsequent data transfer uses the negotiated range.
+            state.withLock { $0.sessions[sid]?.content = rangedContent }
             acceptContent = rangedContent
         } else {
             acceptContent = session.content
@@ -951,7 +965,7 @@ public final class JingleModule: XMPPModule, Sendable {
         guard let context else { throw JingleError.notConnected }
         guard let session else { throw JingleError.sessionNotFound }
 
-        let contentName = "file-\(session.contents.count)"
+        let contentName = session.nextAdditionalFileContentName()
         let transportSID = context.generateID()
         let candidates = await buildCandidates(context: context, sessionSID: sid)
         let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: transportSID, candidates: candidates))
@@ -962,7 +976,7 @@ public final class JingleModule: XMPPModule, Sendable {
             transport: transport
         )
 
-        state.withLock { $0.sessions[sid]?.contents[contentName] = content }
+        state.withLock { $0.sessions[sid]?.secondaryContents[contentName] = content }
 
         var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
         var jingle = XMLElement(
@@ -982,7 +996,7 @@ public final class JingleModule: XMPPModule, Sendable {
         let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
         guard let context else { throw JingleError.notConnected }
         guard let session else { throw JingleError.sessionNotFound }
-        guard let content = session.contents[contentName] else {
+        guard let content = session.secondaryContents[contentName] else {
             throw JingleError.sessionNotFound
         }
 
@@ -1010,17 +1024,44 @@ public final class JingleModule: XMPPModule, Sendable {
         try await sendContentAction(.contentRemove, sid: sid, contentName: contentName)
     }
 
-    private func sendContentAction(_ action: JingleAction, sid: String, contentName: String) async throws {
-        let creator = state.withLock { state -> String in
-            let creator = state.sessions[sid]?.contents[contentName]?.creator ?? "initiator"
-            _ = state.sessions[sid]?.contents.removeValue(forKey: contentName)
-            return creator
-        }
-        let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
-        guard let context else { throw JingleError.notConnected }
-        guard let session else { throw JingleError.sessionNotFound }
+    /// Outcome of resolving an outbound content action under the session lock.
+    private enum ContentActionResolution {
+        case notConnected
+        case sessionNotFound
+        case primaryContent
+        case send(context: ModuleContext, peer: FullJID, creator: String)
+    }
 
-        var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
+    private func sendContentAction(_ action: JingleAction, sid: String, contentName: String) async throws {
+        // Resolve, validate, and mutate atomically under a single lock so a
+        // concurrent teardown (or same-sid re-initiate) can't leave us removing one
+        // session's content while addressing the stanza to another's peer.
+        let resolution = state.withLock { state -> ContentActionResolution in
+            guard let context = state.context else { return .notConnected }
+            guard let session = state.sessions[sid] else { return .sessionNotFound }
+            // Scoped to content-remove: removing the primary must be a session-terminate instead.
+            if action == .contentRemove, contentName == session.primaryContentName {
+                return .primaryContent
+            }
+            let creator = session.secondaryContents[contentName]?.creator ?? "initiator"
+            state.sessions[sid]?.secondaryContents.removeValue(forKey: contentName)
+            return .send(context: context, peer: session.peer, creator: creator)
+        }
+
+        let context: ModuleContext
+        let peer: FullJID
+        let creator: String
+        switch resolution {
+        case .notConnected: throw JingleError.notConnected
+        case .sessionNotFound: throw JingleError.sessionNotFound
+        case .primaryContent: throw JingleError.cannotRemovePrimaryContent
+        case let .send(resolvedContext, resolvedPeer, resolvedCreator):
+            context = resolvedContext
+            peer = resolvedPeer
+            creator = resolvedCreator
+        }
+
+        var iq = XMPPIQ(type: .set, to: .full(peer), id: context.generateID())
         var jingle = XMLElement(
             name: "jingle",
             namespace: XMPPNamespaces.jingle,
