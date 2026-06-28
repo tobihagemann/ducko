@@ -14,24 +14,34 @@ public final class ChatWindowState {
 
     // MARK: - Display
 
+    /// The conversation as the service currently holds it (live), or `nil` when this
+    /// tab's conversation isn't open. The value-type `conversation` copy is set once at
+    /// `load()` and never refreshed, so it goes stale as unread, subject, and display
+    /// fields change. `unreadCount`/`roomSubject` read this directly and surface `0`/`nil`
+    /// once the conversation closes; only `displayName` (via `liveConversation`) keeps the
+    /// last-known value as a fallback.
+    private var serviceConversation: Conversation? {
+        guard let id = conversation?.id else { return nil }
+        return environment.chatService.openConversations.first { $0.id == id }
+    }
+
+    /// The live conversation, falling back to the value-type copy when this tab's
+    /// conversation is no longer open (e.g. closed/destroyed) so the last-known display
+    /// survives. For display reads only — routing uses the stable `conversation` copy directly.
+    var liveConversation: Conversation? {
+        serviceConversation ?? conversation
+    }
+
     var displayName: String {
-        conversation?.displayName ?? contact?.displayName ?? jidString
+        liveConversation?.displayName ?? contact?.displayName ?? jidString
     }
 
-    /// Live unread count from the service, not the value-type `conversation` copy
-    /// (which is set once at `load()` and never updated as unread changes).
     var unreadCount: Int {
-        guard let conversationID = conversation?.id else { return 0 }
-        return environment.chatService.openConversations.first { $0.id == conversationID }?.unreadCount ?? 0
+        serviceConversation?.unreadCount ?? 0
     }
 
-    /// Live room subject from the service, not the value-type `conversation` copy
-    /// (which is set once at `load()` and never refreshed when the subject
-    /// changes). Mirrors `unreadCount` — without it, a subject edit never
-    /// reflects in the header.
     var roomSubject: String? {
-        guard let conversationID = conversation?.id else { return nil }
-        return environment.chatService.openConversations.first { $0.id == conversationID }?.roomSubject
+        serviceConversation?.roomSubject
     }
 
     // MARK: - Composer Draft
@@ -68,7 +78,7 @@ public final class ChatWindowState {
 
     var myRoomRole: RoomRole? {
         guard isGroupchat,
-              let nickname = conversation?.roomNickname,
+              let nickname = liveConversation?.roomNickname,
               let accountID = resolvedAccountID else { return nil }
         let participants = environment.chatService.participants(forRoomJIDString: jidString, accountID: accountID)
         return participants.first { $0.nickname == nickname }?.role
@@ -158,6 +168,9 @@ public final class ChatWindowState {
             } else if isGroupchat {
                 try await environment.chatService.sendGroupMessage(toJIDString: jidString, body: body, accountID: accountID)
             } else if let conv = conversation, let nick = conv.occupantNickname {
+                // Routing reads the stable value-type copy, not `liveConversation`: the
+                // identity (room JID, occupant nick) doesn't change, and a live lookup
+                // could miss a conversation already removed from `openConversations`.
                 try await environment.chatService.sendMUCPrivateMessage(
                     roomJIDString: conv.jid.description,
                     nickname: nick, body: body, accountID: accountID

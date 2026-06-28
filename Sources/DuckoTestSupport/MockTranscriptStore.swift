@@ -4,6 +4,7 @@ import Foundation
 public actor MockTranscriptStore: TranscriptStore {
     public var messages: [ChatMessage] = []
     public var amendments: [(amendment: TranscriptAmendment, conversationID: UUID)] = []
+    public private(set) var deletedTranscriptConversationIDs: [UUID] = []
 
     public init() {}
 
@@ -120,6 +121,7 @@ public actor MockTranscriptStore: TranscriptStore {
     // MARK: - Lifecycle
 
     public func deleteTranscripts(for conversationID: UUID) async throws {
+        deletedTranscriptConversationIDs.append(conversationID)
         messages.removeAll { $0.conversationID == conversationID }
         // Conversation-targeted amendments are kept (orphaned but harmless) for mock simplicity.
     }

@@ -12,7 +12,7 @@ struct ChatView: View {
     var body: some View {
         VStack(spacing: 0) {
             if let conversation = windowState.conversation {
-                ChatHeaderView(conversation: conversation, windowState: windowState)
+                ChatHeaderView(conversation: windowState.liveConversation ?? conversation, windowState: windowState)
 
                 Divider()
 
@@ -54,7 +54,7 @@ struct ChatView: View {
                 if windowState.isGroupchat, windowState.showParticipantSidebar {
                     Divider()
 
-                    ParticipantSidebar(roomJIDString: windowState.jidString, roomNickname: windowState.conversation?.roomNickname, accountID: windowState.accountID)
+                    ParticipantSidebar(roomJIDString: windowState.jidString, roomNickname: windowState.liveConversation?.roomNickname, accountID: windowState.accountID)
                         .transition(.move(edge: .trailing))
                 }
             }

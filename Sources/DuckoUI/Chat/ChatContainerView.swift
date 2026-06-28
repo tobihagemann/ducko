@@ -40,7 +40,7 @@ public struct ChatContainerView: View {
             ChatTabBarView(container: container)
         }
         .frame(minWidth: 380, minHeight: 320)
-        .navigationTitle(container.selectedState?.conversation?.displayName ?? "Chat")
+        .navigationTitle(container.selectedState?.displayName ?? "Chat")
         .focusedSceneValue(\.chatWindowState, container.selectedState)
         .onChange(of: observedLastMessageDate) {
             Task { await container.selectedState?.refreshMessages() }

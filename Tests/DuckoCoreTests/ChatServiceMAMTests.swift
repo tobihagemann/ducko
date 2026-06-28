@@ -27,6 +27,7 @@ private func makeChatService(store: MockPersistenceStore, transcripts: MockTrans
 /// `fetchServerHistory` against simulated MAM archives.
 @MainActor
 private struct GroupMAMHarness {
+    let store: MockPersistenceStore
     let transcripts: MockTranscriptStore
     let transport: MockTransport
     let accountService: AccountService
@@ -61,7 +62,7 @@ private func makeGroupMAMHarness() async throws -> GroupMAMHarness {
     try await store.upsertConversation(conversation)
 
     return GroupMAMHarness(
-        transcripts: transcripts, transport: transport,
+        store: store, transcripts: transcripts, transport: transport,
         accountService: accountService, chatService: chatService,
         conversation: conversation, accountID: accountID
     )
@@ -376,6 +377,72 @@ enum ChatServiceMAMTests {
             #expect(imported.isEmpty)
             let count = await harness.transcripts.messages.count
             #expect(count == 1)
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+    }
+
+    struct SyncResurrectionGuard {
+        /// Holds a MAM sync (spawned via `.rosterLoaded`) suspended mid-round-trip so
+        /// `beforeRelease` can mutate state — e.g. destroy the conversation — before the
+        /// archive and `<fin>` land and the transcript appends run.
+        @MainActor
+        private func driveSyncWithHeldArchive(
+            harness: GroupMAMHarness,
+            beforeRelease: (GroupMAMHarness) async throws -> Void
+        ) async throws {
+            await harness.chatService.handleEvent(.rosterLoaded([]), accountID: harness.accountID)
+
+            // Wait for the in-flight MAM query directly rather than coupling to the handshake stanza count.
+            let mamIQ = try #require(await harness.transport.waitForSent(matching: { $0.contains("urn:xmpp:mam:2") }))
+            let iqID = try #require(extractIQID(from: mamIQ))
+            let queryID = try #require(extractQueryID(from: mamIQ))
+
+            // Capture the handle while the task is registered and blocked on `queryMessages`.
+            let tasks = harness.chatService.takePendingTasks()
+
+            try await beforeRelease(harness)
+
+            await harness.transport.simulateReceive(groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                fromNick: "bob", serverID: "R", stanzaID: "S", body: "hi room"
+            )))
+            await harness.transport.simulateReceive(
+                "<iq type='result' id='\(iqID)' from='\(roomJID.description)'>"
+                    + "<fin xmlns='urn:xmpp:mam:2' complete='true'>"
+                    + "<set xmlns='http://jabber.org/protocol/rsm'><count>1</count></set></fin></iq>"
+            )
+
+            for task in tasks {
+                await task.value
+            }
+        }
+
+        @Test
+        @MainActor
+        func `recreated transcript is deleted when conversation destroyed mid-sync`() async throws {
+            let harness = try await makeGroupMAMHarness()
+
+            try await driveSyncWithHeldArchive(harness: harness) { harness in
+                try await harness.store.deleteConversation(harness.conversation.id)
+            }
+
+            let remaining = await harness.transcripts.messages.filter { $0.conversationID == harness.conversation.id }
+            #expect(remaining.isEmpty)
+            let wasDeleted = await harness.transcripts.deletedTranscriptConversationIDs.contains(harness.conversation.id)
+            #expect(wasDeleted)
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `surviving conversation keeps its synced transcript`() async throws {
+            let harness = try await makeGroupMAMHarness()
+
+            try await driveSyncWithHeldArchive(harness: harness) { _ in }
+
+            let remaining = await harness.transcripts.messages.filter { $0.conversationID == harness.conversation.id }
+            #expect(!remaining.isEmpty)
+            let wasDeleted = await harness.transcripts.deletedTranscriptConversationIDs.contains(harness.conversation.id)
+            #expect(!wasDeleted)
             await harness.accountService.disconnect(accountID: harness.accountID)
         }
     }
