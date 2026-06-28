@@ -156,19 +156,7 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         descriptor.fetchLimit = 1
 
         if let existing = try modelContext.fetch(descriptor).first {
-            existing.update(from: conversation)
-            // Update account relationship if changed (e.g., auto-linking imported conversations)
-            if existing.account?.id != conversation.accountID {
-                if let accountID = conversation.accountID {
-                    var accountDescriptor = FetchDescriptor<AccountRecord>(
-                        predicate: #Predicate { $0.id == accountID }
-                    )
-                    accountDescriptor.fetchLimit = 1
-                    existing.account = try modelContext.fetch(accountDescriptor).first
-                } else {
-                    existing.account = nil
-                }
-            }
+            try applyUpdate(to: existing, from: conversation)
         } else {
             var accountRecord: AccountRecord?
             if let accountID = conversation.accountID {
@@ -204,6 +192,36 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         try modelContext.save()
     }
 
+    @discardableResult
+    public func updateConversationIfExists(_ conversation: Conversation) throws -> Bool {
+        let conversationID = conversation.id
+        var descriptor = FetchDescriptor<ConversationRecord>(
+            predicate: #Predicate { $0.id == conversationID }
+        )
+        descriptor.fetchLimit = 1
+        guard let existing = try modelContext.fetch(descriptor).first else { return false }
+
+        try applyUpdate(to: existing, from: conversation)
+        try modelContext.save()
+        return true
+    }
+
+    /// Applies `conversation`'s fields onto an existing record and reconciles its account
+    /// relationship (e.g. auto-linking an imported conversation to a now-present account).
+    private func applyUpdate(to existing: ConversationRecord, from conversation: Conversation) throws {
+        existing.update(from: conversation)
+        guard existing.account?.id != conversation.accountID else { return }
+        if let accountID = conversation.accountID {
+            var accountDescriptor = FetchDescriptor<AccountRecord>(
+                predicate: #Predicate { $0.id == accountID }
+            )
+            accountDescriptor.fetchLimit = 1
+            existing.account = try modelContext.fetch(accountDescriptor).first
+        } else {
+            existing.account = nil
+        }
+    }
+
     public func fetchAllConversations() throws -> [Conversation] {
         let descriptor = FetchDescriptor<ConversationRecord>(
             sortBy: [SortDescriptor(\.lastMessageDate, order: .reverse)]
@@ -222,6 +240,17 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
             record.lastReadTimestamp = Date()
             try modelContext.save()
         }
+    }
+
+    public func deleteConversation(_ conversationID: UUID) throws {
+        let descriptor = FetchDescriptor<ConversationRecord>(
+            predicate: #Predicate { $0.id == conversationID }
+        )
+        let records = try modelContext.fetch(descriptor)
+        for record in records {
+            modelContext.delete(record)
+        }
+        try modelContext.save()
     }
 
     // MARK: - Account Cleanup

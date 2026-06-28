@@ -303,6 +303,73 @@ struct SwiftDataPersistenceStoreTests {
             #expect(fetched.first?.unreadCount == 0)
             #expect(fetched.first?.lastReadTimestamp != nil)
         }
+
+        @Test
+        func `Delete conversation removes only the target conversation`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let target = outer.makeConversation(accountID: account.id, jid: "alice@example.com")
+            let other = outer.makeConversation(accountID: account.id, jid: "bob@example.com")
+            try await store.upsertConversation(target)
+            try await store.upsertConversation(other)
+
+            try await store.deleteConversation(target.id)
+
+            let remaining = try await store.fetchConversations(for: account.id)
+            #expect(remaining.count == 1)
+            #expect(remaining.first?.id == other.id)
+        }
+
+        @Test
+        func `Delete conversation is a no-op for an unknown id`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            let conversation = outer.makeConversation(accountID: account.id)
+            try await store.upsertConversation(conversation)
+
+            try await store.deleteConversation(UUID())
+
+            let remaining = try await store.fetchConversations(for: account.id)
+            #expect(remaining.count == 1)
+            #expect(remaining.first?.id == conversation.id)
+        }
+
+        @Test
+        func `Update conversation if exists updates an existing row`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            var conversation = outer.makeConversation(accountID: account.id)
+            try await store.upsertConversation(conversation)
+
+            conversation.unreadCount = 7
+            let updated = try await store.updateConversationIfExists(conversation)
+
+            #expect(updated)
+            let fetched = try await store.fetchConversations(for: account.id)
+            #expect(fetched.first?.unreadCount == 7)
+        }
+
+        @Test
+        func `Update conversation if exists does not insert a missing row`() async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+
+            // A conversation that was never persisted (or was deleted) must not be
+            // recreated — the guard against resurrecting a destroyed room.
+            let ghost = outer.makeConversation(accountID: account.id)
+            let updated = try await store.updateConversationIfExists(ghost)
+
+            #expect(!updated)
+            let fetched = try await store.fetchConversations(for: account.id)
+            #expect(fetched.isEmpty)
+        }
     }
 
     // MARK: - Account Cleanup

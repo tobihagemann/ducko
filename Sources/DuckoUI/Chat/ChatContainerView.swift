@@ -18,6 +18,13 @@ public struct ChatContainerView: View {
         return environment.chatService.messagesRevisions[id]
     }
 
+    /// Membership snapshot of the service's live conversations. A `Set` so a
+    /// rebuild that reorders `openConversations` doesn't fire the prune; only an
+    /// actual add/remove does.
+    private var observedConversationIDs: Set<UUID> {
+        Set(environment.chatService.openConversations.map(\.id))
+    }
+
     public var body: some View {
         @Bindable var container = container
 
@@ -40,6 +47,9 @@ public struct ChatContainerView: View {
         }
         .onChange(of: observedMessagesRevision) {
             Task { await container.selectedState?.refreshMessages() }
+        }
+        .onChange(of: observedConversationIDs) {
+            container.pruneClosedConversations()
         }
         .sheet(isPresented: $container.isShowingNewChat) {
             NewChatSheet { jidString, accountID in

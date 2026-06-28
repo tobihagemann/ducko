@@ -111,6 +111,20 @@ actor AppAccessor {
         AXIsProcessTrusted()
     }
 
+    /// Per-test skip predicate for the `ducko-import.sh` "app not running"
+    /// assertion: true only when no DuckoApp of any provenance (installed,
+    /// `swift run DuckoApp`, or a test bundle) is present. The script guards on
+    /// `exists process "DuckoApp"`, so the assertion is valid only when none is
+    /// running; rather than terminate a developer's instance, the test skips.
+    /// Matches by process name and bundle identifier to cover bundleless
+    /// `swift run` instances (no `im.ducko` identifier) as well as installed
+    /// builds.
+    static var noDuckoAppRunning: Bool {
+        NSWorkspace.shared.runningApplications.allSatisfy { app in
+            app.localizedName != "DuckoApp" && app.bundleIdentifier != "im.ducko"
+        }
+    }
+
     /// Terminates any running `Ducko.app` whose bundle URL matches the one
     /// integration tests launch, then removes any
     /// `~/Library/Application Support/Ducko-Dev-inttest-ui-*` directories
@@ -389,6 +403,27 @@ actor AppAccessor {
         }
     }
 
+    /// Polls the AX tree for an element matching `identifier`+`role` (the
+    /// role-aware companion to `waitForElement(identifier:)`). Use to await a
+    /// control that shares a container-propagated identifier with siblings of
+    /// other roles — e.g. the room-topic `AXTextField` that materializes under
+    /// `room-subject-view` only after the pencil flips the view into edit mode.
+    func waitForElement(identifier: String, role: String, timeout: Duration = TestTimeout.uiElement) async throws {
+        do {
+            try await pollUntil(timeout: timeout) {
+                do {
+                    _ = try self.resolveElement(identifier: identifier, role: role)
+                    return true
+                } catch TestHarnessError.elementNotFound {
+                    return false
+                }
+            }
+        } catch TestHarnessError.timeout {
+            log.debug("waitForElement timeout (\(timeout)) for identifier '\(identifier)' role '\(role)'")
+            throw TestHarnessError.timeout
+        }
+    }
+
     /// Polls until `identifier`'s element reports `kAXFocusedAttribute == true`.
     /// SwiftUI `TextField`s that auto-focus via `@FocusState` only become first
     /// responder asynchronously (and a synthetic click does not reliably focus
@@ -474,6 +509,76 @@ actor AppAccessor {
                 throw TestHarnessError.elementNotFound(identifier: identifier)
             }
         }
+    }
+
+    /// Opens the context menu attached to the table row for the occupant whose
+    /// displayed text contains `substring`. The right-click analogue of
+    /// `rightClick(identifier:)` for rows that carry no `accessibilityIdentifier`
+    /// of their own (e.g. participant-sidebar occupant rows, whose only stable
+    /// handle is the displayed nickname).
+    ///
+    /// Unlike `rightClick(identifier:)`, which posts `kAXShowMenuAction`, this
+    /// synthesizes a real secondary-button `CGEvent` at the row center: a
+    /// SwiftUI `List` row's `.contextMenu` does not respond to `kAXShowMenuAction`
+    /// (verified — the action returns but no `kAXMenuRole` publishes), whereas
+    /// the AppKit contact-list table does. After the click it polls for the
+    /// menu, retrying the whole find-and-click on a transient re-render.
+    ///
+    /// `roles` is the candidate set for the enclosing row element: a SwiftUI
+    /// `List` row surfaces as `kAXRowRole`/`kAXCellRole` (NSTableView-backed) or
+    /// `kAXGroupRole`. The row is found by locating the nickname text and walking
+    /// up (see `findMenuRow`), since the identifier's propagation onto inner
+    /// content leaves the row as an ancestor of the resolved container.
+    func rightClickDescendant(
+        roles: [String],
+        withSubstring substring: String,
+        underIdentifier identifier: String
+    ) async throws {
+        let rowID = "\(identifier)/row[\(substring)]"
+        try await retryOnStaleElement(identifier: identifier, maxAttempts: 4) {
+            let container = try self.resolveElement(identifier: identifier)
+            guard let row = self.findMenuRow(ofTextContaining: substring, in: container, roles: roles) else {
+                throw TestHarnessError.elementNotFound(identifier: rowID)
+            }
+            // Click the nickname text's center, not the row center: the row can
+            // include empty area outside the SwiftUI interaction shape.
+            let text = self.findDescendant(in: container, role: kAXStaticTextRole, where: { element in
+                self.elementText(of: element)?.contains(substring) ?? false
+            })
+            guard let point = (text.flatMap { self.elementCenter(of: $0) }) ?? self.elementCenter(of: row) else {
+                throw TestHarnessError.elementNotFound(identifier: rowID)
+            }
+            // Raise the row's window above any occluding sibling (e.g. the pinned
+            // Contacts window) so the synthetic click hit-tests into it.
+            self.raiseWindow(of: row)
+            await self.ensureFrontmost()
+            guard self.pointHitsSameWindow(as: row, at: point) else {
+                throw TestHarnessError.elementNotFound(identifier: "\(rowID)/occluded")
+            }
+            do {
+                try await self.openContextMenu(at: point, identifier: rowID)
+            } catch TestHarnessError.elementNotFound, TestHarnessError.timeout {
+                throw TestHarnessError.elementNotFound(identifier: rowID)
+            }
+        }
+    }
+
+    /// Raises the window owning `element` and makes it main/focused, so a
+    /// subsequent synthetic mouse click hit-tests into it rather than an
+    /// overlapping sibling window. Best-effort: failures are ignored (the
+    /// caller's hit-test guard catches a still-occluded point).
+    private func raiseWindow(of element: AXUIElement) {
+        guard let window = findAncestor(from: element, role: kAXWindowRole),
+              let pid = process?.processIdentifier else {
+            return
+        }
+        _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        _ = AXUIElementSetAttributeValue(window, kAXMainAttribute as CFString, kCFBooleanTrue)
+        _ = AXUIElementSetAttributeValue(
+            AXUIElementCreateApplication(pid),
+            kAXFocusedWindowAttribute as CFString,
+            window
+        )
     }
 
     /// Synthesizes a SwiftUI-style double-click via two `CGEvent` click
@@ -577,15 +682,19 @@ actor AppAccessor {
     /// System Events `keystroke` (selecting and clearing existing content first
     /// when `clearFirst`). The companion to `synthesizeKeystrokes` for fields
     /// the raw CGEvent path can't reach.
-    private nonisolated static func osascriptType(_ text: String, clearFirst: Bool) {
+    private nonisolated static func osascriptType(_ text: String, clearFirst: Bool, activate: Bool = true) {
         let escaped = text
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        var lines = [
-            "tell application \"System Events\"",
-            "set frontmost of process \"DuckoApp\" to true",
-            "delay 0.1"
-        ]
+        var lines = ["tell application \"System Events\""]
+        // Re-activating the process re-keys its window, which lets a competing
+        // auto-focused field (the chat message-field) steal first responder.
+        // Callers that have already focused a specific field pass
+        // `activate: false` to keep the keystrokes on it.
+        if activate {
+            lines.append("set frontmost of process \"DuckoApp\" to true")
+            lines.append("delay 0.1")
+        }
         if clearFirst {
             lines.append("keystroke \"a\" using command down")
             lines.append("delay 0.05")
@@ -621,13 +730,7 @@ actor AppAccessor {
         try await retryOnStaleElement(identifier: identifier) {
             let container = try self.resolveElement(identifier: identifier)
             let match = self.findDescendant(in: container, role: role) { element in
-                var value: AnyObject?
-                var err = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
-                if err != .success || (value as? String) == nil {
-                    err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
-                }
-                guard err == .success, let stringValue = value as? String else { return false }
-                return stringValue.contains(substring)
+                self.elementText(of: element)?.contains(substring) ?? false
             }
             return match != nil
         }
@@ -962,6 +1065,227 @@ actor AppAccessor {
         }
     }
 
+    /// Selects the `List(selection:)` row under `identifier` whose descendant
+    /// static text contains `substring`. The rows carry no
+    /// `accessibilityIdentifier` (the account list renders plain
+    /// `Text(displayName ?? jid)`), so the displayed JID/name is the only stable
+    /// handle.
+    ///
+    /// Tries `kAXPressAction` first — when supported it follows the AppKit
+    /// activation path that drives SwiftUI's `selection` binding. On macOS 26 a
+    /// SwiftUI `List` row bridges to an NSTableView-backed `AXRow` that answers
+    /// `kAXErrorActionUnsupported` to press, so this falls back to setting
+    /// `kAXSelectedAttribute` (the NSTableView AX selection path that the
+    /// `selection` binding observes). Callers still confirm selection via an
+    /// observable downstream signal (the detail pane rendering) rather than this
+    /// helper's return.
+    func selectListRow(containingSubstring substring: String, underIdentifier identifier: String) async throws {
+        let rowID = "\(identifier)/row[\(substring)]"
+        try await retryOnStaleElement(identifier: identifier) {
+            let container = try self.resolveElement(identifier: identifier)
+            guard let row = self.findDescendantRow(
+                in: container,
+                roles: [kAXRowRole, kAXCellRole],
+                containingSubstring: substring
+            ) else {
+                throw TestHarnessError.elementNotFound(identifier: rowID)
+            }
+            let pressErr = AXUIElementPerformAction(row, kAXPressAction as CFString)
+            if pressErr == .success { return }
+            if pressErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
+            if pressErr == .invalidUIElement {
+                // Stale handle between resolve and act — retriable.
+                throw TestHarnessError.elementNotFound(identifier: rowID)
+            }
+            var settable: DarwinBoolean = false
+            let settableErr = AXUIElementIsAttributeSettable(row, kAXSelectedAttribute as CFString, &settable)
+            guard settableErr == .success, settable.boolValue else {
+                throw TestHarnessError.axActionFailed(
+                    identifier: rowID,
+                    action: kAXSelectedAttribute,
+                    axError: pressErr.rawValue
+                )
+            }
+            let setErr = AXUIElementSetAttributeValue(row, kAXSelectedAttribute as CFString, kCFBooleanTrue)
+            if let error = Self.mapPerformError(setErr, identifier: rowID, action: kAXSelectedAttribute) {
+                throw error
+            }
+        }
+    }
+
+    /// Reports whether a `kAXButtonRole` descendant under `identifier` carries
+    /// the visible `label`. Distinct from `containsDescendant`, which reads
+    /// `kAXValue`→`kAXTitle` only: a SwiftUI `Button("…")` publishes its label
+    /// via `kAXDescription` (the same reason `clickSheetButton`/`clickSegment`
+    /// route through `segmentLabel`), so a presence check matching on label must
+    /// go through the title-then-description lookup. `label` is matched exactly,
+    /// so callers pass the published label verbatim, including any trailing
+    /// ASCII `...`.
+    func hasDescendantButton(label: String, underIdentifier identifier: String) async throws -> Bool {
+        try await retryOnStaleElement(identifier: identifier) {
+            let container = try self.resolveElement(identifier: identifier)
+            return self.findDescendant(in: container, role: kAXButtonRole, where: { self.segmentLabel(of: $0) == label }) != nil
+        }
+    }
+
+    /// Polls `hasDescendantButton` until the labeled button appears or the
+    /// timeout elapses. The description-aware companion to `waitForDescendant`,
+    /// for buttons whose label only surfaces via `kAXDescription`.
+    func waitForDescendantButton(
+        label: String,
+        underIdentifier identifier: String,
+        timeout: Duration = TestTimeout.uiElement
+    ) async throws {
+        do {
+            try await pollUntil(timeout: timeout) {
+                try await self.hasDescendantButton(label: label, underIdentifier: identifier)
+            }
+        } catch TestHarnessError.timeout {
+            log.debug("waitForDescendantButton timeout (\(timeout)) label '\(label)' under '\(identifier)'")
+            throw TestHarnessError.timeout
+        }
+    }
+
+    /// Polls until a `kAXButtonRole` element labeled `label` appears in any of
+    /// the application's windows. Use to await a SwiftUI `.alert`/dialog whose
+    /// inner controls' `accessibilityIdentifier`s do not bridge to AX (the
+    /// button's title does), e.g. the Change Nickname alert.
+    func waitForWindowButton(label: String, timeout: Duration = TestTimeout.uiElement) async throws {
+        do {
+            try await pollUntil(timeout: timeout) {
+                self.findButtonInWindows(where: { self.segmentLabel(of: $0) == label }) != nil
+            }
+        } catch TestHarnessError.timeout {
+            log.debug("waitForWindowButton timeout (\(timeout)) for label '\(label)'")
+            throw TestHarnessError.timeout
+        }
+    }
+
+    /// Types `text` into the application's currently AX-focused element via
+    /// System Events keystrokes. Use for an auto-focusing control that can't be
+    /// resolved/clicked by identifier — e.g. the SwiftUI `.alert` TextField
+    /// (focused with its text selected; `clearFirst: true` replaces it) or the
+    /// room-subject `TextField` once it auto-focuses via `@FocusState` (empty in
+    /// edit mode, so `clearFirst: false` avoids a delete-on-empty beep).
+    func typeIntoFocusedElement(_ text: String, clearFirst: Bool = true) async {
+        await ensureFrontmost()
+        Self.osascriptType(text, clearFirst: clearFirst)
+    }
+
+    /// Clicks a button by visible `label`, scoping the descendant search to
+    /// `identifier`'s subtree, or to the application's windows when `identifier`
+    /// is nil. Like `clickSheetButton`, it matches the SwiftUI button label via
+    /// `segmentLabel` (title→description), but the targets here are NOT under a
+    /// `kAXSheetRole`: the room-subject Save/Cancel are inline chat-window
+    /// buttons, and a `.confirmationDialog`'s destructive button renders outside
+    /// the presenting sheet — `ducko-destroy-room.sh` walks all process windows
+    /// for the latter, which the nil-`identifier` window walk mirrors. `label`
+    /// is matched exactly, including any trailing ASCII `...`.
+    func clickDescendantButton(label: String, underIdentifier identifier: String? = nil) async throws {
+        let scope = identifier ?? "application"
+        let buttonID = "\(scope)/button[\(label)]"
+        try await retryOnStaleElement(identifier: scope) {
+            let button: AXUIElement?
+            if let identifier {
+                let container = try self.resolveElement(identifier: identifier)
+                button = self.findDescendant(in: container, role: kAXButtonRole, where: { self.segmentLabel(of: $0) == label })
+            } else {
+                button = self.findButtonInWindows(where: { self.segmentLabel(of: $0) == label })
+            }
+            guard let button else {
+                throw TestHarnessError.elementNotFound(identifier: buttonID)
+            }
+            try self.perform(action: kAXPressAction, on: button, identifier: buttonID)
+        }
+    }
+
+    /// Presses the `buttonLabel` action inside the SwiftUI `.confirmationDialog`
+    /// whose body contains `dialogText`, then waits for that dialog to dismiss.
+    /// Scoping to the dialog text (rather than a global "first button labeled
+    /// Destroy") avoids matching an unrelated button, and `.confirmationDialog`
+    /// can bridge its actions as either `kAXButtonRole` or `kAXMenuItemRole`, so
+    /// both are tried with the appropriate press/pick. Dialog dismissal is the
+    /// local proof the action fired — distinct from any downstream/server effect.
+    func clickConfirmationDialogButton(dialogText: String, buttonLabel: String) async throws {
+        let identifier = "confirmation-dialog[\(dialogText)]/button[\(buttonLabel)]"
+        let action = try await pollForApplicationDescendantPresent(timeout: TestTimeout.uiElement, identifier: identifier) { app in
+            self.findDialogAction(in: app, dialogText: dialogText, buttonLabel: buttonLabel)
+        }
+        if elementRole(of: action) == kAXMenuItemRole {
+            if let error = Self.classifyContextMenuPressPick(
+                press: AXUIElementPerformAction(action, kAXPressAction as CFString),
+                pick: AXUIElementPerformAction(action, kAXPickAction as CFString),
+                identifier: identifier
+            ) {
+                throw error
+            }
+        } else {
+            try perform(action: kAXPressAction, on: action, identifier: identifier)
+        }
+        try await waitForConfirmationDialogDismissed(dialogText: dialogText)
+    }
+
+    /// Presses the element resolved by `identifier`+`role` (+ optional `label`).
+    /// Use when a control carries an identifier propagated from a SwiftUI
+    /// container onto its leaves — e.g. the room-subject pencil
+    /// (`identifier: "room-subject-view", role: AXButton`, no label, the only
+    /// button with that identifier when not editing) and the inline Save
+    /// (`label: "Save"`, distinguishing it from Cancel in edit mode).
+    func clickElement(identifier: String, role: String, label: String? = nil) async throws {
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.resolveElement(identifier: identifier, role: role, label: label)
+            let qualifier = label.map { "\(identifier)[\(role):\($0)]" } ?? "\(identifier)[\(role)]"
+            try self.perform(action: kAXPressAction, on: element, identifier: qualifier)
+        }
+    }
+
+    /// Focuses the `TextField` resolved by `identifier`+`role` with a real click,
+    /// then types `text` into it via System Events keystrokes without
+    /// re-activating the app. This is the one reliable path for the room-topic
+    /// field: `kAXSetValue` reports success without committing the SwiftUI
+    /// binding the Save button reads, and a focused-element keystroke lands in
+    /// the chat message-field, which wins first responder. The click (raising the
+    /// window and verifying the hit-test so it lands in the field, not an
+    /// occluding sibling window) makes THIS field first responder; `@FocusState`
+    /// has installed its field editor, so the keystrokes commit; and
+    /// `activate: false` keeps re-activation from handing focus back to the
+    /// message-field. The field is empty in edit mode, so no clear step.
+    func focusAndTypeElement(_ text: String, identifier: String, role: String) async throws {
+        let qualifier = "\(identifier)[\(role)]"
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.resolveElement(identifier: identifier, role: role)
+            self.raiseWindow(of: element)
+            await self.ensureFrontmost()
+            guard let point = self.elementCenter(of: element), self.pointHitsSameWindow(as: element, at: point) else {
+                throw TestHarnessError.elementNotFound(identifier: "\(qualifier)/occluded")
+            }
+            self.postClickPair(at: point, clickState: 1)
+            try? await Task.sleep(for: .milliseconds(100))
+            Self.osascriptType(text, clearFirst: false, activate: false)
+        }
+    }
+
+    /// Polls until the element resolved by `identifier`+`role` reports a value
+    /// containing `substring`. The role-aware companion to `waitForDescendant`,
+    /// for asserting on a control that shares a container-propagated identifier
+    /// with siblings of other roles (e.g. the room-subject topic text).
+    func waitForElementValue(
+        containing substring: String,
+        identifier: String,
+        role: String,
+        timeout: Duration = TestTimeout.uiElement
+    ) async throws {
+        do {
+            try await pollUntil(timeout: timeout) {
+                guard let element = try? self.resolveElement(identifier: identifier, role: role) else { return false }
+                return self.elementText(of: element)?.contains(substring) ?? false
+            }
+        } catch TestHarnessError.timeout {
+            log.debug("waitForElementValue timeout (\(timeout)) substring '\(substring)' for '\(identifier)' role '\(role)'")
+            throw TestHarnessError.timeout
+        }
+    }
+
     /// Activates Ducko, raises the named window, makes it main, and points
     /// the application's `kAXFocusedWindowAttribute` at it. Used to bring a
     /// non-key window forward before clicking buttons on a sheet attached
@@ -1079,14 +1403,46 @@ actor AppAccessor {
     }
 
     private func resolveElement(identifier: String) throws -> AXUIElement {
+        try resolveElement(identifier: identifier, matching: { _ in true }, qualifier: identifier)
+    }
+
+    /// Resolves the first element whose `kAXIdentifier` equals `identifier`,
+    /// whose role is `role`, and — when `label` is given — whose
+    /// title/description matches it. SwiftUI on macOS 26 propagates a
+    /// container's `.accessibilityIdentifier` onto every leaf descendant, so
+    /// several elements can share one identifier (e.g. `room-subject-view` is
+    /// carried by both the topic `AXStaticText` and the pencil `AXButton`, and
+    /// in edit mode by the `AXTextField` and the Save/Cancel `AXButton`s). The
+    /// role — and `label` via `segmentLabel` — disambiguates which leaf to
+    /// return.
+    func resolveElement(identifier: String, role: String, label: String? = nil) throws -> AXUIElement {
+        let qualifier = label.map { "\(identifier)[\(role):\($0)]" } ?? "\(identifier)[\(role)]"
+        return try resolveElement(
+            identifier: identifier,
+            matching: { element in
+                self.elementRole(of: element) == role && (label == nil || self.segmentLabel(of: element) == label)
+            },
+            qualifier: qualifier
+        )
+    }
+
+    /// Shared identifier-walk: returns the first windowed descendant whose
+    /// `kAXIdentifier` equals `identifier` and that also satisfies `matching`.
+    /// `qualifier` is the identifier embedded in the thrown `elementNotFound`
+    /// so role/label-qualified lookups report a precise diagnostic.
+    private func resolveElement(
+        identifier: String,
+        matching: (AXUIElement) -> Bool,
+        qualifier: String
+    ) throws -> AXUIElement {
         guard let pid = process?.processIdentifier else {
-            throw TestHarnessError.elementNotFound(identifier: identifier)
+            throw TestHarnessError.elementNotFound(identifier: qualifier)
         }
         let appElement = AXUIElementCreateApplication(pid)
         let predicate: (AXUIElement) -> Bool = { element in
             var value: AnyObject?
             let err = AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &value)
-            return err == .success && (value as? String) == identifier
+            return err == .success && (value as? String) == identifier && matching(element)
         }
         // Scope the walk to the application's windows. SwiftUI accessibility
         // identifiers we resolve always live inside windows (contacts list,
@@ -1131,7 +1487,7 @@ actor AppAccessor {
         if probe == .apiDisabled {
             throw TestHarnessError.axTrustMissing
         }
-        throw TestHarnessError.elementNotFound(identifier: identifier)
+        throw TestHarnessError.elementNotFound(identifier: qualifier)
     }
 
     private func perform(action: String, on element: AXUIElement, identifier: String) throws {
@@ -1296,6 +1652,96 @@ actor AppAccessor {
         })
     }
 
+    /// Finds the first descendant of `container` matching one of `roles` that
+    /// has a `kAXStaticTextRole` descendant whose text contains `substring` —
+    /// the only stable handle to a SwiftUI list row is the text it renders.
+    private func findDescendantRow(
+        in container: AXUIElement,
+        roles: [String],
+        containingSubstring substring: String
+    ) -> AXUIElement? {
+        findDescendant(in: container, roles: roles) { row in
+            self.findDescendant(in: row, role: kAXStaticTextRole, where: { element in
+                self.elementText(of: element)?.contains(substring) ?? false
+            }) != nil
+        }
+    }
+
+    /// Finds the table-row element to right-click for the occupant whose
+    /// nickname contains `substring`. SwiftUI propagates `participant-sidebar`
+    /// onto inner row content, so the `AXRow`/`AXCell` that owns the
+    /// `.contextMenu` is an *ancestor* of the resolved container's static text,
+    /// not a descendant — a downward role search misses it. Find the nickname
+    /// `AXStaticText` first, then walk up to the enclosing row, preferring the
+    /// outer `AXRow` over the inner `AXCell` (the row owns the menu) and falling
+    /// back to whichever of `roles` is nearest.
+    private func findMenuRow(
+        ofTextContaining substring: String,
+        in container: AXUIElement,
+        roles: [String]
+    ) -> AXUIElement? {
+        guard let text = findDescendant(in: container, role: kAXStaticTextRole, where: { element in
+            self.elementText(of: element)?.contains(substring) ?? false
+        }) else {
+            return nil
+        }
+        var fallback: AXUIElement?
+        var current = text
+        for _ in 0 ..< 8 {
+            guard let parent = parentElement(of: current) else { break }
+            if let role = elementRole(of: parent), roles.contains(role) {
+                if role == kAXRowRole { return parent }
+                fallback = fallback ?? parent
+            }
+            current = parent
+        }
+        return fallback
+    }
+
+    private func parentElement(of element: AXUIElement) -> AXUIElement? {
+        var parentValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &parentValue)
+        guard err == .success,
+              let parent = parentValue,
+              CFGetTypeID(parent) == AXUIElementGetTypeID()
+        else {
+            return nil
+        }
+        // CFGetTypeID guard above proves the cast is safe; Swift can't.
+        return unsafeDowncast(parent, to: AXUIElement.self)
+    }
+
+    /// Finds the first `kAXButtonRole` descendant under any of the application's
+    /// windows that satisfies `matches` — reaching a `.confirmationDialog` button
+    /// that renders outside the presenting sheet. Walks windows (not the raw
+    /// application root) so the menu-bar subtree's thousands of XPC-backed nodes
+    /// are skipped — the same scoping `resolveElement` uses.
+    private func findButtonInWindows(where matches: (AXUIElement) -> Bool) -> AXUIElement? {
+        guard let pid = process?.processIdentifier else { return nil }
+        let appElement = AXUIElementCreateApplication(pid)
+        var windowsValue: AnyObject?
+        let err = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsValue)
+        guard err == .success, let windows = windowsValue as? [AXUIElement] else { return nil }
+        for window in windows {
+            if let match = findDescendant(in: window, role: kAXButtonRole, where: matches) {
+                return match
+            }
+        }
+        return nil
+    }
+
+    /// Reads an element's human-visible text, preferring `kAXValueAttribute`
+    /// and falling back to `kAXTitleAttribute`.
+    private func elementText(of element: AXUIElement) -> String? {
+        var value: AnyObject?
+        var err = AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value)
+        if err != .success || (value as? String) == nil {
+            err = AXUIElementCopyAttributeValue(element, kAXTitleAttribute as CFString, &value)
+        }
+        guard err == .success else { return nil }
+        return value as? String
+    }
+
     private func findAncestor(from element: AXUIElement, role: String) -> AXUIElement? {
         var current: AXUIElement = element
         while true {
@@ -1410,6 +1856,48 @@ actor AppAccessor {
         let app = AXUIElementCreateApplication(pid)
         if find(app) == nil { return }
         throw TestHarnessError.timeout
+    }
+
+    /// Finds the action element (`kAXButtonRole` or `kAXMenuItemRole`) labeled
+    /// `buttonLabel` inside the top-level surface whose subtree contains
+    /// `dialogText`. Skips the menu bar.
+    private func findDialogAction(in app: AXUIElement, dialogText: String, buttonLabel: String) -> AXUIElement? {
+        guard let topChildren = readAttribute(app, kAXChildrenAttribute) as? [AXUIElement] else { return nil }
+        for root in topChildren {
+            if (readAttribute(root, kAXRoleAttribute) as? String) == kAXMenuBarRole { continue }
+            let containsDialogText = findDescendant(in: root, role: kAXStaticTextRole) { element in
+                self.elementText(of: element)?.contains(dialogText) ?? false
+            } != nil
+            guard containsDialogText else { continue }
+            if let button = findDescendant(in: root, role: kAXButtonRole, where: { self.segmentLabel(of: $0) == buttonLabel }) {
+                return button
+            }
+            if let item = findDescendant(in: root, role: kAXMenuItemRole, where: {
+                self.segmentLabel(of: $0) == buttonLabel || self.elementText(of: $0) == buttonLabel
+            }) {
+                return item
+            }
+        }
+        return nil
+    }
+
+    /// Polls until no top-level surface contains `dialogText`, confirming the
+    /// confirmation dialog dismissed after its action fired.
+    private func waitForConfirmationDialogDismissed(
+        dialogText: String,
+        timeout: Duration = TestTimeout.uiElement
+    ) async throws {
+        try await pollUntilApplicationDescendantAbsent(timeout: timeout) { app in
+            guard let topChildren = self.readAttribute(app, kAXChildrenAttribute) as? [AXUIElement] else { return nil }
+            for root in topChildren where (self.readAttribute(root, kAXRoleAttribute) as? String) != kAXMenuBarRole {
+                if self.findDescendant(in: root, role: kAXStaticTextRole, where: {
+                    self.elementText(of: $0)?.contains(dialogText) ?? false
+                }) != nil {
+                    return root
+                }
+            }
+            return nil
+        }
     }
 
     private func findContextMenu(in app: AXUIElement) -> AXUIElement? {
@@ -1553,6 +2041,131 @@ actor AppAccessor {
         ) {
             up.setIntegerValueField(.mouseEventClickState, value: clickState)
             up.post(tap: .cghidEventTap)
+        }
+    }
+
+    /// Kind of secondary click used to open a context menu.
+    private enum ContextClickKind {
+        case controlLeft
+        case right
+    }
+
+    /// Opens a context menu at `point` by synthesizing a real secondary click —
+    /// a SwiftUI `List` row's `.contextMenu` does not respond to
+    /// `kAXShowMenuAction` (verified: the action returns but no `kAXMenuRole`
+    /// publishes), unlike the AppKit contact-list table. Tries Control-left then
+    /// right-button, and both event taps, since which combination the SwiftUI
+    /// gesture recognizer observes is not guaranteed; polls for the menu after
+    /// each. Throws if none opens a menu.
+    private func openContextMenu(at point: CGPoint, identifier: String) async throws {
+        let attempts: [(ContextClickKind, CGEventTapLocation)] = [
+            (.controlLeft, .cghidEventTap),
+            (.right, .cghidEventTap),
+            (.controlLeft, .cgSessionEventTap),
+            (.right, .cgSessionEventTap)
+        ]
+        for (kind, tap) in attempts {
+            await postContextClick(kind, at: point, tap: tap)
+            if await (try? waitForShownContextMenu(timeout: .milliseconds(900))) != nil {
+                return
+            }
+        }
+        throw TestHarnessError.elementNotFound(identifier: "\(identifier)/context-menu")
+    }
+
+    /// Posts a single secondary-click `CGEvent` sequence at `point`: move →
+    /// settle → down → hold → up. The move/settle updates hover/hit-test state
+    /// before the press, which a bare down/up pair on the same tick skips.
+    private func postContextClick(
+        _ kind: ContextClickKind,
+        at point: CGPoint,
+        tap: CGEventTapLocation
+    ) async {
+        if let move = CGEvent(
+            mouseEventSource: nil,
+            mouseType: .mouseMoved,
+            mouseCursorPosition: point,
+            mouseButton: .left
+        ) {
+            move.post(tap: tap)
+        }
+        try? await Task.sleep(for: .milliseconds(150))
+
+        let downType: CGEventType = kind == .right ? .rightMouseDown : .leftMouseDown
+        let upType: CGEventType = kind == .right ? .rightMouseUp : .leftMouseUp
+        let button: CGMouseButton = kind == .right ? .right : .left
+        guard let down = CGEvent(mouseEventSource: nil, mouseType: downType, mouseCursorPosition: point, mouseButton: button),
+              let up = CGEvent(mouseEventSource: nil, mouseType: upType, mouseCursorPosition: point, mouseButton: button)
+        else {
+            return
+        }
+        if kind == .controlLeft {
+            down.flags = [.maskControl]
+            up.flags = [.maskControl]
+        }
+        down.setIntegerValueField(.mouseEventClickState, value: 1)
+        up.setIntegerValueField(.mouseEventClickState, value: 1)
+        down.post(tap: tap)
+        try? await Task.sleep(for: .milliseconds(120))
+        up.post(tap: tap)
+    }
+
+    /// The accessibility element the WindowServer reports as topmost at screen
+    /// `point`. Used to verify a synthetic click will land in the intended
+    /// window rather than an overlapping one — AX reads and `kAXPressAction`
+    /// ignore occlusion, but CGEvent mouse clicks are visually hit-tested.
+    private func elementAtScreenPosition(_ point: CGPoint) -> AXUIElement? {
+        let system = AXUIElementCreateSystemWide()
+        var hit: AXUIElement?
+        let err = AXUIElementCopyElementAtPosition(system, Float(point.x), Float(point.y), &hit)
+        guard err == .success else { return nil }
+        return hit
+    }
+
+    /// Returns true when `point` hit-tests into the same window that owns
+    /// `target` — i.e. a synthetic click there will reach `target`, not an
+    /// occluding sibling window.
+    private func pointHitsSameWindow(as target: AXUIElement, at point: CGPoint) -> Bool {
+        guard let targetWindow = findAncestor(from: target, role: kAXWindowRole),
+              let hit = elementAtScreenPosition(point),
+              let hitWindow = findAncestor(from: hit, role: kAXWindowRole)
+        else {
+            return false
+        }
+        return hitWindow == targetWindow
+    }
+
+    /// Minimizes or restores the window whose title contains `title`. Used to
+    /// move the pinned Contacts window out of the way before a synthetic click
+    /// into the Chat window, since AppKit hit-tests CGEvent clicks against the
+    /// topmost window at the point and Contacts can overlap the Chat sidebar.
+    func setWindowMinimized(named title: String, _ minimized: Bool) async throws {
+        let identifier = "window[\(title)]"
+        try await retryOnStaleElement(identifier: identifier) {
+            guard let pid = self.process?.processIdentifier else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+            let app = AXUIElementCreateApplication(pid)
+            var windowsValue: AnyObject?
+            let err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windowsValue)
+            guard err == .success, let windows = windowsValue as? [AXUIElement] else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+            guard let window = windows.first(where: { window in
+                var titleValue: AnyObject?
+                let titleErr = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
+                return titleErr == .success && (titleValue as? String)?.contains(title) == true
+            }) else {
+                throw TestHarnessError.elementNotFound(identifier: identifier)
+            }
+            let setErr = AXUIElementSetAttributeValue(
+                window,
+                kAXMinimizedAttribute as CFString,
+                minimized ? kCFBooleanTrue : kCFBooleanFalse
+            )
+            if let error = Self.mapPerformError(setErr, identifier: identifier, action: kAXMinimizedAttribute) {
+                throw error
+            }
         }
     }
 

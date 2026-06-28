@@ -5,9 +5,10 @@ struct RoomSubjectView: View {
     let windowState: ChatWindowState
     @State private var isEditing = false
     @State private var editText = ""
+    @FocusState private var isTopicFieldFocused: Bool
 
     private var subject: String? {
-        windowState.conversation?.roomSubject
+        windowState.roomSubject
     }
 
     var body: some View {
@@ -15,6 +16,8 @@ struct RoomSubjectView: View {
             if isEditing {
                 TextField("Room topic", text: $editText)
                     .textFieldStyle(.roundedBorder)
+                    .focused($isTopicFieldFocused)
+                    .onAppear { isTopicFieldFocused = true }
 
                 Button("Save") {
                     let text = editText.trimmingCharacters(in: .whitespacesAndNewlines)

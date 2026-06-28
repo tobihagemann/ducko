@@ -1,8 +1,8 @@
-import DuckoCore
 import DuckoTestSupport
 import DuckoXMPP
 import Foundation
 import Testing
+@testable import DuckoCore
 @testable import DuckoUI
 
 @MainActor
@@ -143,5 +143,41 @@ struct ChatWindowStateTests {
         fixture.windowState.clearSendError()
 
         #expect(fixture.windowState.lastSendError == nil)
+    }
+
+    @Test func `roomSubject reflects a live service-side change, not the stale load-time copy`() async throws {
+        let store = MockPersistenceStore()
+        let transcripts = MockTranscriptStore()
+        let roomJIDString = "room@conference.example.com"
+        let roomJID = try #require(BareJID.parse(roomJIDString))
+        let aliceJID = try #require(BareJID.parse("alice@example.com"))
+        let account = Account(id: UUID(), jid: aliceJID, isEnabled: true, connectOnLaunch: false, createdAt: Date())
+        await store.addAccount(account)
+        await store.addConversation(Conversation(
+            id: UUID(),
+            accountID: account.id,
+            jid: roomJID,
+            type: .groupchat,
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            createdAt: Date()
+        ))
+
+        let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
+        try await environment.accountService.loadAccounts()
+        let windowState = ChatWindowState(jidString: roomJIDString, accountID: account.id, environment: environment)
+        await windowState.load()
+        #expect(windowState.roomSubject == nil)
+
+        // A server-driven subject change updates the service's published cache.
+        await environment.chatService.handleEvent(
+            .roomSubjectChanged(room: roomJID, subject: "Daily standup", setter: nil),
+            accountID: account.id
+        )
+
+        // roomSubject must read the live cache, while the frozen load-time copy stays nil.
+        #expect(windowState.roomSubject == "Daily standup")
+        #expect(windowState.conversation?.roomSubject == nil)
     }
 }

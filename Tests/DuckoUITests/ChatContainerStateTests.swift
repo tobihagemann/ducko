@@ -1,8 +1,8 @@
-import DuckoCore
 import DuckoTestSupport
 import DuckoXMPP
 import Foundation
 import Testing
+@testable import DuckoCore
 @testable import DuckoUI
 
 @MainActor
@@ -47,6 +47,60 @@ struct ChatContainerStateTests {
 
     private func key(_ jid: String, _ accountID: UUID) -> ConversationKey {
         ConversationKey(accountID: accountID, jid: jid)
+    }
+
+    private struct PruneFixture {
+        let container: ChatContainerState
+        let environment: AppEnvironment
+        let account: Account
+        let roomJID: BareJID
+        let roomJIDString = "room@conference.example.com"
+    }
+
+    /// Builds a container with a single groupchat conversation seeded in the store,
+    /// for the `pruneClosedConversations` tests.
+    private static func makePruneFixture() async throws -> PruneFixture {
+        let store = MockPersistenceStore()
+        let transcripts = MockTranscriptStore()
+        let account = try Account(
+            id: UUID(),
+            jid: #require(BareJID.parse("alice@example.com")),
+            isEnabled: true,
+            connectOnLaunch: false,
+            createdAt: Date()
+        )
+        await store.addAccount(account)
+        let roomJID = try #require(BareJID.parse("room@conference.example.com"))
+        await store.addConversation(Conversation(
+            id: UUID(),
+            accountID: account.id,
+            jid: roomJID,
+            type: .groupchat,
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            createdAt: Date()
+        ))
+        let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
+        try await environment.accountService.loadAccounts()
+        return PruneFixture(
+            container: ChatContainerState(environment: environment),
+            environment: environment,
+            account: account,
+            roomJID: roomJID
+        )
+    }
+
+    /// Opens a tab and drains `open()`'s background load Task: it polls until the
+    /// tab's conversation resolves, so a later destroy can't race the in-flight
+    /// `findOrCreateConversation` (which would otherwise recreate the row).
+    private func openAndAwaitLoad(_ container: ChatContainerState, _ jid: String, _ accountID: UUID) async {
+        container.open(jid, accountID: accountID)
+        for _ in 0 ..< 1000 {
+            if container.state(for: key(jid, accountID))?.conversation != nil { return }
+            await Task.yield()
+        }
+        Issue.record("tab \(jid) did not finish loading within budget")
     }
 
     @Test func `open appends a tab and selects it`() async throws {
@@ -163,5 +217,61 @@ struct ChatContainerStateTests {
         container.open("bob@example.com", accountID: id)
 
         #expect(container.orderedTabs == [key("bob@example.com", id)])
+    }
+
+    @Test func `pruneClosedConversations closes a tab whose conversation was deleted`() async throws {
+        let fixture = try await Self.makePruneFixture()
+        let container = fixture.container
+        let id = fixture.account.id
+        let peerJIDString = "bob@example.com"
+        await openAndAwaitLoad(container, fixture.roomJIDString, id)
+        await openAndAwaitLoad(container, peerJIDString, id)
+        #expect(container.orderedTabs.count == 2)
+
+        // Destroying the room removes it from the service's `openConversations`.
+        await fixture.environment.chatService.handleEvent(
+            .roomDestroyed(room: fixture.roomJID, reason: nil, alternateVenue: nil),
+            accountID: id
+        )
+        container.pruneClosedConversations()
+
+        // The room tab is gone; the still-live 1:1 tab stays.
+        #expect(container.orderedTabs == [key(peerJIDString, id)])
+        #expect(container.state(for: key(fixture.roomJIDString, id)) == nil)
+    }
+
+    @Test func `pruneClosedConversations closing the selected tab selects a neighbor`() async throws {
+        let fixture = try await Self.makePruneFixture()
+        let container = fixture.container
+        let id = fixture.account.id
+        let peerJIDString = "bob@example.com"
+        await openAndAwaitLoad(container, fixture.roomJIDString, id)
+        await openAndAwaitLoad(container, peerJIDString, id)
+        container.select(key(fixture.roomJIDString, id))
+        #expect(container.selectedKey == key(fixture.roomJIDString, id))
+
+        await fixture.environment.chatService.handleEvent(
+            .roomDestroyed(room: fixture.roomJID, reason: nil, alternateVenue: nil),
+            accountID: id
+        )
+        container.pruneClosedConversations()
+
+        // The selected room tab is pruned; selection falls to the surviving tab.
+        #expect(container.orderedTabs == [key(peerJIDString, id)])
+        #expect(container.selectedKey == key(peerJIDString, id))
+    }
+
+    @Test func `pruneClosedConversations leaves a still-loading tab alone`() async throws {
+        let fixture = try await Self.makePruneFixture()
+        let container = fixture.container
+        let id = fixture.account.id
+
+        // `open` loads on a background Task; pruning synchronously — before any
+        // await lets that load run — sees a nil conversation and must NOT close
+        // the freshly opened tab (it isn't in `openConversations` yet).
+        container.open(fixture.roomJIDString, accountID: id)
+        #expect(container.state(for: key(fixture.roomJIDString, id))?.conversation == nil)
+        container.pruneClosedConversations()
+        #expect(container.orderedTabs == [key(fixture.roomJIDString, id)])
     }
 }

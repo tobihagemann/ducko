@@ -97,6 +97,13 @@ public actor MockPersistenceStore: PersistenceStore {
         }
     }
 
+    @discardableResult
+    public func updateConversationIfExists(_ conversation: Conversation) async throws -> Bool {
+        guard let index = conversations.firstIndex(where: { $0.id == conversation.id }) else { return false }
+        conversations[index] = conversation
+        return true
+    }
+
     public func fetchAllConversations() async throws -> [Conversation] {
         conversations
     }
@@ -105,6 +112,10 @@ public actor MockPersistenceStore: PersistenceStore {
         guard let index = conversations.firstIndex(where: { $0.id == conversationID }) else { return }
         conversations[index].unreadCount = 0
         conversations[index].lastReadTimestamp = Date()
+    }
+
+    public func deleteConversation(_ conversationID: UUID) async throws {
+        conversations.removeAll { $0.id == conversationID }
     }
 
     // MARK: - Account Cleanup

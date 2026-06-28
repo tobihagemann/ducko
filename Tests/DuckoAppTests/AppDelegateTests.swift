@@ -35,11 +35,17 @@ private struct EmptyPersistenceStore: PersistenceStore {
     }
 
     func upsertConversation(_: Conversation) async throws {}
+    @discardableResult
+    func updateConversationIfExists(_: Conversation) async throws -> Bool {
+        false
+    }
+
     func fetchAllConversations() async throws -> [Conversation] {
         []
     }
 
     func markConversationRead(_: UUID) async throws {}
+    func deleteConversation(_: UUID) async throws {}
     func unlinkConversations(for _: UUID, restoreImportSourceJID _: String) async throws {}
     func deleteConversations(for _: UUID) async throws {}
     func deleteContacts(for _: UUID) async throws {}

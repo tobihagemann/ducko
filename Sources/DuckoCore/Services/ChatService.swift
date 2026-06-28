@@ -189,6 +189,15 @@ public final class ChatService {
         rebuildOpenConversations()
     }
 
+    /// Drops a single conversation from its owning account's slot and republishes. The no-op
+    /// guard keeps the union rebuild off the hot path when the id isn't cached (e.g. a destroyed
+    /// room that was never open).
+    private func removeCachedConversation(id: UUID, accountID: UUID) {
+        guard conversationsByAccount[accountID]?.contains(where: { $0.id == id }) == true else { return }
+        conversationsByAccount[accountID]?.removeAll { $0.id == id }
+        rebuildOpenConversations()
+    }
+
     /// Rebuilds the published `openConversations` as the union of every cached account slot, sorted
     /// most-recent-first to match the per-account `store.fetchConversations` order (a bare
     /// `Dictionary.values` union has no defined order, which would reshuffle the rooms list on every
@@ -1387,7 +1396,7 @@ public final class ChatService {
         case let .roomInviteReceived(invite):
             handleRoomInviteReceived(invite, accountID: accountID)
         case let .roomDestroyed(room, _, _):
-            clearRoomState(for: room, accountID: accountID)
+            await handleRoomDestroyed(room: room, accountID: accountID)
         case let .mucSelfPingFailed(room, reason):
             await handleMUCSelfPingFailed(room: room, reason: reason, accountID: accountID)
         case let .disconnected(reason):
@@ -1868,6 +1877,23 @@ public final class ChatService {
         onIncomingMessage?(message, conversation)
     }
 
+    /// Handles a destroyed room: clears live room state and removes the
+    /// conversation's transcript, its store record, and the cached
+    /// `openConversations` (which the contact list and chat tabs observe), so the
+    /// room stops lingering after destruction. `clearRoomState` alone only drops
+    /// live occupancy/flags. The transcript is deleted *before* the record so that
+    /// a failed transcript delete leaves the record in place — keeping the JSONL
+    /// reachable by the account-purge sweep (`deleteTranscriptsForAccount`) for
+    /// retry, rather than orphaning it.
+    private func handleRoomDestroyed(room: BareJID, accountID: UUID) async {
+        clearRoomState(for: room, accountID: accountID)
+        let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
+        guard let conversation = conversations.first(where: { $0.jid == room && $0.type == .groupchat }) else { return }
+        try? await transcripts.deleteTranscripts(for: conversation.id)
+        try? await store.deleteConversation(conversation.id)
+        removeCachedConversation(id: conversation.id, accountID: accountID)
+    }
+
     private func handleRoomSubjectChanged(room: BareJID, subject: String?, accountID: UUID) async {
         let conversations = await (try? store.fetchConversations(for: accountID)) ?? []
         guard var conversation = conversations.first(where: { $0.jid == room && $0.type == .groupchat }) else { return }
@@ -1893,10 +1919,13 @@ public final class ChatService {
                 guard let self else { return }
                 var updated = conversation
                 updated.roomNickname = occupant.nickname
-                try? await store.upsertConversation(updated)
-                if let fetched = try? await store.fetchConversations(for: accountID) {
-                    setConversations(fetched, for: accountID)
-                }
+                // Conditional update, not upsert: a `.roomDestroyed` could have
+                // deleted this room while we awaited — never resurrect it.
+                guard await (try? store.updateConversationIfExists(updated)) == true else { return }
+                // Mirror the store guard in the cache: `updateCachedConversation`
+                // no-ops when the slot is already gone, so a wholesale republish
+                // can't re-insert a concurrently destroyed room into `openConversations`.
+                updateCachedConversation(updated)
             }
         }
     }
@@ -2456,11 +2485,23 @@ public final class ChatService {
                 let newMessages = try await convertAndDedup(
                     archived: archived, conversation: conversation, accountJID: accountJID
                 )
+                // `convertAndDedup` appended the archived rows to the transcript across
+                // several awaits. If the room was destroyed during the MAM round-trip or
+                // those appends, delete the transcript it recreated rather than leave an
+                // orphaned JSONL the account-purge sweep can no longer reach. Checked
+                // after the appends so no transcript write can follow it; the metadata
+                // write below is guarded separately by `updateConversationIfExists`.
+                guard try await store.fetchConversations(for: accountID).contains(where: { $0.id == conversation.id }) else {
+                    try? await transcripts.deleteTranscripts(for: conversation.id)
+                    continue
+                }
                 if let lastMessage = newMessages.last {
                     var updated = conversation
                     updated.lastMessageDate = lastMessage.timestamp
                     updated.lastMessagePreview = String(lastMessage.body.prefix(100))
-                    try await store.upsertConversation(updated)
+                    // Conditional update, not upsert: the conversation may have been
+                    // destroyed during this MAM round-trip — don't recreate it.
+                    try await store.updateConversationIfExists(updated)
                 }
             }
             try await setConversations(store.fetchConversations(for: accountID), for: accountID)

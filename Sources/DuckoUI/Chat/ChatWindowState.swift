@@ -25,6 +25,15 @@ public final class ChatWindowState {
         return environment.chatService.openConversations.first { $0.id == conversationID }?.unreadCount ?? 0
     }
 
+    /// Live room subject from the service, not the value-type `conversation` copy
+    /// (which is set once at `load()` and never refreshed when the subject
+    /// changes). Mirrors `unreadCount` — without it, a subject edit never
+    /// reflects in the header.
+    var roomSubject: String? {
+        guard let conversationID = conversation?.id else { return nil }
+        return environment.chatService.openConversations.first { $0.id == conversationID }?.roomSubject
+    }
+
     // MARK: - Composer Draft
 
     /// The composer's live text, retained per-tab so switching conversations in the

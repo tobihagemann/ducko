@@ -82,6 +82,23 @@ public final class ChatContainerState {
         isShowingNewChat = true
     }
 
+    /// Closes any open tab whose backing conversation no longer exists in the
+    /// service — e.g. a destroyed MUC room that `ChatService.handleRoomDestroyed`
+    /// removed from `openConversations` — so a deleted conversation can't linger
+    /// as a usable tab. Tabs still mid-`load()` (nil conversation) are left alone;
+    /// they aren't in `openConversations` yet but aren't stale either. Driven by
+    /// `ChatContainerView` observing `chatService.openConversations`.
+    public func pruneClosedConversations() {
+        let liveIDs = Set(environment.chatService.openConversations.map(\.id))
+        let stale = orderedTabs.filter { key in
+            guard let id = states[key]?.conversation?.id else { return false }
+            return !liveIDs.contains(id)
+        }
+        for key in stale {
+            close(key)
+        }
+    }
+
     // MARK: - Activation
 
     /// Bumped on every activation request. A stale activation still mid-`await` when the

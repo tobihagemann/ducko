@@ -222,6 +222,113 @@ enum ChatServiceMUCTests {
 
         @Test
         @MainActor
+        func `roomDestroyed removes the conversation from the store and openConversations`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            let occupancy = RoomOccupancy(
+                nickname: "me",
+                occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                subject: nil
+            )
+            await service.handleEvent(
+                .roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: true),
+                accountID: testAccountID
+            )
+            // Populate the published cache the contact list and chat tabs observe.
+            try await service.loadConversations(for: testAccountID)
+            let beforeStore = try await store.fetchConversations(for: testAccountID)
+            let conversation = try #require(beforeStore.first { $0.jid == testRoomJID })
+            #expect(service.openConversations.contains { $0.jid == testRoomJID && $0.type == .groupchat })
+
+            // Seed a transcript so destruction's transcript cleanup is observable.
+            try await transcripts.appendMessage(ChatMessage(
+                id: UUID(),
+                conversationID: conversation.id,
+                fromJID: "other",
+                body: "history",
+                timestamp: Date(),
+                isOutgoing: false,
+                isDelivered: true,
+                isEdited: false,
+                type: "groupchat"
+            ))
+            let beforeMessages = try await transcripts.fetchMessages(for: conversation.id, before: nil, limit: 50)
+            #expect(beforeMessages.count == 1)
+
+            await service.handleEvent(
+                .roomDestroyed(room: testRoomJID, reason: nil, alternateVenue: nil),
+                accountID: testAccountID
+            )
+
+            let afterStore = try await store.fetchConversations(for: testAccountID)
+            #expect(afterStore.isEmpty)
+            #expect(!service.openConversations.contains { $0.jid == testRoomJID })
+            // The transcript is torn down alongside the record, not orphaned.
+            let afterMessages = try await transcripts.fetchMessages(for: conversation.id, before: nil, limit: 50)
+            #expect(afterMessages.isEmpty)
+        }
+
+        /// Locks the call-site resurrection guard: a `.roomOccupantNickChanged`
+        /// whose deferred self-nick update task runs *after* the room was destroyed
+        /// must not re-insert the conversation. Deleting from the store while the
+        /// cache still holds the room reproduces the post-capture/pre-update window
+        /// the `updateConversationIfExists` guard closes; a regression to
+        /// `upsertConversation` would resurrect the row and fail this test.
+        @Test
+        @MainActor
+        func `self-nick update does not resurrect a concurrently destroyed room`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            let occupancy = RoomOccupancy(
+                nickname: "me",
+                occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                subject: nil
+            )
+            await service.handleEvent(
+                .roomJoined(room: testRoomJID, occupancy: occupancy, isNewlyCreated: true),
+                accountID: testAccountID
+            )
+            try await service.loadConversations(for: testAccountID)
+            let conversation = try #require(
+                try await store.fetchConversations(for: testAccountID).first { $0.jid == testRoomJID }
+            )
+
+            // Delete from the store only, leaving the live cache intact — the
+            // window where in-flight async work still holds the room.
+            try await store.deleteConversation(conversation.id)
+
+            // The self-nick change spawns the deferred update task (cache still has "me").
+            await service.handleEvent(
+                .roomOccupantNickChanged(
+                    room: testRoomJID,
+                    oldNickname: "me",
+                    occupant: RoomOccupant(nickname: "me2", affiliation: .owner, role: .moderator)
+                ),
+                accountID: testAccountID
+            )
+            // The self-nick change must have spawned the deferred update task;
+            // a vacuously-empty drain would let this test pass without exercising
+            // the guard at all.
+            let pending = service.takePendingTasks()
+            #expect(!pending.isEmpty)
+            for task in pending {
+                await task.value
+            }
+
+            // The guard saw the missing store row and returned false: the deleted
+            // conversation was not re-inserted. (The in-memory cache deliberately
+            // still holds the room here — this isolates the store-write guard; the
+            // full `handleRoomDestroyed` path is what clears the cache.)
+            let afterStore = try await store.fetchConversations(for: testAccountID)
+            #expect(afterStore.isEmpty)
+        }
+
+        @Test
+        @MainActor
         func `disconnect clears all three room maps`() async {
             let store = makeStore()
             let transcripts = makeTranscripts()
