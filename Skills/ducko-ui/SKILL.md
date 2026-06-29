@@ -707,6 +707,42 @@ $SCRIPTS/ducko-screenshot.sh "room-left.png"
 $SCRIPTS/ducko-stop.sh
 ```
 
+### Live-update (cross-driver) test
+
+Verifies that an **open** chat/room window reflects server-pushed changes (subject, participant list, presence) **live, without reopening the tab** — by driving a second occupant from `DuckoCLI` while the GUI stays joined. This exercises the live-read path that backs the chat header, window title, and participant sidebar.
+
+```bash
+SCRIPTS="Skills/ducko-ui/scripts"
+
+# 0. One-time: configure account B in its OWN profile (a fresh DUCKO_PROFILE has no account,
+#    and `interactive` needs one). See the ducko-cli skill for `account add` flags.
+DUCKO_PROFILE=clibot .build/debug/DuckoCLI account add ...
+
+# 1. GUI joins the room as account A and stays on the tab
+$SCRIPTS/ducko-launch.sh
+$SCRIPTS/ducko-join-room.sh "room@conference.example.com" "observer"
+$SCRIPTS/ducko-screenshot.sh "live-before.png"   # header shows e.g. "1 participant"
+
+# 2. Account B (a DISTINCT account, its own DUCKO_PROFILE) joins from the CLI as a second occupant.
+#    The REPL supports /join <room-jid> [nick], /topic <subject>, /nick <newnick>.
+#    Needs dangerouslyDisableSandbox (raw TCP + writes under ~/Library/Application Support).
+printf '/join room@conference.example.com clibot\n' \
+  | DUCKO_PROFILE=clibot .build/debug/DuckoCLI interactive
+
+# 3. Bring DuckoApp frontmost WITHOUT relaunching (CSI active flushes queued pushes), then screenshot.
+#    Do NOT use ducko-launch.sh here — it kills and relaunches, destroying the joined tab.
+osascript -e 'tell application "System Events" to set frontmost of process "DuckoApp" to true'
+$SCRIPTS/ducko-screenshot.sh "live-after.png"
+# Assert: header participant count 1 -> 2 and the sidebar lists clibot — live, no tab reopen.
+
+# 4. Cleanup
+$SCRIPTS/ducko-stop.sh
+```
+
+- **The GUI must be frontmost while observing.** DuckoApp sends XEP-0352 `CSI inactive` whenever it is not the frontmost app, and the server then **queues** MUC presence/subject pushes, flushing them only on `CSI active`. A background-driven observation sees a stale header/subject and wrongly concludes the live-read is broken — activate the app (`set frontmost`) before screenshotting; do not relaunch.
+- **Subject-change variant.** Ad-hoc MUC rooms restrict `/topic` to moderators, so the first occupant to join a fresh room owns it. To test a live subject update, have account B join the empty room **first** (becoming owner) and keep its REPL session open while the GUI joins as a guest, then issue `/topic <subject>` and assert `room-subject-view` updates live. Participant-count and presence updates (above) need no ownership and work from any second occupant.
+- Use a **separate `DUCKO_PROFILE`** for the CLI account so its credentials and SwiftData don't collide with the GUI profile.
+
 ### File attachment test (full)
 
 Tests attaching and sending a file:
@@ -775,6 +811,7 @@ To allow these scripts in `settings.local.json` without prompts:
 
 - Scripts use `keystroke` (not `set value`) to trigger SwiftUI bindings.
 - App activation uses `set frontmost of process` (works with SwiftPM builds).
+- When the app is **not frontmost** it sends XEP-0352 `CSI inactive`, and the server queues MUC presence/subject pushes until `CSI active` — so verifying any **live** update (subject, participant count, presence) requires the app frontmost first, or the observation reads stale.
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
 - Element targeting uses recursive UI-element-tree walks (`findByAttr` and siblings) rather than `entire contents`, which silently collapses on the deeply-nested SwiftUI / NSTableView accessibility trees on macOS 26 (contact/room rows, the Welcome window, chat transcript, profile/room-settings sheets). Helper-consumer scripts share these handlers via `ducko-helpers.sh`'s `ducko_as_handlers`; quoted-heredoc scripts (the Welcome family, profile/room-settings, etc.) inline the same handler — mirroring `ducko-select-mode.sh` — because a quoted heredoc can't expand `$(...)`. Scripts whose targets are shallow (small sheets like New Chat, Add Contact, Join Room) still use `entire contents` where it reliably reaches them. SwiftUI segmented `Picker` segments and Room Settings tabs expose their label via `AXDescription` (not `name`/`AXTitle`), so they are matched on that.
 - The scripts marked best-effort in the Script Reference table (`ducko-status.sh`, `ducko-chat-tabs.sh`, `ducko-connection-info.sh`, `ducko-change-password.sh`) hit osascript limitations covered authoritatively by the integration suite instead; each table row names the specific control and test.
