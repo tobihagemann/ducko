@@ -81,6 +81,14 @@ struct ContactListSizingTests {
         #expect(width == 280)
     }
 
+    @Test func `fittedWidth rounds a fractional measurement up`() {
+        // 100.2 rounds up to 101, + 40 + 70 = 211, within [200, 280].
+        let width = ContactListSizing.fittedWidth(
+            maxNameWidth: 100.2, avatarSize: 40, rowChrome: 70, floorWidth: 200, maxWidth: 280
+        )
+        #expect(width == 211)
+    }
+
     // MARK: - fittedHeight
 
     @Test func `fittedHeight returns the fallback when nothing has been measured`() {

@@ -509,13 +509,13 @@ struct ContactListTableView: NSViewRepresentable {
             let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
             let attributes: [NSAttributedString.Key: Any] = [.font: font]
             let maxNameWidth = names.reduce(CGFloat(0)) { max($0, ($1 as NSString).size(withAttributes: attributes).width) }
-            return CGFloat(ContactListSizing.fittedWidth(
-                maxNameWidth: Double(maxNameWidth),
-                avatarSize: Double(avatarSize),
-                rowChrome: Double(ContactListWidthMetrics.rowChrome),
-                floorWidth: Double(ContactListWidthMetrics.floor),
-                maxWidth: Double(maxWidth)
-            ))
+            return ContactListSizing.fittedWidth(
+                maxNameWidth: maxNameWidth,
+                avatarSize: avatarSize,
+                rowChrome: ContactListWidthMetrics.rowChrome,
+                floorWidth: ContactListWidthMetrics.floor,
+                maxWidth: maxWidth
+            )
         }
 
         private func measuringName(for contact: Contact, environment: AppEnvironment) -> String {
@@ -614,11 +614,11 @@ struct ContactListTableView: NSViewRepresentable {
         private func targetListHeight(measuredHeights: [CGFloat], totalRowCount: Int, flatRowHeight: CGFloat) -> CGFloat {
             let overflowing = totalRowCount > maxMeasuredRows
             let measured = overflowing ? 0 : measuredHeights.reduce(0, +)
-            return CGFloat(ContactListSizing.fittedHeight(
-                measuredHeight: Double(measured),
-                fallbackHeight: Double(CGFloat(totalRowCount) * flatRowHeight),
-                maxHeight: Double(maxListHeight)
-            ))
+            return ContactListSizing.fittedHeight(
+                measuredHeight: measured,
+                fallbackHeight: CGFloat(totalRowCount) * flatRowHeight,
+                maxHeight: maxListHeight
+            )
         }
 
         // MARK: - Cell content

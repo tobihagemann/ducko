@@ -16,12 +16,12 @@ public enum ContactListSizing {
     /// never above `maxWidth`) and the user's clamped Maximum Width. Returns the
     /// floor when nothing has been measured yet (`maxNameWidth <= 0`).
     public static func fittedWidth(
-        maxNameWidth: Double,
-        avatarSize: Double,
-        rowChrome: Double,
-        floorWidth: Double,
-        maxWidth: Double
-    ) -> Double {
+        maxNameWidth: CGFloat,
+        avatarSize: CGFloat,
+        rowChrome: CGFloat,
+        floorWidth: CGFloat,
+        maxWidth: CGFloat
+    ) -> CGFloat {
         let floor = min(floorWidth, maxWidth)
         guard maxNameWidth > 0 else { return floor }
         let needed = maxNameWidth.rounded(.up) + avatarSize + rowChrome
@@ -32,7 +32,7 @@ public enum ContactListSizing {
     /// Returns the `fallbackHeight` (the flat estimate) clamped at `maxHeight`
     /// when nothing valid has been measured yet (`measuredHeight <= 0` or
     /// non-finite). Rounds up to avoid sub-point churn driving needless resizes.
-    public static func fittedHeight(measuredHeight: Double, fallbackHeight: Double, maxHeight: Double) -> Double {
+    public static func fittedHeight(measuredHeight: CGFloat, fallbackHeight: CGFloat, maxHeight: CGFloat) -> CGFloat {
         guard measuredHeight.isFinite, measuredHeight > 0 else { return min(fallbackHeight, maxHeight) }
         return min(measuredHeight.rounded(.up), maxHeight)
     }
