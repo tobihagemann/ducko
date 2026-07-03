@@ -2181,17 +2181,7 @@ private func handleTopicREPLCommand(
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }
 
-    let parts = args.split(separator: " ", maxSplits: 1)
-    // If first part looks like a JID and there are more parts, treat as: /topic <room> <text>
-    let roomJID: String
-    let subject: String
-    if parts.count > 1, BareJID.parse(String(parts[0])) != nil {
-        roomJID = String(parts[0])
-        subject = String(parts[1])
-    } else if let current = currentRoom {
-        roomJID = current
-        subject = args
-    } else {
+    guard let (roomJID, subject) = parseTopicArgs(args, currentRoom: currentRoom) else {
         print(formatter.formatError(CLIError.noRoomSpecified))
         return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
     }

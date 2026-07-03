@@ -89,3 +89,42 @@ struct TransferMethodParsingTests {
         }
     }
 }
+
+// MARK: - SendFileArgsParsingTests
+
+struct SendFileArgsParsingTests {
+    @Test func `leading JID and path targets that recipient`() {
+        let target = parseSendFileArgs("alice@example.com /tmp/photo.jpg", currentRoom: nil)
+        #expect(target == .send(jidString: "alice@example.com", filePath: "/tmp/photo.jpg"))
+    }
+
+    @Test func `leading JID wins over current room`() {
+        let target = parseSendFileArgs("alice@example.com /tmp/photo.jpg", currentRoom: "room@conference.example.com")
+        #expect(target == .send(jidString: "alice@example.com", filePath: "/tmp/photo.jpg"))
+    }
+
+    @Test func `domain-only leading token is part of the path for current room`() {
+        let target = parseSendFileArgs("example.com /tmp/photo.jpg", currentRoom: "room@conference.example.com")
+        #expect(target == .send(jidString: "room@conference.example.com", filePath: "example.com /tmp/photo.jpg"))
+    }
+
+    @Test func `bare leading word is part of the path for current room`() {
+        let target = parseSendFileArgs("Live /tmp/photo.jpg", currentRoom: "room@conference.example.com")
+        #expect(target == .send(jidString: "room@conference.example.com", filePath: "Live /tmp/photo.jpg"))
+    }
+
+    @Test func `filename only sends to current room`() {
+        let target = parseSendFileArgs("photo.jpg", currentRoom: "room@conference.example.com")
+        #expect(target == .send(jidString: "room@conference.example.com", filePath: "photo.jpg"))
+    }
+
+    @Test func `lone JID reports missing path`() {
+        let target = parseSendFileArgs("alice@example.com", currentRoom: "room@conference.example.com")
+        #expect(target == .missingPath)
+    }
+
+    @Test func `path only with no current room has no target`() {
+        let target = parseSendFileArgs("photo.jpg", currentRoom: nil)
+        #expect(target == .noTarget)
+    }
+}

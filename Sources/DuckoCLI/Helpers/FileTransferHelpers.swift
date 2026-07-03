@@ -71,6 +71,28 @@ func finishTransferProgress(formatter: any CLIFormatter) {
     }
 }
 
+enum SendFileTarget: Equatable {
+    case send(jidString: String, filePath: String)
+    case missingPath
+    case noTarget
+}
+
+/// Resolves a non-empty `/sendfile` argument into a send target. A leading
+/// `localpart@domain` token (a bare JID addressing a user or room) selects that
+/// recipient explicitly; a lone such JID means the path is missing; anything else —
+/// including a bare word or a filename like "photo.jpg" — is a path for `currentRoom`.
+func parseSendFileArgs(_ args: String, currentRoom: String?) -> SendFileTarget {
+    let parts = args.split(separator: " ", maxSplits: 1)
+    if parts.count == 2, JIDValidation.isValidUserOrRoomJID(String(parts[0])) {
+        return .send(jidString: String(parts[0]), filePath: String(parts[1]))
+    }
+    if parts.count == 1, JIDValidation.isValidUserOrRoomJID(args) {
+        return .missingPath
+    }
+    guard let currentRoom else { return .noTarget }
+    return .send(jidString: currentRoom, filePath: args)
+}
+
 func handleSendFileREPLCommand(
     _ input: String, context: REPLContext, currentRoom: String?
 ) async {
@@ -80,23 +102,16 @@ func handleSendFileREPLCommand(
         return
     }
 
-    let parts = args.split(separator: " ", maxSplits: 1)
     let jidString: String
     let filePath: String
-
-    if parts.count == 2, BareJID.parse(String(parts[0])) != nil {
-        // /sendfile <jid> <path>
-        jidString = String(parts[0])
-        filePath = String(parts[1])
-    } else if parts.count == 1, BareJID.parse(args) != nil {
-        // /sendfile <jid> — valid JID but missing path
+    switch parseSendFileArgs(args, currentRoom: currentRoom) {
+    case let .send(target, path):
+        jidString = target
+        filePath = path
+    case .missingPath:
         print("Usage: /sendfile <jid> <path>")
         return
-    } else if let roomJID = currentRoom {
-        // /sendfile <path> — send to current room
-        jidString = roomJID
-        filePath = args
-    } else {
+    case .noTarget:
         print(context.formatter.formatError(CLIError.noConversationTarget))
         return
     }
