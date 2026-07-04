@@ -180,4 +180,142 @@ struct ChatWindowStateTests {
         #expect(windowState.roomSubject == "Daily standup")
         #expect(windowState.conversation?.roomSubject == nil)
     }
+
+    @Test func `displayName reflects a live service-side change, not the stale load-time copy`() async throws {
+        let store = MockPersistenceStore()
+        let transcripts = MockTranscriptStore()
+        let roomJIDString = "room@conference.example.com"
+        let roomJID = try #require(BareJID.parse(roomJIDString))
+        let aliceJID = try #require(BareJID.parse("alice@example.com"))
+        let account = Account(id: UUID(), jid: aliceJID, isEnabled: true, connectOnLaunch: false, createdAt: Date())
+        await store.addAccount(account)
+        let seeded = Conversation(
+            id: UUID(),
+            accountID: account.id,
+            jid: roomJID,
+            type: .groupchat,
+            displayName: "Old Room Name",
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            createdAt: Date()
+        )
+        await store.addConversation(seeded)
+
+        let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
+        try await environment.accountService.loadAccounts()
+        let windowState = ChatWindowState(jidString: roomJIDString, accountID: account.id, environment: environment)
+        await windowState.load()
+        #expect(windowState.displayName == "Old Room Name")
+
+        // A server-driven rename lands in the store; republishing refreshes the live cache.
+        var renamed = seeded
+        renamed.displayName = "New Room Name"
+        try await store.upsertConversation(renamed)
+        try await environment.chatService.loadConversations(for: account.id)
+
+        // displayName must read the live cache, while the frozen load-time copy stays stale.
+        #expect(windowState.displayName == "New Room Name")
+        #expect(windowState.conversation?.displayName == "Old Room Name")
+    }
+
+    @Test func `myRoomRole resolves from the live roomNickname, not the stale load-time copy`() async throws {
+        let store = MockPersistenceStore()
+        let transcripts = MockTranscriptStore()
+        let roomJIDString = "room@conference.example.com"
+        let roomJID = try #require(BareJID.parse(roomJIDString))
+        let aliceJID = try #require(BareJID.parse("alice@example.com"))
+        let account = Account(id: UUID(), jid: aliceJID, isEnabled: true, connectOnLaunch: false, createdAt: Date())
+        await store.addAccount(account)
+        await store.addConversation(Conversation(
+            id: UUID(),
+            accountID: account.id,
+            jid: roomJID,
+            type: .groupchat,
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            roomNickname: "me",
+            createdAt: Date()
+        ))
+
+        let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
+        try await environment.accountService.loadAccounts()
+
+        // Seed occupancy so "me" is a known moderator, then load so liveConversation resolves.
+        await environment.chatService.handleEvent(
+            .roomJoined(
+                room: roomJID,
+                occupancy: RoomOccupancy(
+                    nickname: "me",
+                    occupants: [RoomOccupant(nickname: "me", affiliation: .owner, role: .moderator)],
+                    subject: nil
+                ),
+                isNewlyCreated: false
+            ),
+            accountID: account.id
+        )
+        let windowState = ChatWindowState(jidString: roomJIDString, accountID: account.id, environment: environment)
+        await windowState.load()
+        #expect(windowState.myRoomRole == .moderator)
+
+        // A self-nick change renames the participant and spawns a deferred update of the
+        // live conversation's roomNickname; the frozen load-time copy is untouched.
+        await environment.chatService.handleEvent(
+            .roomOccupantNickChanged(
+                room: roomJID,
+                oldNickname: "me",
+                occupant: RoomOccupant(nickname: "me2", affiliation: .owner, role: .moderator)
+            ),
+            accountID: account.id
+        )
+        let pending = environment.chatService.takePendingTasks()
+        #expect(!pending.isEmpty)
+        for task in pending {
+            await task.value
+        }
+
+        // The live path resolves the renamed "me2" to its participant; a regression reading
+        // the frozen "me" would match no participant and yield nil.
+        #expect(windowState.myRoomRole == .moderator)
+        #expect(windowState.conversation?.roomNickname == "me")
+    }
+
+    @Test func `displayName retains the last-known value after the conversation leaves openConversations`() async throws {
+        let store = MockPersistenceStore()
+        let transcripts = MockTranscriptStore()
+        let roomJIDString = "room@conference.example.com"
+        let roomJID = try #require(BareJID.parse(roomJIDString))
+        let aliceJID = try #require(BareJID.parse("alice@example.com"))
+        let account = Account(id: UUID(), jid: aliceJID, isEnabled: true, connectOnLaunch: false, createdAt: Date())
+        await store.addAccount(account)
+        let seeded = Conversation(
+            id: UUID(),
+            accountID: account.id,
+            jid: roomJID,
+            type: .groupchat,
+            displayName: "Room Name",
+            isPinned: false,
+            isMuted: false,
+            unreadCount: 0,
+            roomSubject: "Daily standup",
+            createdAt: Date()
+        )
+        await store.addConversation(seeded)
+
+        let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
+        try await environment.accountService.loadAccounts()
+        let windowState = ChatWindowState(jidString: roomJIDString, accountID: account.id, environment: environment)
+        await windowState.load()
+        #expect(windowState.displayName == "Room Name")
+        #expect(windowState.roomSubject == "Daily standup")
+
+        // Evict the conversation from the live cache; the frozen value-type copy is untouched.
+        try await store.deleteConversation(seeded.id)
+        try await environment.chatService.loadConversations(for: account.id)
+
+        // displayName falls back to the frozen copy, while roomSubject (no fallback) goes nil.
+        #expect(windowState.displayName == "Room Name")
+        #expect(windowState.roomSubject == nil)
+    }
 }
