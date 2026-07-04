@@ -53,6 +53,21 @@ enum EmojiFilterTests {
         }
     }
 
+    struct BodyMutationGate {
+        @Test
+        func `Leaves the body unchanged when allowBodyMutation is false`() async throws {
+            let filter = EmojiFilter()
+            let context = try FilterContext(
+                accountJID: #require(BareJID(localPart: "user", domainPart: "example.com")),
+                allowBodyMutation: false
+            )
+            let content = MessageContent(body: "Hello :)")
+            let result = await filter.filter(content, direction: .outgoing, context: context)
+            // The archive/backfill path passes allowBodyMutation: false so stored bodies stay the server text.
+            #expect(result.body == "Hello :)")
+        }
+    }
+
     struct BoundaryAwareness {
         @Test
         func `Does not replace emoticons inside words`() async {

@@ -37,13 +37,17 @@ private struct GroupMAMHarness {
 }
 
 @MainActor
-private func makeGroupMAMHarness() async throws -> GroupMAMHarness {
+private func makeGroupMAMHarness(filters: [any MessageFilter] = []) async throws -> GroupMAMHarness {
     let store = makeStore()
     let transcripts = makeTranscripts()
     let transport = MockTransport()
     let factory = MockXMPPClientFactory(transport: transport, modules: [MAMModule()])
     let accountService = makeAccountService(store: store, clientFactory: factory)
-    let chatService = makeChatService(store: store, transcripts: transcripts)
+    let pipeline = MessageFilterPipeline()
+    for filter in filters {
+        await pipeline.register(filter)
+    }
+    let chatService = ChatService(store: store, transcripts: transcripts, filterPipeline: pipeline)
     chatService.setAccountService(accountService)
 
     let connectTask = Task { @MainActor in
@@ -377,6 +381,70 @@ enum ChatServiceMAMTests {
             #expect(imported.isEmpty)
             let count = await harness.transcripts.messages.count
             #expect(count == 1)
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+    }
+
+    struct Filtering {
+        @Test
+        @MainActor
+        func `archived styled message is run through the filter pipeline, populating htmlBody`() async throws {
+            let harness = try await makeGroupMAMHarness(filters: [StylingFilter()])
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "bob", serverID: "R", stanzaID: "S", body: "*bold*"
+                ))]
+            }
+
+            let message = try #require(imported.first)
+            #expect(message.body == "*bold*")
+            let htmlBody = try #require(message.htmlBody)
+            #expect(htmlBody.contains("<strong>bold</strong>"))
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `archived outgoing emoticon body is preserved, not rewritten to emoji`() async throws {
+            let harness = try await makeGroupMAMHarness(filters: [EmojiFilter()])
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "alice", serverID: "R", stanzaID: "S", body: "hi :)"
+                ))]
+            }
+
+            let message = try #require(imported.first)
+            #expect(message.isOutgoing == true)
+            // The archive path passes allowBodyMutation: false, so EmojiFilter must not rewrite the stored body
+            // away from the server-archived text.
+            #expect(message.body == "hi :)")
+            await harness.accountService.disconnect(accountID: harness.accountID)
+        }
+
+        @Test
+        @MainActor
+        func `archived URL does not trigger a link-preview fetch`() async throws {
+            let fetcher = CountingLinkPreviewFetcher()
+            let previewService = LinkPreviewService(fetcher: fetcher, store: MockPersistenceStore())
+            let harness = try await makeGroupMAMHarness(
+                filters: [LinkDetectionFilter(), LinkPreviewFilter(previewService: previewService)]
+            )
+
+            let imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                [groupArchive(queryID: queryID, archiveID: "arch-1", GroupArchiveSpec(
+                    fromNick: "bob", serverID: "R", stanzaID: "S", body: "see https://example.com"
+                ))]
+            }
+
+            #expect(imported.count == 1)
+            // makeArchivedMessage passes allowLinkPreviewFetches: false, so LinkPreviewFilter must not fire a
+            // network fetch for a URL detected in backfilled history.
+            for _ in 0 ..< 5 {
+                await Task.yield()
+            }
+            #expect(await fetcher.invocationCount == 0)
             await harness.accountService.disconnect(accountID: harness.accountID)
         }
     }

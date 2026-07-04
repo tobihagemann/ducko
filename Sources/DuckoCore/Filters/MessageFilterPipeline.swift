@@ -21,9 +21,18 @@ public enum FilterDirection: Sendable {
 
 public struct FilterContext: Sendable {
     public let accountJID: BareJID
+    /// Whether side-effecting link-preview fetches may fire for detected URLs. Passed `false` on the MAM/archive
+    /// path so backfilling history doesn't spray network probes at hosts named in archived (attacker-influenceable)
+    /// URLs the user may never view — display-only styling/mention `htmlBody` is still derived uniformly.
+    public let allowLinkPreviewFetches: Bool
+    /// Whether filters may rewrite the message body (e.g. emoticon→emoji). Passed `false` on the MAM/archive path
+    /// so an imported body stays byte-for-byte the server-archived text; only display-only `htmlBody` is derived.
+    public let allowBodyMutation: Bool
 
-    public init(accountJID: BareJID) {
+    public init(accountJID: BareJID, allowLinkPreviewFetches: Bool = true, allowBodyMutation: Bool = true) {
         self.accountJID = accountJID
+        self.allowLinkPreviewFetches = allowLinkPreviewFetches
+        self.allowBodyMutation = allowBodyMutation
     }
 }
 

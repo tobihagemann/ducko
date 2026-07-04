@@ -13,7 +13,7 @@ struct LinkPreviewFilter: MessageFilter {
     }
 
     func filter(_ content: MessageContent, direction: FilterDirection, context: FilterContext) async -> MessageContent {
-        guard direction == .incoming, !content.detectedURLs.isEmpty else { return content }
+        guard direction == .incoming, context.allowLinkPreviewFetches, !content.detectedURLs.isEmpty else { return content }
 
         let service = previewService
         for url in content.detectedURLs {

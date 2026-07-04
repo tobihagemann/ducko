@@ -15,7 +15,7 @@ struct EmojiFilter: MessageFilter {
     init() {}
 
     func filter(_ content: MessageContent, direction: FilterDirection, context: FilterContext) async -> MessageContent {
-        guard direction == .outgoing else { return content }
+        guard direction == .outgoing, context.allowBodyMutation else { return content }
 
         var body = content.body
         for (pattern, emoji) in Self.replacements {

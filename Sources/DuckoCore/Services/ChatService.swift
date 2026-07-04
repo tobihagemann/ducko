@@ -220,9 +220,7 @@ public final class ChatService {
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
-        let content = MessageContent(body: body)
-        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
-        let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
+        let filtered = await filterBody(body, direction: .outgoing, accountID: accountID, fallback: jid)
 
         let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
         let stanzaID = client.generateID()
@@ -440,6 +438,8 @@ public final class ChatService {
 
         let chatStatesEnabled = ChatPreferences.shared.enableChatStates
 
+        let filtered = await filterBody(newBody, direction: .outgoing, accountID: accountID, fallback: jid)
+
         let resolution = await resolveEncryption(
             jid: jid, accountID: accountID, conversationEncryptionEnabled: conversation.encryptionEnabled
         )
@@ -451,7 +451,7 @@ public final class ChatService {
                 // depth.
                 throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
             }
-            let elements = try await omemoService.encryptMessage(body: newBody, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
+            let elements = try await omemoService.encryptMessage(body: filtered.body, to: jid, trustedDeviceIDs: trustedDeviceIDs, accountID: accountID)
             let replaceElement = DuckoXMPP.XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": originalStanzaID])
             let storeHint = DuckoXMPP.XMLElement(name: "store", namespace: XMPPNamespaces.processingHints)
             try await chatModule.sendMessage(
@@ -460,7 +460,7 @@ public final class ChatService {
                 additionalElements: [elements.encrypted, elements.encryption, storeHint, replaceElement]
             )
         case .userDisabled:
-            try await chatModule.sendCorrection(to: recipientJID(for: jid, accountID: accountID), body: newBody, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
+            try await chatModule.sendCorrection(to: recipientJID(for: jid, accountID: accountID), body: filtered.body, replacingID: originalStanzaID, includeChatState: chatStatesEnabled)
         case .noLocalDevicesForPeer:
             throw ChatServiceError.omemoNoLocalDevices(conversationJID: jid)
         case .noTrustedDevicesForPeer:
@@ -469,7 +469,7 @@ public final class ChatService {
             throw ChatServiceError.omemoServiceUnavailable(conversationJID: jid)
         }
         try await transcripts.appendAmendment(
-            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
+            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalStanzaID, timestamp: Date(), body: filtered.body, htmlBody: filtered.htmlBody),
             conversationID: conversation.id
         )
         await messagesChanged(in: conversation.id)
@@ -500,14 +500,16 @@ public final class ChatService {
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
+        let filtered = await filterBody(newBody, direction: .outgoing, accountID: accountID, fallback: room)
+
         let replaceElement = DuckoXMPP.XMLElement(name: "replace", namespace: XMPPNamespaces.messageCorrect, attributes: ["id": originalStanzaID])
         _ = try await encryptAndSendGroupMessage(
-            room: room, body: newBody, stanzaID: client.generateID(),
+            room: room, body: filtered.body, stanzaID: client.generateID(),
             conversation: conversation, mucModule: mucModule,
             additionalElements: [replaceElement]
         )
         try await transcripts.appendAmendment(
-            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalStanzaID, timestamp: Date(), body: newBody),
+            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalStanzaID, timestamp: Date(), body: filtered.body, htmlBody: filtered.htmlBody),
             conversationID: conversation.id
         )
         await messagesChanged(in: conversation.id)
@@ -637,9 +639,7 @@ public final class ChatService {
         guard let client = accountService?.connectedClient(for: accountID) else { throw ChatServiceError.notConnected(accountID) }
         guard let chatModule = await client.module(ofType: ChatModule.self) else { return }
 
-        let content = MessageContent(body: body)
-        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
-        let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
+        let filtered = await filterBody(body, direction: .outgoing, accountID: accountID, fallback: jid)
 
         let stanzaID = client.generateID()
 
@@ -885,11 +885,13 @@ public final class ChatService {
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
 
         let conversation = try await findOrCreateGroupConversation(for: room, nickname: nil, accountID: accountID)
+        let filtered = await filterBody(body, direction: .outgoing, accountID: accountID, fallback: room)
+
         let stanzaID = client.generateID()
         // Resolve encryption before persisting so a "no trusted devices" throw leaves nothing persisted
         // (mirrors 1:1). Only the transport send sits inside the do/catch rollback below.
         let prepared = try await prepareGroupMessage(
-            room: room, body: body, conversation: conversation, additionalElements: additionalElements
+            room: room, body: filtered.body, conversation: conversation, additionalElements: additionalElements
         )
 
         let message = ChatMessage(
@@ -897,7 +899,8 @@ public final class ChatService {
             conversationID: conversation.id,
             stanzaID: stanzaID,
             fromJID: room.description,
-            body: body,
+            body: filtered.body,
+            htmlBody: filtered.htmlBody,
             timestamp: Date(),
             isOutgoing: true,
             isDelivered: false,
@@ -947,9 +950,7 @@ public final class ChatService {
         guard let mucModule = await client.module(ofType: MUCModule.self) else { return }
         guard let nickname = FullJID.normalizeResourcePart(nickname) else { throw ChatServiceError.invalidJID(nickname) }
 
-        let content = MessageContent(body: body)
-        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
-        let filtered = await filterPipeline.process(content, direction: .outgoing, context: filterContext)
+        let filtered = await filterBody(body, direction: .outgoing, accountID: accountID, fallback: roomJID)
 
         let conversation = try await findOrCreateMUCPMConversation(for: roomJID, nickname: nickname, accountID: accountID)
         let stanzaID = client.generateID()
@@ -1564,8 +1565,11 @@ public final class ChatService {
               let original = try? await transcripts.findMessage(stanzaID: originalID, conversationID: conversationID) else { return }
         guard await verifySender(from: from, original: original, action: "correction", accountID: accountID) else { return }
 
+        let filterDirection: FilterDirection = original.isOutgoing ? .outgoing : .incoming
+        let filtered = await filterBody(newBody, direction: filterDirection, accountID: accountID, fallback: from.bareJID)
+
         try? await transcripts.appendAmendment(
-            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalID, timestamp: Date(), body: newBody),
+            TranscriptAmendment(action: .edit, targetMessageID: original.id, targetStanzaID: originalID, timestamp: Date(), body: filtered.body, htmlBody: filtered.htmlBody),
             conversationID: conversationID
         )
         await messagesChanged(in: conversationID)
@@ -1768,9 +1772,7 @@ public final class ChatService {
             return
         }
 
-        let content = MessageContent(body: body, isUnstyled: xmppMessage.isUnstyled)
-        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
-        let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
+        let filtered = await filterBody(body, direction: .incoming, accountID: accountID, fallback: roomJID, isUnstyled: xmppMessage.isUnstyled)
 
         // Parse XEP-0359 stanza-id assigned by the MUC server
         let serverID: String? = xmppMessage.element.children(named: "stanza-id")
@@ -1819,9 +1821,7 @@ public final class ChatService {
             return
         }
 
-        let content = MessageContent(body: body, isUnstyled: xmppMessage.isUnstyled)
-        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: roomJID))
-        let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
+        let filtered = await filterBody(body, direction: .incoming, accountID: accountID, fallback: roomJID, isUnstyled: xmppMessage.isUnstyled)
 
         let message = ChatMessage(
             id: UUID(),
@@ -2081,6 +2081,36 @@ public final class ChatService {
         accountService?.accounts.first { $0.id == accountID }?.jid ?? fallback
     }
 
+    /// Single entry point for running a body through the filter pipeline, so every send/receive/correction/archive
+    /// path shares one place to set direction, account JID, `isUnstyled`, and the archive safety flags (rather than
+    /// each site rebuilding `MessageContent`/`FilterContext` and risking a forgotten flag).
+    private func filterBody(
+        _ body: String,
+        direction: FilterDirection,
+        accountID: UUID,
+        fallback: BareJID,
+        isUnstyled: Bool = false
+    ) async -> MessageContent {
+        await filterBody(body, direction: direction, accountJID: accountJID(for: accountID, fallback: fallback), isUnstyled: isUnstyled)
+    }
+
+    private func filterBody(
+        _ body: String,
+        direction: FilterDirection,
+        accountJID: BareJID,
+        isUnstyled: Bool = false,
+        allowLinkPreviewFetches: Bool = true,
+        allowBodyMutation: Bool = true
+    ) async -> MessageContent {
+        let content = MessageContent(body: body, isUnstyled: isUnstyled)
+        let context = FilterContext(
+            accountJID: accountJID,
+            allowLinkPreviewFetches: allowLinkPreviewFetches,
+            allowBodyMutation: allowBodyMutation
+        )
+        return await filterPipeline.process(content, direction: direction, context: context)
+    }
+
     /// Bridges optional `OMEMOService` to `EncryptionResolution`. Fail-closed: nil service → `.serviceUnavailable`
     /// (every dispatch throws). Collapsing nil-service into `.userDisabled` or `.proceed([])` would silently
     /// downgrade an encryption-required send to plaintext.
@@ -2168,9 +2198,7 @@ public final class ChatService {
             return
         }
 
-        let content = MessageContent(body: body, isUnstyled: xmppMessage.isUnstyled)
-        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: fromJID))
-        let filtered = await filterPipeline.process(content, direction: .incoming, context: filterContext)
+        let filtered = await filterBody(body, direction: .incoming, accountID: accountID, fallback: fromJID, isUnstyled: xmppMessage.isUnstyled)
 
         // Parse XEP-0461 reply
         let replyToID = xmppMessage.element.child(named: "reply", namespace: XMPPNamespaces.messageReply)?.attribute("id")
@@ -2267,10 +2295,8 @@ public final class ChatService {
             return
         }
 
-        let content = MessageContent(body: body, isUnstyled: forwarded.message.isUnstyled)
         let filterDirection: FilterDirection = isOutgoing ? .outgoing : .incoming
-        let filterContext = FilterContext(accountJID: accountJID(for: accountID, fallback: jid))
-        let filtered = await filterPipeline.process(content, direction: filterDirection, context: filterContext)
+        let filtered = await filterBody(body, direction: filterDirection, accountID: accountID, fallback: jid, isUnstyled: forwarded.message.isUnstyled)
 
         let message = ChatMessage(
             id: UUID(),
@@ -2568,25 +2594,55 @@ public final class ChatService {
                 if isDup { continue }
             }
 
-            let message = ChatMessage(
-                id: UUID(),
-                conversationID: conversation.id,
-                stanzaID: forwarded.message.id,
-                serverID: trustedServerID,
-                fromJID: meta.fromJID,
-                body: body,
-                timestamp: parseISO8601Timestamp(forwarded.timestamp),
-                isOutgoing: meta.isOutgoing,
-                isDelivered: false,
-                isEdited: false,
-                type: meta.messageType,
-                attachments: oobAttachments
+            let entry = ArchivedEntry(
+                forwarded: forwarded, body: body, meta: meta,
+                trustedServerID: trustedServerID, oobAttachments: oobAttachments
             )
+            let message = await makeArchivedMessage(entry, in: conversation, accountJID: accountJID)
             try await transcripts.appendMessage(message)
             newMessages.append(message)
         }
 
         return newMessages.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    /// Per-entry inputs for building an archived `ChatMessage`.
+    private struct ArchivedEntry {
+        let forwarded: ForwardedMessage
+        let body: String
+        let meta: MessageMeta
+        let trustedServerID: String?
+        let oobAttachments: [Attachment]
+    }
+
+    /// Builds the persisted `ChatMessage` for an archived entry, deriving display-only `htmlBody` through the same
+    /// styling/mention filters as the live paths so a MAM-backfilled message renders identically to its
+    /// live-received counterpart. The archive-path flags keep `filtered.body == body`, which matters because this
+    /// runs after `convertAndDedup`'s dedup checks (they compare the raw archived `body`), so the derived
+    /// `htmlBody` can't perturb dedup.
+    private func makeArchivedMessage(_ entry: ArchivedEntry, in conversation: Conversation, accountJID: BareJID) async -> ChatMessage {
+        let filterDirection: FilterDirection = entry.meta.isOutgoing ? .outgoing : .incoming
+        let filtered = await filterBody(
+            entry.body, direction: filterDirection, accountJID: accountJID,
+            isUnstyled: entry.forwarded.message.isUnstyled,
+            allowLinkPreviewFetches: false, allowBodyMutation: false
+        )
+
+        return ChatMessage(
+            id: UUID(),
+            conversationID: conversation.id,
+            stanzaID: entry.forwarded.message.id,
+            serverID: entry.trustedServerID,
+            fromJID: entry.meta.fromJID,
+            body: filtered.body,
+            htmlBody: filtered.htmlBody,
+            timestamp: parseISO8601Timestamp(entry.forwarded.timestamp),
+            isOutgoing: entry.meta.isOutgoing,
+            isDelivered: false,
+            isEdited: false,
+            type: entry.meta.messageType,
+            attachments: entry.oobAttachments
+        )
     }
 
     /// Returns true when an un-reconciled optimistic own-MUC row (`serverID == nil`) matches the archived
