@@ -116,41 +116,39 @@ struct AccountSetupView: View {
 
     // MARK: - Fields
 
+    @ViewBuilder
     private var loginFields: some View {
-        Group {
-            TextField("JID (e.g. alice@example.com)", text: $jidString)
-                .textFieldStyle(.roundedBorder)
-                .textContentType(.username)
-                .accessibilityIdentifier("jid-field")
+        TextField("JID (e.g. alice@example.com)", text: $jidString)
+            .textFieldStyle(.roundedBorder)
+            .textContentType(.username)
+            .accessibilityIdentifier("jid-field")
 
-            SecureField("Password", text: $password)
-                .textFieldStyle(.roundedBorder)
-                .textContentType(.password)
-                .accessibilityIdentifier("password-field")
-        }
+        SecureField("Password", text: $password)
+            .textFieldStyle(.roundedBorder)
+            .textContentType(.password)
+            .accessibilityIdentifier("password-field")
     }
 
+    @ViewBuilder
     private var registerFields: some View {
-        Group {
-            TextField("Server (e.g. example.com)", text: $serverDomain)
-                .textFieldStyle(.roundedBorder)
-                .accessibilityIdentifier("register-server-field")
+        TextField("Server (e.g. example.com)", text: $serverDomain)
+            .textFieldStyle(.roundedBorder)
+            .accessibilityIdentifier("register-server-field")
 
-            TextField("Username", text: $username)
-                .textFieldStyle(.roundedBorder)
-                .textContentType(.username)
-                .accessibilityIdentifier("register-username-field")
+        TextField("Username", text: $username)
+            .textFieldStyle(.roundedBorder)
+            .textContentType(.username)
+            .accessibilityIdentifier("register-username-field")
 
-            SecureField("Password", text: $password)
-                .textFieldStyle(.roundedBorder)
-                .textContentType(.newPassword)
-                .accessibilityIdentifier("register-password-field")
+        SecureField("Password", text: $password)
+            .textFieldStyle(.roundedBorder)
+            .textContentType(.newPassword)
+            .accessibilityIdentifier("register-password-field")
 
-            TextField("Email (optional)", text: $email)
-                .textFieldStyle(.roundedBorder)
-                .textContentType(.emailAddress)
-                .accessibilityIdentifier("register-email-field")
-        }
+        TextField("Email (optional)", text: $email)
+            .textFieldStyle(.roundedBorder)
+            .textContentType(.emailAddress)
+            .accessibilityIdentifier("register-email-field")
     }
 
     // MARK: - Computed
