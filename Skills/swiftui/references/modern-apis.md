@@ -381,6 +381,94 @@ Button("Action") { }
     .buttonStyle(BorderedProminentButtonStyle())
 ```
 
+## Additional modern replacements
+
+These are the net-new modern-API transitions most relevant to a macOS 26 SwiftUI app. For *how to behave* around a soft-deprecated API you encounter (when to migrate vs leave alone), see the soft-deprecation section in [api.md](api.md).
+
+### Section trailing-closure initializers
+
+Prefer content/header/footer trailing-closure `Section` initializers over the positional `header:`/`footer:` `View` arguments (those are being deprecated). The single-title `Section("Title")` form is still current.
+
+```swift
+// Current — single-title
+Section("Settings") { Toggle("Notifications", isOn: $enabled) }
+
+// Preferred when you need a footer or a View header
+Section {
+    Toggle("Notifications", isOn: $enabled)
+} footer: {
+    Text("Changes apply immediately.")
+}
+
+// Deprecated — positional header/footer View arguments
+Section(header: Text("Settings"), footer: Text("…")) { … }
+```
+
+### Presentation: confirmationDialog / alert
+
+Use the modifier forms `confirmationDialog(_:isPresented:actions:message:)` and `alert(_:isPresented:actions:message:)` instead of the old `ActionSheet` / `Alert`-value APIs.
+
+```swift
+.alert("Delete conversation?", isPresented: $showAlert) {
+    Button("Delete", role: .destructive) { delete() }
+    Button("Cancel", role: .cancel) { }
+} message: {
+    Text("This cannot be undone.")
+}
+```
+
+### Text input: onSubmit + focused
+
+Use `onSubmit` and `focused(_:equals:)` instead of `TextField`'s `onCommit` / `onEditingChanged` callbacks. See [focus-patterns.md](focus-patterns.md) for the full focus system.
+
+```swift
+TextField("Search", text: $query)
+    .focused($isFocused)
+    .onSubmit { performSearch() }
+```
+
+### Events: modern onChange arity
+
+`onChange(of:perform:)` (single-parameter closure) is deprecated. Use the two-parameter or no-parameter form.
+
+```swift
+.onChange(of: value) { }              // no-parameter (most common)
+.onChange(of: value) { old, new in }  // old + new
+.onChange(of: value, initial: true) { } // also fire on appear
+```
+
+### Custom environment values: @Entry
+
+Use the `@Entry` macro instead of hand-written `EnvironmentKey` conformance (also works for `FocusedValues` and container values). Back-deploys via Xcode 16+.
+
+```swift
+extension EnvironmentValues {
+    @Entry var myValue: String = "Default"
+}
+```
+
+### Gesture renames
+
+- `MagnifyGesture` instead of `MagnificationGesture` (magnitude via `value.magnification`)
+- `RotateGesture` instead of `RotationGesture` (angle via `value.rotation`)
+
+### macOS 26+ toolbars and animation
+
+- `ToolbarSpacer(.fixed)` / `ToolbarSpacer(.flexible)` to group or push apart toolbar items.
+- `sharedBackgroundVisibility(.hidden)` to drop the glass group background from an individual toolbar item.
+- `badge(_:)` on toolbar item content to show an indicator.
+- `@Animatable` macro instead of hand-written `animatableData`; exclude properties with `@AnimatableIgnored`.
+
+```swift
+@Animatable
+struct Wedge: Shape {
+    var startAngle: Angle
+    var endAngle: Angle
+    @AnimatableIgnored var clockwise: Bool
+    func path(in rect: CGRect) -> Path { /* … */ }
+}
+```
+
 ## Summary Checklist
 
 - [ ] Use `foregroundStyle()` instead of `foregroundColor()`
@@ -398,3 +486,10 @@ Button("Action") { }
 - [ ] Use static member lookup (`.blue` vs `Color.blue`)
 - [ ] Include text labels with button images
 - [ ] Use `bold()` instead of `fontWeight(.bold)`
+- [ ] Use trailing-closure `Section` initializers instead of positional `header:`/`footer:` View args
+- [ ] Use `confirmationDialog`/`alert` modifiers instead of `ActionSheet`/`Alert` values
+- [ ] Use `onSubmit` + `focused` instead of `TextField` `onCommit`/`onEditingChanged`
+- [ ] Use two- or no-parameter `onChange(of:)` instead of the single-parameter closure
+- [ ] Use the `@Entry` macro instead of manual `EnvironmentKey` conformance
+- [ ] Use `MagnifyGesture`/`RotateGesture` instead of `MagnificationGesture`/`RotationGesture`
+- [ ] Use `@Animatable` macro instead of hand-written `animatableData`

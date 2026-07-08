@@ -59,6 +59,15 @@ Ask for:
 
 Use `references/profiling-intake.md` for the full intake checklist, default profiling request, artifacts to collect, and common traps (Debug-build timing distortion, Simulator blind spots).
 
+### Automated trace capture and analysis
+
+Instead of (or alongside) asking the user for screenshots, drive Instruments directly with the bundled scripts:
+
+- `scripts/record_trace.py` wraps `xctrace record` — SwiftUI template by default, manual stop via Ctrl+C / stop-file / `--time-limit`, JSON device+template discovery, agent-orchestratable exit codes. See `references/trace-recording.md` for the attach/launch/background/time-boxed flows and the **SwiftUI-template-needs-a-real-device-or-the-host-Mac** rule (Simulator → fall back to `Time Profiler`).
+- `scripts/analyze_trace.py` parses a `.trace` bundle into a structured report (SwiftUI updates, Time Profiler, hangs, animation hitches) and correlates lanes. See `references/trace-analysis.md` for `--list-logs` / `--list-signposts` / `--window` scoping and `--json-only` output.
+
+For a macOS app like the ones this project targets, the host Mac supports the SwiftUI template, so both scripts work against a locally-run Release build. The scripts are stdlib-only Python 3 (no pip dependencies) and shell out to `xctrace`.
+
 ## 3. Analyze and Diagnose
 
 Prioritize likely SwiftUI culprits:
@@ -105,6 +114,8 @@ Use `references/report-template.md` when formatting the final audit.
 - Common code smells and remediation patterns: `references/code-smells.md`
 - Profiling intake and collection checklist: `references/profiling-intake.md`
 - Audit output template: `references/report-template.md`
+- Recording a trace with `scripts/record_trace.py`: `references/trace-recording.md`
+- Analyzing a `.trace` bundle with `scripts/analyze_trace.py`: `references/trace-analysis.md`
 
 Add Apple documentation and WWDC resources under `references/` as they are supplied by the user.
 - Optimizing SwiftUI performance with Instruments: `references/optimizing-swiftui-performance-instruments.md`

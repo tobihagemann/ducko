@@ -24,8 +24,11 @@ Write and review SwiftUI code for correctness, modern API usage, state-flow corr
 13. For view-file refactoring (ordering, extracting sections, MV pattern), use [references/mv-patterns.md](references/mv-patterns.md).
 14. If adopting Liquid Glass (iOS 26+), use [references/liquid-glass.md](references/liquid-glass.md).
 15. For component-specific patterns (TabView, NavigationStack, sheets, forms, grids, menus, split views, theming, etc.), use the files under `references/components/`. Start with [references/components/components-index.md](references/components/components-index.md).
-16. Quick validation of Swift code using [references/swift.md](references/swift.md).
-17. Final code hygiene check using [references/hygiene.md](references/hygiene.md).
+16. For macOS apps, validate scenes, window/toolbar styling, and macOS-specific views/AppKit interop using [references/macos-scenes.md](references/macos-scenes.md), [references/macos-window-styling.md](references/macos-window-styling.md), and [references/macos-views.md](references/macos-views.md).
+17. Validate localization of user-facing text using [references/localization.md](references/localization.md) — Ducko's SwiftUI views live in the `DuckoUI` library target, whose resources live in `Bundle.module`, so once localization exists every user-facing string in a library target must pin the bundle (`Text("…", bundle: #bundle)` / `String(localized:bundle:)`); the bare overloads silently miss the catalog. Only `DuckoApp` (the executable) uses the main bundle.
+18. Validate focus handling (`@FocusState`, `@FocusedValue` command wiring, focusable interactions, focus scope) using [references/focus-patterns.md](references/focus-patterns.md).
+19. Quick validation of Swift code using [references/swift.md](references/swift.md).
+20. Final code hygiene check using [references/hygiene.md](references/hygiene.md).
 
 If doing a partial review, load only the relevant reference files.
 
@@ -325,11 +328,13 @@ End of example.
 - [references/view-structure.md](references/view-structure.md) — view composition, extraction, and container patterns.
 - [references/layout-best-practices.md](references/layout-best-practices.md) — layout patterns, context-agnostic views, testability.
 - [references/mv-patterns.md](references/mv-patterns.md) — Model-View rationale and patterns for view-file refactors.
+- [references/focus-patterns.md](references/focus-patterns.md) — the full focus system: `@FocusState`, `@FocusedValue`/`@Entry` command wiring, `.focusable(interactions:)`, focus scope/sections, `.searchFocused`, pitfalls.
 
 ### Modern APIs
 
 - [references/modern-apis.md](references/modern-apis.md) — modern API usage and deprecated replacements.
 - [references/text-formatting.md](references/text-formatting.md) — modern text formatting and string operations.
+- [references/localization.md](references/localization.md) — localizing user-facing text, String Catalogs, `bundle: #bundle` for package targets, `LocalizedStringResource`.
 
 ### Lists, scrolling, sheets, navigation patterns
 
@@ -352,6 +357,12 @@ End of example.
 
 - [references/liquid-glass.md](references/liquid-glass.md) — iOS 26+ Liquid Glass API, morphing, fallbacks, examples.
 - [references/design-principles.md](references/design-principles.md) — long-form guide to spacing grids, typography, semantic colors, widget patterns (from arjitj2/swiftui-design-principles).
+
+### macOS
+
+- [references/macos-scenes.md](references/macos-scenes.md) — scene types: `WindowGroup`, `Window`, `UtilityWindow`, `Settings`, `MenuBarExtra`, `DocumentGroup`, `openWindow`.
+- [references/macos-window-styling.md](references/macos-window-styling.md) — window/toolbar styles, `windowResizability`, `defaultSize`/`defaultPosition`, `Inspector`, `CommandGroup`, keyboard shortcuts.
+- [references/macos-views.md](references/macos-views.md) — `Table`, `HSplitView`/`VSplitView`, `fileImporter`/`fileExporter` (security-scoped access), cross-app drag & drop, `NSViewRepresentable` + Coordinator.
 
 ### Component patterns (`references/components/`)
 

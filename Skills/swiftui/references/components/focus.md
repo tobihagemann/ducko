@@ -1,5 +1,7 @@
 # Focus handling and field chaining
 
+> See also [../focus-patterns.md](../focus-patterns.md) for the full focus system — commands/menus via `@FocusedValue`/`@Entry`, `.focusable(interactions:)`, focus scope/sections, `.searchFocused`, and the redundant-`@FocusState`-write-revokes-focus pitfall. This file covers the narrower form-field-chaining case.
+
 ## Intent
 
 Use `@FocusState` to control keyboard focus, chain fields, and coordinate focus across complex forms.

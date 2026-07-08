@@ -100,21 +100,16 @@ struct ItemRow: View {
 
 ## Enumerated Sequences
 
-**Always convert enumerated sequences to arrays. To be able to use them in a ForEach.**
+On Swift 6.2 (Ducko targets macOS 26), `enumerated()` conforms to `Collection` (SE-0459), so it works directly in a `ForEach` — no `Array(...)` wrapper needed.
 
 ```swift
-let items = ["A", "B", "C"]
-
-// Correct
-ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-    Text("\(index): \(item)")
-}
-
-// Wrong - Doesn't compile, enumerated() isn't an array
-ForEach(items.enumerated(), id: \.offset) { index, item in
-    Text("\(index): \(item)")
+// Correct - direct, keyed on the element's own identity
+ForEach(items.enumerated(), id: \.element.id) { index, item in
+    Text("\(index): \(item.name)")
 }
 ```
+
+Key the row on the **element's** identity, not its position. `id: \.offset` makes the index the identity, so inserts and reorders reset row state and break animations — the same anti-pattern as `\.self` on `items.indices`. (`\.offset` is only safe for a static list that never changes.)
 
 ## List with Custom Styling
 

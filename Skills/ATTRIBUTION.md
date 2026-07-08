@@ -26,8 +26,8 @@ These skills were written for Ducko specifically:
 | `swift-security` | [ivan-magda/swift-security-skill](https://github.com/ivan-magda/swift-security-skill) |
 | `swift-testing` | [twostraws/Swift-Testing-Agent-Skill](https://github.com/twostraws/Swift-Testing-Agent-Skill) (Paul Hudson) + [bocato/swift-testing-agent-skill](https://github.com/bocato/swift-testing-agent-skill) + [AvdLee/Swift-Testing-Agent-Skill](https://github.com/AvdLee/Swift-Testing-Agent-Skill) |
 | `swiftdata` | [twostraws/SwiftData-Agent-Skill](https://github.com/twostraws/SwiftData-Agent-Skill) (Paul Hudson) + [vanab/swiftdata-agent-skill](https://github.com/vanab/swiftdata-agent-skill) |
-| `swiftui` | [twostraws/SwiftUI-Agent-Skill](https://github.com/twostraws/SwiftUI-Agent-Skill) (Paul Hudson) + [Dimillian/Skills — SwiftUI UI Patterns, View Refactor, Liquid Glass](https://github.com/Dimillian/Skills) + [arjitj2/swiftui-design-principles](https://github.com/arjitj2/swiftui-design-principles) |
-| `swiftui-performance-audit` | [Dimillian/Skills — SwiftUI Performance Audit](https://github.com/Dimillian/Skills) |
+| `swiftui` | [twostraws/SwiftUI-Agent-Skill](https://github.com/twostraws/SwiftUI-Agent-Skill) (Paul Hudson) + [Dimillian/Skills — SwiftUI UI Patterns, View Refactor, Liquid Glass](https://github.com/Dimillian/Skills) + [arjitj2/swiftui-design-principles](https://github.com/arjitj2/swiftui-design-principles) + [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill) (macOS scenes/views/window styling, localization, focus, soft-deprecation, previews) |
+| `swiftui-performance-audit` | [Dimillian/Skills — SwiftUI Performance Audit](https://github.com/Dimillian/Skills) + [AvdLee/SwiftUI-Agent-Skill](https://github.com/AvdLee/SwiftUI-Agent-Skill) (Instruments trace recording/analysis scripts) |
 | `writing-for-interfaces` | [andrewgleave/skills — writing-for-interfaces](https://github.com/andrewgleave/skills) |
 
 ## Upstream copyright notices
@@ -35,7 +35,7 @@ These skills were written for Ducko specifically:
 Each of the upstream repositories is released under the MIT License. The notices below preserve the copyright holders named in the upstream `LICENSE` files at the time of import.
 
 - Copyright (c) 2026 Paul Hudson (Hashrocket Ltd / @twostraws) — twostraws/SwiftUI-Agent-Skill, twostraws/SwiftData-Agent-Skill, twostraws/Swift-Concurrency-Agent-Skill, twostraws/Swift-Testing-Agent-Skill.
-- Copyright (c) 2026 Antoine van der Lee (@AvdLee) — AvdLee/Swift-Concurrency-Agent-Skill, AvdLee/Swift-Testing-Agent-Skill.
+- Copyright (c) 2026 Antoine van der Lee (@AvdLee) — AvdLee/Swift-Concurrency-Agent-Skill, AvdLee/Swift-Testing-Agent-Skill, AvdLee/SwiftUI-Agent-Skill.
 - Copyright (c) 2026 Thomas Ricouard (@Dimillian) — Dimillian/Skills (SwiftUI UI Patterns, SwiftUI View Refactor, SwiftUI Liquid Glass, SwiftUI Performance Audit, Swift Concurrency Expert, macOS SPM App Packaging).
 - Copyright (c) 2026 arjitj2 — arjitj2/swiftui-design-principles.
 - Copyright (c) 2026 Kudrin Dmitry (@vanab) — vanab/swiftdata-agent-skill.

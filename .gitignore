@@ -15,3 +15,7 @@
 
 # Test credentials
 .env.test
+
+# Python bytecode (from skill scripts)
+__pycache__/
+*.pyc
