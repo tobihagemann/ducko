@@ -24,5 +24,9 @@ swiftformat .
 
 echo "Linting (autocorrect)..."
 swiftlint lint --fix --quiet
+# Second pass from the sibling package, mirroring lint.sh: SwiftLint's SPM-aware test-target
+# detection only works when invoked from the package that declares the target, so a violation in
+# IntegrationTests/ is reported by `lint.sh` and would go unfixed here without this.
+(cd "${PROJECT_ROOT}/IntegrationTests" && swiftlint lint --fix --quiet)
 
 echo "Done."

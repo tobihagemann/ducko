@@ -63,19 +63,20 @@ struct NotificationPreferencesTests {
 
 @MainActor
 struct AdvancedPreferencesTests {
-    @Test func `default log level is default`() {
-        defaults.removeObject(forKey: "advancedLogLevel")
+    @Test func `default log level is standard`() {
+        defaults.removeObject(forKey: LogLevelPreference.userDefaultsKey)
         let prefs = AdvancedPreferences()
-        #expect(prefs.logLevel == "default")
+        #expect(prefs.logLevel == .standard)
     }
 
     @Test func `log level persists`() {
         let prefs = AdvancedPreferences()
-        defer { defaults.removeObject(forKey: "advancedLogLevel") }
+        defer { defaults.removeObject(forKey: LogLevelPreference.userDefaultsKey) }
 
-        prefs.logLevel = "debug"
+        prefs.logLevel = .debug
         let prefs2 = AdvancedPreferences()
-        #expect(prefs2.logLevel == "debug")
+        #expect(prefs2.logLevel == .debug)
+        #expect(defaults.string(forKey: LogLevelPreference.userDefaultsKey) == "debug")
     }
 
     @Test func `data location is valid`() {

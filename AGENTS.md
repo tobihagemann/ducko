@@ -141,6 +141,7 @@ SwiftFormat, SwiftLint, and Periphery are installed via Homebrew:
 ```
 ./Scripts/format.sh            # Auto-format + autocorrect
 ./Scripts/lint.sh              # Check format + lint + unused code (read-only)
+./Scripts/install-hooks.sh     # install pre-commit hook (runs lint.sh before commit)
 ```
 
 ## Agent Skills
@@ -148,6 +149,10 @@ SwiftFormat, SwiftLint, and Periphery are installed via Homebrew:
 All project-visible agent skills live under `Skills/`. `.claude/skills` and `.agents/skills` are single top-level symlinks pointing at `../Skills`, so adding a new skill is just `mkdir Skills/<name>` — nothing else to wire up.
 
 The set is a mix of Ducko-original skills written for this repo and upstream-derived skills merged from open-source catalogs. See `Skills/ATTRIBUTION.md` for per-skill upstream sources and MIT copyright notices.
+
+`AGENTS.md` is the shared instructions file; `.claude/CLAUDE.md` is symlinked to it so Claude Code picks up the same content.
+
+`.mcp.json` configures `sosumi` (`https://sosumi.ai/mcp`) for live Apple developer documentation lookups.
 
 ## Code Conventions
 

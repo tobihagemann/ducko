@@ -4,7 +4,7 @@ import Testing
 
 @Suite(.serialized)
 struct LoggingConfigurationTests {
-    private static let key = "advancedLogLevel"
+    private static let key = LogLevelPreference.userDefaultsKey
 
     @Test
     func `fileLogLevel returns info for default`() {
@@ -30,6 +30,13 @@ struct LoggingConfigurationTests {
     @Test
     func `fileLogLevel returns info for nil`() {
         PreferencesDefaults.store.removeObject(forKey: Self.key)
+        #expect(LoggingConfiguration.fileLogLevel == .info)
+    }
+
+    @Test
+    func `fileLogLevel returns info for an unrecognized value`() {
+        PreferencesDefaults.store.set("chatty", forKey: Self.key)
+        defer { PreferencesDefaults.store.removeObject(forKey: Self.key) }
         #expect(LoggingConfiguration.fileLogLevel == .info)
     }
 }

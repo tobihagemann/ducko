@@ -1,8 +1,11 @@
 import Foundation
 import Security
 
+/// Keychain store for account passwords. The service-string scope includes
+/// `BuildEnvironment.appSupportDirectoryName` so dev (`Ducko-Dev` / `Ducko-Dev-<profile>`)
+/// and release (`Ducko`) Keychain items never alias the same `(service, account)` tuple.
 enum KeychainHelper {
-    private static let serviceName = "im.ducko"
+    private static let serviceName = "im.ducko.credentials.\(BuildEnvironment.appSupportDirectoryName)"
 
     private static func baseQuery(for jid: String) -> [String: Any] {
         [

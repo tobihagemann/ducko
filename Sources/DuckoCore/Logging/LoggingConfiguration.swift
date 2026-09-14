@@ -9,30 +9,29 @@ public enum LoggingConfiguration {
     /// Shared file writer used by all `FileLogHandler` instances.
     public static let fileWriter = FileLogWriter(directory: logsDirectory)
 
-    private static let logLevelKey = "advancedLogLevel"
-
-    /// Maps the UI log level picker value to a swift-log level for the file backend.
+    /// Resolves the dynamic file-log level from the persisted preference at every emit, so a
+    /// runtime change (Preferences > Advanced > Log Level) takes effect without re-bootstrapping.
     static var fileLogLevel: Logger.Level {
-        switch PreferencesDefaults.store.string(forKey: logLevelKey) {
-        case "debug": .debug
-        case "verbose": .trace
-        default: .info
+        switch LogLevelPreference.current {
+        case .standard: .info
+        case .debug: .debug
+        case .verbose: .trace
         }
     }
 
-    private nonisolated(unsafe) static var isBootstrapped = false
+    private static let latch = BootstrapLatch()
 
     /// Configures the logging system. Safe to call multiple times; only the first call takes effect.
     public static func bootstrap() {
-        guard !isBootstrapped else { return }
-        isBootstrapped = true
-        LoggingSystem.bootstrap { label in
-            MultiplexLogHandler([
-                OSLogHandler(label: label),
-                FileLogHandler(label: label, writer: fileWriter, minimumLevel: {
-                    fileLogLevel
-                })
-            ])
+        latch.runOnce {
+            LoggingSystem.bootstrap { label in
+                MultiplexLogHandler([
+                    OSLogHandler(label: label),
+                    FileLogHandler(label: label, writer: fileWriter, minimumLevel: {
+                        fileLogLevel
+                    })
+                ])
+            }
         }
     }
 }

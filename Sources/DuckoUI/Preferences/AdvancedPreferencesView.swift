@@ -1,4 +1,5 @@
 import AppKit
+import DuckoCore
 import SwiftUI
 
 struct AdvancedPreferencesView: View {
@@ -23,9 +24,9 @@ struct AdvancedPreferencesView: View {
 
             Section("Logging") {
                 Picker("Log Level", selection: Bindable(preferences).logLevel) {
-                    Text("Default").tag("default")
-                    Text("Debug").tag("debug")
-                    Text("Verbose").tag("verbose")
+                    Text("Default").tag(LogLevelPreference.standard)
+                    Text("Debug").tag(LogLevelPreference.debug)
+                    Text("Verbose").tag(LogLevelPreference.verbose)
                 }
             }
         }
