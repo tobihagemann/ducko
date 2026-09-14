@@ -28,20 +28,25 @@ struct OSLogHandler: LogHandler {
         function: String,
         line: UInt
     ) {
+        // Privacy is left at OSLog's default (`.private` for dynamic interpolations) so
+        // user-controllable values — JIDs, message bodies, stanza fragments — don't surface in
+        // Console.app or sysdiagnose archives. The whole message is one interpolation, so its
+        // entire text is redacted; subsystem and category remain visible because they aren't
+        // interpolated, and `FileLogHandler` keeps the text at its configured level.
         let msg = message.description
         switch level {
         case .trace, .debug:
-            osLogger.debug("\(msg, privacy: .public)")
+            osLogger.debug("\(msg)")
         case .info:
-            osLogger.info("\(msg, privacy: .public)")
+            osLogger.info("\(msg)")
         case .notice:
-            osLogger.notice("\(msg, privacy: .public)")
+            osLogger.notice("\(msg)")
         case .warning:
-            osLogger.warning("\(msg, privacy: .public)")
+            osLogger.warning("\(msg)")
         case .error:
-            osLogger.error("\(msg, privacy: .public)")
+            osLogger.error("\(msg)")
         case .critical:
-            osLogger.fault("\(msg, privacy: .public)")
+            osLogger.fault("\(msg)")
         }
     }
 

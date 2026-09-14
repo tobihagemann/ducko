@@ -22,8 +22,19 @@ jobs:
         # outdated preinstall; .swiftformat's rule set needs the pinned minversion.
         run: |
           brew update
-          brew install swiftlint swiftformat periphery
-          brew upgrade swiftlint swiftformat periphery || true
+          brew install swiftformat periphery
+          brew upgrade swiftformat periphery || true
+
+      - name: Install pinned SwiftLint
+        # Homebrew only offers the latest SwiftLint, whose new default rules can fail lint on
+        # untouched code. Install the exact version .swiftlint.yml pins, ahead of any preinstall.
+        run: |
+          SWIFTLINT_VERSION=$(awk '/^swiftlint_version:/ { print $2 }' .swiftlint.yml)
+          curl -fsSL -o "$RUNNER_TEMP/swiftlint.zip" \
+            "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip"
+          unzip -o -q "$RUNNER_TEMP/swiftlint.zip" -d "$RUNNER_TEMP/swiftlint"
+          echo "$RUNNER_TEMP/swiftlint" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/swiftlint/swiftlint" version
 
       - name: Lint & Format Check
         run: ./Scripts/lint.sh

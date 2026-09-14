@@ -1,53 +1,67 @@
 ---
 name: release
-description: "This skill should be used when the user asks to \"cut a release\", \"publish a new version\", \"prepare a release\", \"tag a release\", or \"ship it\". Covers the full pipeline: update CHANGELOG.md, tag, and push to trigger GitHub Actions CI which builds, signs, notarizes, creates DMG, generates Sparkle appcast, and publishes a GitHub Release."
+description: "Cut a Ducko release: update CHANGELOG.md on main, then push the X.Y.Z tag that triggers the release.yml CI workflow (build, sign, notarize, DMG, Sparkle appcast, GitHub Release). Use when the user asks to \"cut a release\", \"publish a new version\", \"prepare a release\", \"tag a release\", or \"ship it\"."
 ---
 
 # Release
 
-Releases are built exclusively via GitHub Actions — never locally.
+Cut a release straight from `main`: update the changelog, then push an `X.Y.Z` tag. CI does the build — the tag triggers `.github/workflows/release.yml`, which builds, signs, notarizes, packages a DMG, regenerates the Sparkle appcast, and publishes a GitHub Release whose body comes from `CHANGELOG.md`. Signing and Sparkle secrets are already configured in CI. Releases are built exclusively via GitHub Actions — never locally.
 
-## Step 1: Update CHANGELOG.md
+There is no version file to bump — the marketing version comes from the tag, and `CHANGELOG.md` is the only prep artifact (`version.env` holds names, not the version; the build number is the commit count).
 
-Discover user-facing changes since the last release:
+## Step 1: Determine the version
+
+If the user did not give one, infer the next `X.Y.Z` from the latest tag and propose a patch/minor/major bump, then confirm:
 
 ```bash
-git log $(git describe --tags --abbrev=0)..HEAD --oneline
+git tag --sort=-v:refname | head -1
 ```
 
-Read PR descriptions via `gh pr view <number> --json title,body` to understand each change's user-facing impact. Do not rely on commit messages alone — they describe implementation, not user outcomes.
+## Step 2: Update the changelog
 
-Add a new section under the version heading. See [references/changelog-format.md](references/changelog-format.md) for format and style guidance.
+Make sure `main` is clean and current (`git checkout main && git pull origin main`). `CHANGELOG.md` keeps a running `## [Unreleased]` section, so a release completes that section and then promotes it to a version heading.
 
-```markdown
-## x.y.z
+**Scope: user-facing only, framed as a net delta.** `CHANGELOG.md` becomes the GitHub Release notes and the Sparkle update notes, so it must describe only what a user experiences between releases. Before promoting, review every `[Unreleased]` entry and:
 
-- Added feature X.
-- Fixed bug Y.
-```
+- **Drop non-user changes.** CI, scripts, skills, tests, and refactors don't ship to users. `DuckoCLI`-only changes belong only when the CLI is part of what the release ships.
+- **State the net delta from the last released version, not the development history.** The `[Unreleased]` section accumulates commit-by-commit, so it collects entries that only make sense relative to an intermediate unreleased build (e.g. "no longer does X" / "removed the Y glitch" where X or the Y bug never shipped). Rewrite or drop those so each entry reads as a change the previous release's users will actually notice.
+- **Check each entry's subject against the last tag, don't just scan the phrasing.** A positively-phrased entry hides the same trap: a fix for a feature that arrived in this same cycle reads like something users would notice, but nobody on the previous release ever hit that bug. For every entry, confirm the thing it changes or fixes existed at the last tag — `git show <last-tag>:<path>`, plus `git log --follow -- <path>` when the file moved. When it did not, fold the entry into whatever introduced the feature, or drop it. One entry per net user-visible change, not one per commit.
+- **Describe the experience, not the mechanism.** "Rooms remember their bookmark autojoin flag" is what a user sees; the stanza or storage detail belongs in the commit, not the release notes.
 
-## Step 2: Commit and Push
+1. **Complete `[Unreleased]` via `/update-changelog`.** Run it to capture anything missing, then double-check completeness against `git log <last-tag>..HEAD --oneline` — that range always includes the prior `Update appcast.xml for <last>` commit (CI pushes it to `main` after the tag) as noise, and real changes can land *after* it, so don't stop scanning there.
+2. **Promote** by inserting the version heading (`## [X.Y.Z] - YYYY-MM-DD`, today's date) under the kept-empty `## [Unreleased]` heading so the accumulated entries fall under the new version, add the `[X.Y.Z]: https://github.com/tobihagemann/ducko/compare/<last-tag>...X.Y.Z` link reference (`.../releases/tag/X.Y.Z` for the first release), and repoint `[Unreleased]` to `compare/X.Y.Z...HEAD` (mirror the previous `Prepare release X.Y.Z` commit's changelog diff). `release.yml` extracts this version section as the GitHub Release notes.
+
+## Step 3: Commit and push to main
 
 ```bash
 git add CHANGELOG.md
-git commit -m "Prepare release x.y.z"
+git commit -m "Prepare release X.Y.Z"
 git push origin main
 ```
 
-## Step 3: Tag and Push
+The tag must land on a `main` commit: `release.yml` signs only commits reachable from `origin/main`, and it reads `CHANGELOG.md` at the tagged commit.
+
+## Step 4: Tag and trigger the release
+
+Tag the changelog commit and push the tag — this is what starts CI:
 
 ```bash
-git tag x.y.z
-git push origin x.y.z
+git tag -a X.Y.Z -m "X.Y.Z"
+git push origin X.Y.Z
 ```
 
-The `release.yml` workflow automatically builds, signs, notarizes, creates the DMG, generates the Sparkle appcast, commits `appcast.xml` to `main`, and publishes a GitHub Release with `.zip`, `.dmg`, checksums, and release notes from `CHANGELOG.md`.
+`release.yml` then builds, signs, notarizes, generates the appcast, creates the `X.Y.Z` GitHub Release (notes from the changelog section), and commits the updated `appcast.xml` back to `main`.
 
-## Dry Run
+To rehearse the build without publishing, dispatch a dry run instead of tagging: `gh workflow run release.yml -f version=X.Y.Z -f dry_run=true`. Artifacts are always uploaded.
 
-Use `workflow_dispatch` from the Actions tab with "Dry run" checked. This runs the full pipeline but skips creating the GitHub Release. Artifacts are always uploaded.
+## Step 5: Finish
 
-## Local Fallback
+```bash
+git pull origin main    # pick up the appcast commit CI pushed
+gh release view X.Y.Z   # verify the Release and its assets
+```
 
-If CI is unavailable, see [references/local-release.md](references/local-release.md) for the manual release procedure.
+## Notes
 
+- Reserve each `X.Y.Z` for one set of artifacts — re-tagging a published version reuses the Release and appcast URLs for different content.
+- If CI is unavailable, see [references/local-release.md](references/local-release.md) for the manual release procedure.

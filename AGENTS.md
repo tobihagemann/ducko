@@ -101,7 +101,7 @@ Scripts/release.sh                       # build, sign, notarize, DMG, zip
 
 Uses `swift-log` as a facade with dual backends:
 
-- **OSLog backend** (`OSLogHandler`) — forwards to Apple's unified logging for Console.app/Xcode debugging
+- **OSLog backend** (`OSLogHandler`) — forwards to Apple's unified logging for Console.app/Xcode debugging, with message text left at OSLog's default `<private>` redaction so JIDs and stanza fragments stay out of Console.app and sysdiagnose archives (use the file log for message text)
 - **File backend** (`FileLogHandler`) — writes to `~/Library/Application Support/<app-dir>/Logs/ducko.log` with size-based rotation (5 MB, 5 archives)
 
 Logger labels use dot notation: `Logger(label: "im.ducko.xmpp.client")` — last component is the category (flat lowercase), rest is the subsystem.
@@ -136,7 +136,7 @@ Set `DUCKO_PROFILE=<name>` to run multiple isolated instances side by side:
 
 ## Lint & Format
 
-SwiftFormat, SwiftLint, and Periphery are installed via Homebrew:
+SwiftFormat, SwiftLint, and Periphery are installed via Homebrew. SwiftLint is pinned exactly via `swiftlint_version` in `.swiftlint.yml` (CI installs that release's portable binary); when Homebrew moves past it, bump the pin and fix any new violations in the same commit:
 
 ```
 ./Scripts/format.sh            # Auto-format + autocorrect

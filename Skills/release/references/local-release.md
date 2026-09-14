@@ -17,7 +17,7 @@ export APP_STORE_CONNECT_ISSUER_ID="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 ### 1. Update CHANGELOG.md
 
-Add release notes to `CHANGELOG.md` under a new `## x.y.z` heading.
+Promote the `## [Unreleased]` entries to a `## [x.y.z] - YYYY-MM-DD` heading and update the link references, as in the release skill's Step 2.
 
 ### 2. Tag
 
@@ -47,9 +47,8 @@ cp Ducko-x.y.z.zip "$RELEASE_DIR/"
 "$SPARKLE_BIN/generate_appcast" \
   --ed-key-file /path/to/sparkle_private.key \
   --download-url-prefix "https://github.com/tobihagemann/ducko/releases/download/x.y.z/" \
+  -o appcast.xml \
   "$RELEASE_DIR"
-
-cp "$RELEASE_DIR/appcast.xml" appcast.xml
 rm -rf "$RELEASE_DIR"
 ```
 
@@ -69,6 +68,7 @@ git push origin main x.y.z
 gh release create x.y.z \
   Ducko-x.y.z.zip \
   Ducko-x.y.z.dmg \
+  appcast.xml \
   --title "Ducko x.y.z" \
-  --notes-file <(awk -v ver="x.y.z" '/^## / { if (found) exit; if ($2 == ver) found=1; next } found { print }' CHANGELOG.md)
+  --notes-file <(awk -v ver="x.y.z" '/^## / { if (found) exit; if ($2 == ver || $2 == "[" ver "]") found=1; next } found && /^\[[^]]+\]:/ { exit } found { print }' CHANGELOG.md)
 ```

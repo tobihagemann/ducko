@@ -1,3 +1,7 @@
+# Exact pin: SwiftLint adds default rules in minor releases, so a floating version can fail lint on
+# untouched code. CI installs this exact version; a local mismatch fails lint with a version warning.
+swiftlint_version: 0.65.1
+
 included:
   - Sources/DuckoXMPP
   - Sources/DuckoCore
