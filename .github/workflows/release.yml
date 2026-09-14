@@ -88,24 +88,37 @@ jobs:
           RELEASE_DIR=$(mktemp -d)
           cp "${APP_NAME}-${MARKETING_VERSION}.zip" "$RELEASE_DIR/"
 
+          # `-o` pins the output name (otherwise Sparkle derives it from
+          # SUFeedURL.lastPathComponent) and updates the checked-out appcast.xml in place,
+          # so earlier releases stay in the feed.
           "$SPARKLE_BIN/generate_appcast" \
             --ed-key-file "$KEY_FILE" \
             --download-url-prefix "https://github.com/tobihagemann/ducko/releases/download/${MARKETING_VERSION}/" \
+            -o appcast.xml \
             "$RELEASE_DIR"
-
-          cp "$RELEASE_DIR/appcast.xml" appcast.xml
-          rm -f "$KEY_FILE"
           rm -rf "$RELEASE_DIR"
+
+          rm -f "$KEY_FILE"
 
       - name: Extract release notes from CHANGELOG.md
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          # Extract the section for this version (between ## headings).
+          # Extract the section for this version (between ## headings); the file is
+          # consumed by the next step's `gh release create --notes-file`.
           # Must run before checking out main so we read the tagged commit's file.
-          awk -v ver="$MARKETING_VERSION" '
-            /^## / { if (found) exit; if ($2 == ver) found=1; next }
-            found { print }
-          ' CHANGELOG.md > release_notes.txt
+          if [[ -f CHANGELOG.md ]]; then
+            # Match the version's section heading, whether bare (## 0.1.0 ...) or the
+            # bracketed Keep a Changelog form (## [0.1.0] ...). Stop at the next ## heading
+            # or at the trailing link-reference block ([0.1.0]: ...) so neither leaks in.
+            awk -v ver="$MARKETING_VERSION" '
+              /^## / { if (found) exit; if ($2 == ver || $2 == "[" ver "]") found=1; next }
+              found && /^\[[^]]+\]:/ { exit }
+              found { print }
+            ' CHANGELOG.md > release_notes.txt
+          fi
+          if [[ ! -s release_notes.txt ]]; then
+            printf '%s release\n' "$MARKETING_VERSION" > release_notes.txt
+          fi
           cat release_notes.txt
 
       - name: Create GitHub Release

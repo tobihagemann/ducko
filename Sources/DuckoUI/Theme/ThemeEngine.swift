@@ -102,7 +102,7 @@ public final class ThemeEngine {
     }
 
     private static func loadBuiltInThemes() -> [DuckoTheme] {
-        guard let themesURL = Bundle.module.url(forResource: "Themes", withExtension: nil) else {
+        guard let themesURL = Bundle.duckoUIModule.url(forResource: "Themes", withExtension: nil) else {
             return []
         }
         return loadThemes(from: themesURL)
