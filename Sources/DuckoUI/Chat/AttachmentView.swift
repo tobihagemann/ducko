@@ -26,7 +26,7 @@ struct AttachmentView: View {
                     case let .success(image):
                         image
                             .resizable()
-                            .aspectRatio(contentMode: .fit)
+                            .scaledToFit()
                     case .failure:
                         imagePlaceholder(systemName: "photo.badge.exclamationmark")
                     case .empty:

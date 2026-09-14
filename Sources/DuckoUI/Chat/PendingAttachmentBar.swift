@@ -36,7 +36,7 @@ private struct PendingAttachmentCard: View {
                 if attachment.isImage, let nsImage = NSImage(contentsOf: attachment.url) {
                     Image(nsImage: nsImage)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .scaledToFill()
                         .frame(width: 56, height: 56)
                         .clipShape(.rect(cornerRadius: 6))
                 } else {

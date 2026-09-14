@@ -32,7 +32,7 @@ struct LinkPreviewCard: View {
                 case let .success(image):
                     image
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .scaledToFill()
                 case .empty, .failure:
                     Color.clear
                 @unknown default:

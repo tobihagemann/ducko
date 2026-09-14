@@ -47,7 +47,7 @@ struct ImagePreviewSheet: View {
                 case let .success(image):
                     image
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
+                        .scaledToFit()
                         .padding()
                 case .failure:
                     Label("Failed to load image", systemImage: "exclamationmark.triangle")
