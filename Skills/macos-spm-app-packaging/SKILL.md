@@ -81,6 +81,7 @@ spctl --assess --type execute --verbose HelloApp.app
 | `The software asset has already been uploaded` | Duplicate submission for same version | Bump `BUILD_NUMBER` in `version.env` and repackage. |
 | `Package Invalid: Invalid Code Signing Entitlements` | Entitlements in `.entitlements` file don't match provisioning | Audit entitlements against Apple's allowed set; remove unsupported keys. |
 | `The executable does not have the hardened runtime enabled` | A `codesign` invocation is missing the `--options runtime` flag | Ensure every `codesign` call passes `--options runtime` (the shipped `sign-and-notarize.sh` already does — check any custom signing steps). |
+| Notarization status `Invalid` although the app bundle itself signed cleanly | An executable in a non-code folder such as `Contents/Resources` (a helper or CLI copied there) was never signed with the Developer ID. It keeps the linker's ad-hoc signature, or none at all on an x86_64 slice, because signing the bundle seals it as a resource without re-signing it | Sign every such Mach-O with the same Developer ID `codesign` arguments before signing the bundle, then confirm `codesign -dv` on it shows your Team ID. `xcrun notarytool log <submission-id>` (with the same credentials as `submit`) names the rejected file. |
 | Notarization hangs / no status email | `xcrun notarytool` network or credential issue | Run `xcrun notarytool history` to check status; re-export App Store Connect API key if expired. |
 | `stapler validate` fails after successful notarization | Ticket not yet propagated | Wait ~60 s, then re-run `xcrun stapler staple`. |
 
@@ -97,6 +98,7 @@ spctl --assess --type execute --verbose HelloApp.app
 
 ## Notes
 - Keep entitlements and signing configuration explicit; edit the template scripts instead of reimplementing.
+- Universal (`arm64 x86_64`) release builds compile an x86_64 slice that Apple-silicon machines and runners never build by default, and some SDK typedefs differ per architecture (e.g. `SSLCipherSuite` is `UInt16` on arm64 but `UInt32` on x86_64). Run `swift build -c release --arch x86_64` in CI so these compile errors surface before release.
 - Remove Sparkle steps if you do not use Sparkle for updates.
 - Sparkle relies on the bundle build number (`CFBundleVersion`), so `BUILD_NUMBER` in `version.env` must increase for each update.
 - For menu bar apps, set `MENU_BAR_APP=1` when packaging to emit `LSUIElement` in Info.plist.

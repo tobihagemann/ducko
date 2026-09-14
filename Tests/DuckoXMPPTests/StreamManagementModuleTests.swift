@@ -595,15 +595,15 @@ enum StreamManagementModuleTests {
             await simulateSASL2Connect(mock)
             try await connectTask.value
 
-            // After SASL2 connect: sentBytes count = 3, SM enabled inline.
+            // After SASL2 connect: sentBytes count = 2 (stream opening, <authenticate>), SM enabled inline.
             #expect(sm.isEnabled)
 
             let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
-            await mock.waitForSent(count: 4) // unavailable
-            await mock.waitForSent(count: 5) // <r/>
+            await mock.waitForSent(count: 3) // unavailable
+            await mock.waitForSent(count: 4) // <r/>
 
             let sentBeforeAck = await mock.sentBytes
-            #expect(sentBeforeAck.count == 5)
+            #expect(sentBeforeAck.count == 4)
 
             // Inline-enable's outgoing counter started at 0; the
             // unavailable presence advances it to 1.
@@ -611,8 +611,8 @@ enum StreamManagementModuleTests {
             await disconnectTask.value
 
             let sentFinal = await mock.sentBytes
-            #expect(sentFinal.count == 6)
-            let last = String(decoding: sentFinal[5], as: UTF8.self)
+            #expect(sentFinal.count == 5)
+            let last = String(decoding: sentFinal[4], as: UTF8.self)
             #expect(last.contains("</stream:stream>"))
         }
 

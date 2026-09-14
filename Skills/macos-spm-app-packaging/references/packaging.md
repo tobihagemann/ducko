@@ -5,7 +5,7 @@ SwiftPM places binaries under:
 - `.build/<arch>-apple-macosx/<config>/<AppName>` for arch-specific builds
 - `.build/<config>/<AppName>` for some products (frameworks/tools)
 
-Use `ARCHES="arm64 x86_64"` with `swift build` to produce universal binaries.
+Set `ARCHES="arm64 x86_64"` when running the template scripts to produce universal binaries; plain `swift build` ignores it.
 
 ## Common environment variables (used by templates)
 - `APP_NAME`: App/binary name (for example, `MyApp`).

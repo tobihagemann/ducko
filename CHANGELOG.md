@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Show the first import errors in the Adium import summary, not just their count
+
+### Fixed
+
+- Fix signing in to servers that offer SASL2 authentication, which failed with an unexpected stream error
+- Import Adium chat history for Facebook, MSN, and ICQ contacts whose IDs contain `@` or spaces
+- Show readable connection and server error messages instead of internal error codes
+
 ## [0.0.1] - 2026-09-14
 
 Initial release.

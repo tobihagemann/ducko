@@ -22,7 +22,7 @@ Example flow:
 git tag v<version>
 git push origin v<version>
 
-gh release create v<version> CodexBar-<version>.zip appcast.xml \
+gh release create v<version> <AppName>-<version>.zip appcast.xml \
   --title "AppName <version>" \
   --notes-file CHANGELOG.md
 ```

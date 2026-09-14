@@ -32,6 +32,28 @@ public struct BareJID: Hashable, Sendable {
             }
         }
     }
+
+    /// XEP-0106 §4 escaping of a foreign identifier into a localpart: space and the RFC 7622 excluded
+    /// characters become `\XX`, and a backslash becomes `\5c` only where it would otherwise read as an escape.
+    public static func escapeLocalpart(_ identifier: String) -> String {
+        var result = ""
+        var remaining = identifier[...]
+        while let character = remaining.popFirst() {
+            if let code = localpartEscapeCodes[character] {
+                result += "\\\(code)"
+            } else if character == "\\", localpartEscapeSequenceCodes.contains(remaining.prefix(2).lowercased()) {
+                result += "\\5c"
+            } else {
+                result.append(character)
+            }
+        }
+        return result
+    }
+
+    private static let localpartEscapeCodes: [Character: String] = [
+        " ": "20", "\"": "22", "&": "26", "'": "27", "/": "2f", ":": "3a", "<": "3c", ">": "3e", "@": "40"
+    ]
+    private static let localpartEscapeSequenceCodes = Set(localpartEscapeCodes.values).union(["5c"])
 }
 
 extension BareJID: CustomStringConvertible {

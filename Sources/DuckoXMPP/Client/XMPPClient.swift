@@ -386,11 +386,7 @@ public actor XMPPClient {
            let sm = modules[ObjectIdentifier(StreamManagementModule.self)] as? StreamManagementModule,
            sm.hasISRToken {
             if try await attemptISRResume(sm: sm, reader: reader) {
-                // Post-auth stream reset (required by SASL2 spec after <success>)
-                await connection.resetStream()
-                try await openStream()
-                let postAuthFeatures = try await reader.awaitFeatures()
-                serverFeaturesLock.withLock { $0 = postAuthFeatures }
+                try await awaitSASL2PostAuthFeatures(reader: reader)
                 return true
             }
             // ISR failed — SASL2 allows re-authentication, fall through to normal auth
@@ -400,12 +396,7 @@ public actor XMPPClient {
             && modules[ObjectIdentifier(CarbonsModule.self)] != nil
         let authResult = try await authenticateSASL2(features: features, sasl2Features: sasl2Features, reader: reader)
         log.info("Authenticated via SASL2")
-
-        // Post-auth stream reset (still required after SASL2 per RFC 6120 §6.3.2)
-        await connection.resetStream()
-        try await openStream()
-        let postAuthFeatures = try await reader.awaitFeatures()
-        serverFeaturesLock.withLock { $0 = postAuthFeatures }
+        try await awaitSASL2PostAuthFeatures(reader: reader)
 
         // Process inline results (SM enabled, carbons, etc.)
         let fullJID = authResult.fullJID
@@ -415,6 +406,13 @@ public actor XMPPClient {
         log.notice("Connected as \(fullJID) via SASL2 + Bind 2")
         state = .connected(fullJID)
         return false
+    }
+
+    /// XEP-0388 §2.6.1: SASL2 has no stream restart. `<success>` is immediately followed by the
+    /// authenticated stream's `<features>` on the same stream, with no new stream header.
+    private func awaitSASL2PostAuthFeatures(reader: EventReader) async throws {
+        let postAuthFeatures = try await reader.awaitFeaturesElement()
+        serverFeaturesLock.withLock { $0 = postAuthFeatures }
     }
 
     /// Performs the legacy SASL1 + sequential bind flow.

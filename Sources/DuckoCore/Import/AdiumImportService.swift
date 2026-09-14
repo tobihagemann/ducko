@@ -46,6 +46,11 @@ public actor AdiumImportService {
         public let file: String
         public let message: String
 
+        /// The log file or contact folder name rather than the full Adium path, followed by the message.
+        public var displayText: String {
+            file.isEmpty ? message : "\(URL(fileURLWithPath: file).lastPathComponent): \(message)"
+        }
+
         public init(file: String, message: String) {
             self.file = file
             self.message = message
@@ -163,7 +168,9 @@ public actor AdiumImportService {
         // The conversation is resolved lazily from the first non-empty file.
         if state.conversation == nil {
             guard let resolved = try await resolveConversation(context: context, entries: parsed.entries) else {
-                result.errors.append(ImportError(file: context.contactDir.path, message: "Invalid JID: \(context.contactJID)"))
+                log.warning("Skipped \(context.logFiles.count) log files of a \(context.source.service) contact whose identifier is not a valid JID")
+                log.debug("Invalid synthetic JID: \(context.contactJID)")
+                result.errors.append(ImportError(file: context.contactDir.path, message: "\(context.source.service) identifier is not a valid JID"))
                 result.completedFiles += context.logFiles.count
                 return .skipContact
             }
@@ -340,7 +347,8 @@ public actor AdiumImportService {
         case "jabber", "gtalk":
             return identifier
         default:
-            return "\(identifier)@\(normalizedService).adium-import"
+            // Identifiers like MSN addresses or Facebook's `-123@chat.facebook.com` contain `@` and spaces.
+            return "\(BareJID.escapeLocalpart(identifier))@\(normalizedService).adium-import"
         }
     }
 }

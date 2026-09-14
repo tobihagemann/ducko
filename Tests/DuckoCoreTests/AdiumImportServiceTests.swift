@@ -38,7 +38,23 @@ enum AdiumImportServiceTests {
             #expect(icq == "101494097@icq.adium-import")
 
             let msn = await service.syntheticJID(identifier: "user@example.org", service: "MSN")
-            #expect(msn == "user@example.org@msn.adium-import")
+            #expect(msn == "user\\40example.org@msn.adium-import")
+        }
+
+        @Test(arguments: [
+            ("-100001234@chat.facebook.com", "Facebook", "-100001234\\40chat.facebook.com@facebook.adium-import"),
+            ("john doe", "AIM", "john\\20doe@aim.adium-import")
+        ])
+        func `Identifiers with reserved characters are escaped into a valid JID`(
+            identifier: String, service: String, expected: String
+        ) async {
+            let store = MockPersistenceStore()
+            let transcripts = MockTranscriptStore()
+            let importService = AdiumImportService(store: store, transcripts: transcripts)
+
+            let jid = await importService.syntheticJID(identifier: identifier, service: service)
+            #expect(jid == expected)
+            #expect(BareJID.parse(jid) != nil)
         }
     }
 

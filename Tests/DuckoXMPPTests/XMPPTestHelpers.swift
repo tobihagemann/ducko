@@ -122,16 +122,22 @@ let testPostSASL2Features = """
 </features>
 """
 
-/// Simulates a SASL2 + Bind 2 connect handshake using PLAIN mechanism.
-func simulateSASL2Connect(_ mock: MockTransport) async {
+/// Drives a SASL2 handshake, answering each client `<authenticate>` with the next reply. XEP-0388 has no
+/// stream restart, so the final `<success>` is followed only by the authenticated stream's `<features>`.
+func simulateSASL2Handshake(_ mock: MockTransport, features: String, replies: [String]) async {
     await mock.waitForSent(count: 1) // stream opening sent
     await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testFeaturesSASL2)
-    await mock.waitForSent(count: 2) // <authenticate> with inline bind2 sent
-    await mock.simulateReceive(testSASL2SuccessWithBind)
-    await mock.waitForSent(count: 3) // post-auth stream opening sent
-    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(features)
+    for (index, reply) in replies.enumerated() {
+        await mock.waitForSent(count: 2 + index) // <authenticate> sent
+        await mock.simulateReceive(reply)
+    }
     await mock.simulateReceive(testPostSASL2Features)
+}
+
+/// Simulates a SASL2 + Bind 2 connect handshake using PLAIN mechanism.
+func simulateSASL2Connect(_ mock: MockTransport) async {
+    await simulateSASL2Handshake(mock, features: testFeaturesSASL2, replies: [testSASL2SuccessWithBind])
 }
 
 // MARK: - ISR Constants
@@ -180,40 +186,17 @@ let testISRFailure = """
 
 /// Simulates a SASL2 + Bind 2 connect that acquires an ISR token.
 func simulateSASL2ConnectWithISR(_ mock: MockTransport) async {
-    await mock.waitForSent(count: 1) // stream opening sent
-    await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testFeaturesSASL2WithISR)
-    await mock.waitForSent(count: 2) // <authenticate> with inline bind2 sent
-    await mock.simulateReceive(testSASL2SuccessWithBindAndISR)
-    await mock.waitForSent(count: 3) // post-auth stream opening sent
-    await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testPostSASL2Features)
+    await simulateSASL2Handshake(mock, features: testFeaturesSASL2WithISR, replies: [testSASL2SuccessWithBindAndISR])
 }
 
 /// Simulates an ISR resume connect (server responds with ISR success).
 func simulateISRResumeConnect(_ mock: MockTransport) async {
-    await mock.waitForSent(count: 1) // stream opening sent
-    await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testFeaturesSASL2WithISR)
-    await mock.waitForSent(count: 2) // ISR <authenticate> sent
-    await mock.simulateReceive(testISRSuccess)
-    await mock.waitForSent(count: 3) // post-auth stream opening sent
-    await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testPostSASL2Features)
+    await simulateSASL2Handshake(mock, features: testFeaturesSASL2WithISR, replies: [testISRSuccess])
 }
 
 /// Simulates ISR failure followed by normal SASL2 fallback.
 func simulateISRFailAndFallback(_ mock: MockTransport) async {
-    await mock.waitForSent(count: 1) // stream opening sent
-    await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testFeaturesSASL2WithISR)
-    await mock.waitForSent(count: 2) // ISR <authenticate> sent
-    await mock.simulateReceive(testISRFailure)
-    await mock.waitForSent(count: 3) // normal SASL2 <authenticate> sent
-    await mock.simulateReceive(testSASL2SuccessWithBind)
-    await mock.waitForSent(count: 4) // post-auth stream opening sent
-    await mock.simulateReceive(testServerStreamOpen)
-    await mock.simulateReceive(testPostSASL2Features)
+    await simulateSASL2Handshake(mock, features: testFeaturesSASL2WithISR, replies: [testISRFailure, testSASL2SuccessWithBind])
 }
 
 // MARK: - Sent-Response Waiting

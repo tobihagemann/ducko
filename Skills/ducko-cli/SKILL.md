@@ -117,6 +117,15 @@ ducko history alice@example.com --output json --limit 10
 ducko history alice@example.com --server
 ```
 
+Without `--server`, `history` reads only the local database, but it still exits with "No accounts configured" until an account exists. Imported Adium conversations stay unlinked until their Adium source account itself is added: run `account add --no-connect` with the exact JID the import stored (the plain JID for Jabber/GTalk, `<escaped UID>@<service>.adium-import` otherwise). That account must also be the one `history` selects, the first account or `--account <uuid>`. Any other account passes the check but prints "No messages found."
+
+A JID starting with `-` (an escaped Facebook import such as `-123\40chat.example.com@facebook.adium-import`) parses as an option: put the options first, then `--`, then the JID.
+
+```
+ducko account add --no-connect --password x -- '-456\40chat.example.com@facebook.adium-import'
+ducko history --limit 5 -- '-123\40chat.example.com@facebook.adium-import'
+```
+
 ### `account list`
 
 List all configured accounts. Supports `--output` format.

@@ -1609,7 +1609,7 @@ extension DuckoCLI {
                 if !result.errors.isEmpty {
                     print("  Errors: \(result.errors.count)")
                     for error in result.errors.prefix(10) {
-                        print("    \(error.file): \(error.message)")
+                        print("    \(error.displayText)")
                     }
                     if result.errors.count > 10 {
                         print("    ... and \(result.errors.count - 10) more")

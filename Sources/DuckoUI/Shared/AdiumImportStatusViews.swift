@@ -32,6 +32,8 @@ struct AdiumImportCompletionView: View {
     let result: AdiumImportService.ImportProgress?
     var accountResults: [AccountResult] = []
 
+    private static let visibleErrorLimit = 5
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
@@ -58,14 +60,25 @@ struct AdiumImportCompletionView: View {
             .font(.callout)
 
             let failedAccounts = accountResults.filter { !$0.success }
-            if !failedAccounts.isEmpty {
+            let errors = result?.errors ?? []
+            if !failedAccounts.isEmpty || !errors.isEmpty {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(failedAccounts) { account in
                         Text("\(account.jid): \(account.error ?? "Failed")")
-                            .font(.caption)
                             .foregroundStyle(.red)
                     }
+                    // Errors are a static, append-only list with no identity of their own.
+                    ForEach(errors.prefix(Self.visibleErrorLimit).indices, id: \.self) { index in
+                        Text(errors[index].displayText)
+                            .foregroundStyle(.red)
+                            .lineLimit(2)
+                    }
+                    if errors.count > Self.visibleErrorLimit {
+                        Text("…and \(errors.count - Self.visibleErrorLimit) more")
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .font(.caption)
             }
         }
     }

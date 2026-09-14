@@ -43,7 +43,23 @@ The tag must land on a `main` commit: `release.yml` signs only commits reachable
 
 ## Step 4: Tag and trigger the release
 
-Tag the changelog commit and push the tag — this is what starts CI:
+Dispatch a dry run and wait for it to pass before tagging when the signing or packaging inputs changed since the last tag:
+
+```bash
+git diff --stat <last-tag>..HEAD -- Package.swift Resources/Entitlements.plist Scripts/package_app.sh Scripts/create_dmg.sh Scripts/release.sh .github/workflows/release.yml
+```
+
+**Skip** the dry run when that diff is empty. It is the only check that signs, notarizes, and staples the real universal build, since CI's release smoke test stubs those tools:
+
+```bash
+gh workflow run release.yml --ref main -f version=X.Y.Z -f dry_run=true
+gh run list --workflow release.yml --limit 1   # run ID, when the dispatch prints no URL
+gh run watch <run-id> --exit-status
+```
+
+If the dry run fails, fix the cause on `main`, push, and dispatch again. Tag only after a dry run passes. A passing dry run uploads its artifacts for inspection.
+
+Tag the latest `main` commit (the changelog commit, or a later dry-run fix) and push the tag — this is what starts CI:
 
 ```bash
 git tag -a X.Y.Z -m "X.Y.Z"
@@ -51,8 +67,6 @@ git push origin X.Y.Z
 ```
 
 `release.yml` then builds, signs, notarizes, generates the appcast, creates the `X.Y.Z` GitHub Release (notes from the changelog section), and commits the updated `appcast.xml` back to `main`.
-
-To rehearse the build without publishing, dispatch a dry run instead of tagging: `gh workflow run release.yml -f version=X.Y.Z -f dry_run=true`. Artifacts are always uploaded.
 
 ## Step 5: Finish
 
@@ -64,4 +78,5 @@ gh release view X.Y.Z   # verify the Release and its assets
 ## Notes
 
 - Reserve each `X.Y.Z` for one set of artifacts — re-tagging a published version reuses the Release and appcast URLs for different content.
+- The Sparkle EdDSA private key lives in the login Keychain under `generate_keys --account ducko` and is backed up in 1Password. `.build/artifacts/sparkle/Sparkle/bin/generate_keys --account ducko -p` must print the `SUPublicEDKey` in `Scripts/package_app.sh`. GitHub cannot show the `SPARKLE_PRIVATE_KEY` secret, so when its contents are in doubt, re-set it from that key (`generate_keys --account ducko -x <file>`, then `gh secret set SPARKLE_PRIVATE_KEY < <file>` and delete the file) rather than generating a new pair. A mismatched pair still publishes a release, but every later update fails signature verification for its users.
 - If CI is unavailable, see [references/local-release.md](references/local-release.md) for the manual release procedure.

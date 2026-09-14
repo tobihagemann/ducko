@@ -30,6 +30,11 @@ final class EventReader: @unchecked Sendable {
         if let version = attributes["version"], version != "1.0" {
             throw XMPPClientError.unexpectedStreamState("Unsupported stream version: \(version)")
         }
+        return try await awaitFeaturesElement()
+    }
+
+    /// Awaits a `<features>` element on the current stream, without a preceding stream header.
+    func awaitFeaturesElement() async throws -> XMLElement {
         let featuresEvent = try await awaitNextEvent()
         guard case let .stanzaReceived(features) = featuresEvent, features.name == "features" else {
             throw XMPPClientError.unexpectedStreamState("Expected stream features")

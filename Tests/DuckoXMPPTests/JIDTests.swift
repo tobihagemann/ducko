@@ -290,4 +290,26 @@ enum JIDTests {
             #expect(full.description == "user@example.com/res")
         }
     }
+
+    struct LocalpartEscaping {
+        @Test(arguments: [
+            ("user@example.org", "user\\40example.org"),
+            ("john doe", "john\\20doe"),
+            ("a\"&'/:<>b", "a\\22\\26\\27\\2f\\3a\\3c\\3eb"),
+            ("a\\40b", "a\\5c40b"),
+            ("a\\2Fb", "a\\5c2Fb"),
+            ("a\\b", "a\\b"),
+            ("trailing\\", "trailing\\"),
+            ("plain", "plain")
+        ])
+        func `escapeLocalpart applies XEP-0106 escaping`(identifier: String, expected: String) {
+            #expect(BareJID.escapeLocalpart(identifier) == expected)
+        }
+
+        @Test
+        func `Escaped localpart forms a valid bare JID`() {
+            let localPart = BareJID.escapeLocalpart("-100001234@chat.facebook.com")
+            #expect(BareJID(localPart: localPart, domainPart: "facebook.adium-import") != nil)
+        }
+    }
 }

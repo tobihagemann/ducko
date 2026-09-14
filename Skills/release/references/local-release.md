@@ -52,10 +52,10 @@ cp Ducko-x.y.z.zip "$RELEASE_DIR/"
 rm -rf "$RELEASE_DIR"
 ```
 
-The private key is in the macOS Keychain (stored by `generate_keys`). Export with:
+The private key is in the macOS Keychain under the `ducko` account (stored by `generate_keys --account ducko`). Export with:
 
 ```bash
-"$SPARKLE_BIN/generate_keys" -x /path/to/sparkle_private.key
+"$SPARKLE_BIN/generate_keys" --account ducko -x /path/to/sparkle_private.key
 ```
 
 ### 5. Publish
