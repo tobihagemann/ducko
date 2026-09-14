@@ -9,6 +9,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Show a readable reason when signing in fails, such as "Incorrect username or password", instead of internal error details
+- Show readable messages such as "Connection refused" when connecting, registering an account, transferring or uploading files, searching channels, or setting up OMEMO encryption fails
+- Fix Ducko quitting unexpectedly when the server connection or a file transfer drops while data is being sent
 
 ## [0.0.2] - 2026-09-14
 

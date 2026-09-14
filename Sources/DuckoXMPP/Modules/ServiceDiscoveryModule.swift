@@ -150,7 +150,7 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
     /// Queries a remote entity for its disco#info.
     public func queryInfo(for jid: JID, node: String? = nil) async throws -> InfoResult {
         guard let context = state.withLock({ $0.context }) else {
-            throw ServiceDiscoveryError.notConnected
+            throw XMPPClientError.notConnected
         }
 
         var iq = XMPPIQ(type: .get, to: jid, id: context.generateID())
@@ -188,7 +188,7 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
     /// Queries a remote entity for its disco#items.
     public func queryItems(for jid: JID, node: String? = nil) async throws -> [Item] {
         guard let context = state.withLock({ $0.context }) else {
-            throw ServiceDiscoveryError.notConnected
+            throw XMPPClientError.notConnected
         }
 
         var iq = XMPPIQ(type: .get, to: jid, id: context.generateID())
@@ -208,9 +208,4 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
             return Item(jid: jid, name: element.attribute("name"), node: element.attribute("node"))
         }
     }
-}
-
-/// Errors from the service discovery module.
-enum ServiceDiscoveryError: Error {
-    case notConnected
 }

@@ -18,6 +18,17 @@ actor SOCKS5Connection {
         case alreadyConnected
         case sendFailed(String)
         case receiveFailed(String)
+
+        var displayText: String {
+            switch self {
+            case let .connectionFailed(reason): "Could not connect to the file transfer peer: \(reason)"
+            case let .handshakeFailed(reason): "The file transfer handshake failed: \(reason)"
+            case .notConnected: "The file transfer connection is not open"
+            case .alreadyConnected: "The file transfer connection is already open"
+            case let .sendFailed(reason): "Could not send file data: \(reason)"
+            case let .receiveFailed(reason): "Could not receive file data: \(reason)"
+            }
+        }
     }
 
     // MARK: - State
@@ -167,43 +178,11 @@ actor SOCKS5Connection {
         host: String,
         port: UInt16
     ) throws -> Int32 {
-        var hints = addrinfo()
-        hints.ai_family = AF_UNSPEC
-        hints.ai_socktype = SOCK_STREAM
-
-        var result: UnsafeMutablePointer<addrinfo>?
-        let portStr = String(port)
-        let err = getaddrinfo(host, portStr, &hints, &result)
-        guard err == 0, let addrList = result else {
-            throw SOCKS5Error.connectionFailed("getaddrinfo failed: \(err)")
+        do throws(TCPConnectError) {
+            return try connectTCPSocket(host: host, port: port)
+        } catch {
+            throw SOCKS5Error.connectionFailed(error.reason)
         }
-        defer { freeaddrinfo(addrList) }
-
-        var lastError: Int32 = 0
-        var addr: UnsafeMutablePointer<addrinfo>? = addrList
-        while let ai = addr {
-            let socketFD = socket(
-                ai.pointee.ai_family,
-                ai.pointee.ai_socktype,
-                ai.pointee.ai_protocol
-            )
-            guard socketFD >= 0 else {
-                addr = ai.pointee.ai_next
-                continue
-            }
-
-            if Darwin.connect(
-                socketFD,
-                ai.pointee.ai_addr,
-                ai.pointee.ai_addrlen
-            ) == 0 {
-                return socketFD
-            }
-            lastError = errno
-            Darwin.close(socketFD)
-            addr = ai.pointee.ai_next
-        }
-        throw SOCKS5Error.connectionFailed("connect() failed: \(lastError)")
     }
 
     private static func performHandshake(
@@ -260,10 +239,10 @@ actor SOCKS5Connection {
                     if errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR {
                         continue
                     }
-                    throw SOCKS5Error.sendFailed("send() failed: \(errno)")
+                    throw SOCKS5Error.sendFailed(posixErrorText(errno))
                 }
                 guard sent > 0 else {
-                    throw SOCKS5Error.sendFailed("send() returned 0")
+                    throw SOCKS5Error.sendFailed("The connection was closed")
                 }
                 totalSent += sent
             }
@@ -285,12 +264,10 @@ actor SOCKS5Connection {
                     if errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR {
                         continue
                     }
-                    throw SOCKS5Error.receiveFailed("recv() failed: \(errno)")
+                    throw SOCKS5Error.receiveFailed(posixErrorText(errno))
                 }
                 guard result > 0 else {
-                    throw SOCKS5Error.receiveFailed(
-                        "Connection closed after \(totalRead)/\(count) bytes"
-                    )
+                    throw SOCKS5Error.receiveFailed("The connection was closed")
                 }
                 totalRead += result
             }

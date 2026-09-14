@@ -21,7 +21,7 @@ private func collectEvents(
         }
         group.addTask {
             try await Task.sleep(for: timeout)
-            throw XMPPConnectionError.connectionTimeout
+            throw XMPPClientError.timeout
         }
         let result = try await group.next()!
         group.cancelAll()

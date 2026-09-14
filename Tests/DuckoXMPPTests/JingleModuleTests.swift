@@ -539,6 +539,39 @@ enum JingleModuleTests {
         }
     }
 
+    struct SOCKS5TransportFailure {
+        private static func makeContext() -> ModuleContext {
+            ModuleContext(
+                sendStanza: { _ in },
+                sendIQ: { _ in nil },
+                emitEvent: { _ in },
+                generateID: { "test-1" },
+                connectedJID: { FullJID.parse("user@example.com/res") },
+                domain: "example.com"
+            )
+        }
+
+        @Test
+        func `SOCKS5 send failure surfaces as a readable transport failure`() async {
+            let module = JingleModule()
+            await #expect(throws: JingleModule.JingleError.transportFailed("The file transfer connection is not open")) {
+                try await module.sendSOCKS5Data(
+                    sid: "sid-123", data: [1, 2, 3], connection: SOCKS5Connection(), context: Self.makeContext()
+                )
+            }
+        }
+
+        @Test
+        func `SOCKS5 receive failure surfaces as a readable transport failure`() async {
+            let module = JingleModule()
+            await #expect(throws: JingleModule.JingleError.transportFailed("The file transfer connection is not open")) {
+                _ = try await module.receiveSOCKS5Data(
+                    sid: "sid-123", expectedSize: 3, connection: SOCKS5Connection(), context: Self.makeContext()
+                )
+            }
+        }
+    }
+
     struct ContentAddHandling {
         @Test
         func `Emits jingleContentAddReceived on content-add`() async throws {

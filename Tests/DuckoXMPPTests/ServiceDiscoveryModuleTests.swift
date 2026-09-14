@@ -123,6 +123,32 @@ enum ServiceDiscoveryModuleTests {
         }
     }
 
+    struct NotConnected {
+        @Test
+        func `queryInfo on an unregistered module throws notConnected`() async throws {
+            let module = ServiceDiscoveryModule()
+            let error = await #expect(throws: XMPPClientError.self) {
+                try await module.queryInfo(for: .bare(#require(BareJID.parse("server.example.com"))))
+            }
+            guard case .notConnected = error else {
+                Issue.record("Expected notConnected, got \(String(describing: error))")
+                return
+            }
+        }
+
+        @Test
+        func `queryItems on an unregistered module throws notConnected`() async throws {
+            let module = ServiceDiscoveryModule()
+            let error = await #expect(throws: XMPPClientError.self) {
+                try await module.queryItems(for: .bare(#require(BareJID.parse("example.com"))))
+            }
+            guard case .notConnected = error else {
+                Issue.record("Expected notConnected, got \(String(describing: error))")
+                return
+            }
+        }
+    }
+
     struct DiscoItemsQuery {
         @Test
         func `queryItems parses items`() async throws {

@@ -194,6 +194,7 @@ Structure every test with clear phases:
 - `.timeLimit(.seconds(...))` → only `.minutes(...)` is accepted.
 - Unsafe mutable counters captured by async callbacks → use an actor or thread-safe container.
 - `#require`/`#expect` nested inside another `#require`/`#expect`'s argument → fails to compile with "recursive expansion of macro 'require(_:_:sourceLocation:)'"; bind the inner `try #require(...)` to a local first. A single macro nested inside an ordinary call (`Foo(bar: #require(x))`) is fine.
+- Key-path argument to a rethrowing call that is the whole `#expect`/`#require` condition (`#expect(!s.contains(where: \.isNumber))`) → fails macro expansion with "call can throw, but it is not marked with 'try' and the error is not handled"; pass a closure instead (`#expect(!s.contains { $0.isNumber })`) or bind the result to a local first.
 
 
 ## Verification checklist

@@ -1,3 +1,4 @@
+import CryptoKit
 import Logging
 import struct os.OSAllocatedUnfairLock
 
@@ -60,18 +61,22 @@ public final class OMEMOModule: XMPPModule, Sendable {
 
     public func handleConnect() async throws {
         let identity: OwnIdentity
-        if let pending = state.withLock({ $0.pendingIdentity }) {
-            identity = try restoreIdentity(from: pending)
-            state.withLock {
-                $0.pendingIdentity = nil
-                $0.ownIdentity = identity
+        do {
+            if let pending = state.withLock({ $0.pendingIdentity }) {
+                identity = try restoreIdentity(from: pending)
+                state.withLock {
+                    $0.pendingIdentity = nil
+                    $0.ownIdentity = identity
+                }
+            } else {
+                identity = try generateOwnIdentity()
+                state.withLock { $0.ownIdentity = identity }
             }
-        } else {
-            identity = try generateOwnIdentity()
-            state.withLock { $0.ownIdentity = identity }
+            try await ensureOwnDeviceInList(identity.deviceID)
+            try await publishOwnBundle(identity)
+        } catch {
+            throw OMEMOModuleError.translatingCryptoFailure(error)
         }
-        try await ensureOwnDeviceInList(identity.deviceID)
-        try await publishOwnBundle(identity)
         let deviceID = identity.deviceID.value
         log.info("OMEMO setup complete, device ID: \(deviceID)")
 
@@ -270,37 +275,41 @@ public final class OMEMOModule: XMPPModule, Sendable {
         ownDeviceIDs: [UInt32]?,
         conversation: BareJID
     ) async throws -> EncryptedMessageElements {
-        let identity = try requireOwnIdentity()
-        let contentKey = randomBytes(32)
-        let sceBytes = buildSCEEnvelope(body: plaintext)
-        let payload = try encryptPayload(sceBytes, contentKey: contentKey)
-        let peerEncryption = try await encryptKeysInParallel(
-            contentKey: contentKey, identity: identity, devices: peerDevices
-        )
-        var results = peerEncryption.results
-        if results.isEmpty {
-            // Surface the dropped peer devices before throwing so operators
-            // see the same diagnostic in the worst case (every recipient
-            // device unfetchable) as in partial-coverage cases. The throw
-            // would otherwise hide the dropped set entirely.
-            emitDroppedRecipientsEventIfNeeded(
-                conversation: conversation, dropped: peerEncryption.dropped
+        do {
+            let identity = try requireOwnIdentity()
+            let contentKey = randomBytes(32)
+            let sceBytes = buildSCEEnvelope(body: plaintext)
+            let payload = try encryptPayload(sceBytes, contentKey: contentKey)
+            let peerEncryption = try await encryptKeysInParallel(
+                contentKey: contentKey, identity: identity, devices: peerDevices
             )
-            throw OMEMOModuleError.noUsableRecipientDevices
+            var results = peerEncryption.results
+            if results.isEmpty {
+                // Surface the dropped peer devices before throwing so operators
+                // see the same diagnostic in the worst case (every recipient
+                // device unfetchable) as in partial-coverage cases. The throw
+                // would otherwise hide the dropped set entirely.
+                emitDroppedRecipientsEventIfNeeded(
+                    conversation: conversation, dropped: peerEncryption.dropped
+                )
+                throw OMEMOModuleError.noUsableRecipientDevices
+            }
+            let ownEncryption = try await encryptKeyForOwnDevices(
+                contentKey: contentKey, identity: identity, ownDeviceIDs: ownDeviceIDs
+            )
+            results += ownEncryption.results
+            applySessionUpdates(results)
+            let keys = results.map(\.keyElement)
+            let droppedRecipients = peerEncryption.dropped + ownEncryption.dropped
+            let elements = buildEncryptedElements(
+                keys: keys, payload: payload, senderDeviceID: identity.deviceID.value,
+                droppedRecipients: droppedRecipients
+            )
+            emitDroppedRecipientsEventIfNeeded(conversation: conversation, dropped: droppedRecipients)
+            return elements
+        } catch {
+            throw OMEMOModuleError.translatingCryptoFailure(error)
         }
-        let ownEncryption = try await encryptKeyForOwnDevices(
-            contentKey: contentKey, identity: identity, ownDeviceIDs: ownDeviceIDs
-        )
-        results += ownEncryption.results
-        applySessionUpdates(results)
-        let keys = results.map(\.keyElement)
-        let droppedRecipients = peerEncryption.dropped + ownEncryption.dropped
-        let elements = buildEncryptedElements(
-            keys: keys, payload: payload, senderDeviceID: identity.deviceID.value,
-            droppedRecipients: droppedRecipients
-        )
-        emitDroppedRecipientsEventIfNeeded(conversation: conversation, dropped: droppedRecipients)
-        return elements
     }
 
     private struct EncryptionResult {
@@ -1829,8 +1838,8 @@ package protocol OrphanDeviceRecordPurging: Sendable {
 
 // MARK: - Errors
 
-/// Errors from OMEMO protocol operations (distinct from crypto errors).
-enum OMEMOModuleError: Error {
+/// Errors from OMEMO protocol operations. Cryptographic failures surface as `.cryptographicFailure`.
+public enum OMEMOModuleError: Error, Equatable {
     case notSetUp
     case bundleNotFound
     case noSession
@@ -1841,6 +1850,22 @@ enum OMEMOModuleError: Error {
     /// Every recipient device listed returned `item-not-found` (or equivalent)
     /// for its bundle. The message was not sent.
     case noUsableRecipientDevices
+    case cryptographicFailure(String)
+
+    /// Maps `OMEMOCryptoError` and `CryptoKitError` to `.cryptographicFailure` so callers get readable text.
+    /// Every other error passes through unchanged.
+    static func translatingCryptoFailure(_ error: any Error) -> any Error {
+        switch error {
+        case let cryptoError as OMEMOCryptoError:
+            OMEMOModuleError.cryptographicFailure(cryptoError.displayText)
+        case is CryptoKitError:
+            // OMEMO only hits CryptoKit throws when building, signing with, or agreeing on a stored or peer key,
+            // so one fixed phrase covers them.
+            OMEMOModuleError.cryptographicFailure("The encryption keys are invalid or unusable")
+        default:
+            error
+        }
+    }
 }
 
 // MARK: - Private Types

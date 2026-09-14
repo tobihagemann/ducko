@@ -1,3 +1,4 @@
+import CryptoKit
 import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
@@ -545,6 +546,104 @@ enum OMEMOModuleTests {
             }
             #expect(conversation == peerJID)
             #expect(dropped.count == 2)
+
+            await disconnectFast(client)
+        }
+    }
+
+    struct CryptographicFailureTests {
+        @Test func `OMEMOCryptoError becomes a cryptographic failure with its display text`() {
+            let translated = OMEMOModuleError.translatingCryptoFailure(OMEMOCryptoError.hmacVerificationFailed)
+            #expect(translated as? OMEMOModuleError == .cryptographicFailure("Message authentication failed"))
+        }
+
+        @Test func `CryptoKitError becomes a cryptographic failure with a fixed phrase`() {
+            let translated = OMEMOModuleError.translatingCryptoFailure(CryptoKitError.incorrectKeySize)
+            #expect(translated as? OMEMOModuleError == .cryptographicFailure("The encryption keys are invalid or unusable"))
+        }
+
+        @Test func `Stanza errors pass through unchanged`() {
+            let translated = OMEMOModuleError.translatingCryptoFailure(
+                XMPPStanzaError(errorType: .cancel, condition: .itemNotFound)
+            )
+            #expect((translated as? XMPPStanzaError)?.condition == .itemNotFound)
+        }
+
+        @Test func `Module errors pass through unchanged`() {
+            let translated = OMEMOModuleError.translatingCryptoFailure(OMEMOModuleError.bundleNotFound)
+            #expect(translated as? OMEMOModuleError == .bundleNotFound)
+        }
+
+        @Test func `Invalid stored identity key fails connect with a cryptographic failure`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let valid = try makeTestOMEMOIdentity(deviceID: 4242, preKeyIDs: [1]).data
+            omemoModule.configureIdentity(OMEMOModule.OMEMOIdentityData(
+                deviceID: valid.deviceID,
+                identityKeyRaw: Array(valid.identityKeyRaw.prefix(16)),
+                signedPreKeyID: valid.signedPreKeyID,
+                signedPreKeyRaw: valid.signedPreKeyRaw,
+                signedPreKeySignature: valid.signedPreKeySignature,
+                preKeys: valid.preKeys
+            ))
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(pepModule)
+            await client.register(omemoModule)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+
+            await #expect(throws: OMEMOModuleError.cryptographicFailure("The encryption keys are invalid or unusable")) {
+                try await connectTask.value
+            }
+        }
+
+        @Test func `Peer bundle with an invalid signature fails encrypt with a cryptographic failure`() async throws {
+            let mock = MockTransport()
+            let pepModule = PEPModule()
+            let omemoModule = OMEMOModule(pepModule: pepModule)
+            let (client, _) = try await makeConnectedClient(mock: mock, omemoModule: omemoModule, pepModule: pepModule)
+            let deviceID: UInt32 = 10
+
+            let task = Task {
+                try await omemoModule.encryptMessage(
+                    plaintext: "hello", to: peerJID,
+                    recipientDeviceIDs: [deviceID], ownDeviceIDs: []
+                )
+            }
+
+            await mock.waitForSent(count: 1)
+            let iqID = try await #require(extractIQID(from: mock.sentBytes[0]))
+            let peer = try makeTestOMEMOIdentity(deviceID: deviceID, preKeyIDs: [1])
+            let validBundle = OMEMOPreKeyManager.buildBundle(
+                deviceID: OMEMODeviceID(value: deviceID),
+                identityKeyPair: peer.identityKeyPair,
+                signedPreKey: peer.signedPreKey,
+                preKeys: peer.preKeys
+            )
+            var signature = validBundle.signedPreKeySignature
+            signature[0] ^= 0xFF
+            let corruptedBundle = OMEMOBundle(
+                deviceID: validBundle.deviceID,
+                identityKey: validBundle.identityKey,
+                signedPreKeyID: validBundle.signedPreKeyID,
+                signedPreKey: validBundle.signedPreKey,
+                signedPreKeySignature: signature,
+                preKeys: validBundle.preKeys
+            )
+            await mock.simulateReceive(bundleResultIQ(
+                iqID: iqID, fromJID: peerJID, deviceID: deviceID,
+                bundleEl: omemoModule.buildBundleElement(corruptedBundle)
+            ))
+
+            await #expect(throws: OMEMOModuleError.cryptographicFailure("The signed pre-key signature is invalid")) {
+                _ = try await task.value
+            }
 
             await disconnectFast(client)
         }

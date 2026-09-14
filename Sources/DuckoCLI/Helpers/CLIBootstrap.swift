@@ -10,12 +10,10 @@ struct CLIContext {
 @MainActor
 enum CLIBootstrap {
     static func setUp(formatter: any CLIFormatter, isInteractive: Bool = false) throws -> CLIContext {
-        // Ignore SIGPIPE so a broken pipe `write()` returns `EPIPE` to the
-        // caller instead of terminating the process — the standard Unix idiom
-        // for CLI tools. Writes most commonly broken-pipe when an XMPP TCP
-        // socket's peer closes mid-stream; without this, the integration
-        // harness sees an empty-output `nonZeroExit(code: 13)` (signal 13 =
-        // SIGPIPE) with no way to recover or surface a real error message.
+        // Ignore SIGPIPE so a `write()` to a closed pipe, such as stdout piped
+        // into a reader that exits early, returns `EPIPE` instead of silently
+        // killing the process with signal 13. DuckoXMPP sockets set
+        // `SO_NOSIGPIPE` themselves, so this covers every other descriptor.
         signal(SIGPIPE, SIG_IGN)
 
         LoggingConfiguration.bootstrap()

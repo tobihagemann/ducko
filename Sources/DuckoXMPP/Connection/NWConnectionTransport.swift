@@ -27,7 +27,7 @@ actor NWConnectionTransport: XMPPTransport {
 
     func connect(host: String, port: UInt16) async throws {
         guard connection == nil else {
-            throw XMPPConnectionError.alreadyConnected
+            throw XMPPClientError.alreadyConnected
         }
         self.host = host
         self.port = port
@@ -41,7 +41,7 @@ actor NWConnectionTransport: XMPPTransport {
 
     func upgradeTLS(serverName: String) async throws {
         guard let conn = connection, let host, let port else {
-            throw XMPPConnectionError.notConnected
+            throw XMPPClientError.notConnected
         }
 
         // Prevent the old connection's receive callback from finishing the stream
@@ -63,18 +63,18 @@ actor NWConnectionTransport: XMPPTransport {
             isUpgrading.store(false, ordering: .releasing)
         } catch {
             isUpgrading.store(false, ordering: .releasing)
-            throw XMPPConnectionError.tlsUpgradeFailed("\(error)")
+            throw XMPPClientError.tlsNegotiationFailed("\(error)")
         }
     }
 
     func send(_ bytes: [UInt8]) async throws {
         guard let conn = connection else {
-            throw XMPPConnectionError.notConnected
+            throw XMPPClientError.notConnected
         }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             conn.send(content: Data(bytes), completion: .contentProcessed { error in
                 if let error {
-                    continuation.resume(throwing: XMPPConnectionError.sendFailed("\(error)"))
+                    continuation.resume(throwing: XMPPClientError.sendFailed("\(error)"))
                 } else {
                     continuation.resume()
                 }
@@ -96,10 +96,10 @@ actor NWConnectionTransport: XMPPTransport {
                     continuation.finish()
                 case let .failed(error):
                     continuation.finish(
-                        throwing: XMPPConnectionError.connectionFailed("\(error)")
+                        throwing: XMPPClientError.connectionFailed("\(error)")
                     )
                 case .cancelled:
-                    continuation.finish(throwing: XMPPConnectionError.connectionCancelled)
+                    continuation.finish(throwing: XMPPClientError.connectionFailed("Connection cancelled"))
                 default:
                     break
                 }

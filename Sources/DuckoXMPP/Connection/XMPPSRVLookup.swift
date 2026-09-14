@@ -116,13 +116,13 @@ private func srvQuery(domain: String, directTLS: Bool) throws -> [SRVRecord] {
     )
 
     guard err == kDNSServiceErr_NoError, let sdRef else {
-        throw XMPPConnectionError.connectionFailed("DNSServiceQueryRecord failed: \(err)")
+        throw XMPPClientError.connectionFailed("DNSServiceQueryRecord failed: \(err)")
     }
     defer { DNSServiceRefDeallocate(sdRef) }
 
     let fd = DNSServiceRefSockFD(sdRef)
     guard fd >= 0 else {
-        throw XMPPConnectionError.connectionFailed("Invalid DNS-SD socket")
+        throw XMPPClientError.connectionFailed("Invalid DNS-SD socket")
     }
 
     // Process results synchronously with poll(), 100ms per iteration, 5s max

@@ -9,6 +9,8 @@ extension XMPPClientError: LocalizedError {
         switch self {
         case .notConnected: "Not connected to the server"
         case .alreadyConnected: "Already connected to the server"
+        case let .connectionFailed(reason): "Could not connect to the server: \(reason)"
+        case let .sendFailed(reason): "Could not send data to the server: \(reason)"
         case .tlsRequired: "The server does not offer a secure connection"
         case let .tlsNegotiationFailed(reason): "Secure connection failed: \(reason)"
         case let .authenticationFailed(reason): "Authentication failed: \(reason)"
@@ -25,5 +27,83 @@ extension XMPPClientError: LocalizedError {
 extension XMPPStanzaError: LocalizedError {
     public var errorDescription: String? {
         "Server error: \(displayText)"
+    }
+}
+
+extension XMPPRegistrationClient.RegistrationClientError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case let .connectionFailed(reason): "Could not connect to the server: \(reason)"
+        case .tlsNegotiationFailed: "Could not establish a secure connection to the server"
+        case .registrationNotSupported: "The server does not support account registration"
+        case let .registrationFailed(reason): "Registration failed: \(reason)"
+        case .unexpectedResponse: "Unexpected response from the server"
+        }
+    }
+}
+
+extension RegistrationModule.RegistrationError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected: "Not connected to the server"
+        case .registrationNotSupported: "The server does not support account registration"
+        }
+    }
+}
+
+extension MUCModule.MUCError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case let .invalidNickname(nickname): "Invalid nickname: \(nickname)"
+        }
+    }
+}
+
+extension HTTPUploadModule.HTTPUploadError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected: "Not connected to the server"
+        case .noUploadServiceFound: "The server does not offer file uploads"
+        case let .fileTooLarge(maxSize):
+            "The file is too large: the server accepts up to \(ByteCountFormatter.string(fromByteCount: maxSize, countStyle: .file))"
+        case let .slotRequestFailed(reason): "Could not request an upload slot: \(reason)"
+        }
+    }
+}
+
+extension JingleModule.JingleError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected, .noConnectedJID: "Not connected to the server"
+        case .sessionNotFound: "The file transfer session was not found"
+        case .cannotRemovePrimaryContent: "The primary file cannot be removed from the transfer"
+        case let .transportNegotiationFailed(reason): "File transfer negotiation failed: \(reason)"
+        case let .transportFailed(reason): "File transfer failed: \(reason)"
+        }
+    }
+}
+
+extension ChannelSearchModule.ChannelSearchError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notConnected: "Not connected to the server"
+        case .noSearchServiceFound: "The server does not offer channel search"
+        }
+    }
+}
+
+extension OMEMOModuleError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .notSetUp: "OMEMO encryption is not set up"
+        case .bundleNotFound: "The recipient's encryption keys were not found"
+        case .noSession: "No encryption session exists for the sending device"
+        case .notForThisDevice: "The message was not encrypted for this device"
+        case .invalidKeyData: "The encrypted message contains invalid key data"
+        case .invalidHeader: "The encrypted message has an invalid header"
+        case .invalidPayload: "The encrypted message has an invalid payload"
+        case .noUsableRecipientDevices: "None of the recipient's devices can receive encrypted messages"
+        case let .cryptographicFailure(reason): "Encryption error: \(reason)"
+        }
     }
 }

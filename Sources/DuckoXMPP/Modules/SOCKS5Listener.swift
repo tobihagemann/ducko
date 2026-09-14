@@ -105,6 +105,7 @@ actor SOCKS5Listener {
             guard acceptedFD >= 0 else {
                 throw SOCKS5Listener.ListenerError.acceptFailed("accept() failed: \(errno)")
             }
+            disableSIGPIPE(acceptedFD)
 
             do {
                 try Self.performServerHandshake(fd: acceptedFD, expectedDstAddr: dstAddr)

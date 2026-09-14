@@ -158,7 +158,7 @@ enum ConnectOrderingTests {
             // The establish-failure catch is a distinct settle path from the handshake-failure one above: the
             // transport's connect throws before any handshake runs, so the gate must be opened by the
             // `establish()` catch rather than by the handshake catch. Deleting that settle hangs this await.
-            let mock = MockTransport(connectError: XMPPConnectionError.connectionTimeout)
+            let mock = MockTransport(connectError: XMPPClientError.timeout)
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
@@ -314,7 +314,7 @@ enum ConnectOrderingTests {
 
             // Attempt 1: the transport-connect error makes `establish()` throw before the handshake. The catch
             // opens the gate (now stale-open) and rethrows without disconnecting the surviving connection.
-            await mock.failNextConnect(XMPPConnectionError.connectionTimeout)
+            await mock.failNextConnect(XMPPClientError.timeout)
             await #expect(throws: (any Error).self) {
                 try await client.connect(host: "example.com", port: 5222)
             }

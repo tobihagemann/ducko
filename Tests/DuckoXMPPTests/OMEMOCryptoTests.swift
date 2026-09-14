@@ -640,6 +640,25 @@ enum OMEMOCryptoTests {
         }
     }
 
+    // MARK: - Error Display Text
+
+    struct ErrorDisplayTextTests {
+        @Test(arguments: [
+            (OMEMOCryptoError.invalidKeyLength, "Invalid key length"),
+            (OMEMOCryptoError.invalidIVLength, "Invalid initialization vector length"),
+            (OMEMOCryptoError.encryptionFailed(status: -4301), "Encryption failed (status -4301)"),
+            (OMEMOCryptoError.decryptionFailed(status: -4304), "Decryption failed (status -4304)"),
+            (OMEMOCryptoError.invalidSignature, "The signed pre-key signature is invalid"),
+            (OMEMOCryptoError.invalidPublicKey, "Invalid public key"),
+            (OMEMOCryptoError.sessionNotInitialized, "The encryption session is not initialized"),
+            (OMEMOCryptoError.tooManySkippedMessages, "Too many skipped messages"),
+            (OMEMOCryptoError.hmacVerificationFailed, "Message authentication failed")
+        ])
+        func `display text is readable`(error: OMEMOCryptoError, expected: String) {
+            #expect(error.displayText == expected)
+        }
+    }
+
     // MARK: - Key Types
 
     struct KeyTypeTests {

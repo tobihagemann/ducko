@@ -20,6 +20,7 @@ public final class JingleModule: XMPPModule, Sendable {
         /// The primary content cannot be removed via content-remove; terminate the session instead.
         case cannotRemovePrimaryContent
         case transportNegotiationFailed(String)
+        case transportFailed(String)
     }
 
     /// Result of verifying received file data against a pending checksum.
@@ -1152,7 +1153,7 @@ public final class JingleModule: XMPPModule, Sendable {
         try await terminateSession(sid: sid, reason: .success)
     }
 
-    private func sendSOCKS5Data(
+    func sendSOCKS5Data(
         sid: String, data: [UInt8], connection: SOCKS5Connection, context: ModuleContext
     ) async throws {
         let totalBytes = Int64(data.count)
@@ -1162,7 +1163,11 @@ public final class JingleModule: XMPPModule, Sendable {
         while offset < data.count {
             let end = min(offset + chunkSize, data.count)
             let chunk = Array(data[offset ..< end])
-            try await connection.send(chunk)
+            do {
+                try await connection.send(chunk)
+            } catch let error as SOCKS5Connection.SOCKS5Error {
+                throw JingleError.transportFailed(error.displayText)
+            }
             offset = end
             let transferred = Int64(offset)
             context.emitEvent(.jingleFileTransferProgress(sid: sid, bytesTransferred: transferred, totalBytes: totalBytes))
@@ -1270,7 +1275,7 @@ public final class JingleModule: XMPPModule, Sendable {
         }
     }
 
-    private func receiveSOCKS5Data(
+    func receiveSOCKS5Data(
         sid: String, expectedSize: Int64, connection: SOCKS5Connection, context: ModuleContext
     ) async throws -> [UInt8] {
         var received: [UInt8] = []
@@ -1281,7 +1286,12 @@ public final class JingleModule: XMPPModule, Sendable {
         while received.count < total {
             let remaining = total - received.count
             let toRead = min(chunkSize, remaining)
-            let chunk = try await connection.receive(toRead)
+            let chunk: [UInt8]
+            do {
+                chunk = try await connection.receive(toRead)
+            } catch let error as SOCKS5Connection.SOCKS5Error {
+                throw JingleError.transportFailed(error.displayText)
+            }
             received.append(contentsOf: chunk)
             let transferred = Int64(received.count)
             context.emitEvent(.jingleFileTransferProgress(sid: sid, bytesTransferred: transferred, totalBytes: expectedSize))

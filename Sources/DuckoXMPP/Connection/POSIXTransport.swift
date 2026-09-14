@@ -131,7 +131,7 @@ actor POSIXTransport: XMPPTransport {
     }
 
     func connect(host: String, port: UInt16) async throws {
-        guard fd == -1 else { throw XMPPConnectionError.alreadyConnected }
+        guard fd == -1 else { throw XMPPClientError.alreadyConnected }
 
         fd = try await resolveAndConnect(host: host, port: port)
         setNonBlocking(true)
@@ -139,7 +139,7 @@ actor POSIXTransport: XMPPTransport {
     }
 
     func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
-        guard fd == -1 else { throw XMPPConnectionError.alreadyConnected }
+        guard fd == -1 else { throw XMPPClientError.alreadyConnected }
 
         fd = try await resolveAndConnect(host: host, port: port)
         // Socket stays blocking for SSLHandshake
@@ -163,7 +163,7 @@ actor POSIXTransport: XMPPTransport {
     }
 
     func upgradeTLS(serverName: String) async throws {
-        guard fd >= 0 else { throw XMPPConnectionError.notConnected }
+        guard fd >= 0 else { throw XMPPClientError.notConnected }
 
         receiveTask?.cancel()
         await receiveTask?.value
@@ -201,7 +201,7 @@ actor POSIXTransport: XMPPTransport {
                 status = SSLHandshake(ctx)
             }
             guard status == errSecSuccess else {
-                throw XMPPConnectionError.tlsUpgradeFailed("TLS handshake failed: OSStatus \(status)")
+                throw XMPPClientError.tlsNegotiationFailed("TLS handshake failed: \(securityErrorText(status))")
             }
 
             try validatePeerTrust(ctx: ctx)
@@ -214,7 +214,7 @@ actor POSIXTransport: XMPPTransport {
     }
 
     func send(_ bytes: [UInt8]) async throws {
-        guard fd >= 0 else { throw XMPPConnectionError.notConnected }
+        guard fd >= 0 else { throw XMPPClientError.notConnected }
 
         if let ctx = sslContext {
             try sendSSL(ctx: ctx, bytes: bytes)
@@ -279,22 +279,22 @@ actor POSIXTransport: XMPPTransport {
         alpnProtocols: [String]? = nil
     ) throws -> SSLContext {
         guard let ctx = SSLCreateContext(nil, .clientSide, .streamType) else {
-            throw XMPPConnectionError.tlsUpgradeFailed("Failed to create SSL context")
+            throw XMPPClientError.tlsNegotiationFailed("Failed to create SSL context")
         }
 
         var status = SSLSetIOFuncs(ctx, posixSSLRead, posixSSLWrite)
         guard status == errSecSuccess else {
-            throw XMPPConnectionError.tlsUpgradeFailed("SSLSetIOFuncs failed: \(status)")
+            throw XMPPClientError.tlsNegotiationFailed("SSLSetIOFuncs failed: \(securityErrorText(status))")
         }
 
         status = SSLSetConnection(ctx, UnsafeMutableRawPointer(fdPtr))
         guard status == errSecSuccess else {
-            throw XMPPConnectionError.tlsUpgradeFailed("SSLSetConnection failed: \(status)")
+            throw XMPPClientError.tlsNegotiationFailed("SSLSetConnection failed: \(securityErrorText(status))")
         }
 
         status = SSLSetPeerDomainName(ctx, serverName, serverName.utf8.count)
         guard status == errSecSuccess else {
-            throw XMPPConnectionError.tlsUpgradeFailed("SSLSetPeerDomainName failed: \(status)")
+            throw XMPPClientError.tlsNegotiationFailed("SSLSetPeerDomainName failed: \(securityErrorText(status))")
         }
 
         // RFC 7590: Enforce minimum TLS 1.2 (defense-in-depth)
@@ -317,7 +317,7 @@ actor POSIXTransport: XMPPTransport {
                 SSLWrite(ctx, buf.baseAddress! + totalWritten, remaining, &written)
             }
             guard status == errSecSuccess || status == errSSLWouldBlock else {
-                throw XMPPConnectionError.sendFailed("SSLWrite failed: \(status)")
+                throw XMPPClientError.sendFailed(securityErrorText(status))
             }
             if written == 0 {
                 try waitForWritable()
@@ -336,10 +336,10 @@ actor POSIXTransport: XMPPTransport {
                         try waitForWritable()
                         continue
                     }
-                    throw XMPPConnectionError.sendFailed("send() failed: \(errno)")
+                    throw XMPPClientError.sendFailed(posixErrorText(errno))
                 }
                 guard sent > 0 else {
-                    throw XMPPConnectionError.sendFailed("send() returned 0")
+                    throw XMPPClientError.sendFailed("The connection was closed")
                 }
                 totalSent += sent
             }
@@ -349,42 +349,21 @@ actor POSIXTransport: XMPPTransport {
     private func waitForWritable() throws {
         var pollFd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         let result = Darwin.poll(&pollFd, 1, 5000)
-        guard result > 0 else {
-            throw XMPPConnectionError.sendFailed("Socket not writable (poll returned \(result))")
+        if result == 0 {
+            throw XMPPClientError.sendFailed("Timed out waiting to send data")
+        }
+        if result < 0 {
+            throw XMPPClientError.sendFailed(posixErrorText(errno))
         }
     }
 
     private func resolveAndConnect(host: String, port: UInt16) async throws -> Int32 {
         try await Task.detached {
-            var hints = addrinfo()
-            hints.ai_family = AF_UNSPEC
-            hints.ai_socktype = SOCK_STREAM
-
-            var result: UnsafeMutablePointer<addrinfo>?
-            let portStr = String(port)
-            let err = getaddrinfo(host, portStr, &hints, &result)
-            guard err == 0, let addrList = result else {
-                throw XMPPConnectionError.connectionFailed("getaddrinfo failed: \(err)")
+            do throws(TCPConnectError) {
+                return try connectTCPSocket(host: host, port: port)
+            } catch {
+                throw XMPPClientError.connectionFailed(error.reason)
             }
-            defer { freeaddrinfo(addrList) }
-
-            var lastError: Int32 = 0
-            var addr: UnsafeMutablePointer<addrinfo>? = addrList
-            while let ai = addr {
-                let socketFD = socket(ai.pointee.ai_family, ai.pointee.ai_socktype, ai.pointee.ai_protocol)
-                guard socketFD >= 0 else {
-                    addr = ai.pointee.ai_next
-                    continue
-                }
-
-                if Darwin.connect(socketFD, ai.pointee.ai_addr, ai.pointee.ai_addrlen) == 0 {
-                    return socketFD
-                }
-                lastError = errno
-                close(socketFD)
-                addr = ai.pointee.ai_next
-            }
-            throw XMPPConnectionError.connectionFailed("connect() failed: \(lastError)")
         }.value
     }
 
@@ -426,6 +405,13 @@ actor POSIXTransport: XMPPTransport {
             }
         }
     }
+}
+
+// MARK: - Error Text
+
+/// Readable text for a Security framework status; unknown statuses render as "OSStatus N".
+private func securityErrorText(_ status: OSStatus) -> String {
+    SecCopyErrorMessageString(status, nil) as String? ?? "OSStatus \(status)"
 }
 
 // MARK: - TLS Info Extraction
@@ -535,13 +521,13 @@ private func validatePeerTrust(ctx: SSLContext) throws {
     var trust: SecTrust?
     let status = SSLCopyPeerTrust(ctx, &trust)
     guard status == errSecSuccess, let trust else {
-        throw XMPPConnectionError.tlsUpgradeFailed("Failed to copy peer trust: OSStatus \(status)")
+        throw XMPPClientError.tlsNegotiationFailed("Failed to copy peer trust: \(securityErrorText(status))")
     }
 
     var trustError: CFError?
     guard SecTrustEvaluateWithError(trust, &trustError) else {
         let reason = (trustError as Error?)?.localizedDescription ?? "Unknown trust evaluation error"
-        throw XMPPConnectionError.tlsUpgradeFailed("Peer trust evaluation failed: \(reason)")
+        throw XMPPClientError.tlsNegotiationFailed("Peer trust evaluation failed: \(reason)")
     }
 }
 

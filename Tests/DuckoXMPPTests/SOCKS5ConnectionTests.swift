@@ -112,6 +112,46 @@ enum SOCKS5ConnectionTests {
         }
     }
 
+    struct ErrorDisplayText {
+        @Test(arguments: [
+            (SOCKS5Connection.SOCKS5Error.connectionFailed("Connection refused"), "Could not connect to the file transfer peer: Connection refused"),
+            (SOCKS5Connection.SOCKS5Error.handshakeFailed("reply code 1"), "The file transfer handshake failed: reply code 1"),
+            (SOCKS5Connection.SOCKS5Error.notConnected, "The file transfer connection is not open"),
+            (SOCKS5Connection.SOCKS5Error.alreadyConnected, "The file transfer connection is already open"),
+            (SOCKS5Connection.SOCKS5Error.sendFailed("Broken pipe"), "Could not send file data: Broken pipe"),
+            (SOCKS5Connection.SOCKS5Error.receiveFailed("Connection reset by peer"), "Could not receive file data: Connection reset by peer")
+        ])
+        func `Display text is readable`(error: SOCKS5Connection.SOCKS5Error, expected: String) {
+            #expect(error.displayText == expected)
+        }
+    }
+
+    struct SocketErrorText {
+        @Test
+        func `sendAll reports errno as readable text`() {
+            let error = #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
+                try SOCKS5Connection.sendAll(fd: -1, data: [1])
+            }
+            guard case let .sendFailed(reason) = error else {
+                Issue.record("Expected sendFailed, got \(String(describing: error))")
+                return
+            }
+            #expect(reason == "Bad file descriptor")
+        }
+
+        @Test
+        func `recvAll reports errno as readable text`() {
+            let error = #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
+                try SOCKS5Connection.recvAll(fd: -1, count: 1)
+            }
+            guard case let .receiveFailed(reason) = error else {
+                Issue.record("Expected receiveFailed, got \(String(describing: error))")
+                return
+            }
+            #expect(reason == "Bad file descriptor")
+        }
+    }
+
     struct AdoptFileDescriptor {
         @Test
         func `Send and receive work after adopt(fd:)`() async throws {

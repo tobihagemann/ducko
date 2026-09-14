@@ -41,7 +41,7 @@ public actor MockTransport: XMPPTransport {
             throw error
         }
         guard !isConnected else {
-            throw MockTransportError.alreadyConnected
+            throw XMPPClientError.alreadyConnected
         }
         isConnected = true
         connectedHost = host
@@ -53,7 +53,7 @@ public actor MockTransport: XMPPTransport {
             throw error
         }
         guard !isConnected else {
-            throw MockTransportError.alreadyConnected
+            throw XMPPClientError.alreadyConnected
         }
         isConnected = true
         isTLSUpgraded = true
@@ -75,7 +75,7 @@ public actor MockTransport: XMPPTransport {
 
     public func upgradeTLS(serverName: String) async throws {
         guard isConnected else {
-            throw MockTransportError.notConnected
+            throw XMPPClientError.notConnected
         }
         isTLSUpgraded = true
         tlsServerName = serverName
@@ -83,7 +83,7 @@ public actor MockTransport: XMPPTransport {
 
     public func send(_ bytes: [UInt8]) async throws {
         guard isConnected else {
-            throw MockTransportError.notConnected
+            throw XMPPClientError.notConnected
         }
         if let sendFailure {
             throw sendFailure
@@ -193,12 +193,4 @@ public actor MockTransport: XMPPTransport {
             continuation.resume()
         }
     }
-}
-
-/// Guard-failure errors for misuse of the mock (double connect, use before connect). Tests never assert on
-/// the concrete type — they catch `any Error` — so this stays local rather than exposing DuckoXMPP's internal
-/// `XMPPConnectionError`.
-enum MockTransportError: Error {
-    case alreadyConnected
-    case notConnected
 }

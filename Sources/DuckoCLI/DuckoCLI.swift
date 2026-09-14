@@ -2042,7 +2042,7 @@ private func handleEncryptREPLCommand(_ input: String, context: REPLContext) asy
         let state = enabled ? "enabled" : "disabled"
         print("Encryption \(state) for \(jidString).")
     } catch {
-        print("Error: \(error)")
+        print(context.formatter.formatError(error))
     }
 }
 

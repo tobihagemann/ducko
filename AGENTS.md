@@ -164,3 +164,4 @@ The set is a mix of Ducko-original skills written for this repo and upstream-der
 - **libxml2 / CLibxml2**: DuckoXMPP uses libxml2 via a `CLibxml2` system library target (`Sources/CLibxml2/`). For C callbacks that need a back-reference to a Swift class, use the `Unmanaged.passUnretained(self).toOpaque()` pattern — do not use NSObject or `@objc`.
 - **CryptoKit**: On macOS 26 it does not re-export Foundation, so `some DataProtocol` is out of scope in DuckoXMPP. Use `[UInt8]` for parameters that feed `HashFunction.hash(data:)`.
 - **Exhaustive switches**: Never use `default:` when switching on project-defined enums. List all cases explicitly so the compiler catches new cases at build time.
+- **SIGPIPE**: DuckoApp does not ignore SIGPIPE, so a send on a peer-reset socket would terminate it. Open DuckoXMPP TCP sockets through `connectTCPSocket` and call `disableSIGPIPE` on accepted sockets. Never call `signal(SIGPIPE, SIG_IGN)` in tests, since it masks that crash.
