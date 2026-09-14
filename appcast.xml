@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Ducko</title>
+        <item>
+            <title>0.0.1</title>
+            <pubDate>Mon, 14 Sep 2026 08:52:41 +0000</pubDate>
+            <sparkle:version>271</sparkle:version>
+            <sparkle:shortVersionString>0.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/tobihagemann/ducko/releases/download/0.0.1/Ducko-0.0.1.zip" length="18848664" type="application/octet-stream" sparkle:edSignature="kFBIbwjtWnTZVAOQjPSfcUEv9luYhq6HO7EP9mccrvu28TLqjmyotSCyPjgjOSCQ6PbJqECmgJSRL0kD7dC7DA=="/>
+        </item>
+    </channel>
+</rss>
