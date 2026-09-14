@@ -173,6 +173,13 @@ sign_frameworks() {
 }
 sign_frameworks
 
+# Sign loose executables outside Frameworks (the embedded `ducko` CLI in Resources). Signing the
+# app bundle seals them as resources but keeps their linker ad-hoc signature, which notarization
+# rejects: every Mach-O needs the Developer ID signature, hardened runtime, and a secure timestamp.
+while IFS= read -r -d '' bin; do
+  codesign "${CODESIGN_ARGS[@]}" "$bin"
+done < <(find "$APP/Contents/Resources" -type f -perm -111 -print0)
+
 codesign "${CODESIGN_ARGS[@]}" \
   --entitlements "$APP_ENTITLEMENTS" \
   "$APP"
