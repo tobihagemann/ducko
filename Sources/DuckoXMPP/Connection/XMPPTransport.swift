@@ -13,10 +13,6 @@ public protocol XMPPTransport: Sendable {
 }
 
 public extension XMPPTransport {
-    func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
-        throw XMPPClientError.tlsNegotiationFailed("Direct TLS not supported")
-    }
-
     func channelBindingData() async -> [UInt8]? {
         nil
     }

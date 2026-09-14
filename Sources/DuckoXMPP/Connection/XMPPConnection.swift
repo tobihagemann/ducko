@@ -11,7 +11,7 @@ actor XMPPConnection {
     /// Unified event stream that survives parser resets across TLS upgrades.
     nonisolated let events: AsyncStream<XMLStreamEvent>
 
-    init(transport: any XMPPTransport = NWConnectionTransport()) {
+    init(transport: any XMPPTransport) {
         let (stream, continuation) = AsyncStream.makeStream(of: XMLStreamEvent.self)
         self.events = stream
         self.eventContinuation = continuation

@@ -107,10 +107,7 @@ private func hashFromTrailingByte(_ byte: UInt8?, sha256: UInt8, sha384: UInt8, 
     }
 }
 
-/// POSIX socket transport with in-place STARTTLS support via Security.framework.
-///
-/// Unlike ``NWConnectionTransport``, this transport upgrades TLS on the existing
-/// TCP socket — required for servers that only support STARTTLS (not direct TLS).
+/// POSIX socket transport with direct TLS and in-place STARTTLS upgrade via Security.framework.
 ///
 /// Uses the deprecated Secure Transport API (`SSLCreateContext`) because Network.framework
 /// does not support in-place TLS upgrade. If Apple removes Secure Transport in a future

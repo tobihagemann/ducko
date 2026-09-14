@@ -19,16 +19,36 @@ private func bindLoopbackSocket() throws -> (fd: Int32, port: UInt16) {
         }
     }
     try #require(bindResult == 0)
+    return try (fd, boundPort(of: fd))
+}
 
-    var boundAddr = sockaddr_in()
-    var addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let nameResult = withUnsafeMutablePointer(to: &boundAddr) { ptr in
+private func bindSocket(at address: addrinfo) throws -> (fd: Int32, port: UInt16) {
+    let fd = socket(address.ai_family, address.ai_socktype, address.ai_protocol)
+    try #require(fd >= 0)
+    try #require(bind(fd, address.ai_addr, address.ai_addrlen) == 0)
+    return try (fd, boundPort(of: fd))
+}
+
+private func socketAddress(
+    of fd: Int32,
+    _ query: (Int32, UnsafeMutablePointer<sockaddr>, UnsafeMutablePointer<socklen_t>) -> Int32
+) throws -> sockaddr_storage {
+    var storage = sockaddr_storage()
+    var length = socklen_t(MemoryLayout<sockaddr_storage>.size)
+    let result = withUnsafeMutablePointer(to: &storage) { ptr in
         ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
-            getsockname(fd, sa, &addrLen)
+            query(fd, sa, &length)
         }
     }
-    try #require(nameResult == 0)
-    return (fd, UInt16(bigEndian: boundAddr.sin_port))
+    try #require(result == 0)
+    return storage
+}
+
+private func boundPort(of fd: Int32) throws -> UInt16 {
+    let storage = try socketAddress(of: fd, getsockname)
+    // sin_port and sin6_port share the same offset, so reading through sockaddr_in covers both families.
+    let port = withUnsafeBytes(of: storage) { $0.load(as: sockaddr_in.self).sin_port }
+    return UInt16(bigEndian: port)
 }
 
 // MARK: - Tests
@@ -71,6 +91,36 @@ enum POSIXTransportTests {
                 return
             }
             #expect(reason.contains("Connection refused"))
+        }
+    }
+
+    struct AddressFallback {
+        @Test
+        func `connectTCPSocket falls back to the next resolved address`() throws {
+            var hints = addrinfo()
+            hints.ai_family = AF_UNSPEC
+            hints.ai_socktype = SOCK_STREAM
+            var result: UnsafeMutablePointer<addrinfo>?
+            try #require(getaddrinfo("localhost", "0", &hints, &result) == 0)
+            let addrList = try #require(result)
+            defer { freeaddrinfo(addrList) }
+
+            let addresses = Array(sequence(first: addrList.pointee) { $0.ai_next?.pointee })
+            let first = try #require(addresses.first)
+            let last = try #require(addresses.last)
+            // Two families guarantee an earlier address to fall back from, and let the peer family identify the last one.
+            try #require(first.ai_family != last.ai_family)
+
+            // Only the last address listens, so every earlier connect is refused.
+            let (listenFD, port) = try bindSocket(at: last)
+            defer { close(listenFD) }
+            try #require(listen(listenFD, 1) == 0)
+
+            let clientFD = try connectTCPSocket(host: "localhost", port: port)
+            defer { close(clientFD) }
+
+            let peerAddr = try socketAddress(of: clientFD, getpeername)
+            #expect(Int32(peerAddr.ss_family) == last.ai_family)
         }
     }
 
