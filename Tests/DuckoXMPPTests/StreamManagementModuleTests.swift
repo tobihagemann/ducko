@@ -232,21 +232,10 @@ enum StreamManagementModuleTests {
             let mock = MockTransport()
             let (client, sm) = try await makeConnectedClient(mock: mock)
 
-            // Baseline counter snapshot before disconnect — `makeConnectedClient`
-            // already sent the SM <enable> + handshake stanzas; capture the
-            // counter once SM is enabled so the assertion isolates the
-            // disconnect-side delta.
+            // Snapshot after connect so the assertion isolates the disconnect-side delta.
             let baseline = sm.resumeState?.outgoingCounter ?? 0
 
-            // The disconnect path now blocks on `<r/>`/`<a/>`. Drive it as
-            // a Task; once `<r/>` is on the wire (sentBytes count = 7 —
-            // baseline 5 from `makeConnectedClient` plus unavailable +
-            // `<r/>`), simulate the matching `<a/>` so the handshake
-            // completes.
-            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
-            await mock.waitForSent(count: 7)
-            await mock.simulateReceive("<a xmlns='urn:xmpp:sm:3' h='\(baseline &+ 1)'/>")
-            await disconnectTask.value
+            await disconnectAndAck(client, sm: sm, mock: mock)
 
             // The unavailable presence in `disconnect()` MUST go through
             // `send()` (not `connection.send` directly) so the SM interceptor
@@ -551,27 +540,27 @@ enum StreamManagementModuleTests {
             let mock = MockTransport()
             let (client, sm) = try await makeConnectedClient(mock: mock)
 
-            // Baseline 5 from `makeConnectedClient`. Disconnect should
-            // append: 6 = unavailable, 7 = `<r/>`, then suspend awaiting
-            // `<a/>`, then 8 = `</stream:stream>`.
+            // Disconnect should append: unavailable, `<r/>`, then suspend
+            // awaiting `<a/>`, then `</stream:stream>`.
             let baseline = sm.resumeState?.outgoingCounter ?? 0
+            let snapshotCount = await mock.sentBytes.count
 
             let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
 
-            await mock.waitForSent(count: 6)
-            await mock.waitForSent(count: 7)
+            await mock.waitForSent(count: snapshotCount + 1)
+            await mock.waitForSent(count: snapshotCount + 2)
 
             // `</stream:stream>` must NOT have been sent yet — disconnect
             // is suspended waiting for `<a/>`.
             let sentBeforeAck = await mock.sentBytes
-            #expect(sentBeforeAck.count == 7)
+            #expect(sentBeforeAck.count == snapshotCount + 2)
 
             await mock.simulateReceive("<a xmlns='urn:xmpp:sm:3' h='\(baseline &+ 1)'/>")
             await disconnectTask.value
 
             let sentFinal = await mock.sentBytes
-            #expect(sentFinal.count == 8)
-            let lastBytes = String(decoding: sentFinal[7], as: UTF8.self)
+            #expect(sentFinal.count == snapshotCount + 3)
+            let lastBytes = String(decoding: sentFinal[snapshotCount + 2], as: UTF8.self)
             #expect(lastBytes.contains("</stream:stream>"))
         }
 
@@ -595,15 +584,15 @@ enum StreamManagementModuleTests {
             await simulateSASL2Connect(mock)
             try await connectTask.value
 
-            // After SASL2 connect: sentBytes count = 2 (stream opening, <authenticate>), SM enabled inline.
             #expect(sm.isEnabled)
+            let snapshotCount = await mock.sentBytes.count
 
             let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
-            await mock.waitForSent(count: 3) // unavailable
-            await mock.waitForSent(count: 4) // <r/>
+            await mock.waitForSent(count: snapshotCount + 1) // unavailable
+            await mock.waitForSent(count: snapshotCount + 2) // <r/>
 
             let sentBeforeAck = await mock.sentBytes
-            #expect(sentBeforeAck.count == 4)
+            #expect(sentBeforeAck.count == snapshotCount + 2)
 
             // Inline-enable's outgoing counter started at 0; the
             // unavailable presence advances it to 1.
@@ -611,8 +600,8 @@ enum StreamManagementModuleTests {
             await disconnectTask.value
 
             let sentFinal = await mock.sentBytes
-            #expect(sentFinal.count == 5)
-            let last = String(decoding: sentFinal[4], as: UTF8.self)
+            #expect(sentFinal.count == snapshotCount + 3)
+            let last = String(decoding: sentFinal[snapshotCount + 2], as: UTF8.self)
             #expect(last.contains("</stream:stream>"))
         }
 
@@ -645,13 +634,14 @@ enum StreamManagementModuleTests {
         func `requestSyncAck propagates parent cancellation`() async throws {
             let mock = MockTransport()
             let (_, sm) = try await makeConnectedClient(mock: mock)
+            let snapshotCount = await mock.sentBytes.count
 
             let task = Task {
                 try await sm.requestSyncAck(timeout: .seconds(10))
             }
 
             // Wait for `<r/>` on the wire — proves the install completed.
-            await mock.waitForSent(count: 6)
+            await mock.waitForSent(count: snapshotCount + 1)
             task.cancel()
 
             do {
@@ -674,13 +664,14 @@ enum StreamManagementModuleTests {
         func `requestSyncAck rejects re-entry with streamManagementBusy`() async throws {
             let mock = MockTransport()
             let (_, sm) = try await makeConnectedClient(mock: mock)
+            let snapshotCount = await mock.sentBytes.count
 
             let firstTask = Task {
                 try await sm.requestSyncAck(timeout: .seconds(10))
             }
 
             // Wait for the first `<r/>` — proves install completed.
-            await mock.waitForSent(count: 6)
+            await mock.waitForSent(count: snapshotCount + 1)
 
             do {
                 try await sm.requestSyncAck(timeout: .seconds(1))
@@ -740,6 +731,7 @@ enum StreamManagementModuleTests {
             // session the user just asked to terminate.
             let mock = MockTransport()
             let (client, _) = try await makeConnectedClient(mock: mock)
+            let snapshotCount = await mock.sentBytes.count
 
             // Collect the first .disconnected event off the event stream.
             let reasonTask = Task { () -> DisconnectReason? in
@@ -757,7 +749,7 @@ enum StreamManagementModuleTests {
             // its end of the stream BEFORE feeding `<a/>` — mirrors the
             // production race where the TCP socket dies during the 1.5 s
             // sync-ack window.
-            await mock.waitForSent(count: 7)
+            await mock.waitForSent(count: snapshotCount + 2)
             await mock.simulateReceive("</stream:stream>")
 
             await disconnectTask.value

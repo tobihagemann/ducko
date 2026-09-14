@@ -696,9 +696,7 @@ public actor XMPPClient {
                 features: features, authcid: credentials.username, password: credentials.password
             )
         } catch {
-            let message = String(describing: error)
-            eventContinuation.yield(.authenticationFailed(message))
-            throw XMPPClientError.authenticationFailed(message)
+            throw authenticationFailure(error)
         }
 
         try await connection.send(XMPPStreamWriter.stanza(authElement))
@@ -714,9 +712,7 @@ public actor XMPPClient {
             case .success:
                 return
             case let .failure(error):
-                let message = String(describing: error)
-                eventContinuation.yield(.authenticationFailed(message))
-                throw XMPPClientError.authenticationFailed(message)
+                throw authenticationFailure(error)
             }
         }
     }
@@ -752,9 +748,7 @@ public actor XMPPClient {
                 channelBindingData: cbData
             )
         } catch {
-            let message = String(describing: error)
-            eventContinuation.yield(.authenticationFailed(message))
-            throw XMPPClientError.authenticationFailed(message)
+            throw authenticationFailure(error)
         }
 
         try await connection.send(XMPPStreamWriter.stanza(authElement))
@@ -770,11 +764,15 @@ public actor XMPPClient {
             case let .success(result):
                 return result
             case let .failure(error):
-                let message = String(describing: error)
-                eventContinuation.yield(.authenticationFailed(message))
-                throw XMPPClientError.authenticationFailed(message)
+                throw authenticationFailure(error)
             }
         }
+    }
+
+    private func authenticationFailure(_ error: SASLAuthError) -> XMPPClientError {
+        let message = error.displayText
+        eventContinuation.yield(.authenticationFailed(message))
+        return .authenticationFailed(message)
     }
 
     /// Processes inline feature results from Bind 2 (SM enabled, carbons, etc.).

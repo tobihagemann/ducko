@@ -22,7 +22,7 @@ struct SASLAuthenticator {
         password: String,
         channelBindingData: [UInt8]? = nil,
         hasClientCertificate: Bool = false
-    ) throws -> XMLElement {
+    ) throws(SASLAuthError) -> XMLElement {
         let offeredNames = parseMechanisms(features)
         let preferenceOrder = buildSASLPreferenceOrder(
             channelBindingData: channelBindingData,
@@ -59,7 +59,7 @@ struct SASLAuthenticator {
         case "success":
             mechanism.handleSuccess(stanza)
         case "failure":
-            parseFailure(stanza)
+            .failure(.parse(failure: stanza))
         default:
             .failure(.invalidState("Unexpected SASL element: \(stanza.name)"))
         }
@@ -102,21 +102,6 @@ struct SASLAuthenticator {
             return []
         }
         return Set(mechanisms.children(named: "mechanism").compactMap { $0.textContent?.uppercased() })
-    }
-
-    /// Parses a SASL `<failure>` element into a `.serverFailure` error.
-    private func parseFailure(_ failure: XMLElement) -> SASLAuthResponse {
-        // The condition is the first child element (e.g. <not-authorized/>)
-        var condition = "unknown"
-        var text: String?
-        for case let .element(child) in failure.children {
-            if child.name == "text" {
-                text = child.textContent
-            } else {
-                condition = child.name
-            }
-        }
-        return .failure(.serverFailure(condition: condition, text: text))
     }
 
     // MARK: - Active Mechanism

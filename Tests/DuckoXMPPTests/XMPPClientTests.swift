@@ -237,9 +237,10 @@ enum XMPPClientTests {
             }
 
             let events = try await eventsTask.value
-            guard case .authenticationFailed = events.last else {
+            guard case let .authenticationFailed(message) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected authenticationFailed event")
             }
+            #expect(message == "Incorrect username or password")
 
             await disconnectFast(client)
         }

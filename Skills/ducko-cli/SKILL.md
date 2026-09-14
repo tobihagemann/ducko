@@ -25,6 +25,8 @@ Password lookup order: macOS Keychain first, then prompt on `/dev/tty` if stdin 
 | `--output plain\|ansi\|json` | Output format. Defaults to ANSI in terminal, plain when piped. |
 | `--account <uuid>` | Select account by UUID. Uses first account if omitted. |
 
+Each subcommand declares these options itself. Some reject them with "Unknown option", including `account add` and `account delete`. Pass them after the full subcommand path (e.g. `roster list --output json`).
+
 ## Subcommands
 
 Unless noted otherwise, each subcommand connects, performs its action, and disconnects.
@@ -138,6 +140,8 @@ ducko account list --output json
 ### `account add <jid> [--password <password>] [--host <host>] [--port <port>] [--no-connect]`
 
 Add a new XMPP account. By default it connects to verify credentials and saves the password. Password is prompted interactively if `--password` is omitted. `--host`/`--port` override the connection endpoint (a bare `--port` without `--host` is rejected). With `--no-connect` the account is persisted *without* connecting or verifying credentials — offline/manual setup; the password is still saved.
+
+When authentication fails, the command exits 1 and prints `Error: Authentication failed: <reason>`, where the reason is readable text such as "Incorrect username or password". To observe that failure as JSON, add the account with `--no-connect`, then run a connecting subcommand with `--output json` (e.g. `profile`, which uses the first account unless `--account <uuid>` is passed). It emits `{"account":"<uuid>","message":"<reason>","type":"authentication_failed"}`.
 
 ```
 ducko account add alice@example.com
@@ -423,5 +427,5 @@ ducko history alice@example.com --limit 10
 ducko interactive
 
 # Use a specific account
-ducko --account 12345678-1234-1234-1234-123456789abc send bob@example.com "Hey"
+ducko send --account 12345678-1234-1234-1234-123456789abc bob@example.com "Hey"
 ```

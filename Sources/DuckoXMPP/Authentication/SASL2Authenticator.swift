@@ -77,7 +77,7 @@ struct SASL2Authenticator {
         inlinePayloads: [XMLElement],
         channelBindingData: [UInt8]? = nil,
         hasClientCertificate: Bool = false
-    ) throws -> XMLElement {
+    ) throws(SASLAuthError) -> XMLElement {
         guard let sasl2Features = Self.parseFeatures(features) else {
             throw SASLAuthError.noSupportedMechanism
         }
@@ -137,7 +137,7 @@ struct SASL2Authenticator {
         case "success":
             handleSuccess(stanza, mechanism: &mechanism)
         case "failure":
-            parseFailure(stanza)
+            .failure(.parse(failure: stanza))
         default:
             .failure(.invalidState("Unexpected SASL2 element: \(stanza.name)"))
         }
@@ -264,20 +264,6 @@ struct SASL2Authenticator {
 
         let bound = stanza.child(named: "bound", namespace: XMPPNamespaces.bind2)
         return .success(AuthResult(fullJID: fullJID, bound: bound))
-    }
-
-    /// Parses a SASL2 `<failure>` element into an error.
-    private func parseFailure(_ failure: XMLElement) -> Response {
-        var condition = "unknown"
-        var text: String?
-        for case let .element(child) in failure.children {
-            if child.name == "text" {
-                text = child.textContent
-            } else {
-                condition = child.name
-            }
-        }
-        return .failure(.serverFailure(condition: condition, text: text))
     }
 
     // MARK: - Active Mechanism
