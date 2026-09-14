@@ -52,6 +52,19 @@ jobs:
         run: swift test --no-parallel
         timeout-minutes: 5
 
+  build-intel:
+    name: Build (x86_64 release)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build x86_64 release
+        # The runner is Apple silicon, so Build & Test only compiles arm64, while releases ship a
+        # universal binary. SDK types differ per arch (e.g. SSLCipherSuite is UInt16 on arm64 but
+        # UInt32 on x86_64), and release config compiles the `#if !DEBUG` branches — so build the
+        # Intel slice in release config here instead of discovering failures at release time.
+        run: swift build -c release --arch x86_64
+
   release-smoke:
     name: Release Smoke
     runs-on: ubuntu-latest
