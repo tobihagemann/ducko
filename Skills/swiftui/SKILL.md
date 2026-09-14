@@ -324,7 +324,7 @@ End of example.
 
 ### State, composition, layout
 
-- [references/state-management.md](references/state-management.md) — property wrappers and data flow (prefer `@Observable`).
+- [references/state-management.md](references/state-management.md) — property wrappers and data flow (prefer `@Observable`), `Equatable` setter short-circuit, dependency granularity, `@Entry` hygiene.
 - [references/view-structure.md](references/view-structure.md) — view composition, extraction, and container patterns.
 - [references/layout-best-practices.md](references/layout-best-practices.md) — layout patterns, context-agnostic views, testability.
 - [references/mv-patterns.md](references/mv-patterns.md) — Model-View rationale and patterns for view-file refactors.
@@ -338,7 +338,7 @@ End of example.
 
 ### Lists, scrolling, sheets, navigation patterns
 
-- [references/list-patterns.md](references/list-patterns.md) — `ForEach` identity, stability, list best practices.
+- [references/list-patterns.md](references/list-patterns.md) — `ForEach` identity, stability, unary rows (`-LogForEachSlowPath`), list best practices.
 - [references/scroll-patterns.md](references/scroll-patterns.md) — `ScrollView` patterns and programmatic scrolling.
 - [references/sheet-navigation-patterns.md](references/sheet-navigation-patterns.md) — sheet presentation and navigation patterns.
 
@@ -362,7 +362,7 @@ End of example.
 
 - [references/macos-scenes.md](references/macos-scenes.md) — scene types: `WindowGroup`, `Window`, `UtilityWindow`, `Settings`, `MenuBarExtra`, `DocumentGroup`, `openWindow`.
 - [references/macos-window-styling.md](references/macos-window-styling.md) — window/toolbar styles, `windowResizability`, `defaultSize`/`defaultPosition`, `Inspector`, `CommandGroup`, keyboard shortcuts.
-- [references/macos-views.md](references/macos-views.md) — `Table`, `HSplitView`/`VSplitView`, `fileImporter`/`fileExporter` (security-scoped access), cross-app drag & drop, `NSViewRepresentable` + Coordinator.
+- [references/macos-views.md](references/macos-views.md) — `Table`, `HSplitView`/`VSplitView`, `fileImporter`/`fileExporter` (security-scoped access), cross-app drag & drop, custom-UTI `onCopyCommand` and `DragGesture` cancellation traps, `NSViewRepresentable` + Coordinator.
 
 ### Component patterns (`references/components/`)
 

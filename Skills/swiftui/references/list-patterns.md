@@ -78,7 +78,7 @@ ForEach(items) { item in
     AnyView(item.isSpecial ? SpecialRow(item: item) : RegularRow(item: item))
 }
 
-// Good - Create a unified row view
+// Good - Create a unified row view with a single top-level container
 ForEach(items) { item in
     ItemRow(item: item)
 }
@@ -87,16 +87,28 @@ struct ItemRow: View {
     let item: Item
 
     var body: some View {
-        if item.isSpecial {
-            SpecialRow(item: item)
-        } else {
-            RegularRow(item: item)
+        // The VStack keeps the row "unary" (one top-level view) so the
+        // List can template row ids without evaluating every row's body.
+        VStack {
+            if item.isSpecial {
+                SpecialRow(item: item)
+            } else {
+                RegularRow(item: item)
+            }
         }
     }
 }
 ```
 
 **Why**: Stable identity is critical for performance and animations. Unstable identity causes excessive diffing, broken animations, and potential crashes.
+
+### Prefer unary rows in `List`
+
+`List` needs the identity of every row up front. When each row's body produces a **single top-level view** (a "unary" row), SwiftUI templates the row id from the `ForEach` element's id alone, without running each row's `body`. When the body branches between different top-level shapes — a bare top-level `switch`, a top-level `if`/`else` or `if` without `else`, or an `AnyView` — structural identity varies per row, so SwiftUI falls back to evaluating every row's body just to compute ids. That cost scales with the number of rows.
+
+Wrap branching content in any single-root container (`VStack`, `HStack`, `ZStack`, or a custom wrapper) so the row is always exactly one top-level view, as `ItemRow` above does. A top-level `if` without an `else` is also "multi" (0 or 1 views); if some elements shouldn't be rows at all, filter the collection before it reaches the `ForEach` rather than producing a zero-view row.
+
+To find non-constant row builders in an existing app, launch with `-LogForEachSlowPath YES`; SwiftUI logs each `ForEach` inside a lazy container whose row body produces a non-constant number of views.
 
 ## Enumerated Sequences
 

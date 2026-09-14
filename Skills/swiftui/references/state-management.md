@@ -54,6 +54,43 @@ struct MyView: View {
 
 **Note**: You may want to mark `@Observable` classes with `@MainActor` to ensure thread safety with SwiftUI, unless your project or package uses Default Actor Isolation set to `MainActor`—in which case, the explicit attribute is redundant and can be omitted.
 
+## Make @Observable Property Types Equatable
+
+The `@Observable` macro generates a setter that **skips invalidation when the new value equals the current one** — but only when the property's type is `Equatable`. Without that conformance, every assignment notifies observing views, even identical no-op writes. Make frequently-rewritten property types `Equatable` (a big win for polling or event-driven state that is often re-assigned the same value).
+
+```swift
+// AVOID: not Equatable — every assignment invalidates, even no-op writes
+enum ConnectionPhase { case connecting, connected, degraded }
+
+// PREFER: Equatable lets the generated setter short-circuit redundant writes
+enum ConnectionPhase: Equatable { case connecting, connected, degraded }
+```
+
+Collections follow their element: an `Array`/`Set`/`Dictionary` is `Equatable` only when its element is, so a non-`Equatable` element defeats the short-circuit for the whole collection. This is distinct from `Equatable` *views* (which let SwiftUI skip a body) — this lets the model skip notifying observers in the first place.
+
+## @Observable Dependency Granularity
+
+Observation tracks reads at the **property** level, not the field level — reading any part of a compound property establishes a dependency on the whole thing. Three traps:
+
+- **A computed property establishes dependencies transitively.** `var currentUser: User? { users.first { $0.id == currentID } }` reads `users`, so any view reading `currentUser` depends on the entire `users` array.
+- **A struct-typed stored property drags the whole struct.** A view reading `session.user.name` depends on `session.user`; editing any other field of `user` invalidates it.
+- **A collection read drags the whole collection.** Reading one element establishes a dependency on the entire stored collection.
+
+Cache derived values as stored properties kept in sync, rather than recomputing in a getter:
+
+```swift
+@MainActor @Observable
+final class AppState {
+    var users: [User] = [] { didSet { recomputeCurrentUser() } }
+    var currentID: User.ID? { didSet { recomputeCurrentUser() } }
+
+    private(set) var currentUser: User?
+    private func recomputeCurrentUser() { currentUser = users.first { $0.id == currentID } }
+}
+```
+
+For struct-typed properties, expose the individual fields views actually read as separate properties (each is then tracked separately). Reading several already-narrow properties from one model is fine and needs no splitting.
+
 ## @Binding
 
 Use only when child view needs to **modify** parent's state. If child only reads the value, use `let` instead.
@@ -314,6 +351,25 @@ struct MyView: View {
 }
 ```
 
+### Custom Environment Values with @Entry (hygiene)
+
+Use the `@Entry` macro (Xcode 16+) to define custom environment values without `EnvironmentKey` boilerplate. Three rules keep them from causing spurious invalidations:
+
+- **Never store a closure in a custom environment key.** SwiftUI can't compare function values, so any view reading a closure-valued key invalidates on *every* environment write. Wrapping the closure in a struct doesn't help. Defunctionalize: store the captured data as properties and expose behavior via `callAsFunction` or a method (or use an `@Observable` model). Framework action types (`\.openURL`, `\.dismiss`, `\.refresh`) are the intended exception.
+
+  ```swift
+  // AVOID: closure in a custom environment key
+  extension EnvironmentValues { @Entry var submit: (String) -> Void = { _ in } }
+
+  // PREFER: a defunctionalized struct
+  struct SubmitAction { func callAsFunction(_ draft: String) { /* ... */ } }
+  extension EnvironmentValues { @Entry var submit = SubmitAction() }
+  ```
+
+- **Keep `@Entry` defaults stable.** `@Entry` re-evaluates its default expression on every read that falls back to it. A fresh reference (`Model()`) or a runtime value (`Date()`, `UUID()`) makes readers using the default invalidate on every unrelated environment write. Back the default with a literal, enum case, `nil`, or a `static let`-backed instance.
+
+- **Remove unused `@Environment` reads.** Declaring `@Environment(\.someKey)` subscribes the view to that key even if `body` never uses it, so every write re-evaluates the view for nothing. Delete unreferenced declarations. (The type form `@Environment(Model.self)` tracks at the property level and carries no such cost.)
+
 ### @Environment with @Observable (iOS 17+ - Preferred)
 
 **Always prefer this pattern** for sharing state through the environment:
@@ -447,3 +503,6 @@ struct ChildView: View {
 5. **Always mark `@State` and `@StateObject` as `private`**
 6. **Never declare passed values as `@State` or `@StateObject`**
 7. With `@Observable`, nested objects work fine; with `ObservableObject`, pass nested objects directly to child views
+8. **Prefer `Equatable` types for frequently-written `@Observable` properties** so the generated setter skips redundant invalidations
+9. **Cache derived values as stored properties** instead of computed getters that read whole collections or structs
+10. **Never store closures in custom environment keys; keep `@Entry` defaults stable** (no `Model()`/`Date()` expressions); remove unused `@Environment` reads

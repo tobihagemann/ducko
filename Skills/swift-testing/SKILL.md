@@ -193,6 +193,7 @@ Structure every test with clear phases:
 - `.serialized` is scope-dependent: on a bare non-parameterized `@Test func` it has no effect; on a parameterized `@Test` it serializes the argument cases; on `@Suite(.serialized)` it serializes all the suite's contained tests (parameterized or not) and sub-suites relative to each other. See `references/async-tests.md`.
 - `.timeLimit(.seconds(...))` → only `.minutes(...)` is accepted.
 - Unsafe mutable counters captured by async callbacks → use an actor or thread-safe container.
+- `#require`/`#expect` nested inside another `#require`/`#expect`'s argument → fails to compile with "recursive expansion of macro 'require(_:_:sourceLocation:)'"; bind the inner `try #require(...)` to a local first. A single macro nested inside an ordinary call (`Foo(bar: #require(x))`) is fine.
 
 
 ## Verification checklist
