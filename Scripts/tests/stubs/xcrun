@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# xcrun stub: dispatch on the subtool so notarytool/stapler invocations log a stable,
+# greppable token (`notarytool submit ...`, `stapler staple ...`, `stapler validate ...`).
+# Always exits 0 so `notarytool submit --wait` "succeeds".
+case "${1:-}" in
+  notarytool)
+    shift
+    printf 'notarytool %s\n' "$*" >>"$RELEASE_SMOKE_LOG"
+    ;;
+  stapler)
+    shift
+    printf 'stapler %s\n' "$*" >>"$RELEASE_SMOKE_LOG"
+    ;;
+  *)
+    printf 'xcrun %s\n' "$*" >>"$RELEASE_SMOKE_LOG"
+    ;;
+esac
+exit 0

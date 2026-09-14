@@ -40,3 +40,15 @@ jobs:
       - name: Test
         run: swift test --no-parallel
         timeout-minutes: 5
+
+  release-smoke:
+    name: Release Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run release script smoke test
+        # Pure bash: PATH-shims the macOS-only signing/notarize tools and injects stub
+        # sibling-scripts, then runs the real Scripts/release.sh and asserts its control
+        # flow. No swift/brew setup needed; the stubs supply the absent tools.
+        run: ./Scripts/tests/release_smoke_test.sh

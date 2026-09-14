@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# xattr is macOS-only and absent on the Linux runner; the stub supplies it.
+printf 'xattr %s\n' "$*" >>"$RELEASE_SMOKE_LOG"
+exit 0

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ditto stub: log the call and create its output file (the last argument), since
+# release.sh uses ditto to produce both the scratch notarize zips and the
+# distributable repo-root zip the test asserts on. Wired in via DITTO_BIN, not PATH.
+printf 'ditto %s\n' "$*" >>"$RELEASE_SMOKE_LOG"
+out="${@: -1}"
+: >"$out"
+exit 0

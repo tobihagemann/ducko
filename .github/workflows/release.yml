@@ -126,9 +126,9 @@ jobs:
           rm -f "$KEY_FILE"
 
       - name: Extract release notes from CHANGELOG.md
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          # Extract the section for this version (between ## headings); the file is
+          # Extract the section for this version (between ## headings) for both
+          # tag pushes and `workflow_dispatch` runs that publish; the file is
           # consumed by the next step's `gh release create --notes-file`.
           # Must run before checking out main so we read the tagged commit's file.
           if [[ -f CHANGELOG.md ]]; then
@@ -147,20 +147,32 @@ jobs:
           cat release_notes.txt
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') && !inputs.dry_run
+        if: |
+          !inputs.dry_run && (
+            startsWith(github.ref, 'refs/tags/') ||
+            github.event_name == 'workflow_dispatch'
+          )
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source version.env
+          # --target pins a dispatch-created tag to the built commit; on a tag push the tag
+          # already exists and --target is ignored.
           gh release create "${MARKETING_VERSION}" \
             "${APP_NAME}-${MARKETING_VERSION}.zip" \
             "${APP_NAME}-${MARKETING_VERSION}.dmg" \
             checksums.txt \
+            appcast.xml \
+            --target "${GITHUB_SHA}" \
             --title "${APP_NAME} ${MARKETING_VERSION}" \
             --notes-file release_notes.txt
 
       - name: Commit appcast.xml to main
-        if: startsWith(github.ref, 'refs/tags/')
+        if: |
+          !inputs.dry_run && (
+            startsWith(github.ref, 'refs/tags/') ||
+            github.event_name == 'workflow_dispatch'
+          )
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

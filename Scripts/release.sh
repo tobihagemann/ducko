@@ -27,6 +27,8 @@ ASC_KEY_FILE="$SCRATCH_DIR/app-store-connect-key.p8"
 
 ARCHES_VALUE=${ARCHES:-"arm64 x86_64"}
 DITTO_BIN=${DITTO_BIN:-/usr/bin/ditto}
+PACKAGE_APP_SCRIPT=${PACKAGE_APP_SCRIPT:-$ROOT/Scripts/package_app.sh}
+CREATE_DMG_SCRIPT=${CREATE_DMG_SCRIPT:-$ROOT/Scripts/create_dmg.sh}
 
 submit_for_notarization() {
   local zip_path="$1"
@@ -48,7 +50,8 @@ notarize_and_staple() {
   find "$bundle" -name '._*' -delete
 }
 
-APP_IDENTITY="$APP_IDENTITY" ARCHES="${ARCHES_VALUE}" "$ROOT/Scripts/package_app.sh" release
+APP_IDENTITY="$APP_IDENTITY" ARCHES="${ARCHES_VALUE}" \
+  "$PACKAGE_APP_SCRIPT" release
 
 notarize_and_staple "$APP_BUNDLE" "$SCRATCH_DIR/${APP_NAME}Notarize.zip"
 
@@ -59,7 +62,7 @@ xcrun stapler validate "$APP_BUNDLE"
 
 # Create, sign, and notarize the DMG.
 DMG_NAME="${APP_NAME}-${MARKETING_VERSION}.dmg"
-"$ROOT/Scripts/create_dmg.sh"
+"$CREATE_DMG_SCRIPT"
 codesign --force --timestamp --sign "$APP_IDENTITY" "$ROOT/$DMG_NAME"
 DMG_NOTARIZE_ZIP="$SCRATCH_DIR/${APP_NAME}DmgNotarize.zip"
 "$DITTO_BIN" --norsrc -c -k "$ROOT/$DMG_NAME" "$DMG_NOTARIZE_ZIP"

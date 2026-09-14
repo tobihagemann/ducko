@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# git stub: drive release.sh's `git describe --tags --abbrev=0` version fallback
+# deterministically. Returns SMOKE_GIT_DESCRIBE when set; otherwise exits non-zero so
+# release.sh falls through to its `|| echo "0.0.0"` default, mirroring "no tag found".
+# Other subcommands no-op.
+if [[ "${1:-}" == "describe" ]]; then
+  if [[ -n "${SMOKE_GIT_DESCRIBE:-}" ]]; then
+    printf '%s\n' "$SMOKE_GIT_DESCRIBE"
+    exit 0
+  fi
+  exit 1
+fi
+exit 0
