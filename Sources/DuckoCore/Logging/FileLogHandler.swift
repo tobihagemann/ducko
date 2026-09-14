@@ -1,7 +1,8 @@
 import Foundation
 import Logging
+import Synchronization
 
-/// swift-log `LogHandler` writing to a rotating file via a shared `FileLogWriter` actor (`maxFileSize`/`maxArchivedFiles`).
+/// swift-log `LogHandler` writing to a rotating file via a shared `FileLogWriter` (`maxFileSize`/`maxArchivedFiles`).
 /// `logLevel` is pinned to `.trace` so `MultiplexLogHandler` passes everything through; real filtering runs dynamically via
 /// `minimumLevelProvider` (reads UserDefaults for runtime toggling without re-bootstrapping).
 struct FileLogHandler: LogHandler {
@@ -34,9 +35,10 @@ struct FileLogHandler: LogHandler {
         let levelTag = level.rawValue.uppercased()
         let logLine = "[\(timestamp)] [\(levelTag)] [\(label)] \(message)\n"
 
-        Task {
-            await writer.write(logLine)
-        }
+        // Write inline so log lines stay in the order callers emitted them. The writer's
+        // internal lock makes concurrent emitters serialize; offloading via `Task` would
+        // hand them to the cooperative pool and re-order them.
+        writer.write(logLine)
     }
 
     private static let timestampStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
@@ -49,15 +51,17 @@ struct FileLogHandler: LogHandler {
 
 // MARK: - File Log Writer
 
-/// Actor managing thread-safe file writes with size-based rotation.
-public actor FileLogWriter {
+/// Serialized file writer with size-based rotation. The mutable `FileHandle` is wrapped in a
+/// `Synchronization.Mutex` so the writer is `Sendable` without resorting to `@unchecked`, while
+/// `FileLogHandler.log` can still call `write(_:)` synchronously and preserve emission order.
+public final class FileLogWriter: Sendable {
     public static let defaultFileName = "ducko.log"
 
     private let directory: URL
     private let fileName: String
     private let maxFileSize: UInt64
     private let maxArchivedFiles: Int
-    private var fileHandle: FileHandle?
+    private let handleState: Mutex<FileHandle?>
 
     public init(
         directory: URL,
@@ -69,6 +73,7 @@ public actor FileLogWriter {
         self.fileName = fileName
         self.maxFileSize = maxFileSize
         self.maxArchivedFiles = maxArchivedFiles
+        self.handleState = Mutex<FileHandle?>(nil)
     }
 
     public var currentLogFile: URL {
@@ -92,21 +97,23 @@ public actor FileLogWriter {
     }
 
     func write(_ line: String) {
-        guard let handle = ensureFileHandle() else { return }
         guard let data = line.data(using: .utf8) else { return }
-        handle.write(data)
-        rotateIfNeeded()
+        handleState.withLock { handle in
+            guard let active = ensureFileHandle(&handle) else { return }
+            try? active.write(contentsOf: data)
+            rotateIfNeeded(&handle)
+        }
     }
 
     // MARK: - Rotation
 
-    private func rotateIfNeeded() {
-        guard let handle = fileHandle else { return }
-        let size = handle.offsetInFile
+    private func rotateIfNeeded(_ handle: inout FileHandle?) {
+        guard let active = handle else { return }
+        guard let size = try? active.offset() else { return }
         guard size >= maxFileSize else { return }
 
-        handle.closeFile()
-        fileHandle = nil
+        try? active.close()
+        handle = nil
 
         // Shift archived files: N → N+1, delete oldest if over limit
         let fm = FileManager.default
@@ -131,9 +138,9 @@ public actor FileLogWriter {
         return directory.appendingPathComponent("\(base).\(index).\(ext)")
     }
 
-    private func ensureFileHandle() -> FileHandle? {
-        if let handle = fileHandle {
-            return handle
+    private func ensureFileHandle(_ handle: inout FileHandle?) -> FileHandle? {
+        if let existing = handle {
+            return existing
         }
 
         let fm = FileManager.default
@@ -145,9 +152,9 @@ public actor FileLogWriter {
             fm.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600])
         }
 
-        guard let handle = FileHandle(forWritingAtPath: file.path) else { return nil }
-        handle.seekToEndOfFile()
-        fileHandle = handle
-        return handle
+        guard let opened = FileHandle(forWritingAtPath: file.path) else { return nil }
+        try? opened.seekToEnd()
+        handle = opened
+        return opened
     }
 }

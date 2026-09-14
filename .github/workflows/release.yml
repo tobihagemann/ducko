@@ -28,13 +28,38 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # Don't persist the GITHUB_TOKEN in .git/config — appcast commit step
+          # configures its own credentials when it actually needs to push.
+          persist-credentials: false
+
+      - name: Verify ref is reachable from main
+        run: |
+          # Only sign+notarize commits already merged to main. Applies to both tag
+          # pushes and `workflow_dispatch` so a manual run cannot route signing
+          # secrets through code on an arbitrary side branch.
+          git fetch origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "Commit ${GITHUB_SHA} is not an ancestor of origin/main." >&2
+            exit 1
+          fi
 
       - name: Resolve version
+        env:
+          # Route the dispatch input through env rather than splicing ${{ }} into the
+          # shell, so a hostile value can't inject commands into this run.
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           if [[ "${{ github.event_name }}" == "push" ]]; then
             VERSION="${GITHUB_REF#refs/tags/}"
           else
-            VERSION="${{ inputs.version }}"
+            VERSION="${INPUT_VERSION}"
+          fi
+          # Reject characters unsafe for the GitHub Release tag, the Sparkle download URL,
+          # asset filenames, and the $GITHUB_ENV write below (newlines would inject extra
+          # entries). The push glob is fnmatch, not a regex, so a malformed tag can reach here.
+          if [[ ! "${VERSION}" =~ ^[0-9A-Za-z.+-]+$ ]]; then
+            echo "ERROR: version '${VERSION}' contains unsafe characters" >&2
+            exit 1
           fi
           echo "MARKETING_VERSION=${VERSION}" >> "$GITHUB_ENV"
 
@@ -136,7 +161,13 @@ jobs:
 
       - name: Commit appcast.xml to main
         if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Configure credentials for this push only; checkout was set to
+          # persist-credentials: false so the token isn't shared with the
+          # earlier signing/notarize steps.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main

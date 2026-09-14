@@ -18,44 +18,52 @@ if [[ -z "${APP_STORE_CONNECT_API_KEY_P8:-}" || -z "${APP_STORE_CONNECT_KEY_ID:-
   exit 1
 fi
 
-echo "$APP_STORE_CONNECT_API_KEY_P8" | sed 's/\\n/\n/g' > /tmp/app-store-connect-key.p8
-chmod 600 /tmp/app-store-connect-key.p8
-trap 'rm -f /tmp/app-store-connect-key.p8 /tmp/${APP_NAME}Notarize.zip' EXIT
+SCRATCH_DIR=$(mktemp -d "${TMPDIR:-/tmp}/ducko-release-XXXXXX")
+trap 'rm -rf "$SCRATCH_DIR"' EXIT
+chmod 700 "$SCRATCH_DIR"
+
+ASC_KEY_FILE="$SCRATCH_DIR/app-store-connect-key.p8"
+(umask 077 && echo "$APP_STORE_CONNECT_API_KEY_P8" | sed 's/\\n/\n/g' > "$ASC_KEY_FILE")
 
 ARCHES_VALUE=${ARCHES:-"arm64 x86_64"}
+DITTO_BIN=${DITTO_BIN:-/usr/bin/ditto}
+
+submit_for_notarization() {
+  local zip_path="$1"
+  xcrun notarytool submit "$zip_path" \
+    --key "$ASC_KEY_FILE" \
+    --key-id "$APP_STORE_CONNECT_KEY_ID" \
+    --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
+    --wait
+}
+
+notarize_and_staple() {
+  local bundle="$1"
+  local zip_path="$2"
+  "$DITTO_BIN" --norsrc -c -k --keepParent "$bundle" "$zip_path"
+  submit_for_notarization "$zip_path"
+  xcrun stapler staple "$bundle"
+  # Strip extended attributes and AppleDouble files that stapling may leave behind.
+  xattr -cr "$bundle"
+  find "$bundle" -name '._*' -delete
+}
+
 APP_IDENTITY="$APP_IDENTITY" ARCHES="${ARCHES_VALUE}" "$ROOT/Scripts/package_app.sh" release
 
-DITTO_BIN=${DITTO_BIN:-/usr/bin/ditto}
-"$DITTO_BIN" --norsrc -c -k --keepParent "$APP_BUNDLE" "/tmp/${APP_NAME}Notarize.zip"
+notarize_and_staple "$APP_BUNDLE" "$SCRATCH_DIR/${APP_NAME}Notarize.zip"
 
-xcrun notarytool submit "/tmp/${APP_NAME}Notarize.zip" \
-  --key /tmp/app-store-connect-key.p8 \
-  --key-id "$APP_STORE_CONNECT_KEY_ID" \
-  --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
-  --wait
-
-xcrun stapler staple "$APP_BUNDLE"
-
-# Strip extended attributes and AppleDouble files that stapling may leave behind.
-xattr -cr "$APP_BUNDLE"
-find "$APP_BUNDLE" -name '._*' -delete
-
-"$DITTO_BIN" --norsrc -c -k --keepParent "$APP_BUNDLE" "$ZIP_NAME"
+"$DITTO_BIN" --norsrc -c -k --keepParent "$APP_BUNDLE" "$ROOT/$ZIP_NAME"
 
 spctl -a -t exec -vv "$APP_BUNDLE"
-stapler validate "$APP_BUNDLE"
+xcrun stapler validate "$APP_BUNDLE"
 
 # Create, sign, and notarize the DMG.
-"$ROOT/Scripts/create_dmg.sh"
 DMG_NAME="${APP_NAME}-${MARKETING_VERSION}.dmg"
+"$ROOT/Scripts/create_dmg.sh"
 codesign --force --timestamp --sign "$APP_IDENTITY" "$ROOT/$DMG_NAME"
-
-"$DITTO_BIN" --norsrc -c -k "$ROOT/$DMG_NAME" "/tmp/${APP_NAME}Notarize.zip"
-xcrun notarytool submit "/tmp/${APP_NAME}Notarize.zip" \
-  --key /tmp/app-store-connect-key.p8 \
-  --key-id "$APP_STORE_CONNECT_KEY_ID" \
-  --issuer "$APP_STORE_CONNECT_ISSUER_ID" \
-  --wait
+DMG_NOTARIZE_ZIP="$SCRATCH_DIR/${APP_NAME}DmgNotarize.zip"
+"$DITTO_BIN" --norsrc -c -k "$ROOT/$DMG_NAME" "$DMG_NOTARIZE_ZIP"
+submit_for_notarization "$DMG_NOTARIZE_ZIP"
 xcrun stapler staple "$ROOT/$DMG_NAME"
 
 echo "Done: $ZIP_NAME, $DMG_NAME"

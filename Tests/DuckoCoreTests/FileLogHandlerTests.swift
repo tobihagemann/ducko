@@ -13,12 +13,12 @@ struct FileLogHandlerTests {
     // MARK: - File Creation
 
     @Test
-    func `creates log file on first write`() async throws {
+    func `creates log file on first write`() throws {
         let dir = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let writer = FileLogWriter(directory: dir)
-        await writer.write("[test] hello\n")
+        writer.write("[test] hello\n")
 
         let logFile = dir.appendingPathComponent("ducko.log")
         #expect(FileManager.default.fileExists(atPath: logFile.path))
@@ -27,7 +27,7 @@ struct FileLogHandlerTests {
     // MARK: - Log Format
 
     @Test
-    func `writes expected format`() async throws {
+    func `writes expected format`() throws {
         let dir = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -44,9 +44,6 @@ struct FileLogHandlerTests {
             line: #line
         )
 
-        // Give the async Task time to complete
-        try await Task.sleep(for: .milliseconds(100))
-
         let logFile = dir.appendingPathComponent("ducko.log")
         let content = try String(contentsOf: logFile, encoding: .utf8)
         #expect(content.contains("[INFO]"))
@@ -54,10 +51,36 @@ struct FileLogHandlerTests {
         #expect(content.contains("Test message"))
     }
 
+    @Test
+    func `preserves emission order`() throws {
+        let dir = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let writer = FileLogWriter(directory: dir)
+
+        var handler = FileLogHandler(label: "im.ducko.test", writer: writer, minimumLevel: { .trace })
+        for i in 0 ..< 200 {
+            handler.log(
+                level: .info,
+                message: "line \(i)",
+                metadata: nil,
+                source: "Test",
+                file: #file,
+                function: #function,
+                line: #line
+            )
+        }
+
+        let logFile = dir.appendingPathComponent("ducko.log")
+        let content = try String(contentsOf: logFile, encoding: .utf8)
+        let messages = content.split(separator: "\n").map { $0.split(separator: "] ").last.map(String.init) }
+        #expect(messages == (0 ..< 200).map { "line \($0)" })
+    }
+
     // MARK: - Level Filtering
 
     @Test
-    func `filters messages below minimum level`() async throws {
+    func `filters messages below minimum level`() throws {
         let dir = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -83,8 +106,6 @@ struct FileLogHandlerTests {
             line: #line
         )
 
-        try await Task.sleep(for: .milliseconds(100))
-
         let logFile = dir.appendingPathComponent("ducko.log")
         let content = try String(contentsOf: logFile, encoding: .utf8)
         #expect(!content.contains("Should be skipped"))
@@ -94,7 +115,7 @@ struct FileLogHandlerTests {
     // MARK: - Rotation
 
     @Test
-    func `rotates when file exceeds max size`() async throws {
+    func `rotates when file exceeds max size`() throws {
         let dir = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -103,7 +124,7 @@ struct FileLogHandlerTests {
 
         // Write enough data to trigger at least one rotation
         for i in 0 ..< 20 {
-            await writer.write("Log entry number \(i) with some padding to fill the file quickly\n")
+            writer.write("Log entry number \(i) with some padding to fill the file quickly\n")
         }
 
         let archivedFile = dir.appendingPathComponent("ducko.1.log")
@@ -111,14 +132,14 @@ struct FileLogHandlerTests {
     }
 
     @Test
-    func `respects max archived files limit`() async throws {
+    func `respects max archived files limit`() throws {
         let dir = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
         let writer = FileLogWriter(directory: dir, maxFileSize: 50, maxArchivedFiles: 2)
 
         for i in 0 ..< 50 {
-            await writer.write("Log entry \(i) with padding to trigger many rotations easily\n")
+            writer.write("Log entry \(i) with padding to trigger many rotations easily\n")
         }
 
         // Should have at most ducko.log, ducko.1.log, ducko.2.log
@@ -129,7 +150,7 @@ struct FileLogHandlerTests {
     // MARK: - All Log Files
 
     @Test
-    func `allLogFiles returns existing log files`() async throws {
+    func `allLogFiles returns existing log files`() throws {
         let dir = try makeTemporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
 
@@ -137,10 +158,10 @@ struct FileLogHandlerTests {
 
         // Write enough to create the current file and at least one archive
         for i in 0 ..< 20 {
-            await writer.write("Entry \(i) with padding to trigger rotation here\n")
+            writer.write("Entry \(i) with padding to trigger rotation here\n")
         }
 
-        let files = await writer.allLogFiles
+        let files = writer.allLogFiles
         #expect(!files.isEmpty)
         // All returned files should have .log extension
         for file in files {
