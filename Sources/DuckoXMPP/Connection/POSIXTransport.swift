@@ -515,13 +515,15 @@ private func formatSSLProtocol(_ proto: SSLProtocol) -> String {
 private func formatCipherSuite(_ suite: SSLCipherSuite) -> String {
     // Map common cipher suites to readable names
     switch suite {
-    case UInt16(TLS_AES_128_GCM_SHA256): "TLS_AES_128_GCM_SHA256"
-    case UInt16(TLS_AES_256_GCM_SHA384): "TLS_AES_256_GCM_SHA384"
-    case UInt16(TLS_CHACHA20_POLY1305_SHA256): "TLS_CHACHA20_POLY1305_SHA256"
-    case UInt16(TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256): "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
-    case UInt16(TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384): "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
-    case UInt16(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256): "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
-    case UInt16(TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384): "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
+    // `SSLCipherSuite` is `UInt16` on Apple silicon but `UInt32` on Intel, so convert to the
+    // typedef rather than a fixed width or the universal (x86_64) slice fails to compile.
+    case SSLCipherSuite(TLS_AES_128_GCM_SHA256): "TLS_AES_128_GCM_SHA256"
+    case SSLCipherSuite(TLS_AES_256_GCM_SHA384): "TLS_AES_256_GCM_SHA384"
+    case SSLCipherSuite(TLS_CHACHA20_POLY1305_SHA256): "TLS_CHACHA20_POLY1305_SHA256"
+    case SSLCipherSuite(TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256): "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+    case SSLCipherSuite(TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384): "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
+    case SSLCipherSuite(TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256): "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+    case SSLCipherSuite(TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384): "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"
     default: "0x\(String(format: "%04X", suite))"
     }
 }
