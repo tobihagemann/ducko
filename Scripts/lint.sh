@@ -51,7 +51,18 @@ PID_LINT_INT=$!
 # --retain-public is needed because the sibling IntegrationTests package consumes
 # DuckoCore / DuckoData / DuckoXMPP as library products; Periphery scans only the
 # root package and would otherwise flag their externally-used public symbols.
-periphery scan --quiet --strict --retain-public >"$LINT_TMP/periphery.out" 2>&1 &
+# Periphery's own build looks for the index store where the native build system
+# writes it, but Swift's default build system writes it under `.build/out`. Build
+# first, then point Periphery at the store `swift build` actually produced.
+(
+    swift build --build-tests &&
+        BIN_PATH="$(swift build --show-bin-path)" &&
+        case "$BIN_PATH" in
+            */out/Products/*) INDEX_STORE="${BIN_PATH%/Products/*}" ;;
+            *) INDEX_STORE="$BIN_PATH/index/store" ;;
+        esac &&
+        periphery scan --quiet --strict --retain-public --index-store-path "$INDEX_STORE"
+) >"$LINT_TMP/periphery.out" 2>&1 &
 PID_PERIPHERY=$!
 
 wait $PID_FORMAT || { echo "--- SwiftFormat ---"; cat "$LINT_TMP/swiftformat.out"; echo "error: Run './Scripts/format.sh' to auto-fix."; FAIL=1; }
