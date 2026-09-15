@@ -784,6 +784,37 @@ $SCRIPTS/ducko-screenshot.sh "connection-info.png"
 $SCRIPTS/ducko-stop.sh
 ```
 
+### Sparkle update check test
+
+Sparkle's updater starts only inside an app bundle, so `ducko-launch.sh` (`swift run`) leaves "Check for Updates..." disabled. Test updates against a packaged debug bundle.
+
+First confirm `pgrep -fl DuckoApp` prints nothing. Same-named processes defeat System Events targeting, so another running `DuckoApp` (including the installed production app) would receive these clicks and the final Quit.
+
+```bash
+# 1. Package and launch the debug bundle by full path under a throwaway profile, then wait for its process
+./Scripts/package_app.sh debug
+open -n --env DUCKO_PROFILE=update-check "$PWD/Ducko.app"
+for i in $(seq 1 20); do PID=$(pgrep -f "$PWD/Ducko.app/Contents/MacOS/DuckoApp") && break; sleep 0.5; done
+sleep 5
+
+# 2. Confirm the updater started: the app menu item is enabled
+osascript -e 'tell application "System Events" to tell process "DuckoApp" to get enabled of menu item "Check for Updates..." of menu 1 of menu bar item 2 of menu bar 1'
+
+# 3. Run the check against the real appcast
+osascript -e 'tell application "System Events" to tell process "DuckoApp" to click menu item "Check for Updates..." of menu 1 of menu bar item 2 of menu bar 1'
+
+# 4. Capture the result window: pick WINDOW_ID from the listing
+peekaboo window list --pid "$PID" --json
+screencapture -x -o -l WINDOW_ID "$TMPDIR/update-check.png"
+
+# 5. Cleanup: quit via the app menu, wait for exit, remove the throwaway profile
+osascript -e 'tell application "System Events" to tell process "DuckoApp" to click menu item "Quit Ducko" of menu 1 of menu bar item 2 of menu bar 1'
+while ps -p "$PID" >/dev/null; do sleep 0.5; done
+/bin/rm -rf "$HOME/Library/Application Support/Ducko-Dev-update-check"
+```
+
+- The check first shows a "Software Update" progress window, then the result (e.g. "You're up to date!") in a separate untitled window. The fresh profile's Welcome window is listed too.
+
 ### Reconnect (app disconnected)
 
 If the app is running but disconnected (e.g. network drop), restart it to trigger auto-connect:

@@ -19,21 +19,12 @@ struct FileLogHandler: LogHandler {
         self.minimumLevelProvider = minimumLevel
     }
 
-    // swiftlint:disable:next function_parameter_count
-    func log(
-        level: Logger.Level,
-        message: Logger.Message,
-        metadata: Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
-    ) {
-        guard level >= minimumLevelProvider() else { return }
+    func log(event: LogEvent) {
+        guard event.level >= minimumLevelProvider() else { return }
 
         let timestamp = Date.now.formatted(Self.timestampStyle)
-        let levelTag = level.rawValue.uppercased()
-        let logLine = "[\(timestamp)] [\(levelTag)] [\(label)] \(message)\n"
+        let levelTag = event.level.rawValue.uppercased()
+        let logLine = "[\(timestamp)] [\(levelTag)] [\(label)] \(event.message)\n"
 
         // Write inline so log lines stay in the order callers emitted them. The writer's
         // internal lock makes concurrent emitters serialize; offloading via `Task` would

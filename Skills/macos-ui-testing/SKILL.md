@@ -14,7 +14,7 @@ Simulated keystrokes (`peekaboo type`, `peekaboo paste`, `peekaboo hotkey`) go t
 | Action | Background-Safe | Command |
 |---|---|---|
 | Read UI tree | Yes | `peekaboo see --app APP --json` |
-| Screenshot | Yes | `peekaboo image --window-id WID` |
+| Screenshot | Yes | `peekaboo see --window-id WID --no-elements` |
 | Click element | Yes | `peekaboo click --no-auto-focus --on ELEM --app APP` |
 | Set text value | Yes* | `osascript` with `set value of` |
 | Read text value | Yes | `osascript` with `get value of` |
@@ -52,7 +52,7 @@ open -a "AppName"
 ### Step 2: Verify the App Is Running
 
 ```bash
-peekaboo list apps | grep -i AppName
+peekaboo app list | grep -i AppName
 ```
 
 ### Step 3: Read the UI Tree
@@ -68,8 +68,8 @@ Parse the JSON output to find element IDs (`elem_N`), roles, and labels.
 Resolve the window ID first, then capture by ID:
 
 ```bash
-peekaboo list windows --app AppName
-peekaboo image --window-id WID --path /tmp/screenshot.png
+peekaboo window list --app AppName
+peekaboo see --window-id WID --no-elements --path /tmp/screenshot.png
 ```
 
 ### Step 5: Interact with Elements
@@ -146,12 +146,11 @@ When the UI hierarchy is unknown, explore it incrementally with osascript. See [
 
 ## Peekaboo Focus Timeout Issue
 
-Peekaboo's `click`, `type`, `image` with `--app` try to activate the app first. For SwiftPM-built apps this often times out because `NSRunningApplication.activate()` is not acknowledged.
+Peekaboo's `click` and `type` with `--app` try to activate the app first. For SwiftPM-built apps this often times out because `NSRunningApplication.activate()` is not acknowledged.
 
 **Workarounds:**
 - Use `--no-auto-focus` on `click` commands
-- Use `--window-id WID` instead of `--app` for `image` captures
-- `see --app` works fine (read-only, skips focus)
+- `see` works fine with `--app` or `--window-id` (read-only, skips focus)
 
 **Caveat with `--no-auto-focus`**: Clicks use absolute screen coordinates. If another window overlaps the target, the click hits the wrong window. Prefer `osascript` click (accessibility API, position-independent) for reliable button clicks.
 

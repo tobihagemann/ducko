@@ -16,5 +16,5 @@ fi
 mkdir -p "$(dirname "$OUTPUT")"
 
 WID=$("$SCRIPTS_DIR/ducko-window-id.sh")
-peekaboo image --window-id "$WID" --path "$OUTPUT" 2>&1
+peekaboo see --window-id "$WID" --no-elements --path "$OUTPUT" 2>&1
 echo "$OUTPUT"

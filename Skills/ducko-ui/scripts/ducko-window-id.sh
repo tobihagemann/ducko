@@ -5,7 +5,7 @@
 # name ("DuckoApp"); osascript's `process "DuckoApp"` uses the executable name.
 set -euo pipefail
 
-WID=$(peekaboo list windows --app Ducko --json 2>/dev/null \
+WID=$(peekaboo window list --app Ducko --json 2>/dev/null \
     | python3 -c "import json,sys; w=json.load(sys.stdin)['data']['windows']; print(w[0]['window_id'] if w else '')" 2>/dev/null)
 
 if [[ -z "$WID" ]]; then

@@ -10,6 +10,10 @@ struct FileLogHandlerTests {
         return dir
     }
 
+    private func event(_ level: Logger.Level, _ message: Logger.Message) -> LogEvent {
+        LogEvent(level: level, message: message, metadata: nil, source: nil, file: #fileID, function: #function, line: #line)
+    }
+
     // MARK: - File Creation
 
     @Test
@@ -33,16 +37,8 @@ struct FileLogHandlerTests {
 
         let writer = FileLogWriter(directory: dir)
 
-        var handler = FileLogHandler(label: "im.ducko.test", writer: writer, minimumLevel: { .trace })
-        handler.log(
-            level: .info,
-            message: "Test message",
-            metadata: nil,
-            source: "Test",
-            file: #file,
-            function: #function,
-            line: #line
-        )
+        let handler = FileLogHandler(label: "im.ducko.test", writer: writer, minimumLevel: { .trace })
+        handler.log(event: event(.info, "Test message"))
 
         let logFile = dir.appendingPathComponent("ducko.log")
         let content = try String(contentsOf: logFile, encoding: .utf8)
@@ -58,17 +54,9 @@ struct FileLogHandlerTests {
 
         let writer = FileLogWriter(directory: dir)
 
-        var handler = FileLogHandler(label: "im.ducko.test", writer: writer, minimumLevel: { .trace })
+        let handler = FileLogHandler(label: "im.ducko.test", writer: writer, minimumLevel: { .trace })
         for i in 0 ..< 200 {
-            handler.log(
-                level: .info,
-                message: "line \(i)",
-                metadata: nil,
-                source: "Test",
-                file: #file,
-                function: #function,
-                line: #line
-            )
+            handler.log(event: event(.info, "line \(i)"))
         }
 
         let logFile = dir.appendingPathComponent("ducko.log")
@@ -86,25 +74,9 @@ struct FileLogHandlerTests {
 
         let writer = FileLogWriter(directory: dir)
 
-        var handler = FileLogHandler(label: "im.ducko.test", writer: writer, minimumLevel: { .warning })
-        handler.log(
-            level: .debug,
-            message: "Should be skipped",
-            metadata: nil,
-            source: "Test",
-            file: #file,
-            function: #function,
-            line: #line
-        )
-        handler.log(
-            level: .warning,
-            message: "Should appear",
-            metadata: nil,
-            source: "Test",
-            file: #file,
-            function: #function,
-            line: #line
-        )
+        let handler = FileLogHandler(label: "im.ducko.test", writer: writer, minimumLevel: { .warning })
+        handler.log(event: event(.debug, "Should be skipped"))
+        handler.log(event: event(.warning, "Should appear"))
 
         let logFile = dir.appendingPathComponent("ducko.log")
         let content = try String(contentsOf: logFile, encoding: .utf8)

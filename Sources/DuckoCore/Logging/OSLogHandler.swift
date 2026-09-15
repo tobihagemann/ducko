@@ -18,23 +18,14 @@ struct OSLogHandler: LogHandler {
         self.osLogger = OSLogger(subsystem: subsystem, category: category)
     }
 
-    // swiftlint:disable:next function_parameter_count
-    func log(
-        level: Logging.Logger.Level,
-        message: Logging.Logger.Message,
-        metadata: Logging.Logger.Metadata?,
-        source: String,
-        file: String,
-        function: String,
-        line: UInt
-    ) {
+    func log(event: LogEvent) {
         // Privacy is left at OSLog's default (`.private` for dynamic interpolations) so
         // user-controllable values — JIDs, message bodies, stanza fragments — don't surface in
         // Console.app or sysdiagnose archives. The whole message is one interpolation, so its
         // entire text is redacted; subsystem and category remain visible because they aren't
         // interpolated, and `FileLogHandler` keeps the text at its configured level.
-        let msg = message.description
-        switch level {
+        let msg = event.message.description
+        switch event.level {
         case .trace, .debug:
             osLogger.debug("\(msg)")
         case .info:

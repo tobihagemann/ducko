@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fix connections staying open in the background after the server ends them, and going offline returning before the connection has actually closed
 - Fix direct file transfers hanging when the peer rejects the connection method, a file transfer proxy can't be activated, or the peer or proxy stops responding
 - Fix completed direct file transfers later showing as failed, and a second click on Accept stalling an incoming transfer
+- Fix a rare crash in the update checker
 
 ### Security
 

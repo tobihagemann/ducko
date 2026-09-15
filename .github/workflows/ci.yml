@@ -17,7 +17,7 @@ jobs:
     name: Lint
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install tools
         # The runner image preinstalls some of these and `brew install` won't upgrade an
@@ -45,7 +45,7 @@ jobs:
     name: Build & Test
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Build
         run: swift build
@@ -58,7 +58,7 @@ jobs:
     name: Build (x86_64 release)
     runs-on: xcode-27
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Build x86_64 release
         # The runner is Apple silicon, so Build & Test only compiles arm64, while releases ship a
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Run release script smoke test
         # Pure bash: PATH-shims the macOS-only signing/notarize tools and injects stub
         # sibling-scripts, then runs the real Scripts/release.sh and asserts its control
