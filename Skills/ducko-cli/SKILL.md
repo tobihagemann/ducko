@@ -1,6 +1,6 @@
 ---
 name: ducko-cli
-description: "Operate the Ducko XMPP CLI tool. Use when asked to send XMPP messages, start an interactive XMPP session, list accounts, check roster, view history, manage presence, or test the CLI. Covers running commands, authentication, output formats, and all subcommands."
+description: "Operate the Ducko XMPP CLI tool. Use when asked to send XMPP messages, start an interactive XMPP session, list accounts, check roster, view history, manage presence, or test the CLI, including smoke-testing stream-level behavior (STARTTLS, stream features) against a local stub server. Covers running commands, authentication, output formats, and all subcommands."
 ---
 
 # Ducko CLI
@@ -410,6 +410,10 @@ Same as plain with color codes (green incoming, cyan outgoing, red errors, dim t
 ```
 
 Optional keys: `"delivered":"true"`, `"edited":"true"`, `"encrypted":"true"`, `"error":"..."`. Keys are sorted alphabetically.
+
+## Stream-Level Smoke Testing
+
+To exercise STARTTLS negotiation, stream features, or injected server data without a live server, follow [references/stub-server-smoke-testing.md](references/stub-server-smoke-testing.md).
 
 ## Examples
 
