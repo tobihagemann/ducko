@@ -115,7 +115,7 @@ public enum XMPPRegistrationClient {
         return "The username is already taken"
     }
 
-    private static func negotiateStream(
+    static func negotiateStream(
         connection: XMPPConnection,
         reader: EventReader,
         domain: String,
@@ -130,12 +130,11 @@ public enum XMPPRegistrationClient {
             try await connection.send(XMPPStreamWriter.stanza(starttls))
 
             let response = try await awaitStanza(reader)
-            guard response.name == "proceed" else {
+            guard XMPPConnection.isTLSProceed(response) else {
                 throw RegistrationClientError.tlsNegotiationFailed
             }
 
             try await connection.upgradeTLS(serverName: serverName)
-            await connection.resetStream()
 
             // Reopen stream after TLS
             try await connection.send(XMPPStreamWriter.streamOpening(to: domain))

@@ -287,8 +287,9 @@ enum POSIXTransportTests {
 
             let transport = POSIXTransport()
             try await transport.connect(host: "127.0.0.1", port: port)
+            await transport.stopReceiving()
             let error = await #expect(throws: XMPPClientError.self) {
-                try await transport.upgradeTLS(serverName: "localhost")
+                _ = try await transport.upgradeTLS(serverName: "localhost")
             }
             await transport.disconnect()
             await server.value
@@ -301,6 +302,31 @@ enum POSIXTransportTests {
             #expect(!reason.isEmpty)
             #expect(!reason.hasPrefix("TLS handshake failed"))
             #expect(!reason.contains { $0.isNumber })
+        }
+
+        @Test
+        func `Upgrading while still reading is refused`() async throws {
+            let (listenFD, port) = try listeningLoopbackSocket()
+            let server = Task.detached { accept(listenFD, nil, nil) }
+
+            // A short handshake timeout means a handshake that did start would fail with a different reason.
+            let transport = POSIXTransport(handshakeTimeout: .milliseconds(100))
+            try await transport.connect(host: "127.0.0.1", port: port)
+            let serverFD = await server.value
+            let outcome = try await boundedOutcome {
+                _ = try await transport.upgradeTLS(serverName: "localhost")
+            }
+            await transport.disconnect()
+            close(serverFD)
+            close(listenFD)
+
+            let result = try #require(outcome)
+            let error = #expect(throws: XMPPClientError.self) { try result.get() }
+            guard case let .tlsNegotiationFailed(reason) = error else {
+                Issue.record("Expected tlsNegotiationFailed, got \(String(describing: error))")
+                return
+            }
+            #expect(reason == "Reading had not stopped before the secure connection started")
         }
 
         @Test
@@ -386,6 +412,44 @@ enum POSIXTransportTests {
 
             let result = try #require(outcome)
             #expect(throws: CancellationError.self) { try result.get() }
+        }
+    }
+
+    struct ReceivePhases {
+        @Test
+        func `Stopping receipt finishes the receive stream`() async throws {
+            let (listenFD, port) = try listeningLoopbackSocket()
+            let payload = Array(testProceed.utf8)
+            // Sends the payload and holds the socket open, so only stopping receipt can end the stream.
+            let server = Task.detached {
+                let clientFD = accept(listenFD, nil, nil)
+                if clientFD >= 0 {
+                    _ = Darwin.send(clientFD, payload, payload.count, 0)
+                }
+                return clientFD
+            }
+
+            let transport = POSIXTransport()
+            try await transport.connect(host: "127.0.0.1", port: port)
+            let serverFD = await server.value
+            let receivedData = transport.receivedData
+            let outcome = try await boundedOutcome {
+                var iterator = receivedData.makeAsyncIterator()
+                var received: [UInt8] = []
+                while received.count < payload.count, let chunk = await iterator.next() {
+                    received += chunk
+                }
+                await transport.stopReceiving()
+                guard received == payload, await iterator.next() == nil else {
+                    throw XMPPClientError.unexpectedStreamState("The receive stream did not end after the payload")
+                }
+            }
+            await transport.disconnect()
+            close(serverFD)
+            close(listenFD)
+
+            let result = try #require(outcome)
+            #expect(throws: Never.self) { try result.get() }
         }
     }
 

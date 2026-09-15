@@ -3,9 +3,14 @@ import DuckoXMPP
 /// Shared in-memory ``XMPPTransport`` mock for both DuckoCoreTests and DuckoXMPPTests. Records sent bytes,
 /// replays scripted server stanzas via ``simulateReceive(_:)``, and supports connect-error injection, send
 /// failures, and send-blocking (to hold a specific stanza off the wire while a test observes gated behavior).
+///
+/// Models receive phases like the real transport: `stopReceiving()` finishes the current stream and `upgradeTLS`
+/// returns a fresh one, which ``simulateReceive(_:)`` then feeds.
 public actor MockTransport: XMPPTransport {
     public nonisolated let receivedData: AsyncStream<[UInt8]>
-    private let receivedContinuation: AsyncStream<[UInt8]>.Continuation
+    /// Continuation of the current receive phase's stream: `receivedData`'s until `upgradeTLS` replaces it.
+    private var receivedContinuation: AsyncStream<[UInt8]>.Continuation
+    private var isReceivingStopped = false
     public private(set) var sentBytes: [[UInt8]] = []
     public private(set) var isConnected = false
     public private(set) var isTLSUpgraded = false
@@ -73,12 +78,25 @@ public actor MockTransport: XMPPTransport {
         return next
     }
 
-    public func upgradeTLS(serverName: String) async throws {
+    /// Bytes simulated before the next `upgradeTLS` are dropped, standing in for bytes left unread in the socket.
+    public func stopReceiving() {
+        receivedContinuation.finish()
+        isReceivingStopped = true
+    }
+
+    public func upgradeTLS(serverName: String) throws -> AsyncStream<[UInt8]> {
         guard isConnected else {
             throw XMPPClientError.notConnected
         }
+        guard isReceivingStopped else {
+            throw XMPPClientError.tlsNegotiationFailed("Reading had not stopped before the secure connection started")
+        }
         isTLSUpgraded = true
         tlsServerName = serverName
+        let (stream, continuation) = AsyncStream.makeStream(of: [UInt8].self)
+        receivedContinuation = continuation
+        isReceivingStopped = false
+        return stream
     }
 
     public func send(_ bytes: [UInt8]) async throws {

@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Security
 
 - Prevent a peer from freezing or crashing a direct file transfer with an invalid transfer block size
+- Prevent an attacker on the network from slipping unencrypted messages into a connection while it switches to encryption, and refuse to connect when a server does so
 
 ## [0.0.2] - 2026-09-14
 

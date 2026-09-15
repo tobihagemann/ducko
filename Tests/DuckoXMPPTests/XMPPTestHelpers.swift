@@ -10,6 +10,22 @@ import Testing
 // `DuckoTestSupport/HandshakeFixtures.swift` (shared with DuckoCoreTests). The SM/SASL2/ISR constants below
 // are XMPP-only, so they stay here.
 
+/// Features offering STARTTLS and PLAIN auth.
+let testFeaturesWithTLS = """
+<features xmlns='http://etherx.jabber.org/streams'>\
+<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\
+<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
+<mechanism>PLAIN</mechanism>\
+</mechanisms>\
+</features>
+"""
+
+/// A TLS-namespace `<proceed/>`, the server's agreement to start TLS.
+let testProceed = "<proceed xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>"
+
+/// A stanza a server or on-path attacker injects into the plaintext after `<proceed/>`.
+let testInjectedMessage = "<message from='attacker@example.com'><body>Injected</body></message>"
+
 /// Post-auth features with bind and Stream Management.
 let testFeaturesBindWithSM = """
 <features xmlns='http://etherx.jabber.org/streams'>\
@@ -62,6 +78,27 @@ func simulateDirectTLSConnect(_ mock: MockTransport, postAuthFeatures: String = 
 /// tests that exercise the happy-path reply or pin disconnect ordering drive the timeout themselves.
 func disconnectFast(_ client: XMPPClient) async {
     await client.disconnect(streamCloseTimeout: .milliseconds(20))
+}
+
+// MARK: - STARTTLS Failure
+
+/// Expects `operation` to fail STARTTLS with `reason` before `mock` upgrades to TLS.
+func expectTLSNegotiationFailure(
+    reason: String,
+    mock: MockTransport,
+    sourceLocation: SourceLocation = #_sourceLocation,
+    performing operation: () async throws -> Void
+) async {
+    let error = await #expect(throws: XMPPClientError.self, sourceLocation: sourceLocation) {
+        try await operation()
+    }
+    guard case let .tlsNegotiationFailed(actual) = error else {
+        Issue.record("Expected tlsNegotiationFailed, got \(String(describing: error))", sourceLocation: sourceLocation)
+        return
+    }
+    #expect(actual == reason, sourceLocation: sourceLocation)
+    let isTLS = await mock.isTLSUpgraded
+    #expect(!isTLS, sourceLocation: sourceLocation)
 }
 
 // MARK: - Event Collection

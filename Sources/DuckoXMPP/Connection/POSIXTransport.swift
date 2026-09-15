@@ -124,7 +124,8 @@ actor POSIXTransport: XMPPTransport {
     private(set) var tlsInfo: TLSInfo?
 
     nonisolated let receivedData: AsyncStream<[UInt8]>
-    private nonisolated let receivedContinuation: AsyncStream<[UInt8]>.Continuation
+    /// Continuation of the current receive phase's stream: `receivedData`'s until a STARTTLS upgrade replaces it.
+    private var receivedContinuation: AsyncStream<[UInt8]>.Continuation
 
     init(handshakeTimeout: Duration = .seconds(30), writeTimeout: Duration = .seconds(5)) {
         let (stream, continuation) = AsyncStream.makeStream(of: [UInt8].self)
@@ -161,17 +162,26 @@ actor POSIXTransport: XMPPTransport {
         startReceiving()
     }
 
-    func upgradeTLS(serverName: String) async throws {
-        guard fd >= 0 else { throw XMPPClientError.notConnected }
-
-        // Stop the plain reader and let queued plain writes finish before TLS takes over the socket.
+    func stopReceiving() async {
         receiveTask?.cancel()
         await receiveTask?.value
         receiveTask = nil
         _ = await sendTask?.result
+        receivedContinuation.finish()
+    }
+
+    func upgradeTLS(serverName: String) async throws -> AsyncStream<[UInt8]> {
+        guard fd >= 0 else { throw XMPPClientError.notConnected }
+        // A running plain reader would consume the handshake's bytes and could deliver plaintext as post-TLS data.
+        guard receiveTask == nil else {
+            throw XMPPClientError.tlsNegotiationFailed("Reading had not stopped before the secure connection started")
+        }
 
         try await performSSLHandshake(serverName: serverName)
+        let (stream, continuation) = AsyncStream.makeStream(of: [UInt8].self)
+        receivedContinuation = continuation
         startReceiving()
+        return stream
     }
 
     private func performSSLHandshake(serverName: String, alpnProtocols: [String]? = nil) async throws {

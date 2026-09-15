@@ -349,12 +349,12 @@ public actor XMPPClient {
             let isForced = features.child(named: "starttls", namespace: XMPPNamespaces.tls) == nil
             if isForced {
                 // RFC 7590 §3.1: STARTTLS not advertised — a MITM may have stripped it.
-                // Attempt STARTTLS anyway; only fail if server genuinely rejects.
+                // Attempt STARTTLS anyway; a refusal fails as `tlsRequired`.
                 log.warning("STARTTLS not advertised — forcing attempt per RFC 7590 §3.1")
             }
             state = .negotiatingTLS
             do {
-                try await negotiateTLS(reader: reader)
+                try await requestTLS(reader: reader)
             } catch {
                 if isForced {
                     log.error("Forced STARTTLS rejected: \(error)")
@@ -362,6 +362,9 @@ public actor XMPPClient {
                 }
                 throw error
             }
+            // Outside the catch: a failed upgrade is not a refusal, so forced STARTTLS must not report it as `tlsRequired`.
+            guard let serverName else { throw XMPPClientError.invalidDomain(domain) }
+            try await connection.upgradeTLS(serverName: serverName)
             if isForced {
                 log.info("TLS established via forced STARTTLS (anti-stripping)")
             } else {
@@ -603,17 +606,14 @@ public actor XMPPClient {
         try await connection.send(XMPPStreamWriter.streamOpening(to: domain, from: bareJID))
     }
 
-    private func negotiateTLS(reader: EventReader) async throws {
+    private func requestTLS(reader: EventReader) async throws {
         let starttls = XMLElement(name: "starttls", namespace: XMPPNamespaces.tls)
         try await connection.send(XMPPStreamWriter.stanza(starttls))
 
         let element = try await reader.awaitStanza()
-        guard element.name == "proceed" else {
+        guard XMPPConnection.isTLSProceed(element) else {
             throw XMPPClientError.tlsNegotiationFailed("The server refused to start TLS")
         }
-
-        guard let serverName else { throw XMPPClientError.invalidDomain(domain) }
-        try await connection.upgradeTLS(serverName: serverName)
     }
 
     /// Attempts to resume a previous SM session. Returns `true` if resumed.

@@ -1,3 +1,4 @@
+import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
 
@@ -50,6 +51,63 @@ struct XMPPRegistrationClientTests {
     ])
     func `Registration failure text reads the stanza error`(error: XMPPStanzaError?, expected: String) {
         #expect(XMPPRegistrationClient.registrationFailureText(error) == expected)
+    }
+
+    @Test
+    func `Registration STARTTLS reopens the stream after the upgrade`() async throws {
+        let mock = MockTransport()
+        let connection = XMPPConnection(transport: mock)
+        let negotiation = try await startNegotiation(on: connection)
+
+        await mock.waitForSent(count: 1) // stream opening
+        await mock.simulateReceive(testServerStreamOpen)
+        await mock.simulateReceive(testFeaturesWithTLS)
+        await mock.waitForSent(count: 2) // starttls element
+        await mock.simulateReceive(testProceed)
+        await mock.waitForSent(count: 3) // post-TLS stream opening
+        await mock.simulateReceive(testServerStreamOpen)
+        await mock.simulateReceive(testFeaturesNoTLS)
+
+        try await negotiation.value
+        let isTLS = await mock.isTLSUpgraded
+        #expect(isTLS)
+
+        await connection.disconnect()
+    }
+
+    @Test
+    func `Registration treats a proceed without the TLS namespace as a refusal`() async throws {
+        let mock = MockTransport()
+        let connection = XMPPConnection(transport: mock)
+        let negotiation = try await startNegotiation(on: connection)
+
+        await mock.waitForSent(count: 1) // stream opening
+        await mock.simulateReceive(testServerStreamOpen)
+        await mock.simulateReceive(testFeaturesWithTLS)
+        await mock.waitForSent(count: 2) // starttls element
+        await mock.simulateReceive("<proceed/>")
+
+        let error = await #expect(throws: XMPPRegistrationClient.RegistrationClientError.self) {
+            try await negotiation.value
+        }
+        guard case .tlsNegotiationFailed = error else {
+            Issue.record("Expected tlsNegotiationFailed, got \(String(describing: error))")
+            return
+        }
+        let isTLS = await mock.isTLSUpgraded
+        #expect(!isTLS)
+
+        await connection.disconnect()
+    }
+
+    private func startNegotiation(on connection: XMPPConnection) async throws -> Task<Void, any Error> {
+        try await connection.connect(host: "example.com", port: 5222)
+        let reader = EventReader(connection.events)
+        return Task {
+            try await XMPPRegistrationClient.negotiateStream(
+                connection: connection, reader: reader, domain: "example.com", serverName: "example.com"
+            )
+        }
     }
 
     @Test

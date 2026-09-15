@@ -29,6 +29,25 @@ private func collectEvents(
     }
 }
 
+/// Leaves the connection where a STARTTLS handshake upgrades: plaintext stream open and the TLS-namespace `<proceed/>`
+/// from `proceedChunk` read.
+private func connectThroughProceed(
+    _ connection: XMPPConnection,
+    mock: MockTransport,
+    proceedChunk: String
+) async throws -> EventReader {
+    try await connection.connect(host: "example.com", port: 5222)
+    let reader = EventReader(connection.events)
+    await mock.simulateReceive(testServerStreamOpen)
+    await mock.simulateReceive(proceedChunk)
+    guard case .streamOpened = try await reader.awaitNextEvent() else {
+        throw XMPPClientError.unexpectedStreamState("Expected stream opened")
+    }
+    let proceed = try await reader.awaitStanza()
+    try #require(XMPPConnection.isTLSProceed(proceed))
+    return reader
+}
+
 // MARK: - Tests
 
 enum XMPPConnectionTests {
@@ -163,6 +182,89 @@ enum XMPPConnectionTests {
             #expect(stanza.child(named: "body")?.textContent == "After TLS")
 
             await connection.disconnect()
+        }
+
+        @Test
+        func `Plaintext fed after proceed fails the upgrade`() async throws {
+            let mock = MockTransport()
+            let connection = XMPPConnection(transport: mock)
+            _ = try await connectThroughProceed(connection, mock: mock, proceedChunk: testProceed)
+
+            await mock.simulateReceive(testInjectedMessage)
+            await expectTLSNegotiationFailure(reason: "The server sent unexpected data after agreeing to start TLS", mock: mock) {
+                try await connection.upgradeTLS(serverName: "example.com")
+            }
+
+            await connection.disconnect()
+        }
+
+        @Test
+        func `Plaintext in the proceed chunk fails the upgrade`() async throws {
+            let mock = MockTransport()
+            let connection = XMPPConnection(transport: mock)
+            // The message is parsed with the proceed before the upgrade starts, so only the post-proceed record catches it.
+            _ = try await connectThroughProceed(connection, mock: mock, proceedChunk: testProceed + testInjectedMessage)
+
+            await expectTLSNegotiationFailure(reason: "The server sent unexpected data after agreeing to start TLS", mock: mock) {
+                try await connection.upgradeTLS(serverName: "example.com")
+            }
+
+            await connection.disconnect()
+        }
+
+        @Test(arguments: ["  \n", "<mess"])
+        func `Bytes after proceed that parse to nothing are discarded`(trailing: String) async throws {
+            let mock = MockTransport()
+            let connection = XMPPConnection(transport: mock)
+            let reader = try await connectThroughProceed(connection, mock: mock, proceedChunk: testProceed + trailing)
+
+            try await connection.upgradeTLS(serverName: "example.com")
+            await mock.simulateReceive(testServerStreamOpen)
+            await mock.simulateReceive("<message><body>After TLS</body></message>")
+
+            guard case .streamOpened = try await reader.awaitNextEvent() else {
+                Issue.record("Expected the post-TLS stream opening")
+                return
+            }
+            let stanza = try await reader.awaitStanza()
+            #expect(stanza.child(named: "body")?.textContent == "After TLS")
+
+            await connection.disconnect()
+        }
+
+        @Test
+        func `A stray proceed without an upgrade does not affect delivery`() async throws {
+            let mock = MockTransport()
+            let connection = XMPPConnection(transport: mock)
+            let reader = try await connectThroughProceed(connection, mock: mock, proceedChunk: testProceed + testInjectedMessage)
+
+            let message = try await reader.awaitStanza()
+            #expect(message.child(named: "body")?.textContent == "Injected")
+
+            await connection.disconnect()
+        }
+
+        @Test
+        func `Disconnect before the upgrade throws`() async throws {
+            let mock = MockTransport()
+            let connection = XMPPConnection(transport: mock)
+            try await connection.connect(host: "example.com", port: 5222)
+            await connection.disconnect()
+
+            let error = await #expect(throws: XMPPClientError.self) {
+                try await connection.upgradeTLS(serverName: "example.com")
+            }
+            guard case .notConnected = error else {
+                Issue.record("Expected notConnected, got \(String(describing: error))")
+                return
+            }
+            let isTLS = await mock.isTLSUpgraded
+            #expect(!isTLS)
+            var events: [XMLStreamEvent] = []
+            for await event in connection.events {
+                events.append(event)
+            }
+            #expect(events.isEmpty)
         }
     }
 

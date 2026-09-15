@@ -6,6 +6,15 @@ actor XMPPConnection {
     private var receiveTask: Task<Void, Never>?
     private(set) var isDirectTLS = false
 
+    /// Whether the current parser has produced a TLS-namespace `<proceed/>`.
+    private var hasSeenProceed = false
+    /// Whether the current parser produced any event after `<proceed/>` or during a phase transition. A STARTTLS upgrade
+    /// rejects it, since a compliant server sends nothing between `<proceed/>` and the TLS handshake.
+    private var hasEventsAfterProceed = false
+    /// Set from the start of a STARTTLS upgrade until its TLS stream starts receiving, so a failed upgrade leaves delivery
+    /// halted until `disconnect()`. Also marks the plaintext stream's end as intentional.
+    private var isTransitioningPhase = false
+
     private let eventContinuation: AsyncStream<XMLStreamEvent>.Continuation
 
     /// Unified event stream that survives parser resets across TLS upgrades.
@@ -44,22 +53,43 @@ actor XMPPConnection {
     func connect(host: String, port: UInt16) async throws {
         isDirectTLS = false
         try await transport.connect(host: host, port: port)
-        startReceiving()
+        startReceiving(from: transport.receivedData)
     }
 
     /// Direct TLS connect — TLS from the first byte, no STARTTLS upgrade.
     func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
         try await transport.connectWithTLS(host: host, port: port, serverName: serverName)
         isDirectTLS = true
-        startReceiving()
+        startReceiving(from: transport.receivedData)
     }
 
     // MARK: - TLS
 
-    /// Upgrades transport to TLS and resets the parser. Receive task keeps running; actor isolation ensures queued `feedParser` calls land on the post-swap parser.
+    /// Ends the plaintext phase, then upgrades the transport to TLS and starts a fresh parser on the TLS stream.
+    ///
+    /// Event delivery halts first, and every plaintext chunk the transport read is drained through the old parser, so no
+    /// plaintext reaches the post-TLS parser. Throws `tlsNegotiationFailed` before the handshake when the old parser
+    /// produced anything after `<proceed/>`, even an event it already delivered. Plaintext still unread in the socket goes
+    /// to the TLS handshake, which fails on it.
     func upgradeTLS(serverName: String) async throws {
-        resetStream()
-        try await transport.upgradeTLS(serverName: serverName)
+        isTransitioningPhase = true
+        let plaintextReceiveTask = receiveTask
+        await transport.stopReceiving()
+        await plaintextReceiveTask?.value
+        closeParser()
+        guard !hasEventsAfterProceed else {
+            throw XMPPClientError.tlsNegotiationFailed("The server sent unexpected data after agreeing to start TLS")
+        }
+
+        let receivedData = try await transport.upgradeTLS(serverName: serverName)
+        replaceParser()
+        isTransitioningPhase = false
+        startReceiving(from: receivedData)
+    }
+
+    /// STARTTLS callers upgrade only on this element, so the post-proceed record must recognize exactly the same one.
+    static func isTLSProceed(_ element: XMLElement) -> Bool {
+        element.name == "proceed" && element.namespace == XMPPNamespaces.tls
     }
 
     var tlsInfo: TLSInfo? {
@@ -82,7 +112,7 @@ actor XMPPConnection {
     /// Resets the parser for a new XMPP stream (e.g. after SASL). Receive task continues.
     func resetStream() {
         _ = parser.close()
-        parser = XMPPStreamParser()
+        replaceParser()
     }
 
     // MARK: - Sending
@@ -107,35 +137,51 @@ actor XMPPConnection {
         eventContinuation.finish()
     }
 
-    private func startReceiving() {
-        let receivedData = transport.receivedData
+    private func startReceiving(from receivedData: AsyncStream<[UInt8]>) {
         receiveTask = Task { [weak self] in
             for await bytes in receivedData {
                 await self?.feedParser(bytes)
             }
             if !Task.isCancelled {
-                await self?.closeParser()
-                await self?.finishEvents()
+                await self?.receivedDataEnded()
             }
         }
     }
 
     private func feedParser(_ bytes: [UInt8]) {
-        let events = parser.parse(bytes)
-        for event in events {
-            eventContinuation.yield(event)
-        }
+        deliver(parser.parse(bytes))
     }
 
     private func closeParser() {
-        let events = parser.close()
+        deliver(parser.close())
+    }
+
+    /// Yields parsed events outside a phase transition and records any that follow `<proceed/>` or arrive during one.
+    private func deliver(_ events: [XMLStreamEvent]) {
         for event in events {
+            if hasSeenProceed || isTransitioningPhase {
+                hasEventsAfterProceed = true
+            }
+            guard !isTransitioningPhase else { continue }
+            if case let .stanzaReceived(element) = event, Self.isTLSProceed(element) {
+                hasSeenProceed = true
+            }
             eventContinuation.yield(event)
         }
     }
 
-    private func finishEvents() {
+    /// The receive stream ended without cancellation. Ending the plaintext phase for a STARTTLS upgrade finishes that
+    /// stream on purpose, so only an end outside a transition closes the parser and finishes `events`.
+    private func receivedDataEnded() {
+        guard !isTransitioningPhase else { return }
+        closeParser()
         eventContinuation.finish()
+    }
+
+    private func replaceParser() {
+        parser = XMPPStreamParser()
+        hasSeenProceed = false
+        hasEventsAfterProceed = false
     }
 
     private func stopTasks() {

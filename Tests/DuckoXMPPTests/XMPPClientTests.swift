@@ -5,16 +5,6 @@ import Testing
 
 // MARK: - Test Helpers
 
-/// Features offering STARTTLS and PLAIN auth.
-private let featuresWithTLS = """
-<features xmlns='http://etherx.jabber.org/streams'>\
-<starttls xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>\
-<mechanisms xmlns='urn:ietf:params:xml:ns:xmpp-sasl'>\
-<mechanism>PLAIN</mechanism>\
-</mechanisms>\
-</features>
-"""
-
 /// Post-auth features with bind and session.
 private let featuresBindSession = """
 <features xmlns='http://etherx.jabber.org/streams'>\
@@ -27,14 +17,14 @@ private let featuresBindSession = """
 private let sessionResult = "<iq type='result' id='ducko-2'/>"
 
 /// Simulates a full connect handshake with STARTTLS on the mock transport.
-/// The `initialFeatures` parameter controls the first features stanza — use `featuresWithTLS`
+/// The `initialFeatures` parameter controls the first features stanza — use `testFeaturesWithTLS`
 /// for advertised STARTTLS or `testFeaturesNoTLS` for forced STARTTLS (RFC 7590 anti-stripping).
-private func simulateTLSConnectFlow(_ mock: MockTransport, initialFeatures: String = featuresWithTLS) async {
+private func simulateTLSConnectFlow(_ mock: MockTransport, initialFeatures: String = testFeaturesWithTLS) async {
     await mock.waitForSent(count: 1) // stream opening
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(initialFeatures)
     await mock.waitForSent(count: 2) // starttls element
-    await mock.simulateReceive("<proceed xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
+    await mock.simulateReceive(testProceed)
     await mock.waitForSent(count: 3) // post-TLS stream opening
     await mock.simulateReceive(testServerStreamOpen)
     await mock.simulateReceive(testFeaturesNoTLS)
@@ -155,7 +145,7 @@ enum XMPPClientTests {
         }
 
         @Test
-        func `Refused advertised STARTTLS reports a readable reason`() async throws {
+        func `Refused advertised STARTTLS reports a readable reason`() async {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -166,18 +156,81 @@ enum XMPPClientTests {
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
             await mock.waitForSent(count: 1) // stream opening
             await mock.simulateReceive(testServerStreamOpen)
-            await mock.simulateReceive(featuresWithTLS)
+            await mock.simulateReceive(testFeaturesWithTLS)
             await mock.waitForSent(count: 2) // starttls element
             await mock.simulateReceive("<failure xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
 
-            let error = await #expect(throws: XMPPClientError.self) {
+            await expectTLSNegotiationFailure(reason: "The server refused to start TLS", mock: mock) {
                 try await connectTask.value
             }
-            guard case let .tlsNegotiationFailed(reason) = error else {
-                Issue.record("Expected tlsNegotiationFailed, got \(String(describing: error))")
-                return
+
+            await disconnectFast(client)
+        }
+
+        @Test(arguments: [testFeaturesWithTLS, testFeaturesNoTLS])
+        func `Plaintext after proceed fails advertised and forced STARTTLS`(initialFeatures: String) async {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await mock.waitForSent(count: 1) // stream opening
+            await mock.simulateReceive(testServerStreamOpen)
+            await mock.simulateReceive(initialFeatures)
+            await mock.waitForSent(count: 2) // starttls element
+            // One chunk: a separate chunk could land after the client stops reading and be dropped by the mock.
+            await mock.simulateReceive(testProceed + testInjectedMessage)
+
+            await expectTLSNegotiationFailure(reason: "The server sent unexpected data after agreeing to start TLS", mock: mock) {
+                try await connectTask.value
             }
-            #expect(reason == "The server refused to start TLS")
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `Plaintext pipelined with the features and proceed fails STARTTLS`() async {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await mock.waitForSent(count: 1) // stream opening
+            await mock.simulateReceive(testServerStreamOpen)
+            await mock.simulateReceive(testFeaturesWithTLS + testProceed + testInjectedMessage)
+
+            await expectTLSNegotiationFailure(reason: "The server sent unexpected data after agreeing to start TLS", mock: mock) {
+                try await connectTask.value
+            }
+
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `A proceed without the TLS namespace is a refusal`() async {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await mock.waitForSent(count: 1) // stream opening
+            await mock.simulateReceive(testServerStreamOpen)
+            await mock.simulateReceive(testFeaturesWithTLS)
+            await mock.waitForSent(count: 2) // starttls element
+            await mock.simulateReceive("<proceed/>")
+
+            await expectTLSNegotiationFailure(reason: "The server refused to start TLS", mock: mock) {
+                try await connectTask.value
+            }
 
             await disconnectFast(client)
         }
@@ -379,7 +432,7 @@ enum XMPPClientTests {
             let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
             await mock.waitForSent(count: 1) // stream opening
             await mock.simulateReceive(testServerStreamOpen)
-            await mock.simulateReceive(featuresWithTLS)
+            await mock.simulateReceive(testFeaturesWithTLS)
             await mock.waitForSent(count: 2) // <starttls/> sent — handshake now suspended waiting for <proceed>
 
             let iq = XMPPIQ(type: .get, id: "test-iq-mid-handshake")
