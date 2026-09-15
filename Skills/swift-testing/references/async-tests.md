@@ -162,6 +162,42 @@ func withTimeout<T: Sendable>(
 }
 ```
 
+Both `.timeLimit()` and this helper rely on the awaited work responding to cancellation. A test suspended on a continuation that nothing resumes, such as a `CheckedContinuation` parked in a registry, records a time-limit failure but never finishes. The task group can't return either, because it waits for every child, including the one that never finishes. To catch that kind of hang, run the operation in an unstructured `Task`, poll for its result against a deadline, and treat "still running at the deadline" as the failure, leaving the stuck task behind. Reserve this for hangs cancellation can't reach: the polling only enforces the deadline, and the test still synchronizes on the awaited work.
+
+```swift
+actor OutcomeBox {
+    private(set) var result: Result<Void, any Error>?
+    func finish(_ result: Result<Void, any Error>) { self.result = result }
+}
+
+func boundedOutcome(
+    timeout: Duration = .seconds(2),
+    of operation: @escaping @Sendable () async throws -> Void
+) async throws -> Result<Void, any Error>? {
+    let box = OutcomeBox()
+    Task {
+        do {
+            try await operation()
+            await box.finish(.success(()))
+        } catch {
+            await box.finish(.failure(error))
+        }
+    }
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if let result = await box.result { return result }
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    return await box.result
+}
+
+@Test func waitFailsOnceTheSessionEnds() async throws {
+    let outcome = try await boundedOutcome { try await session.waitUntilReady() }
+    let result = try #require(outcome, "The wait is still suspended")
+    #expect(throws: (any Error).self) { try result.get() }
+}
+```
+
 
 ## How to force concurrent tests to run on a specific actor
 

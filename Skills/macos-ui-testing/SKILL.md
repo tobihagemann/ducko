@@ -25,6 +25,16 @@ Simulated keystrokes (`peekaboo type`, `peekaboo paste`, `peekaboo hotkey`) go t
 
 *`set value` updates the accessibility layer but **does not trigger SwiftUI `@State` bindings**. Use `keystroke` inside a single osascript block when SwiftUI binding updates are needed (see Multi-Step Interaction Sequences below).
 
+## Check for a Locked Screen
+
+While the session screen is locked, window accessibility elements report the role `AXApplication`, controls inside windows can't be resolved, and window captures fail (`screencapture -l` reports "could not create image from window"). Read the lock state before starting the workflow:
+
+```bash
+ioreg -n Root -d1 -a | grep -A1 CGSSessionScreenIsLocked
+```
+
+`<true/>` on the line after the key means locked. No output means unlocked, because the key is absent then. An `ioreg` error, such as "can't open file" inside a sandbox, leaves the lock state unknown. When the screen is locked, record the GUI check as inconclusive instead of working around it.
+
 ## Workflow
 
 ### Step 1: Launch the App
