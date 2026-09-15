@@ -1,6 +1,6 @@
 # Certificate Trust Evaluation & Pinning
 
-> **Scope**: SecCertificate, SecTrust evaluation, SecIdentity, certificate pinning strategies (leaf / intermediate CA / SPKI hash / NSPinnedDomains), custom trust policies, client certificate authentication (mTLS), ATS interaction, and operational pin management. iOS 12+ through iOS 18, macOS 10.14+ through macOS 15.
+> **Scope**: SecCertificate, SecTrust evaluation, SecIdentity, certificate pinning strategies (leaf / intermediate CA / SPKI hash / NSPinnedDomains), custom trust policies, client certificate authentication (mTLS), ATS interaction, operational pin management, and Secure Transport (`SSLContext`) STARTTLS pitfalls. iOS 12+ through iOS 18, macOS 10.14+ through macOS 15.
 >
 > **Out of scope**: Network-layer encryption beyond TLS certificate handling, server-side certificate management, App Transport Security as a standalone topic (covered briefly where it intersects pinning).
 
@@ -31,7 +31,7 @@ func SecTrustEvaluateAsyncWithError(
 ) -> OSStatus
 ```
 
-The callback receives a Boolean result and optional error. The callback may fire synchronously if the trust object has a cached result. Always dispatch on a **background queue** — evaluation may perform network access for intermediate certificate fetching or revocation checks.
+The callback receives a Boolean result and optional error. It runs exactly once when the call returns `errSecSuccess`, never when it fails, and may fire synchronously if the trust object has a cached result. Call the function from a block running on the queue you pass in; the API asserts this, and passing a different queue traps. Always dispatch on a **background queue** — evaluation may perform network access for intermediate certificate fetching or revocation checks.
 
 ```swift
 // ✅ CORRECT: Async trust evaluation with proper error handling
@@ -532,7 +532,49 @@ Use `nscurl --ats-diagnostics https://your-server.com` on macOS to diagnose ATS 
 - Different `SecTrust` objects can be evaluated concurrently on different threads.
 - On iOS, all Certificate/Key/Trust Services functions are thread-safe and reentrant.
 - On macOS, trust evaluation can **block on user interaction** (keychain unlock dialogs) — always evaluate on background threads.
-- `SecTrust`, `SecCertificate`, and `SecKey` are **not** marked `Sendable`. With Swift 6 strict concurrency, use `@unchecked Sendable` wrappers or explicit actor isolation.
+- `SecTrust`, `SecCertificate`, and `SecKey` are **not** marked `Sendable`. With Swift 6 strict concurrency, keep them in one isolation domain. To hand one across, store it in a `final class: Sendable` wrapping a `Synchronization.Mutex` (iOS 18+ / macOS 15+), which accepts non-Sendable values; on earlier targets, route access through an actor instead.
+
+---
+
+## Secure Transport (SSLContext)
+
+Secure Transport is deprecated, but Network.framework cannot upgrade an existing socket to TLS in place (STARTTLS), so socket-level clients still use it.
+
+- **Serialize every call on one context.** `SSLRead`, `SSLWrite`, `SSLClose`, and `SSLHandshake` all service the context's unsynchronized record write queue. Reading on one thread while writing on another double-frees queued records, which crashes with "pointer being freed was not allocated" in `SSLRecordServiceWriteQueueInternal`. Run all calls on one actor or serial queue.
+- **Queued plaintext counts as written.** On a non-blocking socket, `SSLWrite` reports every byte as processed once the record is queued. An `errSSLWouldBlock` after that leaves ciphertext in the queue. Call `SSLWrite(ctx, nil, 0, &processed)` after the socket becomes writable to retry sending it.
+- **Break on server auth makes your evaluation the only check.** `SSLSetSessionOption(ctx, .breakOnServerAuth, true)` disables automatic certificate verification. `SSLHandshake` returns `errSSLPeerAuthCompleted` (Swift does not import the `errSSLServerAuthCompleted` alias), and calling it again finishes the handshake without re-checking the certificate. Resume only after your evaluation succeeds, and fail closed when a handshake completes without having stopped for it.
+- **The trust at the break checks the hostname.** The `SecTrust` from `SSLCopyPeerTrust` carries the SSL policy with the name passed to `SSLSetPeerDomainName`, so evaluating it as-is verifies the host.
+- **Evaluate off the thread that drives the handshake.** Follow the `SecTrustEvaluateAsyncWithError` queue rules above, then have the handshake loop poll for the verdict before calling `SSLHandshake` again.
+
+```swift
+// ✅ CORRECT: Hand the non-Sendable trust to the evaluation queue; the handshake loop polls job.verdict
+final class TrustJob: Sendable {
+    let trust = Mutex<SecTrust?>(nil)
+    let verdict = Mutex<Bool?>(nil)
+}
+
+func startEvaluation(_ ctx: SSLContext) -> TrustJob {
+    let job = TrustJob()
+    // Copy straight into the mutex so the non-Sendable trust never crosses isolation outside it.
+    guard job.trust.withLock({ SSLCopyPeerTrust(ctx, &$0) }) == errSecSuccess else {
+        job.verdict.withLock { $0 = false }
+        return job
+    }
+    let queue = DispatchQueue.global(qos: .userInitiated)
+    queue.async {
+        job.trust.withLock { trust in
+            guard let trust else { job.verdict.withLock { $0 = false }; return }
+            let status = SecTrustEvaluateAsyncWithError(trust, queue) { _, isTrusted, _ in
+                job.verdict.withLock { $0 = isTrusted }
+            }
+            if status != errSecSuccess {
+                job.verdict.withLock { $0 = false }
+            }
+        }
+    }
+    return job
+}
+```
 
 ---
 

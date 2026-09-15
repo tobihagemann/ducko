@@ -1,6 +1,6 @@
 ---
 name: swift-security
-description: Use when working with iOS/macOS Keychain Services (SecItem queries, kSecClass, OSStatus errors), biometric authentication (LAContext, Face ID, Touch ID), CryptoKit (AES-GCM, ChaChaPoly, ECDSA, ECDH, HPKE, ML-KEM), Secure Enclave, secure credential storage (OAuth tokens, API keys), certificate pinning (SecTrust, SPKI), keychain sharing across apps/extensions, migrating secrets from UserDefaults or plists, or OWASP MASVS/MASTG mobile compliance on Apple platforms.
+description: Use when working with iOS/macOS Keychain Services (SecItem queries, kSecClass, OSStatus errors), biometric authentication (LAContext, Face ID, Touch ID), CryptoKit (AES-GCM, ChaChaPoly, ECDSA, ECDH, HPKE, ML-KEM), Secure Enclave, secure credential storage (OAuth tokens, API keys), certificate pinning and trust (SecTrust, SPKI, Secure Transport SSLContext), keychain sharing across apps/extensions, migrating secrets from UserDefaults or plists, or OWASP MASVS/MASTG mobile compliance on Apple platforms.
 license: MIT
 ---
 
@@ -241,7 +241,7 @@ Use this checklist for a rapid sweep across all 14 domains. Each item maps to on
 | 7   | `cryptokit-public-key.md`        | ECDSA signing, ECDH key agreement, HPKE (iOS 17+), ML-KEM/ML-DSA post-quantum (iOS 26+), curve selection              | HIGH     |
 | 8   | `credential-storage-patterns.md` | OAuth2/OIDC token lifecycle, API key storage, refresh token rotation, runtime secrets, logout cleanup                 | CRITICAL |
 | 9   | `keychain-sharing.md`            | Access groups, Team ID prefixes, app extensions, Keychain Sharing vs App Groups entitlements, iCloud sync             | MEDIUM   |
-| 10  | `certificate-trust.md`           | SecTrust evaluation, SPKI/CA/leaf pinning, NSPinnedDomains, client certificates (mTLS), trust policies                | HIGH     |
+| 10  | `certificate-trust.md`           | SecTrust evaluation, SPKI/CA/leaf pinning, NSPinnedDomains, client certificates (mTLS), trust policies, Secure Transport | HIGH     |
 | 11  | `migration-legacy-stores.md`     | UserDefaults/plist/NSCoding → Keychain migration, secure deletion, first-launch cleanup, versioned migration          | MEDIUM   |
 | 12  | `common-anti-patterns.md`        | Top 10 AI-generated security mistakes with ❌/✅ code pairs, detection heuristics, OWASP mapping                      | CRITICAL |
 | 13  | `testing-security-code.md`       | Protocol-based mocking, simulator vs device differences, CI/CD keychain, Swift Testing, mutation testing              | MEDIUM   |
