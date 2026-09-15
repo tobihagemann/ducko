@@ -380,7 +380,7 @@ struct JSONFormatter: CLIFormatter {
                 "account": account
             ])
         case let .jingleFileTransferFailed(sid, reason):
-            return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason, "account": account])
+            return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason.rawValue, "account": account])
         case let .jingleChecksumMismatch(sid, expected, computed):
             return encode([
                 "type": "jingle_checksum_mismatch", "sid": sid,
@@ -517,11 +517,11 @@ struct JSONFormatter: CLIFormatter {
         ])
     }
 
-    func formatJingleTransferFailed(sid: String, reason: String) -> String {
+    func formatJingleTransferFailed(sid: String, reason: JingleTransferFailureReason) -> String {
         encode([
             "type": "jingle_transfer_failed",
             "sid": sid,
-            "reason": reason
+            "reason": reason.rawValue
         ])
     }
 

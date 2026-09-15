@@ -1,7 +1,30 @@
 import CryptoKit
 import Darwin
+import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
+
+/// A loopback TCP socket bound to an ephemeral port, listening when `listens` is set; `nil` when setup fails.
+private func loopbackSocket(listens: Bool) -> (fd: Int32, port: UInt16)? {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    var address = sockaddr_in()
+    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_addr.s_addr = inet_addr("127.0.0.1")
+    let bound = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+    }
+    guard bound == 0, !listens || listen(fd, 1) == 0 else {
+        Darwin.close(fd)
+        return nil
+    }
+    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+    _ = withUnsafeMutablePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
+    }
+    return (fd, UInt16(bigEndian: address.sin_port))
+}
 
 enum SOCKS5ConnectionTests {
     struct DestinationAddressHash {
@@ -110,16 +133,43 @@ enum SOCKS5ConnectionTests {
                 try SOCKS5Connection.validateConnectResponse([0x05, 0x01, 0x00, 0x01])
             }
         }
+
+        @Test
+        func `validateConnectResponse reports the reply code as readable text`() {
+            let error = #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
+                try SOCKS5Connection.validateConnectResponse([0x05, 0x05, 0x00, 0x01])
+            }
+            guard case let .handshakeFailed(reason) = error else {
+                Issue.record("Expected handshakeFailed, got \(String(describing: error))")
+                return
+            }
+            #expect(reason == "Connection refused")
+        }
+
+        @Test(arguments: [
+            (UInt8(0x01), "General SOCKS server failure"),
+            (UInt8(0x02), "Connection not allowed by ruleset"),
+            (UInt8(0x03), "Network unreachable"),
+            (UInt8(0x04), "Host unreachable"),
+            (UInt8(0x05), "Connection refused"),
+            (UInt8(0x06), "TTL expired"),
+            (UInt8(0x07), "Command not supported"),
+            (UInt8(0x08), "Address type not supported"),
+            (UInt8(0x42), "Reply code 66")
+        ])
+        func `replyText renders reply codes as readable text`(code: UInt8, expected: String) {
+            #expect(SOCKS5Connection.replyText(code) == expected)
+        }
     }
 
     struct ErrorDisplayText {
         @Test(arguments: [
-            (SOCKS5Connection.SOCKS5Error.connectionFailed("Connection refused"), "Could not connect to the file transfer peer: Connection refused"),
-            (SOCKS5Connection.SOCKS5Error.handshakeFailed("reply code 1"), "The file transfer handshake failed: reply code 1"),
-            (SOCKS5Connection.SOCKS5Error.notConnected, "The file transfer connection is not open"),
-            (SOCKS5Connection.SOCKS5Error.alreadyConnected, "The file transfer connection is already open"),
-            (SOCKS5Connection.SOCKS5Error.sendFailed("Broken pipe"), "Could not send file data: Broken pipe"),
-            (SOCKS5Connection.SOCKS5Error.receiveFailed("Connection reset by peer"), "Could not receive file data: Connection reset by peer")
+            (SOCKS5Connection.SOCKS5Error.connectionFailed("Connection refused"), "Connection refused"),
+            (SOCKS5Connection.SOCKS5Error.handshakeFailed("General SOCKS server failure"), "General SOCKS server failure"),
+            (SOCKS5Connection.SOCKS5Error.notConnected, "The connection is not open"),
+            (SOCKS5Connection.SOCKS5Error.alreadyConnected, "The connection is already open"),
+            (SOCKS5Connection.SOCKS5Error.sendFailed("Broken pipe"), "Broken pipe"),
+            (SOCKS5Connection.SOCKS5Error.receiveFailed("Connection reset by peer"), "Connection reset by peer")
         ])
         func `Display text is readable`(error: SOCKS5Connection.SOCKS5Error, expected: String) {
             #expect(error.displayText == expected)
@@ -195,6 +245,61 @@ enum SOCKS5ConnectionTests {
             }
 
             await conn.close()
+        }
+    }
+
+    struct BoundedLifetime {
+        @Test
+        func `Closing ends a pending receive and frees the connection`() async throws {
+            var fds: [Int32] = [0, 0]
+            try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &fds) == 0)
+            defer { Darwin.close(fds[1]) }
+            let connection = SOCKS5Connection()
+            try await connection.adopt(fd: fds[0])
+
+            let receiveTask = Task { try await connection.receive(1) }
+            try await Task.sleep(for: .milliseconds(100))
+            await connection.close()
+
+            let outcome = try await boundedOutcome { _ = try await receiveTask.value }
+            guard case .failure? = outcome else {
+                Issue.record("Expected the receive to fail promptly, got \(String(describing: outcome))")
+                return
+            }
+            await #expect(throws: SOCKS5Connection.SOCKS5Error.self) {
+                try await connection.send([1])
+            }
+        }
+
+        @Test
+        func `A connect whose peer never answers the handshake times out`() async throws {
+            let server = try #require(loopbackSocket(listens: true))
+            defer { Darwin.close(server.fd) }
+
+            let outcome = try await boundedOutcome {
+                try await SOCKS5Connection().connect(host: "127.0.0.1", port: server.port, destinationAddress: "dummy", timeout: 0.3)
+            }
+            guard case let .failure(error)? = outcome, case let .handshakeFailed(reason)? = error as? SOCKS5Connection.SOCKS5Error else {
+                Issue.record("Expected the handshake to time out, got \(String(describing: outcome))")
+                return
+            }
+            #expect(reason == "The peer did not complete the handshake in time")
+        }
+
+        @Test
+        func `A connect that never completes times out`() async throws {
+            // A bound socket that never listens leaves a loopback connect waiting instead of refusing it.
+            let unreachable = try #require(loopbackSocket(listens: false))
+            defer { Darwin.close(unreachable.fd) }
+
+            let outcome = try await boundedOutcome {
+                try await SOCKS5Connection().connect(host: "127.0.0.1", port: unreachable.port, destinationAddress: "dummy", timeout: 0.3)
+            }
+            guard case let .failure(error)? = outcome, case let .connectionFailed(reason)? = error as? SOCKS5Connection.SOCKS5Error else {
+                Issue.record("Expected the connect to time out, got \(String(describing: outcome))")
+                return
+            }
+            #expect(reason == posixErrorText(ETIMEDOUT))
         }
     }
 

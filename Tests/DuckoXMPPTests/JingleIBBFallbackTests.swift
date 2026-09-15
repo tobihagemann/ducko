@@ -118,6 +118,23 @@ private func sessionTerminateXML(
     """
 }
 
+/// Builds a transport-info IQ with a SOCKS5 candidate-error.
+private func candidateErrorXML(
+    id: String = "ti-error-1",
+    sid: String = "sid-ibb-test",
+    from: String = "peer@example.com/res"
+) -> String {
+    """
+    <iq type='set' id='\(id)' from='\(from)'>\
+    <jingle xmlns='urn:xmpp:jingle:1' action='transport-info' sid='\(sid)'>\
+    <content creator='initiator' name='a-file-offer'>\
+    <transport xmlns='urn:xmpp:jingle:transports:s5b:1' sid='transport-sid'><candidate-error/></transport>\
+    </content>\
+    </jingle>\
+    </iq>
+    """
+}
+
 // MARK: - Tests
 
 enum JingleIBBFallbackTests {
@@ -151,7 +168,7 @@ enum JingleIBBFallbackTests {
 
     struct TransportRejectEmitsFailure {
         @Test
-        func `Receiving transport-reject emits jingleFileTransferFailed event`() async throws {
+        func `Receiving transport-reject emits a failure event and fails later transport waits`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
 
@@ -176,8 +193,203 @@ enum JingleIBBFallbackTests {
                 return
             }
             #expect(sid == "sid-ibb-test")
-            #expect(reason == "transport-reject")
+            #expect(reason == .transportReject)
+            let terminateSent = try await boundedOutcome {
+                _ = await mock.waitForSent { $0.contains("session-terminate") && $0.contains("failed-transport") }
+            }
+            #expect(terminateSent != nil)
 
+            let module = try #require(await client.module(ofType: JingleModule.self))
+            let outcome = try await boundedOutcome { try await module.awaitTransportReady(sid: "sid-ibb-test") }
+            guard case let .failure(error)? = outcome else {
+                Issue.record("Expected the wait to fail, got \(String(describing: outcome))")
+                await disconnectFast(client)
+                return
+            }
+            #expect(error as? JingleModule.JingleError == .sessionNotFound)
+
+            await disconnectFast(client)
+        }
+    }
+
+    struct TransportReplaceSendFailure {
+        @Test
+        func `A transport-replace that fails to send abandons the transport`() async throws {
+            let harness = JingleInitiatorHarness(failingActions: [JingleAction.transportReplace.rawValue])
+            let sid = try await harness.initiate()
+
+            try harness.receive(action: "transport-info", sid: sid, payload: [JingleInitiatorHarness.socks5Info(XMLElement(name: "candidate-error"))])
+            let failure = try await harness.event { event in
+                if case .jingleFileTransferFailed(_, .transportReplaceFailed) = event { return true }
+                return false
+            }
+            #expect(failure != nil)
+            let terminate = try await harness.sentJingle(action: JingleAction.sessionTerminate.rawValue)
+            #expect(terminate?.child(named: "jingle")?.child(named: "reason")?.child(named: "failed-transport") != nil)
+
+            // The failed proposal already installed IBB state, so only removing the abandoned session can fail this wait.
+            let outcome = try await boundedOutcome { try await harness.module.awaitTransportReady(sid: sid) }
+            guard case let .failure(error)? = outcome else {
+                Issue.record("Expected the wait to fail, got \(String(describing: outcome))")
+                return
+            }
+            #expect(error as? JingleModule.JingleError == .sessionNotFound)
+        }
+    }
+
+    struct AbandonedIBBTransfer {
+        @Test
+        func `Abandoning a transport ends a pending IBB receive and ignores a later close`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            await mock.simulateReceive(sessionInitiateXML())
+            await mock.simulateReceive(transportReplaceXML())
+            _ = await mock.waitForSent { $0.contains("transport-accept") }
+            let receiveTask = Task { try await module.receiveFileData(sid: "sid-ibb-test", expectedSize: 1024) }
+            try await Task.sleep(for: .milliseconds(100))
+
+            let rejected = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferFailed = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(transportRejectXML())
+            _ = try await rejected.value
+
+            let outcome = try await boundedOutcome { _ = try await receiveTask.value }
+            guard case let .failure(error)? = outcome else {
+                Issue.record("Expected the receive to fail, got \(String(describing: outcome))")
+                await disconnectFast(client)
+                return
+            }
+            #expect(error as? JingleModule.JingleError == .transportNegotiationFailed("The peer rejected the connection method"))
+
+            // The offer that follows the close marks the point by which a completion would have been reported.
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferReceived = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(ibbCloseXML())
+            await mock.simulateReceive(sessionInitiateXML(id: "jingle-2", sid: "sid-next"))
+            let events = try await eventsTask.value
+            #expect(!events.contains { if case .jingleFileTransferCompleted = $0 { true } else { false } })
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `A transport-replace with an invalid block size is rejected`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            await mock.simulateReceive(sessionInitiateXML())
+            await mock.simulateReceive(transportReplaceXML(blockSize: 0))
+            let rejectSent = try await boundedOutcome {
+                _ = await mock.waitForSent { $0.contains("transport-reject") }
+            }
+            #expect(rejectSent != nil)
+            let sent = await mock.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            #expect(!sent.contains { $0.contains("transport-accept") })
+            await disconnectFast(client)
+        }
+    }
+
+    struct DisconnectAfterAbandon {
+        @Test
+        func `A disconnect reports no second failure for an abandoned transport`() async throws {
+            let harness = JingleInitiatorHarness(failingActions: [JingleAction.transportReplace.rawValue])
+            let abandonedSID = try await harness.initiate()
+            let liveSID = try await harness.initiate()
+            try harness.receive(
+                action: "transport-info", sid: abandonedSID, payload: [JingleInitiatorHarness.socks5Info(XMLElement(name: "candidate-error"))]
+            )
+            let abandoned = try await harness.event { event in
+                if case .jingleFileTransferFailed(abandonedSID, .transportReplaceFailed) = event { return true }
+                return false
+            }
+            #expect(abandoned != nil)
+
+            await harness.module.handleDisconnect()
+            // The live session's failure shows the disconnect reported failures at all.
+            let live = try await harness.event { event in
+                if case .jingleFileTransferFailed(liveSID, .disconnected) = event { return true }
+                return false
+            }
+            #expect(live != nil)
+            let repeated = try await harness.event(timeout: .zero) { event in
+                if case .jingleFileTransferFailed(abandonedSID, .disconnected) = event { return true }
+                return false
+            }
+            #expect(repeated == nil)
+        }
+    }
+
+    struct TransportWaitAfterFallback {
+        @Test
+        func `A transport wait after IBB fallback is established resolves at once`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            await mock.simulateReceive(sessionInitiateXML())
+            await mock.simulateReceive(transportReplaceXML())
+            _ = await mock.waitForSent { $0.contains("transport-accept") }
+
+            let outcome = try await boundedOutcome { try await module.awaitTransportReady(sid: "sid-ibb-test") }
+            guard case .success? = outcome else {
+                Issue.record("Expected the wait to resolve, got \(String(describing: outcome))")
+                await disconnectFast(client)
+                return
+            }
+            await disconnectFast(client)
+        }
+    }
+
+    struct StaleCandidateError {
+        @Test
+        func `A candidate-error after IBB fallback reports no failure`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferCompleted = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(sessionInitiateXML())
+            await mock.simulateReceive(transportReplaceXML())
+            _ = await mock.waitForSent { $0.contains("transport-accept") }
+            // The initiator's own SOCKS5 attempt fails after it already switched to IBB.
+            await mock.simulateReceive(candidateErrorXML())
+            await mock.simulateReceive(ibbCloseXML())
+
+            let events = try await eventsTask.value
+            #expect(!events.contains { if case .jingleFileTransferFailed = $0 { true } else { false } })
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `A candidate-error for an unknown session reports no failure`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+
+            // The offer that follows the candidate-error marks the point by which a failure would have been reported.
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferReceived = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(candidateErrorXML(sid: "ended-sid"))
+            await mock.simulateReceive(sessionInitiateXML())
+
+            let events = try await eventsTask.value
+            #expect(!events.contains { if case .jingleFileTransferFailed = $0 { true } else { false } })
             await disconnectFast(client)
         }
     }

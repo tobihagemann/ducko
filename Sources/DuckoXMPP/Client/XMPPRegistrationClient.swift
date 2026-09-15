@@ -90,14 +90,8 @@ public enum XMPPRegistrationClient {
             }
 
             if response.attribute("type") == "error" {
-                var errorText = "Registration failed"
-                if let errorElement = response.child(named: "error") {
-                    for case let .element(child) in errorElement.children {
-                        errorText = child.name
-                        break
-                    }
-                }
-                throw RegistrationClientError.registrationFailed(errorText)
+                let stanzaError = XMPPStanzaError.parse(from: response.child(named: "error"))
+                throw RegistrationClientError.registrationFailed(registrationFailureText(stanzaError))
             }
 
             guard response.attribute("type") == "result" else {
@@ -110,6 +104,15 @@ public enum XMPPRegistrationClient {
             await connection.disconnect()
             throw error
         }
+    }
+
+    /// Readable reason for a rejected registration: the server's non-blank text, else a phrase for the condition. A
+    /// `conflict` reads as the username being taken (XEP-0077 §3.1).
+    static func registrationFailureText(_ error: XMPPStanzaError?) -> String {
+        guard let error else { return "The server gave no reason" }
+        guard error.condition == .conflict else { return error.displayText }
+        if let text = error.text, !text.allSatisfy(\.isWhitespace) { return text }
+        return "The username is already taken"
     }
 
     private static func negotiateStream(

@@ -464,10 +464,9 @@ struct PlainFormatter: CLIFormatter {
         case .requested:
             return "disconnected"
         case let .streamError(condition, text):
-            let detail = text ?? condition?.rawValue ?? "unknown"
-            return "disconnected: stream error: \(detail)"
+            return "disconnected: \(AccountService.streamErrorMessage(condition: condition, text: text))"
         case let .connectionLost(message):
-            return "disconnected: connection lost: \(message)"
+            return "disconnected: \(AccountService.connectionLostMessage(message))"
         case let .redirect(host, port):
             let target = port.map { "\(host):\($0)" } ?? host
             return "redirected to \(target)"
@@ -549,8 +548,8 @@ struct PlainFormatter: CLIFormatter {
         "Transfer completed: \(sid) — \(transportLabel(for: transport))"
     }
 
-    func formatJingleTransferFailed(sid: String, reason: String) -> String {
-        "Transfer failed: \(sid) — \(reason)"
+    func formatJingleTransferFailed(sid: String, reason: JingleTransferFailureReason) -> String {
+        "Transfer failed: \(sid) — \(reason.displayText)"
     }
 
     private func transportLabel(for transport: JingleTransportKind) -> String {

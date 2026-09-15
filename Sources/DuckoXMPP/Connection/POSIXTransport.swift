@@ -198,7 +198,7 @@ actor POSIXTransport: XMPPTransport {
                 status = SSLHandshake(ctx)
             }
             guard status == errSecSuccess else {
-                throw XMPPClientError.tlsNegotiationFailed("TLS handshake failed: \(securityErrorText(status))")
+                throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
             }
 
             try validatePeerTrust(ctx: ctx)
@@ -276,22 +276,22 @@ actor POSIXTransport: XMPPTransport {
         alpnProtocols: [String]? = nil
     ) throws -> SSLContext {
         guard let ctx = SSLCreateContext(nil, .clientSide, .streamType) else {
-            throw XMPPClientError.tlsNegotiationFailed("Failed to create SSL context")
+            throw XMPPClientError.tlsNegotiationFailed("The TLS context could not be created")
         }
 
         var status = SSLSetIOFuncs(ctx, posixSSLRead, posixSSLWrite)
         guard status == errSecSuccess else {
-            throw XMPPClientError.tlsNegotiationFailed("SSLSetIOFuncs failed: \(securityErrorText(status))")
+            throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
         }
 
         status = SSLSetConnection(ctx, UnsafeMutableRawPointer(fdPtr))
         guard status == errSecSuccess else {
-            throw XMPPClientError.tlsNegotiationFailed("SSLSetConnection failed: \(securityErrorText(status))")
+            throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
         }
 
         status = SSLSetPeerDomainName(ctx, serverName, serverName.utf8.count)
         guard status == errSecSuccess else {
-            throw XMPPClientError.tlsNegotiationFailed("SSLSetPeerDomainName failed: \(securityErrorText(status))")
+            throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
         }
 
         // RFC 7590: Enforce minimum TLS 1.2 (defense-in-depth)
@@ -517,14 +517,17 @@ private func formatCipherSuite(_ suite: SSLCipherSuite) -> String {
 private func validatePeerTrust(ctx: SSLContext) throws {
     var trust: SecTrust?
     let status = SSLCopyPeerTrust(ctx, &trust)
-    guard status == errSecSuccess, let trust else {
-        throw XMPPClientError.tlsNegotiationFailed("Failed to copy peer trust: \(securityErrorText(status))")
+    guard status == errSecSuccess else {
+        throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
+    }
+    guard let trust else {
+        throw XMPPClientError.tlsNegotiationFailed("The server sent no certificate")
     }
 
     var trustError: CFError?
     guard SecTrustEvaluateWithError(trust, &trustError) else {
         let reason = (trustError as Error?)?.localizedDescription ?? "Unknown trust evaluation error"
-        throw XMPPClientError.tlsNegotiationFailed("Peer trust evaluation failed: \(reason)")
+        throw XMPPClientError.tlsNegotiationFailed(reason)
     }
 }
 

@@ -41,6 +41,17 @@ struct XMPPRegistrationClientTests {
         }
     }
 
+    @Test(arguments: [
+        (XMPPStanzaError?.none, "The server gave no reason"),
+        (XMPPStanzaError(errorType: .cancel, condition: .conflict), "The username is already taken"),
+        (XMPPStanzaError(errorType: .cancel, condition: .conflict, text: "Name reserved"), "Name reserved"),
+        (XMPPStanzaError(errorType: .cancel, condition: .conflict, text: "  "), "The username is already taken"),
+        (XMPPStanzaError(errorType: .modify, condition: .notAcceptable), "The recipient does not accept this request")
+    ])
+    func `Registration failure text reads the stanza error`(error: XMPPStanzaError?, expected: String) {
+        #expect(XMPPRegistrationClient.registrationFailureText(error) == expected)
+    }
+
     @Test
     func `Retrieving a form for a domain with no A-label fails closed`() async {
         // The IDNA guard throws before any network I/O (a space is not LDH, so no A-label).

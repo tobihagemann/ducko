@@ -26,7 +26,7 @@ extension XMPPClientError: LocalizedError {
 
 extension XMPPStanzaError: LocalizedError {
     public var errorDescription: String? {
-        "Server error: \(displayText)"
+        "Request failed: \(displayText)"
     }
 }
 
@@ -77,6 +77,7 @@ extension JingleModule.JingleError: LocalizedError {
         case .notConnected, .noConnectedJID: "Not connected to the server"
         case .sessionNotFound: "The file transfer session was not found"
         case .cannotRemovePrimaryContent: "The primary file cannot be removed from the transfer"
+        case .alreadyAccepted: "The file transfer was already accepted"
         case let .transportNegotiationFailed(reason): "File transfer negotiation failed: \(reason)"
         case let .transportFailed(reason): "File transfer failed: \(reason)"
         }

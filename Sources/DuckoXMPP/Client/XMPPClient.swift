@@ -590,7 +590,7 @@ public actor XMPPClient {
 
         let element = try await reader.awaitStanza()
         guard element.name == "proceed" else {
-            throw XMPPClientError.tlsNegotiationFailed("Server rejected STARTTLS: \(element.name)")
+            throw XMPPClientError.tlsNegotiationFailed("The server refused to start TLS")
         }
 
         guard let serverName else { throw XMPPClientError.invalidDomain(domain) }
@@ -871,7 +871,7 @@ public actor XMPPClient {
                 pending.timeoutTask.cancel()
                 pending.continuation.resume(returning: true)
             } else {
-                await cleanUp(reason: mapDisconnectReason(.streamError(nil, text: "Stream closed by server")))
+                await cleanUp(reason: mapDisconnectReason(.streamError(nil, text: nil)))
             }
         case let .error(error):
             await cleanUp(reason: mapDisconnectReason(.connectionLost(error.message)))

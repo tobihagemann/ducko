@@ -9,8 +9,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Show a readable reason when signing in fails, such as "Incorrect username or password", instead of internal error details
-- Show readable messages such as "Connection refused" when connecting, registering an account, transferring or uploading files, searching channels, or setting up OMEMO encryption fails
+- Show readable messages such as "Connection refused" when connecting, registering an account, transferring or uploading files, searching channels, or setting up OMEMO encryption fails, and when the server closes the connection
 - Fix Ducko quitting unexpectedly when the server connection or a file transfer drops while data is being sent
+- Fix direct file transfers hanging when the peer rejects the connection method, a file transfer proxy can't be activated, or the peer or proxy stops responding
+- Fix completed direct file transfers later showing as failed, and a second click on Accept stalling an incoming transfer
+
+### Security
+
+- Prevent a peer from freezing or crashing a direct file transfer with an invalid transfer block size
 
 ## [0.0.2] - 2026-09-14
 

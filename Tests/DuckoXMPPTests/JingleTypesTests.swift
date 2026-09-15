@@ -29,6 +29,41 @@ enum JingleTypesTests {
         }
     }
 
+    struct TransferFailureReasonDisplayText {
+        @Test(arguments: [
+            (JingleTransferFailureReason.decline, "The peer declined the transfer"),
+            (JingleTransferFailureReason.cancel, "The transfer was canceled"),
+            (JingleTransferFailureReason.busy, "The peer is busy"),
+            (JingleTransferFailureReason.timeout, "The transfer timed out"),
+            (JingleTransferFailureReason.connectivityError, "The peer could not be reached"),
+            (JingleTransferFailureReason.failedTransport, "No connection method worked for the transfer"),
+            (JingleTransferFailureReason.unknown, "The transfer ended for an unknown reason"),
+            (JingleTransferFailureReason.disconnected, "The connection to the server was lost"),
+            (JingleTransferFailureReason.proxyActivationFailed, "The file transfer proxy could not be activated"),
+            (JingleTransferFailureReason.transportReject, "The peer rejected the connection method"),
+            (JingleTransferFailureReason.transportReplaceFailed, "Switching the connection method failed")
+        ])
+        func `Failure reasons have readable display text`(reason: JingleTransferFailureReason, expected: String) {
+            #expect(reason.displayText == expected)
+        }
+    }
+
+    struct TransferFailureReasonMapping {
+        @Test(arguments: [
+            (JingleTerminateReason?.some(.decline), JingleTransferFailureReason?.some(.decline)),
+            (JingleTerminateReason?.some(.cancel), JingleTransferFailureReason?.some(.cancel)),
+            (JingleTerminateReason?.some(.busy), JingleTransferFailureReason?.some(.busy)),
+            (JingleTerminateReason?.some(.timeout), JingleTransferFailureReason?.some(.timeout)),
+            (JingleTerminateReason?.some(.connectivityError), JingleTransferFailureReason?.some(.connectivityError)),
+            (JingleTerminateReason?.some(.failedTransport), JingleTransferFailureReason?.some(.failedTransport)),
+            (JingleTerminateReason?.none, JingleTransferFailureReason?.some(.unknown)),
+            (JingleTerminateReason?.some(.success), JingleTransferFailureReason?.none)
+        ])
+        func `Terminate reasons map to transfer failure reasons`(reason: JingleTerminateReason?, expected: JingleTransferFailureReason?) {
+            #expect(JingleTransferFailureReason(terminationReason: reason) == expected)
+        }
+    }
+
     struct SessionContents {
         private func makeContent(name: String) -> JingleContent {
             JingleContent(
@@ -273,6 +308,16 @@ enum JingleTypesTests {
             #expect(parsed != nil)
             #expect(parsed?.sid == "ibb-sid")
             #expect(parsed?.blockSize == 4096)
+        }
+
+        @Test(arguments: [("0", false), ("-1", false), ("1", true), ("65535", true), ("65536", false)])
+        func `Parses only block sizes XEP-0047 allows`(blockSize: String, isValid: Bool) {
+            let transport = XMLElement(
+                name: "transport",
+                namespace: XMPPNamespaces.jingleIBB,
+                attributes: ["sid": "ibb-sid", "block-size": blockSize]
+            )
+            #expect((IBBTransport(from: transport) != nil) == isValid)
         }
     }
 

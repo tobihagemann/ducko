@@ -41,7 +41,7 @@ public enum XMPPEvent: Sendable {
     case jingleFileTransferReceived(JingleFileOffer)
     case jingleFileRequestReceived(JingleFileRequest)
     case jingleFileTransferCompleted(sid: String, transport: JingleTransportKind)
-    case jingleFileTransferFailed(sid: String, reason: String)
+    case jingleFileTransferFailed(sid: String, reason: JingleTransferFailureReason)
     case jingleFileTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64)
     case jingleChecksumReceived(sid: String, checksum: JingleChecksumInfo)
     case jingleChecksumMismatch(sid: String, expected: String, computed: String)

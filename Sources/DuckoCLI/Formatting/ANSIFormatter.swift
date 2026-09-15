@@ -541,10 +541,9 @@ struct ANSIFormatter: CLIFormatter {
         case .requested:
             return "\(Color.yellow)disconnected\(Color.reset)"
         case let .streamError(condition, text):
-            let detail = text ?? condition?.rawValue ?? "unknown"
-            return "\(Color.red)disconnected: stream error: \(detail)\(Color.reset)"
+            return "\(Color.red)disconnected: \(AccountService.streamErrorMessage(condition: condition, text: text))\(Color.reset)"
         case let .connectionLost(message):
-            return "\(Color.red)disconnected: connection lost: \(message)\(Color.reset)"
+            return "\(Color.red)disconnected: \(AccountService.connectionLostMessage(message))\(Color.reset)"
         case let .redirect(host, port):
             let target = port.map { "\(host):\($0)" } ?? host
             return "\(Color.yellow)redirected to \(target)\(Color.reset)"
@@ -580,8 +579,8 @@ struct ANSIFormatter: CLIFormatter {
         "\(Color.green)\u{2705} Transfer completed: \(sid) \u{2014} \(transportLabel(for: transport))\(Color.reset)"
     }
 
-    func formatJingleTransferFailed(sid: String, reason: String) -> String {
-        "\(Color.red)Transfer failed: \(sid) \u{2014} \(reason)\(Color.reset)"
+    func formatJingleTransferFailed(sid: String, reason: JingleTransferFailureReason) -> String {
+        "\(Color.red)Transfer failed: \(sid) \u{2014} \(reason.displayText)\(Color.reset)"
     }
 
     private func transportLabel(for transport: JingleTransportKind) -> String {

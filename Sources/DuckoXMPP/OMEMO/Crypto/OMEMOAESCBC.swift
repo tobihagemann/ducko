@@ -55,3 +55,16 @@ enum OMEMOAESCBC {
         return Array(output.prefix(numBytesDecrypted))
     }
 }
+
+/// Readable text for a failing CommonCrypto `CCCryptorStatus`.
+func cryptorStatusText(_ status: Int32) -> String {
+    switch Int(status) {
+    case kCCParamError: "Invalid parameter"
+    case kCCBufferTooSmall: "The output buffer is too small"
+    case kCCMemoryFailure: "Out of memory"
+    case kCCAlignmentError: "The input is not aligned to the cipher block size"
+    case kCCDecodeError: "The input could not be decoded"
+    case kCCUnimplemented: "The operation is not supported"
+    default: "Unknown CommonCrypto status"
+    }
+}

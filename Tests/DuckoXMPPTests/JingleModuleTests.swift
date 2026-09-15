@@ -201,6 +201,187 @@ enum JingleModuleTests {
         }
     }
 
+    struct TransportWaitAfterTerminate {
+        @Test
+        func `Waiting for the transport of an ended session fails instead of hanging`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            // The failure event is emitted after the session is removed, so awaiting it orders the wait after the terminate.
+            let terminated = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferFailed = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(sessionInitiateXML())
+            await mock.simulateReceive(sessionTerminateXML(reason: "cancel"))
+            _ = try await terminated.value
+
+            let outcome = try await boundedOutcome { try await module.awaitTransportReady(sid: "sid-123") }
+            guard case let .failure(error)? = outcome else {
+                Issue.record("Expected the wait to fail, got \(String(describing: outcome))")
+                await disconnectFast(client)
+                return
+            }
+            #expect(error as? JingleModule.JingleError == .sessionNotFound)
+            await disconnectFast(client)
+        }
+    }
+
+    struct AbandonedTransport {
+        /// Delivers an offer and the peer's transport-reject, returning once the rejection's failure was reported.
+        private static func receiveRejectedOffer(client: XMPPClient, mock: MockTransport) async throws {
+            let rejected = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferFailed = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(sessionInitiateXML())
+            await mock.simulateReceive(
+                "<iq type='set' id='tr-reject-1' from='peer@example.com/res'><jingle xmlns='urn:xmpp:jingle:1' action='transport-reject' sid='sid-123'/></iq>"
+            )
+            _ = try await rejected.value
+        }
+
+        @Test
+        func `A terminate for an abandoned transport reports no second failure`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            try await Self.receiveRejectedOffer(client: client, mock: mock)
+
+            // The offer that follows the terminate marks the point by which a failure would have been reported.
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferReceived = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(sessionTerminateXML(reason: "cancel"))
+            await mock.simulateReceive(sessionInitiateXML(id: "jingle-2", sid: "sid-next"))
+
+            let events = try await eventsTask.value
+            #expect(!events.contains { if case .jingleFileTransferFailed = $0 { true } else { false } })
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `A transport-replace after the transport was abandoned does not revive it`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+            try await Self.receiveRejectedOffer(client: client, mock: mock)
+
+            // The checksum that follows the transport-replace marks the point by which the replace was handled.
+            let handled = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleChecksumReceived = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(transportReplaceXML())
+            await mock.simulateReceive(sessionInfoChecksumXML())
+            _ = try await handled.value
+
+            let outcome = try await boundedOutcome { try await module.awaitTransportReady(sid: "sid-123") }
+            guard case let .failure(error)? = outcome else {
+                Issue.record("Expected the wait to fail, got \(String(describing: outcome))")
+                await disconnectFast(client)
+                return
+            }
+            #expect(error as? JingleModule.JingleError == .sessionNotFound)
+            await disconnectFast(client)
+        }
+    }
+
+    struct RepeatedAccept {
+        private static func receiveOffer(client: XMPPClient, mock: MockTransport) async throws {
+            let offered = Task {
+                try await collectEvents(from: client) { event in
+                    if case .jingleFileTransferReceived = event { return true }
+                    return false
+                }
+            }
+            await mock.simulateReceive(sessionInitiateXML())
+            _ = try await offered.value
+        }
+
+        @Test
+        func `Accepting a session that does not exist fails with session not found`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+
+            await #expect(throws: JingleModule.JingleError.sessionNotFound) {
+                try await module.acceptFileTransfer(sid: "unknown-sid")
+            }
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `A repeated accept is rejected without sending a second session-accept`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+            try await Self.receiveOffer(client: client, mock: mock)
+
+            try await module.acceptFileTransfer(sid: "sid-123")
+            await #expect(throws: JingleModule.JingleError.alreadyAccepted) {
+                try await module.acceptFileTransfer(sid: "sid-123")
+            }
+
+            let sessionAccepts = await mock.sentBytes.filter { String(decoding: $0, as: UTF8.self).contains("session-accept") }
+            #expect(sessionAccepts.count == 1)
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `An accept whose session-accept failed to send can be retried`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+            try await Self.receiveOffer(client: client, mock: mock)
+
+            await mock.simulateSendFailure(XMPPClientError.sendFailed("The connection was closed"))
+            await #expect(throws: (any Error).self) {
+                try await module.acceptFileTransfer(sid: "sid-123")
+            }
+            await mock.simulateSendFailure(nil)
+
+            try await module.acceptFileTransfer(sid: "sid-123")
+            await disconnectFast(client)
+        }
+
+        @Test
+        func `A second transport wait fails without displacing the first`() async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: JingleModule.self))
+            try await Self.receiveOffer(client: client, mock: mock)
+
+            let firstWait = Task { try await module.awaitTransportReady(sid: "sid-123") }
+            try await Task.sleep(for: .milliseconds(100))
+            let second = try await boundedOutcome { try await module.awaitTransportReady(sid: "sid-123") }
+            guard case let .failure(error)? = second else {
+                Issue.record("Expected the second wait to fail, got \(String(describing: second))")
+                await disconnectFast(client)
+                return
+            }
+            #expect(error as? JingleModule.JingleError == .transportFailed("The transfer is already waiting for a connection"))
+
+            await mock.simulateReceive(transportReplaceXML())
+            let first = try await boundedOutcome { try await firstWait.value }
+            guard case .success? = first else {
+                Issue.record("Expected the first wait to resolve, got \(String(describing: first))")
+                await disconnectFast(client)
+                return
+            }
+            await disconnectFast(client)
+        }
+    }
+
     struct SessionTerminateSuccess {
         @Test
         func `Emits jingleFileTransferCompleted on session-terminate with success reason`() async throws {
@@ -261,7 +442,7 @@ enum JingleModuleTests {
                 return
             }
             #expect(sid == "sid-123")
-            #expect(reason == "cancel")
+            #expect(reason == .cancel)
 
             await disconnectFast(client)
         }
@@ -350,7 +531,7 @@ enum JingleModuleTests {
                 return
             }
             #expect(sid == "sid-123")
-            #expect(reason == "disconnected")
+            #expect(reason == .disconnected)
         }
     }
 
@@ -539,6 +720,51 @@ enum JingleModuleTests {
         }
     }
 
+    struct IBBTransportFailure {
+        private static func makeContext(failingWith error: any Error) -> ModuleContext {
+            ModuleContext(
+                sendStanza: { _ in },
+                sendIQ: { _ in throw error },
+                emitEvent: { _ in },
+                generateID: { "test-1" },
+                connectedJID: { FullJID.parse("user@example.com/res") },
+                domain: "example.com"
+            )
+        }
+
+        @Test
+        func `An IBB stanza error surfaces as a readable transport failure`() async {
+            let context = Self.makeContext(failingWith: XMPPStanzaError(errorType: .cancel, condition: .itemNotFound))
+            await #expect(throws: JingleModule.JingleError.transportFailed("The requested item was not found")) {
+                try await JingleModule().sendIBBIQ(XMPPIQ(type: .set), context: context)
+            }
+        }
+
+        @Test
+        func `An IBB exchange without a connection surfaces as not connected`() async {
+            let context = Self.makeContext(failingWith: XMPPClientError.notConnected)
+            await #expect(throws: JingleModule.JingleError.notConnected) {
+                try await JingleModule().sendIBBIQ(XMPPIQ(type: .set), context: context)
+            }
+        }
+
+        @Test
+        func `An unanswered IBB exchange surfaces as a readable transport failure`() async {
+            let context = Self.makeContext(failingWith: XMPPClientError.timeout)
+            await #expect(throws: JingleModule.JingleError.transportFailed("The peer did not respond in time")) {
+                try await JingleModule().sendIBBIQ(XMPPIQ(type: .set), context: context)
+            }
+        }
+
+        @Test
+        func `An IBB exchange that cannot be sent surfaces as a readable transport failure`() async {
+            let context = Self.makeContext(failingWith: XMPPClientError.sendFailed("Broken pipe"))
+            await #expect(throws: JingleModule.JingleError.transportFailed("Broken pipe")) {
+                try await JingleModule().sendIBBIQ(XMPPIQ(type: .set), context: context)
+            }
+        }
+    }
+
     struct SOCKS5TransportFailure {
         private static func makeContext() -> ModuleContext {
             ModuleContext(
@@ -554,7 +780,7 @@ enum JingleModuleTests {
         @Test
         func `SOCKS5 send failure surfaces as a readable transport failure`() async {
             let module = JingleModule()
-            await #expect(throws: JingleModule.JingleError.transportFailed("The file transfer connection is not open")) {
+            await #expect(throws: JingleModule.JingleError.transportFailed("The connection is not open")) {
                 try await module.sendSOCKS5Data(
                     sid: "sid-123", data: [1, 2, 3], connection: SOCKS5Connection(), context: Self.makeContext()
                 )
@@ -564,7 +790,7 @@ enum JingleModuleTests {
         @Test
         func `SOCKS5 receive failure surfaces as a readable transport failure`() async {
             let module = JingleModule()
-            await #expect(throws: JingleModule.JingleError.transportFailed("The file transfer connection is not open")) {
+            await #expect(throws: JingleModule.JingleError.transportFailed("The connection is not open")) {
                 _ = try await module.receiveSOCKS5Data(
                     sid: "sid-123", expectedSize: 3, connection: SOCKS5Connection(), context: Self.makeContext()
                 )

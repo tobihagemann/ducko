@@ -10,9 +10,9 @@ actor SOCKS5Listener {
     /// Errors from the SOCKS5 listener.
     enum ListenerError: Error {
         case alreadyListening
-        case socketCreationFailed(Int32)
-        case bindFailed(Int32)
-        case listenFailed(Int32)
+        case socketCreationFailed(String)
+        case bindFailed(String)
+        case listenFailed(String)
         case acceptFailed(String)
         case handshakeFailed(String)
     }
@@ -20,6 +20,10 @@ actor SOCKS5Listener {
     // MARK: - State
 
     private var listenFD: Int32 = -1
+    /// Pipe whose write end `close()` uses to wake an `accept` blocked in `poll`, since closing a listening socket does not wake it.
+    private var wakeFDs: (read: Int32, write: Int32) = (-1, -1)
+    private var isAccepting = false
+    private var closeRequested = false
 
     // MARK: - Public API
 
@@ -29,7 +33,7 @@ actor SOCKS5Listener {
         guard listenFD == -1 else { throw ListenerError.alreadyListening }
 
         let fd = socket(AF_INET, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw ListenerError.socketCreationFailed(errno) }
+        guard fd >= 0 else { throw ListenerError.socketCreationFailed(posixErrorText(errno)) }
 
         // Allow address reuse
         var reuseAddr: Int32 = 1
@@ -50,14 +54,22 @@ actor SOCKS5Listener {
         guard bindResult == 0 else {
             let err = errno
             Darwin.close(fd)
-            throw ListenerError.bindFailed(err)
+            throw ListenerError.bindFailed(posixErrorText(err))
         }
 
         guard Darwin.listen(fd, 1) == 0 else {
             let err = errno
             Darwin.close(fd)
-            throw ListenerError.listenFailed(err)
+            throw ListenerError.listenFailed(posixErrorText(err))
         }
+
+        var pipeFDs: [Int32] = [-1, -1]
+        guard pipe(&pipeFDs) == 0 else {
+            let err = errno
+            Darwin.close(fd)
+            throw ListenerError.listenFailed(posixErrorText(err))
+        }
+        wakeFDs = (pipeFDs[0], pipeFDs[1])
 
         var boundAddr = sockaddr_in()
         var addrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
@@ -73,24 +85,28 @@ actor SOCKS5Listener {
         return port
     }
 
-    /// Waits for one incoming connection, validates the SOCKS5 handshake against `expectedDstAddr` (SHA-1 hash), and returns a `SOCKS5Connection`. Times out after `timeout` seconds.
-    func accept(expectedDstAddr: String, timeout: Double = 60) async throws -> SOCKS5Connection {
+    /// Waits for one incoming connection, validates the SOCKS5 handshake against `expectedDstAddr` (SHA-1 hash), and
+    /// returns a `SOCKS5Connection`. Times out after `timeout` seconds without a connection or `handshakeTimeout` seconds
+    /// into the handshake. `close()` ends it at any point.
+    func accept(expectedDstAddr: String, timeout: Double = 60, handshakeTimeout: Double = 10) async throws -> SOCKS5Connection {
         guard listenFD >= 0 else {
             throw ListenerError.acceptFailed("Not listening")
         }
+        // One accept at a time: close() leaves the descriptors open until the pending accept returns.
+        guard !isAccepting else {
+            throw ListenerError.acceptFailed("The listener is already waiting for a connection")
+        }
 
         let fd = listenFD
+        let wakeFD = wakeFDs.read
         let dstAddr = expectedDstAddr
 
-        return try await Task.detached {
-            // Wait for incoming connection with poll()-based timeout
-            var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
-            let pollResult = poll(&pfd, 1, Int32(timeout) * 1000)
-            guard pollResult > 0 else {
-                if pollResult == 0 {
-                    throw SOCKS5Listener.ListenerError.acceptFailed("Accept timed out")
-                }
-                throw SOCKS5Listener.ListenerError.acceptFailed("poll() failed: \(errno)")
+        isAccepting = true
+        let result = await Task.detached {
+            do throws(SocketWaitError) {
+                try waitForSocket(fd, events: Int16(POLLIN), wakeFD: wakeFD, until: .now + .seconds(timeout))
+            } catch {
+                throw Self.listenerError(error, timeoutText: "Accept timed out")
             }
 
             // Accept incoming connection (returns immediately since poll confirmed readiness)
@@ -103,12 +119,14 @@ actor SOCKS5Listener {
             }
 
             guard acceptedFD >= 0 else {
-                throw SOCKS5Listener.ListenerError.acceptFailed("accept() failed: \(errno)")
+                throw SOCKS5Listener.ListenerError.acceptFailed(posixErrorText(errno))
             }
             disableSIGPIPE(acceptedFD)
 
             do {
-                try Self.performServerHandshake(fd: acceptedFD, expectedDstAddr: dstAddr)
+                try Self.performServerHandshake(
+                    fd: acceptedFD, expectedDstAddr: dstAddr, wakeFD: wakeFD, deadline: .now + .seconds(handshakeTimeout)
+                )
             } catch {
                 Darwin.close(acceptedFD)
                 throw error
@@ -117,14 +135,45 @@ actor SOCKS5Listener {
             let connection = SOCKS5Connection()
             try await connection.adopt(fd: acceptedFD)
             return connection
-        }.value
+        }.result
+        isAccepting = false
+        if closeRequested {
+            closeDescriptors()
+        }
+        return try result.get()
     }
 
-    /// Closes the listening socket.
+    /// Closes the listening socket, ending a pending `accept`.
     func close() {
-        if listenFD >= 0 {
-            Darwin.close(listenFD)
-            listenFD = -1
+        guard listenFD >= 0 else { return }
+        if isAccepting {
+            // The pending accept closes the descriptors once it returns, so its poll never watches a reused descriptor.
+            var byte: UInt8 = 0
+            _ = write(wakeFDs.write, &byte, 1)
+            closeRequested = true
+        } else {
+            closeDescriptors()
+        }
+    }
+
+    private func closeDescriptors() {
+        Darwin.close(listenFD)
+        Darwin.close(wakeFDs.read)
+        Darwin.close(wakeFDs.write)
+        listenFD = -1
+        wakeFDs = (-1, -1)
+        closeRequested = false
+    }
+
+    // MARK: - Private: Errors
+
+    /// `timeoutText` names the step that ran out of time.
+    private static func listenerError(_ error: SocketWaitError, timeoutText: String) -> ListenerError {
+        switch error {
+        case .timedOut: .acceptFailed(timeoutText)
+        case .woken: .acceptFailed("The listener was closed")
+        case let .failed(code): .acceptFailed(posixErrorText(code))
+        case .closed: .handshakeFailed("The connection was closed")
         }
     }
 
@@ -133,17 +182,27 @@ actor SOCKS5Listener {
     /// Performs the SOCKS5 server-side handshake on an accepted socket.
     private static func performServerHandshake(
         fd: Int32,
-        expectedDstAddr: String
+        expectedDstAddr: String,
+        wakeFD: Int32,
+        deadline: ContinuousClock.Instant
     ) throws {
+        func receive(_ count: Int) throws -> [UInt8] {
+            do throws(SocketWaitError) {
+                return try receiveExactly(count, from: fd, wakeFD: wakeFD, until: deadline)
+            } catch {
+                throw listenerError(error, timeoutText: "The peer did not complete the handshake in time")
+            }
+        }
+
         // 1. Receive client greeting header (2 bytes: VER, NMETHODS)
-        let greetingHeader = try SOCKS5Connection.recvAll(fd: fd, count: 2)
+        let greetingHeader = try receive(2)
         guard greetingHeader[0] == 0x05, greetingHeader[1] > 0 else {
             throw ListenerError.handshakeFailed(
                 "Invalid greeting header: \(greetingHeader)"
             )
         }
 
-        let methods = try SOCKS5Connection.recvAll(fd: fd, count: Int(greetingHeader[1]))
+        let methods = try receive(Int(greetingHeader[1]))
         guard methods.contains(0x00) else {
             // Send method rejection (0xFF = no acceptable methods)
             try SOCKS5Connection.sendAll(fd: fd, data: [0x05, 0xFF])
@@ -156,7 +215,7 @@ actor SOCKS5Listener {
         try SOCKS5Connection.sendAll(fd: fd, data: [0x05, 0x00])
 
         // 3. Receive CONNECT request header (4 bytes: VER, CMD, RSV, ATYP)
-        let header = try SOCKS5Connection.recvAll(fd: fd, count: 4)
+        let header = try receive(4)
         guard header[0] == 0x05, header[1] == 0x01, header[3] == 0x03 else {
             throw ListenerError.handshakeFailed(
                 "Invalid CONNECT request header: \(header)"
@@ -164,10 +223,10 @@ actor SOCKS5Listener {
         }
 
         // 4. Read domain address length + address + port
-        let addrLenBytes = try SOCKS5Connection.recvAll(fd: fd, count: 1)
+        let addrLenBytes = try receive(1)
         let addrLen = Int(addrLenBytes[0])
-        let addrBytes = try SOCKS5Connection.recvAll(fd: fd, count: addrLen)
-        _ = try SOCKS5Connection.recvAll(fd: fd, count: 2) // port (ignored)
+        let addrBytes = try receive(addrLen)
+        _ = try receive(2) // port (ignored)
 
         // 5. Validate DST.ADDR (hex string — ASCII safe)
         let receivedAddr = String(decoding: addrBytes, as: UTF8.self)

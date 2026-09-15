@@ -18,8 +18,7 @@ enum OMEMOCryptoError: Error {
         switch self {
         case .invalidKeyLength: "Invalid key length"
         case .invalidIVLength: "Invalid initialization vector length"
-        case let .encryptionFailed(status): "Encryption failed (status \(status))"
-        case let .decryptionFailed(status): "Decryption failed (status \(status))"
+        case let .encryptionFailed(status), let .decryptionFailed(status): cryptorStatusText(status)
         case .invalidSignature: "The signed pre-key signature is invalid"
         case .invalidPublicKey: "Invalid public key"
         case .sessionNotInitialized: "The encryption session is not initialized"

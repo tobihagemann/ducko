@@ -157,7 +157,8 @@ enum POSIXTransportTests {
                 Issue.record("Expected tlsNegotiationFailed, got \(String(describing: error))")
                 return
             }
-            #expect(reason.hasPrefix("TLS handshake failed: "))
+            #expect(!reason.isEmpty)
+            #expect(!reason.hasPrefix("TLS handshake failed"))
             #expect(!reason.contains { $0.isNumber })
         }
     }

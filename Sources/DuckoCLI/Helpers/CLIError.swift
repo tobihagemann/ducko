@@ -31,7 +31,7 @@ enum CLIError: Error, LocalizedError {
         case let .invalidJID(jid):
             "Invalid JID: \(jid)"
         case let .connectionFailed(message):
-            "Connection failed: \(message)"
+            message
         case .connectionTimeout:
             "Connection timed out after 30 seconds"
         case let .invalidPresenceStatus(status):

@@ -22,8 +22,8 @@ enum SASLAuthError: Error {
     case invalidState(String)
     case iterationCountTooLow(Int)
 
-    /// Human-readable description. A `.serverFailure` prefers the server's `text`, then a phrase for a known
-    /// condition, then the raw condition name.
+    /// A `.serverFailure` prefers the server's non-blank `text`, then a phrase for a known condition, then the raw
+    /// condition name.
     var displayText: String {
         switch self {
         case .noSupportedMechanism: "The server offers no supported authentication mechanism"
@@ -31,7 +31,8 @@ enum SASLAuthError: Error {
         case let .malformedChallenge(reason): "The server sent a malformed challenge: \(reason)"
         case .invalidServerNonce: "The server sent an invalid nonce"
         case .serverSignatureMismatch: "The server could not prove it knows the password"
-        case let .serverFailure(condition, text): text ?? Condition(rawValue: condition)?.displayText ?? condition
+        case let .serverFailure(condition, text):
+            if let text, !text.allSatisfy(\.isWhitespace) { text } else { Condition(rawValue: condition)?.displayText ?? condition }
         case let .invalidState(reason): "Unexpected authentication state: \(reason)"
         case let .iterationCountTooLow(count): "The server's password hashing is too weak (\(count) iterations)"
         }

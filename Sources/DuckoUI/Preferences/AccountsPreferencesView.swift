@@ -162,6 +162,11 @@ private struct AccountDetailView: View {
         return false
     }
 
+    private var isError: Bool {
+        if case .error = connectionState { return true }
+        return false
+    }
+
     var body: some View {
         Form {
             Section("Account") {
@@ -188,7 +193,10 @@ private struct AccountDetailView: View {
                 LabeledContent("Enabled", value: account.isEnabled ? "Yes" : "No")
                 LabeledContent("Connect on Launch", value: account.connectOnLaunch ? "Yes" : "No")
                 LabeledContent("Require TLS", value: account.requireTLS ? "Yes" : "No")
-                LabeledContent("Connection", value: connectionLabel)
+                LabeledContent("Connection") {
+                    Text(connectionLabel)
+                        .foregroundStyle(isError ? Color.red : .secondary)
+                }
             }
 
             Section {
@@ -271,7 +279,7 @@ private struct AccountDetailView: View {
         switch connectionState {
         case .connected: "Connected"
         case .connecting: "Connecting..."
-        case let .error(message): "Error: \(message)"
+        case let .error(message): message
         case .disconnected, .none: "Disconnected"
         }
     }

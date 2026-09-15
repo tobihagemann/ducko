@@ -1,6 +1,19 @@
 import Darwin
+import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
+
+/// The `acceptFailed` reason `accept` gives within a second, or `nil` when it does not fail with `acceptFailed`.
+private func acceptFailureReason(_ listener: SOCKS5Listener) async -> String? {
+    do {
+        _ = try await listener.accept(expectedDstAddr: "dummy", timeout: 1)
+        return nil
+    } catch let SOCKS5Listener.ListenerError.acceptFailed(reason) {
+        return reason
+    } catch {
+        return nil
+    }
+}
 
 enum SOCKS5ListenerTests {
     struct StartListening {
@@ -55,6 +68,7 @@ enum SOCKS5ListenerTests {
             await client.close()
             await serverConn.close()
             await listener.close()
+            #expect(await acceptFailureReason(listener) == "Not listening")
         }
 
         @Test
@@ -146,22 +160,110 @@ enum SOCKS5ListenerTests {
 
     struct CleanUp {
         @Test
-        func `Close listener before accept returns`() async throws {
+        func `Closing the listener ends a pending accept promptly`() async throws {
             let listener = SOCKS5Listener()
             _ = try await listener.start()
 
+            // The 30-second timeout is far beyond `boundedOutcome`'s bound, so only the close can end the accept in time.
             let acceptTask = Task {
-                try await listener.accept(expectedDstAddr: "dummy", timeout: 2)
+                try await listener.accept(expectedDstAddr: "dummy", timeout: 30)
             }
 
             // Give accept a moment to start, then close the listener
             try? await Task.sleep(for: .milliseconds(100))
             await listener.close()
 
-            // Accept should fail (socket closed)
-            await #expect(throws: Error.self) {
-                try await acceptTask.value
+            let outcome = try await boundedOutcome { _ = try await acceptTask.value }
+            guard case let .failure(error)? = outcome, case let .acceptFailed(reason)? = error as? SOCKS5Listener.ListenerError else {
+                Issue.record("Expected the accept to fail promptly, got \(String(describing: outcome))")
+                return
             }
+            #expect(reason == "The listener was closed")
+            #expect(await acceptFailureReason(listener) == "Not listening")
+        }
+
+        @Test
+        func `Closing an idle listener frees it`() async throws {
+            let listener = SOCKS5Listener()
+            _ = try await listener.start()
+            await listener.close()
+            #expect(await acceptFailureReason(listener) == "Not listening")
+        }
+
+        @Test
+        func `A second concurrent accept is rejected`() async throws {
+            let listener = SOCKS5Listener()
+            let port = try await listener.start()
+
+            let firstAccept = Task {
+                try await listener.accept(expectedDstAddr: "dummy", timeout: 30, handshakeTimeout: 30)
+            }
+            // A handshake held open proves the first accept is still running.
+            let probe = try #require(SOCKS5GreetingProbe(host: "127.0.0.1", port: port))
+            try #require(probe.awaitReply())
+            #expect(await acceptFailureReason(listener) == "The listener is already waiting for a connection")
+
+            await listener.close()
+            let outcome = try await boundedOutcome { _ = try await firstAccept.value }
+            #expect(outcome != nil)
+            withExtendedLifetime(probe) {}
+        }
+
+        @Test
+        func `An accept without a connection times out`() async throws {
+            let listener = SOCKS5Listener()
+            _ = try await listener.start()
+
+            let outcome = try await boundedOutcome {
+                _ = try await listener.accept(expectedDstAddr: "dummy", timeout: 0.3, handshakeTimeout: 30)
+            }
+            guard case let .failure(error)? = outcome, case let .acceptFailed(reason)? = error as? SOCKS5Listener.ListenerError else {
+                Issue.record("Expected the accept to time out, got \(String(describing: outcome))")
+                return
+            }
+            #expect(reason == "Accept timed out")
+            await listener.close()
+        }
+
+        @Test
+        func `Closing the listener ends a handshake the peer never finishes`() async throws {
+            let listener = SOCKS5Listener()
+            let port = try await listener.start()
+            let acceptTask = Task {
+                try await listener.accept(expectedDstAddr: "dummy", timeout: 30, handshakeTimeout: 30)
+            }
+            let probe = try #require(SOCKS5GreetingProbe(host: "127.0.0.1", port: port))
+            try #require(probe.awaitReply())
+
+            await listener.close()
+            let outcome = try await boundedOutcome { _ = try await acceptTask.value }
+            guard case let .failure(error)? = outcome, case let .acceptFailed(reason)? = error as? SOCKS5Listener.ListenerError else {
+                Issue.record("Expected the accept to fail promptly, got \(String(describing: outcome))")
+                return
+            }
+            #expect(reason == "The listener was closed")
+            #expect(await acceptFailureReason(listener) == "Not listening")
+            withExtendedLifetime(probe) {}
+        }
+
+        @Test
+        func `A handshake the peer never finishes times out`() async throws {
+            let listener = SOCKS5Listener()
+            let port = try await listener.start()
+            let acceptTask = Task {
+                try await listener.accept(expectedDstAddr: "dummy", timeout: 30, handshakeTimeout: 0.3)
+            }
+            let probe = try #require(SOCKS5GreetingProbe(host: "127.0.0.1", port: port))
+            try #require(probe.awaitReply())
+
+            let outcome = try await boundedOutcome { _ = try await acceptTask.value }
+            guard case let .failure(error)? = outcome, case let .acceptFailed(reason)? = error as? SOCKS5Listener.ListenerError else {
+                Issue.record("Expected the accept to time out, got \(String(describing: outcome))")
+                return
+            }
+            #expect(reason == "The peer did not complete the handshake in time")
+            await listener.close()
+            withExtendedLifetime(probe) {}
         }
     }
 }

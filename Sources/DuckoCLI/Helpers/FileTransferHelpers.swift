@@ -299,12 +299,12 @@ func handleTransfersREPLCommand(context: REPLContext) async {
     }
 }
 
-private func formatTransferState(_ state: FileTransferService.TransferState) -> String {
+func formatTransferState(_ state: FileTransferService.TransferState) -> String {
     switch state {
     case .requestingSlot: "requesting slot"
     case let .uploading(progress): "uploading \(Int(progress * 100))%"
     case let .completed(url): "completed (\(url))"
-    case let .failed(reason): "failed: \(reason)"
+    case let .failed(reason): reason
     case .negotiating: "negotiating"
     case .connectingTransport: "connecting"
     case let .transferring(progress): "transferring \(Int(progress * 100))%"

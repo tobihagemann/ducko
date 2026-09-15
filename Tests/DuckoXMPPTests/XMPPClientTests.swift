@@ -155,6 +155,34 @@ enum XMPPClientTests {
         }
 
         @Test
+        func `Refused advertised STARTTLS reports a readable reason`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await mock.waitForSent(count: 1) // stream opening
+            await mock.simulateReceive(testServerStreamOpen)
+            await mock.simulateReceive(featuresWithTLS)
+            await mock.waitForSent(count: 2) // starttls element
+            await mock.simulateReceive("<failure xmlns='urn:ietf:params:xml:ns:xmpp-tls'/>")
+
+            let error = await #expect(throws: XMPPClientError.self) {
+                try await connectTask.value
+            }
+            guard case let .tlsNegotiationFailed(reason) = error else {
+                Issue.record("Expected tlsNegotiationFailed, got \(String(describing: error))")
+                return
+            }
+            #expect(reason == "The server refused to start TLS")
+
+            await disconnectFast(client)
+        }
+
+        @Test
         func `Connect with legacy session establishment`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
@@ -566,11 +594,11 @@ enum XMPPClientTests {
             guard case let .disconnected(reason) = events.last else {
                 throw XMPPClientError.unexpectedStreamState("Expected disconnected event")
             }
-            if case .streamError = reason {
-                // Expected
-            } else {
+            guard case let .streamError(condition, text) = reason else {
                 throw XMPPClientError.unexpectedStreamState("Expected streamError reason, got \(reason)")
             }
+            #expect(condition == nil)
+            #expect(text == nil)
         }
     }
 

@@ -1,4 +1,6 @@
+import Darwin
 import DuckoTestSupport
+import struct os.OSAllocatedUnfairLock
 import Testing
 @testable import DuckoXMPP
 
@@ -233,6 +235,186 @@ func awaitSentResponse(
             group.cancelAll()
             return result
         }
+        return nil
+    }
+}
+
+// MARK: - SOCKS5 Greeting Probe
+
+/// A raw TCP client that starts a SOCKS5 handshake with a listener and holds it open. The listener answers the greeting
+/// only from inside `accept`, so a reply proves that accept is running.
+final class SOCKS5GreetingProbe: Sendable {
+    private let fd: Int32
+
+    /// Connects to `host:port` and sends a no-auth greeting; `nil` when that fails.
+    init?(host: String, port: UInt16) {
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else { return nil }
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return nil }
+        disableSIGPIPE(fd)
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        let greeting: [UInt8] = [0x05, 0x01, 0x00]
+        guard connected == 0, greeting.withUnsafeBytes({ send(fd, $0.baseAddress, $0.count, 0) }) == greeting.count else {
+            Darwin.close(fd)
+            return nil
+        }
+        self.fd = fd
+    }
+
+    /// Connects to the host and port a SOCKS5 `<candidate>` element advertises.
+    convenience init?(candidate: XMLElement) {
+        guard let host = candidate.attribute("host"), let port = candidate.attribute("port").flatMap(UInt16.init) else { return nil }
+        self.init(host: host, port: port)
+    }
+
+    /// Waits up to two seconds for the listener's no-auth reply.
+    func awaitReply() -> Bool {
+        var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        guard poll(&pfd, 1, 2000) > 0 else { return false }
+        var reply = [UInt8](repeating: 0, count: 2)
+        let received = reply.withUnsafeMutableBytes { recv(fd, $0.baseAddress, $0.count, MSG_WAITALL) }
+        return received == 2 && reply == [0x05, 0x00]
+    }
+
+    /// Waits up to two seconds for the listener to close the probe's connection.
+    func awaitClosed() -> Bool {
+        var pfd = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        guard poll(&pfd, 1, 2000) > 0 else { return false }
+        var byte: UInt8 = 0
+        return recv(fd, &byte, 1, 0) <= 0
+    }
+
+    deinit {
+        Darwin.close(fd)
+    }
+}
+
+// MARK: - Jingle Initiator Harness
+
+/// Drives a `JingleModule` through a recording `ModuleContext` without a client, so a test can play the peer of a
+/// session this side initiates, answer or fail its IQs, and fail chosen outbound Jingle actions.
+final class JingleInitiatorHarness: Sendable {
+    private struct Recorded {
+        var stanzas: [XMLElement] = []
+        var iqs: [XMLElement] = []
+        var events: [XMPPEvent] = []
+        var nextID = 0
+    }
+
+    static let peer = FullJID.parse("peer@example.com/res")!
+
+    let module = JingleModule()
+    private let recorded = OSAllocatedUnfairLock(initialState: Recorded())
+
+    /// - Parameters:
+    ///   - failingActions: Jingle actions whose outbound send fails.
+    ///   - answerIQ: Returns the payload answering an outbound IQ, or throws its error.
+    init(
+        failingActions: Set<String> = [],
+        answerIQ: @escaping @Sendable (XMLElement) async throws -> XMLElement? = { _ in nil }
+    ) {
+        let recorded = recorded
+        module.setUp(ModuleContext(
+            sendStanza: { stanza in
+                recorded.withLock { $0.stanzas.append(stanza.element) }
+                if let action = stanza.element.child(named: "jingle")?.attribute("action"), failingActions.contains(action) {
+                    throw XMPPClientError.sendFailed("The connection was closed")
+                }
+            },
+            sendIQ: { iq in
+                recorded.withLock { $0.iqs.append(iq.element) }
+                return try await answerIQ(iq.element)
+            },
+            emitEvent: { event in recorded.withLock { $0.events.append(event) } },
+            generateID: {
+                recorded.withLock { state in
+                    state.nextID += 1
+                    return "id-\(state.nextID)"
+                }
+            },
+            connectedJID: { FullJID.parse("user@example.com/res") },
+            domain: "example.com"
+        ))
+    }
+
+    /// Starts a transfer to the peer and returns its session ID.
+    func initiate() async throws -> String {
+        try await module.initiateFileTransfer(to: Self.peer, file: JingleFileDescription(name: "test.txt", size: 3))
+    }
+
+    /// Delivers a Jingle IQ from the peer with `action` and `payload` for the session.
+    func receive(action: String, sid: String, payload: [XMLElement] = []) throws {
+        var jingle = XMLElement(name: "jingle", namespace: XMPPNamespaces.jingle, attributes: ["action": action, "sid": sid])
+        for child in payload {
+            jingle.addChild(child)
+        }
+        var iq = XMPPIQ(type: .set, id: "peer-\(action)")
+        iq.from = .full(Self.peer)
+        iq.element.addChild(jingle)
+        _ = try module.handleIQ(iq)
+    }
+
+    /// A transport-info content carrying one SOCKS5 child, like `<candidate-error/>` or `<candidate-used cid='…'/>`.
+    static func socks5Info(_ child: XMLElement) -> XMLElement {
+        var transport = XMLElement(name: "transport", namespace: XMPPNamespaces.jingleS5B)
+        transport.addChild(child)
+        var content = XMLElement(name: "content", attributes: ["creator": "initiator", "name": "a-file-offer"])
+        content.addChild(transport)
+        return content
+    }
+
+    /// The SOCKS5 candidates this side offered in its first stanza with `action` (session-initiate or content-add), for
+    /// session `sid` when one is given.
+    func offeredCandidates(action: String = JingleAction.sessionInitiate.rawValue, sid: String? = nil) -> [XMLElement] {
+        let offer = recorded.withLock { recorded in
+            recorded.stanzas.first { stanza in
+                guard let jingle = stanza.child(named: "jingle"), jingle.attribute("action") == action else { return false }
+                return sid == nil || jingle.attribute("sid") == sid
+            }
+        }
+        return offer?.child(named: "jingle")?.child(named: "content")?.child(named: "transport")?.children(named: "candidate") ?? []
+    }
+
+    /// Waits up to `timeout` for a sent Jingle stanza with `action`.
+    func sentJingle(action: String, timeout: Duration = .seconds(2)) async throws -> XMLElement? {
+        try await poll(timeout) { recorded in
+            recorded.stanzas.first { $0.child(named: "jingle")?.attribute("action") == action }
+        }
+    }
+
+    func sentJingleCount(action: String) -> Int {
+        recorded.withLock { recorded in
+            recorded.stanzas.count { $0.child(named: "jingle")?.attribute("action") == action }
+        }
+    }
+
+    /// The first offered candidate of `type` (`direct` or `proxy`).
+    func offeredCandidate(type: String, action: String = JingleAction.sessionInitiate.rawValue, sid: String? = nil) throws -> XMLElement {
+        try #require(offeredCandidates(action: action, sid: sid).first { $0.attribute("type") == type })
+    }
+
+    /// Waits up to `timeout` for a sent IQ matching `predicate`.
+    func sentIQ(timeout: Duration = .seconds(2), matching predicate: @escaping @Sendable (XMLElement) -> Bool) async throws -> XMLElement? {
+        try await poll(timeout) { recorded in recorded.iqs.first(where: predicate) }
+    }
+
+    /// Waits up to `timeout` for an emitted event matching `predicate`.
+    func event(timeout: Duration = .seconds(2), matching predicate: @escaping @Sendable (XMPPEvent) -> Bool) async throws -> XMPPEvent? {
+        try await poll(timeout) { recorded in recorded.events.first(where: predicate) }
+    }
+
+    private func poll<T: Sendable>(_ timeout: Duration, _ find: @escaping @Sendable (Recorded) -> T?) async throws -> T? {
+        let deadline = ContinuousClock.now + timeout
+        repeat {
+            if let found = recorded.withLock({ find($0) }) { return found }
+            try await Task.sleep(for: .milliseconds(20))
+        } while ContinuousClock.now < deadline
         return nil
     }
 }

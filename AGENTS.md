@@ -50,7 +50,7 @@ Note: `swift build` only compiles executable and library targets. Use `swift bui
 
 After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., `.build/debug/DuckoCLI`).
 
-`Sources/DuckoTestSupport/` is a regular library target that hosts shared test mocks (`MockPersistenceStore`, `MockTranscriptStore`, `NullCredentialStore`). Multiple test targets (`DuckoCoreTests`, `DuckoUITests`) depend on it via plain `import DuckoTestSupport`. Add new shared fakes here when more than one test target needs them — single-target fakes stay in the target's own folder.
+`Sources/DuckoTestSupport/` is a regular library target that hosts shared test mocks and helpers (`MockPersistenceStore`, `MockTranscriptStore`, `NullCredentialStore`, `boundedOutcome`). Multiple test targets (`DuckoCoreTests`, `DuckoUITests`) depend on it via plain `import DuckoTestSupport`. Add new shared fakes here when more than one test target needs them — single-target fakes stay in the target's own folder.
 
 ### Integration Tests
 
@@ -165,3 +165,4 @@ The set is a mix of Ducko-original skills written for this repo and upstream-der
 - **CryptoKit**: On macOS 26 it does not re-export Foundation, so `some DataProtocol` is out of scope in DuckoXMPP. Use `[UInt8]` for parameters that feed `HashFunction.hash(data:)`.
 - **Exhaustive switches**: Never use `default:` when switching on project-defined enums. List all cases explicitly so the compiler catches new cases at build time.
 - **SIGPIPE**: DuckoApp does not ignore SIGPIPE, so a send on a peer-reset socket would terminate it. Open DuckoXMPP TCP sockets through `connectTCPSocket` and call `disableSIGPIPE` on accepted sockets. Never call `signal(SIGPIPE, SIG_IGN)` in tests, since it masks that crash.
+- **User-facing error text**: each layer adds only context it uniquely knows. DuckoXMPP error payloads and `displayText` carry bare, readable detail, including the phrases for its typed protocol conditions and failure reasons. That detail has no API names, no numeric status codes, and no repeated failure label. The DuckoCore `LocalizedError` extension adds the single summary label. DuckoUI and DuckoCLI show that text without an operation label like "Error:" or "Failed:" and signal error state visually instead. The CLI's human-readable formatters add only a single lowercase `error:` severity marker, and JSON signals severity through its `type` field. swift-argument-parser's own `Error: ` prefix on errors thrown out of a command is left to that library. When an event carries raw pieces that must be combined into one message (e.g. a stream error's condition and text), DuckoCore composes it once in a helper that GUI and CLI share, while JSON output keeps the raw structured fields.

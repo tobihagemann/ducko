@@ -223,6 +223,12 @@ struct PlainFormatterTests {
         #expect(output.contains("disconnected"))
     }
 
+    @Test func `format event disconnected by stream error`() throws {
+        let output = try #require(formatter.formatEvent(.disconnected(.streamError(.systemShutdown, text: nil)), accountID: UUID()))
+        #expect(output.contains("disconnected: The server is shutting down"))
+        #expect(!output.contains("stream error"))
+    }
+
     @Test func `format event subscription request`() throws {
         let jid = try #require(BareJID.parse("alice@example.com"))
         let output = try #require(formatter.formatEvent(.presenceSubscriptionRequest(from: jid), accountID: UUID()))

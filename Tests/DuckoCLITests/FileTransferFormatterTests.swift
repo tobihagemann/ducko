@@ -74,9 +74,18 @@ struct PlainFileTransferFormatterTests {
     }
 
     @Test func `format jingle transfer failed`() {
-        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: "connection lost")
+        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: .disconnected)
         #expect(output.contains("sid-789"))
-        #expect(output.contains("connection lost"))
+        #expect(output.contains("The connection to the server was lost"))
+    }
+
+    @Test func `format jingle transfer failed renders a readable reason`() {
+        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: .transportReject)
+        #expect(output.contains("The peer rejected the connection method"))
+    }
+
+    @Test func `format transfer state shows the failure reason alone`() {
+        #expect(formatTransferState(.failed("You declined the transfer")) == "You declined the transfer")
     }
 }
 
@@ -142,10 +151,10 @@ struct ANSIFileTransferFormatterTests {
     }
 
     @Test func `format jingle transfer failed contains red`() {
-        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: "timeout")
+        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: .timeout)
         #expect(output.contains("\u{001B}[31m")) // red
         #expect(output.contains("sid-789"))
-        #expect(output.contains("timeout"))
+        #expect(output.contains("The transfer timed out"))
     }
 }
 
@@ -230,11 +239,11 @@ struct JSONFileTransferFormatterTests {
     }
 
     @Test func `format jingle transfer failed is valid JSON`() throws {
-        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: "connection lost")
+        let output = formatter.formatJingleTransferFailed(sid: "sid-789", reason: .transportReject)
         let data = try #require(output.data(using: .utf8))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(json["type"] == "jingle_transfer_failed")
         #expect(json["sid"] == "sid-789")
-        #expect(json["reason"] == "connection lost")
+        #expect(json["reason"] == "transport-reject")
     }
 }

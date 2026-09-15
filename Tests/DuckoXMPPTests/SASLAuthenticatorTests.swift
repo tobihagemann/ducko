@@ -260,6 +260,7 @@ enum SASLAuthenticatorTests {
         @Test(arguments: [
             (SASLAuthError.serverFailure(condition: "not-authorized", text: "Invalid credentials"), "Invalid credentials"),
             (SASLAuthError.serverFailure(condition: "not-authorized", text: nil), "Incorrect username or password"),
+            (SASLAuthError.serverFailure(condition: "not-authorized", text: "  "), "Incorrect username or password"),
             (SASLAuthError.serverFailure(condition: "x-custom", text: nil), "x-custom")
         ])
         func `Server failure display text prefers server text, then condition phrase, then raw condition`(error: SASLAuthError, expected: String) {

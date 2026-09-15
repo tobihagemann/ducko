@@ -44,7 +44,7 @@ enum ChatServiceErrorTests {
             )
 
             let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 50)
-            #expect(messages[0].errorText == "service-unavailable")
+            #expect(messages[0].errorText == "The service is unavailable")
         }
 
         @Test

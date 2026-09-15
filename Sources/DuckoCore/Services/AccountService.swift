@@ -634,6 +634,18 @@ public final class AccountService {
         onEvent?(event, accountID)
     }
 
+    // MARK: - Disconnect Messages
+
+    /// The message for a stream error: the server's non-blank text, else a phrase for the condition.
+    public nonisolated static func streamErrorMessage(condition: XMPPStreamError?, text: String?) -> String {
+        if let text, !text.allSatisfy(\.isWhitespace) { return text }
+        return condition?.displayText ?? "The server closed the connection"
+    }
+
+    public nonisolated static func connectionLostMessage(_ detail: String) -> String {
+        "Connection lost: \(detail)"
+    }
+
     // MARK: - Private: Disconnect Handling
 
     private func handleDisconnect(_ reason: DisconnectReason, accountID: UUID) {
@@ -644,18 +656,17 @@ public final class AccountService {
             connectionStates[accountID] = .disconnected
         case let .streamError(condition, text):
             smResumeStates[accountID] = smModules[accountID]?.resumeState
-            let message = text ?? condition?.rawValue ?? "Stream error"
-            connectionStates[accountID] = .error(message)
+            connectionStates[accountID] = .error(Self.streamErrorMessage(condition: condition, text: text))
             scheduleReconnect(accountID: accountID)
-        case let .connectionLost(message):
+        case let .connectionLost(detail):
             smResumeStates[accountID] = smModules[accountID]?.resumeState
-            connectionStates[accountID] = .error(message)
+            connectionStates[accountID] = .error(Self.connectionLostMessage(detail))
             scheduleReconnect(accountID: accountID)
         case let .redirect(host, port):
             let count = (redirectCounts[accountID] ?? 0) + 1
             if count > 3 {
                 redirectCounts[accountID] = nil
-                connectionStates[accountID] = .error("Too many redirects")
+                connectionStates[accountID] = .error("The server redirected too many times")
             } else {
                 redirectCounts[accountID] = count
                 redirectToHost(host: host, port: port, accountID: accountID)

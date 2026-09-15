@@ -153,7 +153,7 @@ private struct TransferProgressRow: View {
         case .completed, .completedTransfer:
             "Completed"
         case let .failed(reason):
-            "Failed: \(reason)"
+            reason
         }
     }
 

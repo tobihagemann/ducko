@@ -43,6 +43,16 @@ struct ANSIFormatterTests {
         #expect(output.contains("\u{001B}[31m"))
     }
 
+    @Test func `connection failure shows the message without a label`() {
+        #expect(CLIError.connectionFailed("The server is shutting down").localizedDescription == "The server is shutting down")
+    }
+
+    @Test func `disconnect by stream error shows the readable condition`() throws {
+        let output = try #require(formatter.formatEvent(.disconnected(.streamError(.systemShutdown, text: nil)), accountID: UUID()))
+        #expect(output.contains("disconnected: The server is shutting down"))
+        #expect(!output.contains("stream error"))
+    }
+
     @Test func `incoming message uses green`() {
         let message = ChatMessage(
             id: UUID(),

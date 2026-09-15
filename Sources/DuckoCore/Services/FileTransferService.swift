@@ -152,15 +152,14 @@ public final class FileTransferService {
 
         public var errorDescription: String? {
             switch self {
-            case let .fileReadFailed(reason): "File read failed: \(reason)"
-            case .noClient: "No XMPP client available"
-            case .noUploadModule: "HTTP upload module not available"
-            case .noJingleModule: "Jingle module not available"
+            case let .fileReadFailed(reason): "Could not read the file: \(reason)"
+            case .noClient: "Not connected to the server"
+            case .noUploadModule: "File upload is not available"
+            case .noJingleModule: "Direct file transfer is not available"
             case let .uploadFailed(reason): "Upload failed: \(reason)"
-            case let .jingleFailed(reason): "Jingle transfer failed: \(reason)"
-            case let .checksumMismatch(sid): "Checksum mismatch for file transfer \(sid) — file data is corrupted"
-            case let .checksumUnsupportedAlgorithm(sid, algo):
-                "Cannot verify file integrity for \(sid): unsupported hash algorithm '\(algo)'"
+            case let .jingleFailed(reason): "File transfer failed: \(reason)"
+            case .checksumMismatch: "The received file is corrupted"
+            case let .checksumUnsupportedAlgorithm(_, algo): "The received file cannot be verified (unsupported hash algorithm \(algo))"
             }
         }
     }
@@ -290,19 +289,17 @@ public final class FileTransferService {
             let progress = Double(bytesTransferred) / Double(totalBytes)
             updateTransferState(forSID: sid, state: .transferring(progress: progress))
         case let .jingleFileTransferCompleted(sid, _):
-            updateTransferState(forSID: sid, state: .completedTransfer)
-            updateContentAddTransferStates(forSessionSID: sid, state: .completedTransfer)
-            incomingOffers.removeAll { $0.sid == sid }
-            incomingRequests.removeAll { $0.sid == sid }
-            incomingContentAddOffers.removeAll { $0.sid == sid }
+            finishSession(sid: sid, state: .completedTransfer)
         case let .jingleFileTransferFailed(sid, reason):
-            updateTransferState(forSID: sid, state: .failed(reason))
-            updateContentAddTransferStates(forSessionSID: sid, state: .failed(reason))
-            incomingOffers.removeAll { $0.sid == sid }
-            incomingRequests.removeAll { $0.sid == sid }
-            incomingContentAddOffers.removeAll { $0.sid == sid }
-        case .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved:
-            handleContentAddEvent(event)
+            finishSession(sid: sid, state: .failed(reason.displayText))
+        case let .jingleContentAddReceived(sid, contentName, offer):
+            trackIncomingContentAdd(sid: sid, contentName: contentName, offer: offer)
+        case let .jingleContentAccepted(sid, contentName):
+            log.info("Content accepted: \(Self.contentAddID(sid: sid, contentName: contentName))")
+        case let .jingleContentRejected(sid, contentName):
+            failContentAdd(sid: sid, contentName: contentName, reason: "The peer rejected the file")
+        case let .jingleContentRemoved(sid, contentName):
+            failContentAdd(sid: sid, contentName: contentName, reason: "The peer removed the file")
         case let .oobIQOfferReceived(offer):
             trackIncomingOOBOffer(offer)
         case .jingleChecksumReceived, .jingleChecksumMismatch:
@@ -358,23 +355,20 @@ public final class FileTransferService {
         activeTransfers.append(transfer)
     }
 
-    private func handleContentAddEvent(_ event: XMPPEvent) {
-        switch event {
-        case let .jingleContentAddReceived(sid, contentName, offer):
-            trackIncomingContentAdd(sid: sid, contentName: contentName, offer: offer)
-        case let .jingleContentAccepted(sid, contentName):
-            log.info("Content accepted: \(Self.contentAddID(sid: sid, contentName: contentName))")
-        case let .jingleContentRejected(sid, contentName):
-            let id = Self.contentAddID(sid: sid, contentName: contentName)
-            incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
-            updateTransferState(forSID: id, state: .failed("Content rejected by peer"))
-        case let .jingleContentRemoved(sid, contentName):
-            let id = Self.contentAddID(sid: sid, contentName: contentName)
-            incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
-            updateTransferState(forSID: id, state: .failed("Content removed by peer"))
-        default:
-            break
-        }
+    /// Moves a session's transfer rows to their final state and drops its pending offers and requests.
+    private func finishSession(sid: String, state: TransferState) {
+        updateTransferState(forSID: sid, state: state)
+        updateContentAddTransferStates(forSessionSID: sid, state: state)
+        incomingOffers.removeAll { $0.sid == sid }
+        incomingRequests.removeAll { $0.sid == sid }
+        incomingContentAddOffers.removeAll { $0.sid == sid }
+    }
+
+    /// Drops a content-add offer that was rejected or removed and fails its transfer row with `reason`.
+    private func failContentAdd(sid: String, contentName: String, reason: String) {
+        let id = Self.contentAddID(sid: sid, contentName: contentName)
+        incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
+        updateTransferState(forSID: id, state: .failed(reason))
     }
 
     private static func contentAddID(sid: String, contentName: String) -> String {
@@ -443,6 +437,7 @@ public final class FileTransferService {
             guard let self else { return }
             do {
                 try await jingleModule.awaitTransportReady(sid: sid)
+                updateTransferState(forSID: sid, state: .transferring(progress: 0))
                 let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: expectedSize)
                 switch jingleModule.verifyChecksum(sid: sid, receivedData: data) {
                 case .noPendingChecksum, .verified:
@@ -460,7 +455,7 @@ public final class FileTransferService {
                 }
             } catch {
                 log.warning("Jingle receive failed for sid \(sid): \(error)")
-                updateTransferState(forSID: sid, state: .failed(error.localizedDescription))
+                recordJingleTransferFailure(error, sid: sid)
             }
         }
     }
@@ -493,7 +488,7 @@ public final class FileTransferService {
                 updateTransferState(forSID: sid, state: .completedTransfer)
             } catch {
                 log.warning("Jingle file request fulfillment failed for sid \(sid): \(error)")
-                updateTransferState(forSID: sid, state: .failed(error.localizedDescription))
+                recordJingleTransferFailure(error, sid: sid)
             }
         }
     }
@@ -511,7 +506,7 @@ public final class FileTransferService {
             let oobModule = try await oobModule(for: accountID)
             try await oobModule.rejectOffer(id: sid)
             pendingOOBOfferIDs.remove(sid)
-            updateTransferState(forSID: sid, state: .failed("Declined"))
+            updateTransferState(forSID: sid, state: .failed("You declined the transfer"))
             return
         }
 
@@ -536,9 +531,7 @@ public final class FileTransferService {
     public func rejectContentAdd(sid: String, contentName: String, accountID: UUID) async throws {
         let jingleModule = try await jingleModule(for: accountID)
         try await jingleModule.rejectContentAdd(sid: sid, contentName: contentName)
-        let id = Self.contentAddID(sid: sid, contentName: contentName)
-        incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
-        updateTransferState(forSID: id, state: .failed("Declined"))
+        failContentAdd(sid: sid, contentName: contentName, reason: "You declined the transfer")
     }
 
     /// Removes content from an existing Jingle session.
@@ -546,7 +539,7 @@ public final class FileTransferService {
         let jingleModule = try await jingleModule(for: accountID)
         try await jingleModule.removeContent(sid: sid, contentName: contentName)
         let id = Self.contentAddID(sid: sid, contentName: contentName)
-        updateTransferState(forSID: id, state: .failed("Removed"))
+        updateTransferState(forSID: id, state: .failed("You removed the file from the transfer"))
     }
 
     /// Requests a file from a peer (receiver-initiated transfer, XEP-0234).
@@ -556,7 +549,7 @@ public final class FileTransferService {
     ) async throws {
         let jingleModule = try await jingleModule(for: accountID)
         guard let peerJID = FullJID.parse(peerJIDString) else {
-            throw FileTransferError.jingleFailed("Invalid peer JID: \(peerJIDString)")
+            throw FileTransferError.jingleFailed("Invalid recipient address: \(peerJIDString)")
         }
         let file = JingleFileDescription(
             name: fileName, size: fileSize,
@@ -667,7 +660,7 @@ public final class FileTransferService {
         guard let peerJID = FullJID.parse(peer) else {
             // Jingle requires a full JID (with resource) to target a specific client.
             // BareJID conversations need resource resolution via presence before Jingle.
-            throw FileTransferError.jingleFailed("Jingle requires a full JID with resource, got: \(peer)")
+            throw FileTransferError.jingleFailed("A direct transfer needs the recipient's full address with a resource: \(peer)")
         }
 
         let fileDesc = JingleFileDescription(name: file.name, size: file.size, mediaType: file.mimeType)
@@ -697,7 +690,7 @@ public final class FileTransferService {
             updateTransferState(id: transferID, state: .completedTransfer)
             return ""
         } catch {
-            updateTransferState(id: transferID, state: .failed(error.localizedDescription))
+            recordJingleTransferFailure(error, id: transferID)
             throw error
         }
     }
@@ -729,7 +722,7 @@ public final class FileTransferService {
         updateTransferState(id: transferID, state: .uploading(progress: 0))
 
         guard let putURL = URL(string: slot.putURL) else {
-            throw FileTransferError.uploadFailed("Invalid PUT URL")
+            throw FileTransferError.uploadFailed("The server provided an invalid upload address")
         }
 
         var request = URLRequest(url: putURL)
@@ -749,19 +742,26 @@ public final class FileTransferService {
         defer { session.finishTasksAndInvalidate() }
 
         let (_, response) = try await session.upload(for: request, fromFile: fileURL)
-        guard let httpResponse = response as? HTTPURLResponse,
-              (200 ... 299).contains(httpResponse.statusCode) else {
-            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            throw FileTransferError.uploadFailed("HTTP \(statusCode)")
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw FileTransferError.uploadFailed("The server sent an invalid response")
+        }
+        guard (200 ... 299).contains(httpResponse.statusCode) else {
+            throw FileTransferError.uploadFailed(Self.uploadStatusText(httpResponse.statusCode))
         }
 
         updateTransferState(id: transferID, state: .uploading(progress: 1.0))
         return slot.getURL
     }
 
+    /// The readable phrase for a failed upload's HTTP status, capitalized like the other upload failure details.
+    nonisolated static func uploadStatusText(_ statusCode: Int) -> String {
+        let phrase = HTTPURLResponse.localizedString(forStatusCode: statusCode)
+        return phrase.prefix(1).uppercased() + phrase.dropFirst()
+    }
+
     private func sendDownloadURL(_ downloadURL: String, in conversation: Conversation, accountID: UUID) async throws {
         guard let chatService else {
-            throw FileTransferError.uploadFailed("Chat service not available")
+            throw FileTransferError.uploadFailed("The chat service is not available")
         }
         // XEP-0066: Attach OOB element so other clients render file attachments
         var oobX = DuckoXMPP.XMLElement(name: "x", namespace: XMPPNamespaces.oob)
@@ -811,6 +811,23 @@ public final class FileTransferService {
         if let index = activeTransfers.firstIndex(where: { $0.sid == sid }) {
             activeTransfers[index].state = state
         }
+    }
+
+    /// Records a Jingle transfer task's failure. A `JingleError` that arrives after the transfer already failed is a side
+    /// effect of the session ending, like a cancelled wait or a closed socket, so the failure event's reason is kept. Any
+    /// other error, like a checksum mismatch, is recorded.
+    func recordJingleTransferFailure(_ error: any Error, sid: String) {
+        recordJingleTransferFailure(error, at: activeTransfers.firstIndex { $0.sid == sid })
+    }
+
+    private func recordJingleTransferFailure(_ error: any Error, id: UUID) {
+        recordJingleTransferFailure(error, at: activeTransfers.firstIndex { $0.id == id })
+    }
+
+    private func recordJingleTransferFailure(_ error: any Error, at index: Int?) {
+        guard let index else { return }
+        if error is JingleModule.JingleError, case .failed = activeTransfers[index].state { return }
+        activeTransfers[index].state = .failed(error.localizedDescription)
     }
 
     /// Updates all content-add transfers belonging to the given session SID.

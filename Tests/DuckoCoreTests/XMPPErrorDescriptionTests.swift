@@ -16,7 +16,8 @@ struct XMPPErrorDescriptionTests {
 
     @Test(arguments: [
         (XMPPClientError.connectionFailed("Connection refused"), "Could not connect to the server: Connection refused"),
-        (XMPPClientError.sendFailed("Broken pipe"), "Could not send data to the server: Broken pipe")
+        (XMPPClientError.sendFailed("Broken pipe"), "Could not send data to the server: Broken pipe"),
+        (XMPPClientError.tlsNegotiationFailed("SSL protocol error"), "Secure connection failed: SSL protocol error")
     ])
     func `XMPPClientError transport cases render a readable message`(error: XMPPClientError, expected: String) {
         let error: any Error = error
@@ -27,7 +28,7 @@ struct XMPPErrorDescriptionTests {
         (XMPPRegistrationClient.RegistrationClientError.connectionFailed("Invalid domain: bad"), "Could not connect to the server: Invalid domain: bad"),
         (XMPPRegistrationClient.RegistrationClientError.tlsNegotiationFailed, "Could not establish a secure connection to the server"),
         (XMPPRegistrationClient.RegistrationClientError.registrationNotSupported, "The server does not support account registration"),
-        (XMPPRegistrationClient.RegistrationClientError.registrationFailed("conflict"), "Registration failed: conflict"),
+        (XMPPRegistrationClient.RegistrationClientError.registrationFailed("The username is already taken"), "Registration failed: The username is already taken"),
         (XMPPRegistrationClient.RegistrationClientError.unexpectedResponse, "Unexpected response from the server")
     ])
     func `RegistrationClientError renders a readable message`(
@@ -67,8 +68,12 @@ struct XMPPErrorDescriptionTests {
         (JingleModule.JingleError.sessionNotFound, "The file transfer session was not found"),
         (JingleModule.JingleError.noConnectedJID, "Not connected to the server"),
         (JingleModule.JingleError.cannotRemovePrimaryContent, "The primary file cannot be removed from the transfer"),
-        (JingleModule.JingleError.transportNegotiationFailed("transport-reject"), "File transfer negotiation failed: transport-reject"),
-        (JingleModule.JingleError.transportFailed("Could not send file data: Broken pipe"), "File transfer failed: Could not send file data: Broken pipe")
+        (JingleModule.JingleError.alreadyAccepted, "The file transfer was already accepted"),
+        (
+            JingleModule.JingleError.transportNegotiationFailed("The peer rejected the connection method"),
+            "File transfer negotiation failed: The peer rejected the connection method"
+        ),
+        (JingleModule.JingleError.transportFailed("Broken pipe"), "File transfer failed: Broken pipe")
     ])
     func `JingleError renders a readable message`(error: JingleModule.JingleError, expected: String) {
         let error: any Error = error
@@ -102,11 +107,11 @@ struct XMPPErrorDescriptionTests {
 
     @Test func `XMPPStanzaError prefers the server text`() {
         let error: any Error = XMPPStanzaError(errorType: .cancel, condition: .itemNotFound, text: "No such node")
-        #expect(error.localizedDescription == "Server error: No such node")
+        #expect(error.localizedDescription == "Request failed: No such node")
     }
 
     @Test func `XMPPStanzaError falls back to the condition`() {
         let error: any Error = XMPPStanzaError(errorType: .cancel, condition: .itemNotFound)
-        #expect(error.localizedDescription == "Server error: item-not-found")
+        #expect(error.localizedDescription == "Request failed: The requested item was not found")
     }
 }

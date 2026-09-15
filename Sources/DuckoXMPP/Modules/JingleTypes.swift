@@ -25,6 +25,50 @@ public enum JingleTerminateReason: String, Sendable {
     case failedTransport = "failed-transport"
 }
 
+public enum JingleTransferFailureReason: String, Sendable {
+    case decline
+    case cancel
+    case busy
+    case timeout
+    case connectivityError = "connectivity-error"
+    case failedTransport = "failed-transport"
+    case unknown
+    case disconnected
+    case proxyActivationFailed = "proxy-activation-failed"
+    case transportReject = "transport-reject"
+    case transportReplaceFailed = "transport-replace-failed"
+
+    public var displayText: String {
+        switch self {
+        case .decline: "The peer declined the transfer"
+        case .cancel: "The transfer was canceled"
+        case .busy: "The peer is busy"
+        case .timeout: "The transfer timed out"
+        case .connectivityError: "The peer could not be reached"
+        case .failedTransport: "No connection method worked for the transfer"
+        case .unknown: "The transfer ended for an unknown reason"
+        case .disconnected: "The connection to the server was lost"
+        case .proxyActivationFailed: "The file transfer proxy could not be activated"
+        case .transportReject: "The peer rejected the connection method"
+        case .transportReplaceFailed: "Switching the connection method failed"
+        }
+    }
+
+    /// The failure a session-terminate reason stands for, or `nil` for a successful session.
+    init?(terminationReason: JingleTerminateReason?) {
+        switch terminationReason {
+        case .some(.success): return nil
+        case .some(.decline): self = .decline
+        case .some(.cancel): self = .cancel
+        case .some(.busy): self = .busy
+        case .some(.timeout): self = .timeout
+        case .some(.connectivityError): self = .connectivityError
+        case .some(.failedTransport): self = .failedTransport
+        case .none: self = .unknown
+        }
+    }
+}
+
 /// Senders attribute on a Jingle content element per XEP-0166 §7.3.
 /// Controls which party sends media/file data within the content.
 public enum JingleContentSenders: String, Sendable {
@@ -242,7 +286,9 @@ public struct IBBTransport: Sendable, Hashable {
               element.namespace == XMPPNamespaces.jingleIBB,
               let sid = element.attribute("sid"),
               let blockSizeStr = element.attribute("block-size"),
-              let blockSize = Int(blockSizeStr) else { return nil }
+              let blockSize = Int(blockSizeStr),
+              // XEP-0047 caps block-size at 65535; a non-positive size would stall or crash chunking.
+              (1 ... 65535).contains(blockSize) else { return nil }
 
         self.sid = sid
         self.blockSize = blockSize
@@ -376,6 +422,11 @@ struct JingleSession {
     let role: Role
     var transportState: TransportState
     var selectedTransport: JingleTransportKind?
+    /// Set when this side starts accepting the session, so a repeated accept is rejected. Cleared when the session-accept
+    /// fails to send, so the accept can be retried.
+    var isAccepted = false
+    /// Set when the SOCKS5 attempt starts, so no later session-accept or content-accept starts another.
+    var isTransportAttemptStarted = false
 
     /// The primary content negotiated at session-initiate. Updated in place during
     /// range negotiation; its name stays stable for the session's lifetime.

@@ -140,6 +140,17 @@ struct JSONFormatterTests {
         #expect(json["account"] == accountID.uuidString)
     }
 
+    @Test func `jingle transfer failed event keeps the raw reason token`() throws {
+        let accountID = UUID()
+        let event = XMPPEvent.jingleFileTransferFailed(sid: "sid-789", reason: .transportReject)
+        let output = try #require(formatter.formatEvent(event, accountID: accountID))
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "jingle_transfer_failed")
+        #expect(json["reason"] == "transport-reject")
+        #expect(json["account"] == accountID.uuidString)
+    }
+
     @Test func `iq event returns nil`() {
         let iq = XMPPIQ(type: .result)
         let output = formatter.formatEvent(.iqReceived(iq), accountID: UUID())

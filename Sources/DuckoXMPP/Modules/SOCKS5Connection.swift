@@ -21,12 +21,9 @@ actor SOCKS5Connection {
 
         var displayText: String {
             switch self {
-            case let .connectionFailed(reason): "Could not connect to the file transfer peer: \(reason)"
-            case let .handshakeFailed(reason): "The file transfer handshake failed: \(reason)"
-            case .notConnected: "The file transfer connection is not open"
-            case .alreadyConnected: "The file transfer connection is already open"
-            case let .sendFailed(reason): "Could not send file data: \(reason)"
-            case let .receiveFailed(reason): "Could not receive file data: \(reason)"
+            case let .connectionFailed(reason), let .handshakeFailed(reason), let .sendFailed(reason), let .receiveFailed(reason): reason
+            case .notConnected: "The connection is not open"
+            case .alreadyConnected: "The connection is already open"
             }
         }
     }
@@ -34,6 +31,9 @@ actor SOCKS5Connection {
     // MARK: - State
 
     private var fd: Int32 = -1
+    private var isConnecting = false
+    private var inFlightOperations = 0
+    private var closeRequested = false
 
     // MARK: - Static Helpers
 
@@ -101,9 +101,22 @@ actor SOCKS5Connection {
             )
         }
         guard response[1] == 0x00 else {
-            throw SOCKS5Error.handshakeFailed(
-                "SOCKS5 connect failed: reply code \(response[1])"
-            )
+            throw SOCKS5Error.handshakeFailed(replyText(response[1]))
+        }
+    }
+
+    /// Readable text for a SOCKS5 CONNECT reply code (RFC 1928 §6).
+    nonisolated static func replyText(_ code: UInt8) -> String {
+        switch code {
+        case 0x01: "General SOCKS server failure"
+        case 0x02: "Connection not allowed by ruleset"
+        case 0x03: "Network unreachable"
+        case 0x04: "Host unreachable"
+        case 0x05: "Connection refused"
+        case 0x06: "TTL expired"
+        case 0x07: "Command not supported"
+        case 0x08: "Address type not supported"
+        default: "Reply code \(code)"
         }
     }
 
@@ -116,70 +129,106 @@ actor SOCKS5Connection {
         fd = newFD
     }
 
-    /// Connects to a SOCKS5 proxy and performs the handshake.
+    /// Connects to a SOCKS5 proxy and performs the handshake, giving up after `timeout` seconds.
     func connect(
         host: String,
         port: UInt16,
-        destinationAddress: String
+        destinationAddress: String,
+        timeout: Double = 10
     ) async throws {
-        guard fd == -1 else { throw SOCKS5Error.alreadyConnected }
+        guard fd == -1, !isConnecting else { throw SOCKS5Error.alreadyConnected }
 
-        fd = try await Task.detached {
-            let socketFD = try Self.resolveAndConnect(
-                host: host,
-                port: port
-            )
+        isConnecting = true
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        let result = await Task.detached {
+            let socketFD = try Self.resolveAndConnect(host: host, port: port, until: deadline)
             do {
-                try Self.performHandshake(
-                    fd: socketFD,
-                    destinationAddress: destinationAddress
-                )
+                try Self.performHandshake(fd: socketFD, destinationAddress: destinationAddress, until: deadline)
             } catch {
                 Darwin.close(socketFD)
                 throw error
             }
             return socketFD
-        }.value
+        }.result
+        isConnecting = false
+        let closedDuringAttempt = closeRequested
+        closeRequested = false
 
+        let socketFD = try result.get()
+        // A close() during the attempt wins: the new socket is released instead of kept.
+        guard !closedDuringAttempt else {
+            Darwin.close(socketFD)
+            throw SOCKS5Error.notConnected
+        }
+        fd = socketFD
         log.info("SOCKS5 connected to \(host):\(port)")
     }
 
     /// Sends data over the established SOCKS5 connection.
     func send(_ data: [UInt8]) async throws {
-        guard fd >= 0 else { throw SOCKS5Error.notConnected }
-
-        let fdCopy = fd
-        try await Task.detached {
+        let fdCopy = try beginOperation()
+        let result = await Task.detached {
             try Self.sendAll(fd: fdCopy, data: data)
-        }.value
+        }.result
+        endOperation()
+        try result.get()
     }
 
     /// Receives exactly `count` bytes from the connection.
     func receive(_ count: Int) async throws -> [UInt8] {
-        guard fd >= 0 else { throw SOCKS5Error.notConnected }
-
-        let fdCopy = fd
-        return try await Task.detached {
+        let fdCopy = try beginOperation()
+        let result = await Task.detached {
             try Self.recvAll(fd: fdCopy, count: count)
-        }.value
+        }.result
+        endOperation()
+        return try result.get()
     }
 
-    /// Closes the SOCKS5 connection.
+    /// Closes the SOCKS5 connection. A send or receive still running is shut down first. The descriptor is released only
+    /// once that operation returns, so it never acts on a reused descriptor.
     func close() {
-        if fd >= 0 {
-            Darwin.close(fd)
-            fd = -1
+        if isConnecting {
+            closeRequested = true
+        } else if fd >= 0, !closeRequested {
+            if inFlightOperations > 0 {
+                shutdown(fd, SHUT_RDWR)
+                closeRequested = true
+            } else {
+                closeDescriptor()
+            }
         }
+    }
+
+    // MARK: - Private: Descriptor Lifetime
+
+    private func beginOperation() throws -> Int32 {
+        guard fd >= 0, !closeRequested else { throw SOCKS5Error.notConnected }
+        inFlightOperations += 1
+        return fd
+    }
+
+    private func endOperation() {
+        inFlightOperations -= 1
+        if closeRequested, inFlightOperations == 0 {
+            closeDescriptor()
+        }
+    }
+
+    private func closeDescriptor() {
+        Darwin.close(fd)
+        fd = -1
+        closeRequested = false
     }
 
     // MARK: - Private: Socket I/O
 
     private static func resolveAndConnect(
         host: String,
-        port: UInt16
+        port: UInt16,
+        until deadline: ContinuousClock.Instant
     ) throws -> Int32 {
         do throws(TCPConnectError) {
-            return try connectTCPSocket(host: host, port: port)
+            return try connectTCPSocket(host: host, port: port, deadline: deadline)
         } catch {
             throw SOCKS5Error.connectionFailed(error.reason)
         }
@@ -187,23 +236,40 @@ actor SOCKS5Connection {
 
     private static func performHandshake(
         fd: Int32,
-        destinationAddress: String
+        destinationAddress: String,
+        until deadline: ContinuousClock.Instant
     ) throws {
+        func receive(_ count: Int) throws -> [UInt8] {
+            do throws(SocketWaitError) {
+                return try receiveExactly(count, from: fd, until: deadline)
+            } catch {
+                throw handshakeError(error)
+            }
+        }
+
         try sendAll(fd: fd, data: greetingBytes)
 
-        let greetingResponse = try recvAll(fd: fd, count: 2)
+        let greetingResponse = try receive(2)
         try validateGreetingResponse(greetingResponse)
 
         let request = connectRequest(destinationAddress: destinationAddress)
         try sendAll(fd: fd, data: request)
 
         // CONNECT response header: VER, REP, RSV, ATYP, first addr byte
-        let header = try recvAll(fd: fd, count: 5)
+        let header = try receive(5)
         try validateConnectResponse(header)
 
         let remaining = connectResponseRemainingBytes(header)
         if remaining > 0 {
-            _ = try recvAll(fd: fd, count: remaining)
+            _ = try receive(remaining)
+        }
+    }
+
+    private static func handshakeError(_ error: SocketWaitError) -> SOCKS5Error {
+        switch error {
+        case .timedOut, .woken: .handshakeFailed("The peer did not complete the handshake in time")
+        case let .failed(code): .receiveFailed(posixErrorText(code))
+        case .closed: .receiveFailed("The connection was closed")
         }
     }
 

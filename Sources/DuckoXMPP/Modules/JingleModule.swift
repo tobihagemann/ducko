@@ -19,6 +19,7 @@ public final class JingleModule: XMPPModule, Sendable {
         case noConnectedJID
         /// The primary content cannot be removed via content-remove; terminate the session instead.
         case cannotRemovePrimaryContent
+        case alreadyAccepted
         case transportNegotiationFailed(String)
         case transportFailed(String)
     }
@@ -50,7 +51,7 @@ public final class JingleModule: XMPPModule, Sendable {
         let context: ModuleContext?
         let session: JingleSession?
         let connection: SOCKS5Connection?
-        let listener: SOCKS5Listener?
+        let listeners: [SOCKS5Listener]
     }
 
     /// Snapshot of state captured atomically when an IBB close arrives, so the
@@ -137,7 +138,7 @@ public final class JingleModule: XMPPModule, Sendable {
         }
 
         for sid in snapshot.sessions.keys {
-            snapshot.context?.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "disconnected"))
+            snapshot.context?.emitEvent(.jingleFileTransferFailed(sid: sid, reason: .disconnected))
         }
     }
 
@@ -384,20 +385,18 @@ public final class JingleModule: XMPPModule, Sendable {
             return
         }
 
-        let reason = parseTerminateReason(jingle)
-        if reason == .success {
-            let transport: JingleTransportKind
-            if let selected = removed.selectedTransport {
-                transport = selected
-            } else {
-                log.error("selectedTransport nil on successful Jingle terminate for sid \(sid); defaulting to .socks5")
-                transport = .socks5
-            }
-            context.emitEvent(.jingleFileTransferCompleted(sid: sid, transport: transport))
-        } else {
-            let reasonText = reason?.rawValue ?? "unknown"
-            context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: reasonText))
+        if let failure = JingleTransferFailureReason(terminationReason: parseTerminateReason(jingle)) {
+            context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: failure))
+            return
         }
+        let transport: JingleTransportKind
+        if let selected = removed.selectedTransport {
+            transport = selected
+        } else {
+            log.error("selectedTransport nil on successful Jingle terminate for sid \(sid); defaulting to .socks5")
+            transport = .socks5
+        }
+        context.emitEvent(.jingleFileTransferCompleted(sid: sid, transport: transport))
     }
 
     private func handleTransportInfo(_ jingle: XMLElement, sid: String, context: ModuleContext) {
@@ -417,7 +416,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func handleCandidateUsed(sid: String, cid: String, context: ModuleContext) {
         let session = state.withLock { $0.sessions[sid] }
-        guard let session else { return }
+        guard let session, Self.acceptsSOCKS5Outcome(session) else { return }
 
         // If we're the initiator and the peer selected a candidate, handle by type
         guard session.role == .initiator else { return }
@@ -442,7 +441,7 @@ public final class JingleModule: XMPPModule, Sendable {
                         )
                     } catch {
                         log.warning("Proxy activation failed: \(error)")
-                        context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "proxy-activation-failed"))
+                        abandonTransport(sid: sid, reason: .proxyActivationFailed, context: context, if: Self.acceptsSOCKS5Outcome)
                     }
                 }
             }
@@ -450,23 +449,36 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func handleCandidateError(sid: String, context: ModuleContext) {
-        let session = state.withLock { state -> JingleSession? in
-            state.sessions[sid]?.transportState = .failed
-            return state.sessions[sid]
+        let ibbSID = context.generateID()
+        let fallback = state.withLock { state -> (session: JingleSession, transport: IBBTransport)? in
+            // Only the responder connects to candidates, so the initiator's candidate-error decides nothing on the
+            // responder: the initiator follows it with a transport-replace or a session-terminate.
+            guard let session = state.sessions[sid], session.role == .initiator, Self.acceptsSOCKS5Outcome(session) else {
+                return nil
+            }
+            // Propose IBB fallback. Switching before the SOCKS5 resources close makes their late outcomes stale.
+            state.sessions[sid]?.transportState = .replacePending
+            state.sessions[sid]?.selectedTransport = .ibb
+            state.ibbStates[sid] = IBBSessionState(
+                ibbSID: ibbSID,
+                blockSize: Self.defaultIBBBlockSize,
+                expectedSize: session.content.description.size
+            )
+            state.ibbSIDToJingleSID[ibbSID] = sid
+            return (session, IBBTransport(sid: ibbSID, blockSize: Self.defaultIBBBlockSize))
         }
-        cleanupTransport(sid: sid)
-
-        guard let session else {
-            context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "candidate-error"))
+        guard let fallback else {
+            log.debug("Ignoring candidate-error that calls for no fallback, sid: \(sid)")
             return
         }
+        cleanupTransport(sid: sid)
+        sendTransportReplace(sid: sid, ibbTransport: fallback.transport, session: fallback.session, context: context)
+    }
 
-        // Initiator proposes IBB fallback
-        if session.role == .initiator {
-            sendTransportReplace(sid: sid, session: session, context: context)
-        } else {
-            context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "candidate-error"))
-        }
+    /// Whether a SOCKS5 outcome still applies, which stops once the session switches to IBB. An outcome for a session that
+    /// ended or was abandoned finds no session before reaching this check.
+    private static func acceptsSOCKS5Outcome(_ session: JingleSession) -> Bool {
+        session.selectedTransport != .ibb
     }
 
     private func parseTerminateReason(_ jingle: XMLElement) -> JingleTerminateReason? {
@@ -511,8 +523,8 @@ public final class JingleModule: XMPPModule, Sendable {
             return
         }
 
-        let continuation = state.withLock { state -> CheckedContinuation<Void, Error>? in
-            guard let session = state.sessions[sid] else { return nil }
+        let resolution = state.withLock { state -> (isKnown: Bool, continuation: CheckedContinuation<Void, Error>?) in
+            guard let session = state.sessions[sid] else { return (false, nil) }
             let ibbState = IBBSessionState(
                 ibbSID: ibbTransport.sid,
                 blockSize: ibbTransport.blockSize,
@@ -522,15 +534,20 @@ public final class JingleModule: XMPPModule, Sendable {
             state.ibbSIDToJingleSID[ibbTransport.sid] = sid
             state.sessions[sid]?.transportState = .pending
             state.sessions[sid]?.selectedTransport = .ibb
-            return state.transportReadyContinuations.removeValue(forKey: sid)
+            return (true, state.transportReadyContinuations.removeValue(forKey: sid))
+        }
+        guard resolution.isKnown else {
+            log.debug("Ignoring transport-replace for unknown sid: \(sid)")
+            return
         }
 
         sendTransportAccept(sid: sid, ibbTransport: ibbTransport, context: context)
-        continuation?.resume()
+        resolution.continuation?.resume()
     }
 
     private func handleTransportAccept(sid: String) {
         let continuation = state.withLock { state -> CheckedContinuation<Void, Error>? in
+            guard state.sessions[sid] != nil else { return nil }
             state.sessions[sid]?.transportState = .pending
             return state.transportReadyContinuations.removeValue(forKey: sid)
         }
@@ -538,30 +555,37 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func handleTransportReject(sid: String, context: ModuleContext) {
-        let continuation = state.withLock { state -> CheckedContinuation<Void, Error>? in
-            state.sessions[sid]?.transportState = .failed
-            return state.transportReadyContinuations.removeValue(forKey: sid)
-        }
-        continuation?.resume(throwing: JingleError.transportNegotiationFailed("transport-reject"))
-        context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "transport-reject"))
+        abandonTransport(sid: sid, reason: .transportReject, context: context)
     }
 
-    private func sendTransportReplace(sid: String, session: JingleSession, context: ModuleContext) {
-        let ibbSID = context.generateID()
-        let ibbTransport = IBBTransport(sid: ibbSID, blockSize: Self.defaultIBBBlockSize)
-
-        state.withLock { state in
-            state.sessions[sid]?.transportState = .replacePending
-            let ibbState = IBBSessionState(
-                ibbSID: ibbSID,
-                blockSize: Self.defaultIBBBlockSize,
-                expectedSize: session.content.description.size
-            )
-            state.ibbStates[sid] = ibbState
-            state.ibbSIDToJingleSID[ibbSID] = sid
-            state.sessions[sid]?.selectedTransport = .ibb
+    /// Ends a negotiation that has no usable transport, reporting `reason` locally and `failed-transport` to the peer. The
+    /// session is removed, so anything that later addresses the sid finds no session. Does nothing when the session already
+    /// ended or `applies` rejects it.
+    private func abandonTransport(
+        sid: String,
+        reason: JingleTransferFailureReason,
+        context: ModuleContext,
+        if applies: @Sendable (JingleSession) -> Bool = { _ in true }
+    ) {
+        let abandoned = state.withLock { state -> (session: JingleSession, continuations: SessionContinuations)? in
+            guard let session = state.sessions[sid], applies(session) else { return nil }
+            state.sessions.removeValue(forKey: sid)
+            return (session, cleanupSessionState(sid: sid, state: &state))
         }
+        guard let abandoned else { return }
+        cleanupTransport(sid: sid)
+        abandoned.continuations.cancel(with: JingleError.transportNegotiationFailed(reason.displayText))
+        context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: reason))
+        Task {
+            do {
+                try await sendSessionTerminate(sid: sid, peer: abandoned.session.peer, reason: .failedTransport, context: context)
+            } catch {
+                log.warning("Failed to send session-terminate for an abandoned transport: \(error)")
+            }
+        }
+    }
 
+    private func sendTransportReplace(sid: String, ibbTransport: IBBTransport, session: JingleSession, context: ModuleContext) {
         Task {
             var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
             var jingle = XMLElement(
@@ -580,7 +604,7 @@ public final class JingleModule: XMPPModule, Sendable {
                 try await context.sendStanza(iq)
             } catch {
                 log.warning("Failed to send transport-replace: \(error)")
-                context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: "transport-replace-failed"))
+                abandonTransport(sid: sid, reason: .transportReplaceFailed, context: context)
             }
         }
     }
@@ -758,13 +782,26 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Waits until the transport is ready for data transfer (SOCKS5 connected or IBB established).
     public func awaitTransportReady(sid: String) async throws {
         try await withCheckedThrowingContinuation { continuation in
-            let alreadyReady = state.withLock { state -> Bool in
-                if case .connected = state.sessions[sid]?.transportState { return true }
-                if state.ibbStates[sid] != nil { return true }
+            // A wait for a session that no longer exists fails at once instead of hanging. A second wait fails instead of
+            // displacing the first one's continuation.
+            let readiness = state.withLock { state -> Result<Bool, JingleError> in
+                guard let session = state.sessions[sid] else { return .failure(.sessionNotFound) }
+                switch session.transportState {
+                case .connected: return .success(true)
+                case .pending, .connecting, .failed, .replacePending: break
+                }
+                if state.ibbStates[sid] != nil { return .success(true) }
+                guard state.transportReadyContinuations[sid] == nil else {
+                    return .failure(.transportFailed("The transfer is already waiting for a connection"))
+                }
                 state.transportReadyContinuations[sid] = continuation
-                return false
+                return .success(false)
             }
-            if alreadyReady { continuation.resume() }
+            switch readiness {
+            case .success(true): continuation.resume()
+            case .success(false): break
+            case let .failure(error): continuation.resume(throwing: error)
+            }
         }
     }
 
@@ -782,7 +819,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
         let sid = context.generateID()
         let transportSID = context.generateID()
-        let candidates = await buildCandidates(context: context, sessionSID: sid)
+        let candidates = await buildCandidates(context: context, listenerKey: sid)
 
         let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: transportSID, candidates: candidates))
         let content = JingleContent(
@@ -816,17 +853,12 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Accepts a pending incoming file transfer.
     /// When `range` is provided, the session-accept includes a `<range/>` element to request partial transfer.
     public func acceptFileTransfer(sid: String, range: JingleFileRange? = nil) async throws {
-        let (context, session) = state.withLock { state -> (ModuleContext?, JingleSession?) in
-            let context = state.context
-            guard let session = state.sessions[sid] else { return (context, nil) }
-            return (context, session)
-        }
-        guard let context else { throw JingleError.notConnected }
-        guard let session else { throw JingleError.sessionNotFound }
-
+        guard let context = state.withLock({ $0.context }) else { throw JingleError.notConnected }
         guard let myJID = context.connectedJID() else {
             throw JingleError.noConnectedJID
         }
+
+        let session = try claimAcceptance(sid: sid)
 
         let acceptContent: JingleContent
         if let range {
@@ -867,10 +899,27 @@ public final class JingleModule: XMPPModule, Sendable {
         jingle.addChild(acceptContent.toXML())
         iq.element.addChild(jingle)
 
-        try await context.sendStanza(iq)
+        do {
+            try await context.sendStanza(iq)
+        } catch {
+            state.withLock { $0.sessions[sid]?.isAccepted = false }
+            throw error
+        }
 
         // Responder begins transport connection after sending session-accept
         Task { await beginTransportConnection(sid: sid, context: context) }
+    }
+
+    /// Must run before `acceptFileTransfer` first suspends, so a concurrent repeated accept can't send a second
+    /// session-accept.
+    private func claimAcceptance(sid: String) throws -> JingleSession {
+        let claim = state.withLock { state -> Result<JingleSession, JingleError> in
+            guard let session = state.sessions[sid] else { return .failure(.sessionNotFound) }
+            guard !session.isAccepted else { return .failure(.alreadyAccepted) }
+            state.sessions[sid]?.isAccepted = true
+            return .success(session)
+        }
+        return try claim.get()
     }
 
     /// Sends a `session-info` IQ with `<received/>` per XEP-0234 §5.1 after file reception.
@@ -968,7 +1017,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
         let contentName = session.nextAdditionalFileContentName()
         let transportSID = context.generateID()
-        let candidates = await buildCandidates(context: context, sessionSID: sid)
+        let candidates = await buildCandidates(context: context, listenerKey: "\(sid)/\(contentName)")
         let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: transportSID, candidates: candidates))
         let content = JingleContent(
             name: contentName,
@@ -1088,7 +1137,7 @@ public final class JingleModule: XMPPModule, Sendable {
                 context: state.context,
                 session: state.sessions.removeValue(forKey: sid),
                 connection: state.activeConnections.removeValue(forKey: sid),
-                listener: state.activeListeners.removeValue(forKey: sid)
+                listeners: Self.removeListeners(forSession: sid, state: &state)
             ), conts)
         }
         guard let context = snapshot.context else { throw JingleError.notConnected }
@@ -1099,11 +1148,15 @@ public final class JingleModule: XMPPModule, Sendable {
         if let connection = snapshot.connection {
             await connection.close()
         }
-        if let listener = snapshot.listener {
+        for listener in snapshot.listeners {
             await listener.close()
         }
 
-        var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
+        try await sendSessionTerminate(sid: sid, peer: session.peer, reason: reason, context: context)
+    }
+
+    private func sendSessionTerminate(sid: String, peer: FullJID, reason: JingleTerminateReason, context: ModuleContext) async throws {
+        var iq = XMPPIQ(type: .set, to: .full(peer), id: context.generateID())
         var jingle = XMLElement(
             name: "jingle",
             namespace: XMPPNamespaces.jingle,
@@ -1147,7 +1200,7 @@ public final class JingleModule: XMPPModule, Sendable {
         } else if let ibbState {
             try await sendIBBData(sid: sid, data: sendData, ibbState: ibbState, context: context)
         } else {
-            throw JingleError.transportNegotiationFailed("No active transport for \(sid)")
+            throw JingleError.transportFailed("No connection is open for the transfer")
         }
 
         try await terminateSession(sid: sid, reason: .success)
@@ -1223,7 +1276,7 @@ public final class JingleModule: XMPPModule, Sendable {
             attributes: ["sid": ibbSID, "block-size": String(blockSize), "stanza": "iq"]
         )
         iq.element.addChild(open)
-        _ = try await context.sendIQ(iq)
+        try await sendIBBIQ(iq, context: context)
     }
 
     private func sendIBBClose(
@@ -1237,7 +1290,7 @@ public final class JingleModule: XMPPModule, Sendable {
             attributes: ["sid": ibbSID]
         )
         iq.element.addChild(close)
-        _ = try await context.sendIQ(iq)
+        try await sendIBBIQ(iq, context: context)
     }
 
     private func sendIBBChunk(
@@ -1252,13 +1305,28 @@ public final class JingleModule: XMPPModule, Sendable {
         )
         dataElement.addText(Base64.encode(chunk))
         iq.element.addChild(dataElement)
-        _ = try await context.sendIQ(iq)
+        try await sendIBBIQ(iq, context: context)
+    }
+
+    /// Sends an IBB IQ, reporting a failed exchange as a `JingleError` like the SOCKS5 transport does.
+    func sendIBBIQ(_ iq: XMPPIQ, context: ModuleContext) async throws {
+        do {
+            _ = try await context.sendIQ(iq)
+        } catch let error as XMPPStanzaError {
+            throw JingleError.transportFailed(error.displayText)
+        } catch XMPPClientError.notConnected {
+            throw JingleError.notConnected
+        } catch let XMPPClientError.sendFailed(reason) {
+            throw JingleError.transportFailed(reason)
+        } catch XMPPClientError.timeout {
+            throw JingleError.transportFailed("The peer did not respond in time")
+        }
     }
 
     /// Receives file data over the established transport (SOCKS5 or IBB) for a session.
     public func receiveFileData(sid: String, expectedSize: Int64) async throws -> [UInt8] {
         guard expectedSize > 0 else {
-            throw JingleError.transportNegotiationFailed("Invalid file size: \(expectedSize)")
+            throw JingleError.transportFailed("The file size is invalid")
         }
 
         let (context, connection, hasIBB) = state.withLock {
@@ -1271,7 +1339,7 @@ public final class JingleModule: XMPPModule, Sendable {
         } else if hasIBB {
             return try await receiveIBBData(sid: sid)
         } else {
-            throw JingleError.transportNegotiationFailed("No active transport for \(sid)")
+            throw JingleError.transportFailed("No connection is open for the transfer")
         }
     }
 
@@ -1316,7 +1384,7 @@ public final class JingleModule: XMPPModule, Sendable {
             if let data = result.data {
                 continuation.resume(returning: data)
             } else if !result.registered {
-                continuation.resume(throwing: JingleError.transportNegotiationFailed("No IBB state for \(sid)"))
+                continuation.resume(throwing: JingleError.transportFailed("No connection is open for the transfer"))
             }
         }
     }
@@ -1325,7 +1393,10 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func beginTransportConnection(sid: String, context: ModuleContext) async {
         let (session, listener) = state.withLock { state -> (JingleSession?, SOCKS5Listener?) in
-            guard let session = state.sessions[sid] else { return (nil, nil) }
+            guard let session = state.sessions[sid], Self.acceptsSOCKS5Outcome(session), !session.isTransportAttemptStarted else {
+                return (nil, nil)
+            }
+            state.sessions[sid]?.isTransportAttemptStarted = true
             state.sessions[sid]?.transportState = .connecting
             let listener = state.activeListeners[sid]
             return (session, listener)
@@ -1371,17 +1442,22 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func cleanupTransport(sid: String) {
-        let (connection, listener) = state.withLock { state in
-            let connection = state.activeConnections.removeValue(forKey: sid)
-            let listener = state.activeListeners.removeValue(forKey: sid)
-            return (connection, listener)
+        let (connection, listeners) = state.withLock { state in
+            (state.activeConnections.removeValue(forKey: sid), Self.removeListeners(forSession: sid, state: &state))
         }
         if let connection {
             Task { await connection.close() }
         }
-        if let listener {
+        for listener in listeners {
             Task { await listener.close() }
         }
+    }
+
+    /// Removes the listeners of the session's primary content and of the contents added to it. Must be called within a
+    /// state.withLock.
+    private static func removeListeners(forSession sid: String, state: inout State) -> [SOCKS5Listener] {
+        let keys = state.activeListeners.keys.filter { $0 == sid || $0.hasPrefix(sid + "/") }
+        return keys.compactMap { state.activeListeners.removeValue(forKey: $0) }
     }
 
     private func cleanupListener(sid: String) {
@@ -1435,15 +1511,15 @@ public final class JingleModule: XMPPModule, Sendable {
         session: JingleSession,
         context: ModuleContext
     ) {
-        let (sessionExists, continuation) = state.withLock { state -> (Bool, CheckedContinuation<Void, Error>?) in
-            guard state.sessions[sid] != nil else { return (false, nil) }
+        let (isCurrent, continuation) = state.withLock { state -> (Bool, CheckedContinuation<Void, Error>?) in
+            guard let current = state.sessions[sid], Self.acceptsSOCKS5Outcome(current) else { return (false, nil) }
             state.activeConnections[sid] = result.connection
             state.sessions[sid]?.transportState = .connected(candidateCID: result.cid)
             state.sessions[sid]?.selectedTransport = .socks5
             let cont = state.transportReadyContinuations.removeValue(forKey: sid)
             return (true, cont)
         }
-        guard sessionExists else {
+        guard isCurrent else {
             Task { await result.connection.close() }
             return
         }
@@ -1459,7 +1535,15 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func sendCandidateError(sid: String, session: JingleSession, context: ModuleContext) {
-        state.withLock { $0.sessions[sid]?.transportState = .failed }
+        let isCurrent = state.withLock { state -> Bool in
+            guard let current = state.sessions[sid], Self.acceptsSOCKS5Outcome(current) else { return false }
+            state.sessions[sid]?.transportState = .failed
+            return true
+        }
+        guard isCurrent else {
+            log.debug("Ignoring stale SOCKS5 failure for sid: \(sid)")
+            return
+        }
         sendTransportInfo(sid: sid, session: session, context: context,
                           transportChild: XMLElement(name: "candidate-error"))
     }
@@ -1552,9 +1636,12 @@ public final class JingleModule: XMPPModule, Sendable {
 
     // MARK: - Candidate Building
 
+    /// Builds SOCKS5 candidates for a content and registers its direct-candidate listener under `listenerKey`. Pass the
+    /// session ID for the primary content and `sid/contentName` for an added one, so an added content never replaces the
+    /// primary's listener.
     private func buildCandidates(
         context: ModuleContext,
-        sessionSID: String
+        listenerKey: String
     ) async -> [SOCKS5Transport.Candidate] {
         var candidates: [SOCKS5Transport.Candidate] = []
 
@@ -1563,7 +1650,7 @@ public final class JingleModule: XMPPModule, Sendable {
         if !addresses.isEmpty {
             let listener = SOCKS5Listener()
             if let port = try? await listener.start() {
-                state.withLock { $0.activeListeners[sessionSID] = listener }
+                state.withLock { $0.activeListeners[listenerKey] = listener }
 
                 let myJID = context.connectedJID()?.description ?? ""
                 for (index, address) in addresses.enumerated() {
@@ -1605,7 +1692,7 @@ public final class JingleModule: XMPPModule, Sendable {
         context: ModuleContext
     ) async throws {
         guard let proxyJ = JID.parse(proxyJID) else {
-            throw JingleError.transportNegotiationFailed("Invalid proxy JID: \(proxyJID)")
+            throw JingleError.transportNegotiationFailed("The file transfer proxy address is invalid")
         }
 
         var iq = XMPPIQ(type: .set, to: proxyJ, id: context.generateID())

@@ -468,6 +468,72 @@ enum AccountServiceTests {
         }
     }
 
+    struct DisconnectMessages {
+        @Test(arguments: [
+            (XMPPStreamError?.some(.systemShutdown), String?.some("Maintenance window"), "Maintenance window"),
+            (XMPPStreamError?.some(.systemShutdown), String?.some(" \n "), "The server is shutting down"),
+            (XMPPStreamError?.some(.policyViolation), String?.none, "The connection violates a server policy"),
+            (XMPPStreamError?.none, String?.some("Idle timeout"), "Idle timeout"),
+            (XMPPStreamError?.none, String?.none, "The server closed the connection")
+        ])
+        func `streamErrorMessage prefers non-blank text, then the condition phrase`(
+            condition: XMPPStreamError?, text: String?, expected: String
+        ) {
+            #expect(AccountService.streamErrorMessage(condition: condition, text: text) == expected)
+        }
+
+        @Test
+        func `connectionLostMessage labels the detail`() {
+            #expect(AccountService.connectionLostMessage("Stream ended") == "Connection lost: Stream ended")
+        }
+
+        enum Trigger: Sendable {
+            case systemShutdownStreamError
+            case streamEnd
+        }
+
+        @Test(arguments: [
+            (Trigger.systemShutdownStreamError, "The server is shutting down"),
+            (Trigger.streamEnd, "Connection lost: Stream ended")
+        ])
+        @MainActor
+        func `a dropped stream stores the composed message`(trigger: Trigger, expected: String) async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let account = makeAccount()
+            await store.addAccount(account)
+            let transport = MockTransport()
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+            try await service.loadAccounts()
+            let (_, connectTask) = try await driveMockConnect(service, accountID: account.id, transport: transport)
+
+            var stateAtDisconnect: AccountService.ConnectionState?
+            service.onEvent = { [weak service] event, accountID in
+                if case .disconnected = event { stateAtDisconnect = service?.connectionStates[accountID] }
+            }
+            switch trigger {
+            case .systemShutdownStreamError:
+                await transport.simulateReceive("<error><system-shutdown xmlns='urn:ietf:params:xml:ns:xmpp-streams'/></error>")
+            case .streamEnd:
+                await transport.simulateDisconnect()
+            }
+            for _ in 0 ..< 100 {
+                if stateAtDisconnect != nil { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+
+            connectTask.cancel()
+            await service.disconnectAll()
+
+            guard case let .error(message) = stateAtDisconnect else {
+                Issue.record("Expected .error at disconnect, got \(String(describing: stateAtDisconnect))")
+                return
+            }
+            #expect(message == expected)
+        }
+    }
+
     struct SavePassword {
         @Test
         @MainActor
