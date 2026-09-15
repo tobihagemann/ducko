@@ -10,10 +10,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Periphery's unused-code results depend on the SDK: the macOS 27 SDK declares SwiftUI's `@State`
+# as a macro whose `$name` is a separate declaration. Keep these images on the Xcode used locally.
 jobs:
   lint:
     name: Lint
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v6
 
@@ -41,7 +43,7 @@ jobs:
 
   build-and-test:
     name: Build & Test
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v6
 
@@ -54,7 +56,7 @@ jobs:
 
   build-intel:
     name: Build (x86_64 release)
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v6
 

@@ -144,6 +144,8 @@ SwiftFormat, SwiftLint, and Periphery are installed via Homebrew. SwiftLint is p
 ./Scripts/install-hooks.sh     # install pre-commit hook (runs lint.sh before commit)
 ```
 
+Lint needs Xcode 27. The macOS 27 SDK declares `@State` as a macro, so Periphery reports different unused properties than under Xcode 26, and `--strict` fails on either toolchain's leftovers. CI (`ci.yml`, `release.yml`) runs on the `xcode-27` runner image; bump both workflows together with the local Xcode.
+
 ## Agent Skills
 
 All project-visible agent skills live under `Skills/`. `.claude/skills` and `.agents/skills` are single top-level symlinks pointing at `../Skills`, so adding a new skill is just `mkdir Skills/<name>` — nothing else to wire up.
