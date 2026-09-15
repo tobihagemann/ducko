@@ -136,7 +136,9 @@ Set `DUCKO_PROFILE=<name>` to run multiple isolated instances side by side:
 
 ## Lint & Format
 
-SwiftFormat, SwiftLint, and Periphery are installed via Homebrew. SwiftLint is pinned exactly via `swiftlint_version` in `.swiftlint.yml` (CI installs that release's portable binary); when Homebrew moves past it, bump the pin and fix any new violations in the same commit:
+SwiftFormat and SwiftLint are installed via Homebrew. SwiftLint is pinned exactly via `swiftlint_version` in `.swiftlint.yml`, and CI installs that release's portable binary. When Homebrew moves past the pin, bump it and fix any new violations in the same commit.
+
+Periphery is the commercial Periphery Pro CLI, free for open-source projects. Install it with `brew install periphery-pro/tap/periphery-cli`, which conflicts with the archived `periphery` formula, so uninstall that first. Every scan validates the license over the network, so sign in once locally with `periphery auth login`. The tap only offers the latest release, so CI installs the exact version pinned as `PERIPHERY_VERSION` in `ci.yml`. When the tap moves past the pin, bump it and fix any new findings in the same commit. CI authenticates with the `PERIPHERY_TOKEN` repo secret. GitHub withholds secrets from fork pull requests, so CI sets `SKIP_PERIPHERY` for them and `lint.sh` skips the scan.
 
 ```
 ./Scripts/format.sh            # Auto-format + autocorrect

@@ -41,10 +41,11 @@ swift test --package-path IntegrationTests --filter AvatarTests     # One suite
 
 ## Code Style
 
-[SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and [SwiftLint](https://github.com/realm/SwiftLint) enforce code style. Install both via Homebrew:
+[SwiftFormat](https://github.com/nicklockwood/SwiftFormat) and [SwiftLint](https://github.com/realm/SwiftLint) enforce code style, and Periphery Pro flags unused code. Install them via Homebrew:
 
 ```sh
-brew install swiftlint swiftformat periphery
+brew install swiftlint swiftformat periphery-pro/tap/periphery-cli
+periphery auth login              # Periphery Pro license, free for open source
 ./Scripts/install-hooks.sh        # Pre-commit hook (run once after cloning)
 ./Scripts/format.sh               # Auto-format + autocorrect
 ./Scripts/lint.sh                 # Check format + lint + unused code (read-only)

@@ -19,13 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install tools
-        # The runner image preinstalls some of these and `brew install` won't upgrade an
+      - name: Install SwiftFormat
+        # The runner image may preinstall SwiftFormat and `brew install` won't upgrade an
         # outdated preinstall; .swiftformat's rule set needs the pinned minversion.
         run: |
           brew update
-          brew install swiftformat periphery
-          brew upgrade swiftformat periphery || true
+          brew install swiftformat
+          brew upgrade swiftformat || true
 
       - name: Install pinned SwiftLint
         # Homebrew only offers the latest SwiftLint, whose new default rules can fail lint on
@@ -38,7 +38,28 @@ jobs:
           echo "$RUNNER_TEMP/swiftlint" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/swiftlint/swiftlint" version
 
+      - name: Install pinned Periphery
+        # Fork pull requests run without the PERIPHERY_TOKEN secret, so they skip Periphery.
+        if: github.event.pull_request.head.repo.fork != true
+        # The periphery-pro Homebrew tap only offers the latest release, so install an exact version.
+        # The release binary bundles its own libIndexStore and has no rpath to a system copy. Drop the
+        # bundled one and link the selected Xcode's, where the tap formula links the Command Line Tools copy.
+        env:
+          PERIPHERY_VERSION: 1.0.0.beta.5
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/periphery.zip" \
+            "https://github.com/periphery-pro/cli-releases/releases/download/${PERIPHERY_VERSION}/periphery-cli_${PERIPHERY_VERSION}_macos_$(uname -m).zip"
+          unzip -o -q "$RUNNER_TEMP/periphery.zip" -d "$RUNNER_TEMP/periphery"
+          rm "$RUNNER_TEMP/periphery/libIndexStore.dylib"
+          install_name_tool -add_rpath "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" "$RUNNER_TEMP/periphery/periphery"
+          codesign --force --sign - "$RUNNER_TEMP/periphery/periphery"
+          echo "$RUNNER_TEMP/periphery" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/periphery/periphery" version
+
       - name: Lint & Format Check
+        env:
+          PERIPHERY_TOKEN: ${{ secrets.PERIPHERY_TOKEN }}
+          SKIP_PERIPHERY: ${{ github.event.pull_request.head.repo.fork == true }}
         run: ./Scripts/lint.sh
 
   build-and-test:

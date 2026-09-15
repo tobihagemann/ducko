@@ -20,13 +20,21 @@ cd "${PROJECT_ROOT}"
 
 check_tool() {
     if ! command -v "$1" &> /dev/null; then
-        echo "error: $1 not found. Install via: brew install $1"
+        echo "error: $1 not found. Install via: brew install ${2:-$1}"
         exit 1
     fi
 }
 check_tool swiftformat
 check_tool swiftlint
-check_tool periphery
+
+# Periphery validates its license over the network. CI sets SKIP_PERIPHERY for fork pull
+# requests, which GitHub runs without the PERIPHERY_TOKEN secret.
+SKIP_PERIPHERY="${SKIP_PERIPHERY:-false}"
+if [ "$SKIP_PERIPHERY" = true ]; then
+    echo "warning: SKIP_PERIPHERY is set; skipping Periphery."
+else
+    check_tool periphery periphery-pro/tap/periphery-cli
+fi
 
 LINT_TMP="$TMPDIR/ducko-lint-$$"
 mkdir -p "$LINT_TMP"
@@ -54,18 +62,23 @@ PID_LINT_INT=$!
 # Periphery's own build looks for the index store where the native build system
 # writes it, but Swift's default build system writes it under `.build/out`. Build
 # first, then point Periphery at the store `swift build` actually produced.
-(
-    swift build --build-tests &&
-        BIN_PATH="$(swift build --show-bin-path)" &&
-        INDEX_STORE="${BIN_PATH%/Products/*}" &&
-        periphery scan --quiet --strict --retain-public --index-store-path "$INDEX_STORE"
-) >"$LINT_TMP/periphery.out" 2>&1 &
-PID_PERIPHERY=$!
+PID_PERIPHERY=
+if [ "$SKIP_PERIPHERY" != true ]; then
+    (
+        swift build --build-tests &&
+            BIN_PATH="$(swift build --show-bin-path)" &&
+            INDEX_STORE="${BIN_PATH%/Products/*}" &&
+            periphery scan --quiet --strict --retain-public --index-store-path "$INDEX_STORE"
+    ) >"$LINT_TMP/periphery.out" 2>&1 &
+    PID_PERIPHERY=$!
+fi
 
 wait $PID_FORMAT || { echo "--- SwiftFormat ---"; cat "$LINT_TMP/swiftformat.out"; echo "error: Run './Scripts/format.sh' to auto-fix."; FAIL=1; }
 wait $PID_LINT || { echo "--- SwiftLint ---"; cat "$LINT_TMP/swiftlint.out"; FAIL=1; }
 wait $PID_LINT_INT || { echo "--- SwiftLint (IntegrationTests) ---"; cat "$LINT_TMP/swiftlint-integration.out"; FAIL=1; }
-wait $PID_PERIPHERY || { echo "--- Periphery ---"; cat "$LINT_TMP/periphery.out"; FAIL=1; }
+if [ -n "$PID_PERIPHERY" ]; then
+    wait $PID_PERIPHERY ||{ echo "--- Periphery ---"; cat "$LINT_TMP/periphery.out"; FAIL=1; }
+fi
 
 set -e
 
