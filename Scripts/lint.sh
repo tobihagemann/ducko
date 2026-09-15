@@ -53,7 +53,9 @@ PID_LINT_INT=$!
 # root package and would otherwise flag their externally-used public symbols.
 # Periphery's own build looks for the index store where the native build system
 # writes it, but Swift's default build system writes it under `.build/out`. Build
-# first, then point Periphery at the store `swift build` actually produced.
+# first, then point Periphery at the store `swift build` actually produced. The two
+# build systems' indexes disagree on whether a `$`-binding counts as a use, so an
+# ignore comment one of them needs reads as superfluous to the other.
 (
     swift build --build-tests &&
         BIN_PATH="$(swift build --show-bin-path)" &&
@@ -61,7 +63,8 @@ PID_LINT_INT=$!
             */out/Products/*) INDEX_STORE="${BIN_PATH%/Products/*}" ;;
             *) INDEX_STORE="$BIN_PATH/index/store" ;;
         esac &&
-        periphery scan --quiet --strict --retain-public --index-store-path "$INDEX_STORE"
+        periphery scan --quiet --strict --retain-public --no-superfluous-ignore-comments \
+            --index-store-path "$INDEX_STORE"
 ) >"$LINT_TMP/periphery.out" 2>&1 &
 PID_PERIPHERY=$!
 
