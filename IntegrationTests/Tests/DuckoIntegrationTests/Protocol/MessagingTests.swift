@@ -1,6 +1,7 @@
 import DuckoCore
 import DuckoXMPP
 import Foundation
+import struct os.OSAllocatedUnfairLock
 import Testing
 
 extension DuckoIntegrationTests.ProtocolLayer {
@@ -26,6 +27,39 @@ extension DuckoIntegrationTests.ProtocolLayer {
                         return true
                     }
                     return false
+                }
+            }
+        }
+
+        @Test(.timeLimit(.minutes(1))) @MainActor func `A burst of large concurrent messages arrives intact over TLS`() async throws {
+            // The sends share one TLS session with its reads. Whether a write actually waits for the socket depends on
+            // how fast the server drains it, so this doesn't reliably cover the would-block path.
+            try await TestHarness.withHarness { harness in
+                try await harness.setUp(accounts: [
+                    "alice": TestCredentials.alice,
+                    "bob": TestCredentials.bob
+                ])
+
+                let bob = try #require(harness.accounts["bob"])
+                let chat = try await harness.module(ChatModule.self, for: "alice")
+                let bobJID = try harness.jid(for: TestCredentials.bob)
+
+                let marker = "burst-\(UUID().uuidString.prefix(8))"
+                let bodies = (0 ..< 32).map { "\(marker)-\($0)-" + String(repeating: "x", count: 16000) }
+                try await withThrowingTaskGroup { group in
+                    for body in bodies {
+                        group.addTask { try await chat.sendMessage(to: .bare(bobJID), body: body) }
+                    }
+                    try await group.waitForAll()
+                }
+
+                let pending = OSAllocatedUnfairLock(initialState: Set(bodies))
+                _ = try await bob.waitForEvent { event in
+                    guard case let .messageReceived(m) = event, let body = m.body else { return false }
+                    return pending.withLock { pending in
+                        pending.remove(body)
+                        return pending.isEmpty
+                    }
                 }
             }
         }

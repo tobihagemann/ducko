@@ -2,6 +2,7 @@ import CryptoKit
 import Darwin
 import Foundation
 @preconcurrency import Security
+import Synchronization
 
 // MARK: - Certificate Signature Hash Algorithm (RFC 5929 §4.1)
 
@@ -116,22 +117,33 @@ actor POSIXTransport: XMPPTransport {
     private var fd: Int32 = -1
     private var sslContext: SSLContext?
     private var receiveTask: Task<Void, Never>?
+    private var sendTask: Task<Void, any Error>?
+    private var readBuffer = [UInt8](repeating: 0, count: 65536)
+    private let handshakeTimeout: Duration
+    private let writeTimeout: Duration
     private(set) var tlsInfo: TLSInfo?
 
     nonisolated let receivedData: AsyncStream<[UInt8]>
     private nonisolated let receivedContinuation: AsyncStream<[UInt8]>.Continuation
 
-    init() {
+    init(handshakeTimeout: Duration = .seconds(30), writeTimeout: Duration = .seconds(5)) {
         let (stream, continuation) = AsyncStream.makeStream(of: [UInt8].self)
         self.receivedData = stream
         self.receivedContinuation = continuation
+        self.handshakeTimeout = handshakeTimeout
+        self.writeTimeout = writeTimeout
     }
 
     func connect(host: String, port: UInt16) async throws {
         guard fd == -1 else { throw XMPPClientError.alreadyConnected }
 
         fd = try await resolveAndConnect(host: host, port: port)
-        setNonBlocking(true)
+        do {
+            try setNonBlocking()
+        } catch {
+            closeSocket()
+            throw error
+        }
         startReceiving()
     }
 
@@ -139,99 +151,128 @@ actor POSIXTransport: XMPPTransport {
         guard fd == -1 else { throw XMPPClientError.alreadyConnected }
 
         fd = try await resolveAndConnect(host: host, port: port)
-        // Socket stays blocking for SSLHandshake
-
-        let fdPtr = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
-        fdPtr.pointee = fd
-
         do {
-            try await performSSLHandshake(fdPtr: fdPtr, serverName: serverName, alpnProtocols: ["xmpp-client"])
+            try setNonBlocking()
+            try await performSSLHandshake(serverName: serverName, alpnProtocols: ["xmpp-client"])
         } catch {
-            sslContext = nil
-            tlsInfo = nil
-            fdPtr.deallocate()
-            close(fd)
-            fd = -1
+            closeSocket()
             throw error
         }
-
-        setNonBlocking(true)
         startReceiving()
     }
 
     func upgradeTLS(serverName: String) async throws {
         guard fd >= 0 else { throw XMPPClientError.notConnected }
 
+        // Stop the plain reader and let queued plain writes finish before TLS takes over the socket.
         receiveTask?.cancel()
         await receiveTask?.value
         receiveTask = nil
+        _ = await sendTask?.result
 
-        setNonBlocking(false)
-
-        let fdPtr = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
-        fdPtr.pointee = fd
-
-        do {
-            try await performSSLHandshake(fdPtr: fdPtr, serverName: serverName)
-        } catch {
-            sslContext = nil
-            tlsInfo = nil
-            fdPtr.deallocate()
-            throw error
-        }
-
-        setNonBlocking(true)
+        try await performSSLHandshake(serverName: serverName)
         startReceiving()
     }
 
-    private func performSSLHandshake(
-        fdPtr: UnsafeMutablePointer<Int32>,
-        serverName: String,
-        alpnProtocols: [String]? = nil
-    ) async throws {
-        let ctx = try configureSSL(fdPtr: fdPtr, serverName: serverName, alpnProtocols: alpnProtocols)
+    private func performSSLHandshake(serverName: String, alpnProtocols: [String]? = nil) async throws {
+        let fdPtr = UnsafeMutablePointer<Int32>.allocate(capacity: 1)
+        fdPtr.pointee = fd
+        do {
+            let ctx = try configureSSL(fdPtr: fdPtr, serverName: serverName, alpnProtocols: alpnProtocols)
+            try await handshake(ctx)
+            // Publish sslContext only after the handshake succeeds, so no read or write uses it before then.
+            sslContext = ctx
+            tlsInfo = extractTLSInfo(ctx: ctx)
+        } catch {
+            fdPtr.deallocate()
+            throw error
+        }
+    }
 
-        // Run blocking TLS work on a non-cooperative thread
-        try await Task.detached {
-            var status = SSLHandshake(ctx)
-            while status == errSSLWouldBlock {
-                status = SSLHandshake(ctx)
+    /// Runs the handshake on the non-blocking socket, sleeping between attempts so a stalled server holds no thread.
+    private func handshake(_ ctx: SSLContext) async throws {
+        let deadline = ContinuousClock.now + handshakeTimeout
+        var trustJob: TrustJob?
+        var isPeerTrusted = false
+        while true {
+            // A disconnect during a wait closes the socket, but the context's I/O callbacks still hold its descriptor
+            // number, which the OS can reuse.
+            guard fd >= 0 else { throw XMPPClientError.notConnected }
+            if let job = trustJob {
+                // The handshake stays paused at the server's certificate until its evaluation reports a verdict.
+                if let verdict = job.verdict.withLock({ $0 }) {
+                    try verdict.get()
+                    trustJob = nil
+                    isPeerTrusted = true
+                    continue
+                }
+            } else {
+                let status = SSLHandshake(ctx)
+                switch status {
+                case errSecSuccess:
+                    // Breaking on server auth turns off Secure Transport's own certificate check, so a handshake that
+                    // never stopped for ours must not succeed.
+                    guard isPeerTrusted else {
+                        throw XMPPClientError.tlsNegotiationFailed("The server's certificate was not verified")
+                    }
+                    return
+                case errSSLPeerAuthCompleted:
+                    trustJob = try startTrustEvaluation(ctx)
+                    continue
+                case errSSLWouldBlock:
+                    break
+                default:
+                    throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
+                }
             }
-            guard status == errSecSuccess else {
-                throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
+            guard ContinuousClock.now < deadline else {
+                throw XMPPClientError.tlsNegotiationFailed("The server did not complete the TLS handshake in time")
             }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+    }
 
-            try validatePeerTrust(ctx: ctx)
-        }.value
-
-        // Publish sslContext only after handshake succeeds to prevent
-        // the receive task from calling SSLRead during the handshake
-        sslContext = ctx
-        tlsInfo = extractTLSInfo(ctx: ctx)
+    /// Starts evaluating the server's certificate off the actor, so a trust lookup that waits on the network holds
+    /// neither a thread nor the actor.
+    private func startTrustEvaluation(_ ctx: SSLContext) throws -> TrustJob {
+        let job = TrustJob()
+        let status = job.trust.withLock { SSLCopyPeerTrust(ctx, &$0) }
+        guard status == errSecSuccess else {
+            throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
+        }
+        evaluateTrust(job)
+        return job
     }
 
     func send(_ bytes: [UInt8]) async throws {
+        // A write that waits for the socket gives up the actor, so another send could start mid-write. Chaining keeps
+        // concurrent sends in order.
+        let previous = sendTask
+        let task = Task {
+            _ = await previous?.result
+            try await write(bytes)
+        }
+        sendTask = task
+        try await task.value
+    }
+
+    private func write(_ bytes: [UInt8]) async throws {
         guard fd >= 0 else { throw XMPPClientError.notConnected }
 
-        if let ctx = sslContext {
-            try sendSSL(ctx: ctx, bytes: bytes)
+        if sslContext != nil {
+            try await sendSSL(bytes)
         } else {
-            try sendPlain(bytes: bytes)
+            try await sendPlain(bytes)
         }
     }
 
     func disconnect() async {
-        // Await the receive task before tearDownSSL/close(fd) — Secure Transport
-        // is not thread-safe to concurrent SSLClose/SSLRead, and tearDownSSL
-        // deallocates the fdPtr that the SSL I/O callbacks dereference.
+        // Await the receive task before closing: its plain recv reads the raw fd, whose number can be reused once
+        // closed. A handshake or write waiting for the socket finds it closed when it resumes.
         receiveTask?.cancel()
         await receiveTask?.value
         receiveTask = nil
-        tearDownSSL()
-        if fd >= 0 {
-            close(fd)
-            fd = -1
-        }
+        closeSocket()
         receivedContinuation.finish()
     }
 
@@ -261,13 +302,18 @@ actor POSIXTransport: XMPPTransport {
         tlsInfo = nil
     }
 
-    private func setNonBlocking(_ enabled: Bool) {
-        let flags = fcntl(fd, F_GETFL)
-        if enabled {
-            _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
-        } else {
-            _ = fcntl(fd, F_SETFL, flags & ~O_NONBLOCK)
+    private func closeSocket() {
+        tearDownSSL()
+        if fd >= 0 {
+            close(fd)
+            fd = -1
         }
+    }
+
+    private func setNonBlocking() throws {
+        let flags = fcntl(fd, F_GETFL)
+        guard flags >= 0 else { throw XMPPClientError.connectionFailed(posixErrorText(errno)) }
+        guard fcntl(fd, F_SETFL, flags | O_NONBLOCK) >= 0 else { throw XMPPClientError.connectionFailed(posixErrorText(errno)) }
     }
 
     private func configureSSL(
@@ -294,6 +340,12 @@ actor POSIXTransport: XMPPTransport {
             throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
         }
 
+        // The handshake stops at the server's certificate so it can be evaluated off the actor.
+        status = SSLSetSessionOption(ctx, .breakOnServerAuth, true)
+        guard status == errSecSuccess else {
+            throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
+        }
+
         // RFC 7590: Enforce minimum TLS 1.2 (defense-in-depth)
         _ = SSLSetProtocolVersionMin(ctx, .tlsProtocol12)
 
@@ -305,52 +357,81 @@ actor POSIXTransport: XMPPTransport {
         return ctx
     }
 
-    private func sendSSL(ctx: SSLContext, bytes: [UInt8]) throws {
+    private func sendSSL(_ bytes: [UInt8]) async throws {
         var totalWritten = 0
+        var status = errSecSuccess
         while totalWritten < bytes.count {
+            let ctx = try publishedSSLContext()
             var written = 0
             let remaining = bytes.count - totalWritten
-            let status = bytes.withUnsafeBufferPointer { buf in
+            status = bytes.withUnsafeBufferPointer { buf in
                 SSLWrite(ctx, buf.baseAddress! + totalWritten, remaining, &written)
             }
             guard status == errSecSuccess || status == errSSLWouldBlock else {
                 throw XMPPClientError.sendFailed(securityErrorText(status))
             }
             if written == 0 {
-                try waitForWritable()
+                try await awaitWritable()
             }
             totalWritten += written
         }
-    }
-
-    private func sendPlain(bytes: [UInt8]) throws {
-        try bytes.withUnsafeBufferPointer { buf in
-            var totalSent = 0
-            while totalSent < bytes.count {
-                let sent = Darwin.send(fd, buf.baseAddress! + totalSent, bytes.count - totalSent, 0)
-                if sent < 0 {
-                    if errno == EAGAIN || errno == EWOULDBLOCK {
-                        try waitForWritable()
-                        continue
-                    }
-                    throw XMPPClientError.sendFailed(posixErrorText(errno))
-                }
-                guard sent > 0 else {
-                    throw XMPPClientError.sendFailed("The connection was closed")
-                }
-                totalSent += sent
+        // SSLWrite counts plaintext as written once it is queued, so a would-block after that leaves ciphertext in
+        // Secure Transport's write queue. An empty write retries sending the queue.
+        while status == errSSLWouldBlock {
+            try await awaitWritable()
+            let ctx = try publishedSSLContext()
+            var written = 0
+            status = SSLWrite(ctx, nil, 0, &written)
+            guard status == errSecSuccess || status == errSSLWouldBlock else {
+                throw XMPPClientError.sendFailed(securityErrorText(status))
             }
         }
     }
 
-    private func waitForWritable() throws {
-        var pollFd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        let result = Darwin.poll(&pollFd, 1, 5000)
-        if result == 0 {
-            throw XMPPClientError.sendFailed("Timed out waiting to send data")
+    /// Throws once a disconnect has torn the context down, since its I/O callbacks would dereference the freed
+    /// connection pointer.
+    private func publishedSSLContext() throws -> SSLContext {
+        guard let ctx = sslContext else { throw XMPPClientError.notConnected }
+        return ctx
+    }
+
+    private func sendPlain(_ bytes: [UInt8]) async throws {
+        var totalSent = 0
+        while totalSent < bytes.count {
+            guard fd >= 0 else { throw XMPPClientError.notConnected }
+            let sent = bytes.withUnsafeBufferPointer { buf in
+                Darwin.send(fd, buf.baseAddress! + totalSent, bytes.count - totalSent, 0)
+            }
+            if sent < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    try await awaitWritable()
+                    continue
+                }
+                throw XMPPClientError.sendFailed(posixErrorText(errno))
+            }
+            guard sent > 0 else {
+                throw XMPPClientError.sendFailed("The connection was closed")
+            }
+            totalSent += sent
         }
-        if result < 0 {
-            throw XMPPClientError.sendFailed(posixErrorText(errno))
+    }
+
+    /// Waits until the socket accepts more data, sleeping between checks instead of blocking a thread.
+    private func awaitWritable() async throws {
+        let deadline = ContinuousClock.now + writeTimeout
+        while true {
+            guard fd >= 0 else { throw XMPPClientError.notConnected }
+            var pollFd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+            let result = Darwin.poll(&pollFd, 1, 0)
+            if result > 0 { return }
+            if result < 0, errno != EINTR {
+                throw XMPPClientError.sendFailed(posixErrorText(errno))
+            }
+            guard ContinuousClock.now < deadline else {
+                throw XMPPClientError.sendFailed("Timed out waiting to send data")
+            }
+            try await Task.sleep(for: .milliseconds(10))
         }
     }
 
@@ -366,41 +447,65 @@ actor POSIXTransport: XMPPTransport {
 
     private func startReceiving() {
         let fdCopy = fd
+        let usesTLS = sslContext != nil
         let continuation = receivedContinuation
         receiveTask = Task.detached { [weak self] in
             var buffer = [UInt8](repeating: 0, count: 65536)
-            while !Task.isCancelled {
-                let count: Int
-                if let ctx = await self?.sslContext {
-                    var read = 0
-                    let status = SSLRead(ctx, &buffer, buffer.count, &read)
-                    if status == errSSLWouldBlock && read == 0 {
+            receiving: while !Task.isCancelled {
+                let chunk: [UInt8]
+                if usesTLS {
+                    guard let read = await self?.readSSL() else { break }
+                    switch read {
+                    case let .data(bytes):
+                        chunk = bytes
+                    case .wouldBlock:
                         try? await Task.sleep(for: .milliseconds(10))
                         continue
+                    case .closed:
+                        break receiving
                     }
-                    guard status == errSecSuccess || status == errSSLWouldBlock || status == errSSLClosedGraceful else {
-                        break
-                    }
-                    if read == 0 { break }
-                    count = read
                 } else {
                     let result = recv(fdCopy, &buffer, buffer.count, 0)
                     if result == 0 { break }
                     if result < 0 {
+                        if errno == EINTR { continue }
                         if errno == EAGAIN || errno == EWOULDBLOCK {
                             try? await Task.sleep(for: .milliseconds(10))
                             continue
                         }
                         break
                     }
-                    count = result
+                    chunk = Array(buffer[..<result])
                 }
-                continuation.yield(Array(buffer[..<count]))
+                continuation.yield(chunk)
             }
             if !Task.isCancelled {
                 continuation.finish()
             }
         }
+    }
+
+    private enum SSLReadResult {
+        case data([UInt8])
+        case wouldBlock
+        case closed
+    }
+
+    /// `SSLRead` and `SSLWrite` both service the context's unsynchronized record write queue, so reads run on the actor
+    /// where they can never overlap a write.
+    private func readSSL() -> SSLReadResult {
+        guard let ctx = sslContext else { return .closed }
+        var read = 0
+        let status = readBuffer.withUnsafeMutableBytes { buf in
+            SSLRead(ctx, buf.baseAddress!, buf.count, &read)
+        }
+        if status == errSSLWouldBlock && read == 0 {
+            return .wouldBlock
+        }
+        guard status == errSecSuccess || status == errSSLWouldBlock || status == errSSLClosedGraceful, read > 0 else {
+            return .closed
+        }
+        return .data(Array(readBuffer[..<read]))
     }
 }
 
@@ -513,21 +618,30 @@ private func formatCipherSuite(_ suite: SSLCipherSuite) -> String {
 
 // MARK: - SSL Trust Validation
 
-/// Validates the server certificate chain after TLS handshake. Secure Transport requires explicit peer-trust evaluation; without this, self-signed/invalid certs are silently accepted.
-private func validatePeerTrust(ctx: SSLContext) throws {
-    var trust: SecTrust?
-    let status = SSLCopyPeerTrust(ctx, &trust)
-    guard status == errSecSuccess else {
-        throw XMPPClientError.tlsNegotiationFailed(securityErrorText(status))
-    }
-    guard let trust else {
-        throw XMPPClientError.tlsNegotiationFailed("The server sent no certificate")
-    }
+/// Hands the non-Sendable `SecTrust` to the evaluation queue and carries the verdict back to the polling handshake.
+private final class TrustJob: Sendable {
+    let trust = Mutex<SecTrust?>(nil)
+    let verdict = Mutex<Result<Void, XMPPClientError>?>(nil)
+}
 
-    var trustError: CFError?
-    guard SecTrustEvaluateWithError(trust, &trustError) else {
-        let reason = (trustError as Error?)?.localizedDescription ?? "Unknown trust evaluation error"
-        throw XMPPClientError.tlsNegotiationFailed(reason)
+/// Records exactly one verdict in `job`.
+private func evaluateTrust(_ job: TrustJob) {
+    let queue = DispatchQueue.global(qos: .userInitiated)
+    queue.async {
+        job.trust.withLock { trust in
+            guard let trust else {
+                job.verdict.withLock { $0 = .failure(.tlsNegotiationFailed("The server sent no certificate")) }
+                return
+            }
+            // The callback runs once when submission succeeds and never when it fails.
+            let status = SecTrustEvaluateAsyncWithError(trust, queue) { _, isTrusted, error in
+                let reason = (error as Error?)?.localizedDescription ?? "Unknown trust evaluation error"
+                job.verdict.withLock { $0 = isTrusted ? .success(()) : .failure(.tlsNegotiationFailed(reason)) }
+            }
+            if status != errSecSuccess {
+                job.verdict.withLock { $0 = .failure(.tlsNegotiationFailed(securityErrorText(status))) }
+            }
+        }
     }
 }
 
@@ -551,6 +665,7 @@ private func posixSSLRead(
             dataLength.pointee = totalRead
             return totalRead > 0 ? errSecSuccess : errSSLClosedGraceful
         } else {
+            if errno == EINTR { continue }
             if errno == EAGAIN || errno == EWOULDBLOCK {
                 if totalRead > 0 {
                     // Buffered partial data — return it with `errSSLWouldBlock` so the caller retries.
@@ -584,6 +699,7 @@ private func posixSSLWrite(
         if result > 0 {
             totalWritten += result
         } else { // send() returning 0 or negative — treat as error
+            if result < 0, errno == EINTR { continue }
             if errno == EAGAIN || errno == EWOULDBLOCK {
                 if totalWritten > 0 {
                     dataLength.pointee = totalWritten

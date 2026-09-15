@@ -599,6 +599,49 @@ enum XMPPClientTests {
             }
             #expect(condition == nil)
             #expect(text == nil)
+            let isConnected = await mock.isConnected
+            #expect(!isConnected)
+        }
+
+        @Test
+        func `A second disconnect waits for a disconnect still closing the stream`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let firstDisconnect = Task { await client.disconnect(streamCloseTimeout: .milliseconds(300)) }
+            _ = await mock.waitForSent { $0.contains("</stream:stream>") }
+            await disconnectFast(client)
+            let isConnected = await mock.isConnected
+            #expect(!isConnected)
+            await firstDisconnect.value
+        }
+
+        @Test
+        func `A connect after disconnect fails instead of opening a session`() async throws {
+            let mock = MockTransport()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+
+            await disconnectFast(client)
+            let outcome = try await boundedOutcome {
+                try await client.connect(host: "example.com", port: 5222)
+            }
+
+            let result = try #require(outcome)
+            #expect(throws: (any Error).self) { try result.get() }
+            let isConnected = await mock.isConnected
+            #expect(!isConnected)
         }
     }
 
@@ -1385,6 +1428,124 @@ enum XMPPClientTests {
             await disconnectFast(client)
             #expect(module.wasDisconnected)
         }
+
+        @Test
+        func `handleDisconnect runs once when a stream error ends the stream`() async throws {
+            let mock = MockTransport()
+            let module = DisconnectCountingModule()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(module)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .disconnected = event { return true }
+                    return false
+                }
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+            await mock.simulateReceive(
+                "<stream:error><conflict xmlns='urn:ietf:params:xml:ns:xmpp-streams'/></stream:error>"
+            )
+            _ = try await eventsTask.value
+
+            #expect(module.disconnectCount == 1)
+        }
+
+        @Test
+        func `disconnect waits for a teardown already in progress`() async throws {
+            let mock = MockTransport()
+            let module = GatedDisconnectModule()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(module)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(300)) }
+            _ = await mock.waitForSent { $0.contains("</stream:stream>") }
+            // The stream error starts a teardown that holds in the module. disconnect() reaches it once its stream-close
+            // wait times out, and must keep waiting until the module is released.
+            await mock.simulateReceive(
+                "<stream:error><conflict xmlns='urn:ietf:params:xml:ns:xmpp-streams'/></stream:error>"
+            )
+            let entered = try await boundedOutcome { await module.entered.wait() }
+            try #require(entered != nil)
+
+            let early = try await boundedOutcome(timeout: .milliseconds(600)) { await disconnectTask.value }
+            #expect(early == nil)
+
+            await module.released.signal()
+            await disconnectTask.value
+            let isConnected = await mock.isConnected
+            #expect(!isConnected)
+        }
+
+        @Test
+        func `disconnect waits for a teardown a stream error already started`() async throws {
+            let mock = MockTransport()
+            let module = GatedDisconnectModule()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            await client.register(module)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            await mock.simulateReceive(
+                "<stream:error><conflict xmlns='urn:ietf:params:xml:ns:xmpp-streams'/></stream:error>"
+            )
+            let entered = try await boundedOutcome { await module.entered.wait() }
+            try #require(entered != nil)
+
+            let disconnectTask = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
+            let early = try await boundedOutcome(timeout: .milliseconds(300)) { await disconnectTask.value }
+            #expect(early == nil)
+
+            await module.released.signal()
+            await disconnectTask.value
+            let isConnected = await mock.isConnected
+            #expect(!isConnected)
+        }
+
+        @Test
+        func `A module calling disconnect from handleDisconnect doesn't stall the teardown`() async throws {
+            let mock = MockTransport()
+            let module = ReentrantDisconnectModule()
+            let client = XMPPClient(
+                domain: "example.com",
+                credentials: .init(username: "user", password: "pass"),
+                transport: mock, requireTLS: false
+            )
+            module.attach(client)
+            await client.register(module)
+
+            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
+            await simulateNoTLSConnect(mock)
+            try await connectTask.value
+
+            let disconnected = try await boundedOutcome { await disconnectFast(client) }
+            #expect(disconnected != nil)
+            let isConnected = await mock.isConnected
+            #expect(!isConnected)
+        }
     }
 }
 
@@ -1431,7 +1592,7 @@ private final class NoFeatureModule: XMPPModule {
 }
 
 /// Module that tracks whether `handleDisconnect()` was called.
-private final class DisconnectTrackingModule: XMPPModule, @unchecked Sendable {
+private final class DisconnectTrackingModule: XMPPModule, Sendable {
     private let _disconnected = OSAllocatedUnfairLock(initialState: false)
 
     var wasDisconnected: Bool {
@@ -1442,5 +1603,58 @@ private final class DisconnectTrackingModule: XMPPModule, @unchecked Sendable {
 
     func handleDisconnect() async {
         _disconnected.withLock { $0 = true }
+    }
+}
+
+/// Module that counts `handleDisconnect()` calls. The first call stays open for a while, so a reentrant teardown
+/// has time to arrive and call it again.
+private final class DisconnectCountingModule: XMPPModule, Sendable {
+    private let calls = OSAllocatedUnfairLock(initialState: 0)
+
+    var disconnectCount: Int {
+        calls.withLock { $0 }
+    }
+
+    func setUp(_ context: ModuleContext) {}
+
+    func handleDisconnect() async {
+        let count = calls.withLock { calls in
+            calls += 1
+            return calls
+        }
+        guard count == 1 else { return }
+        let deadline = ContinuousClock.now + .milliseconds(200)
+        while disconnectCount == 1, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+}
+
+/// Module whose `handleDisconnect()` signals `entered`, then stays open until `released` is signaled.
+private final class GatedDisconnectModule: XMPPModule, Sendable {
+    let entered = AsyncSemaphore()
+    let released = AsyncSemaphore()
+
+    func setUp(_ context: ModuleContext) {}
+
+    func handleDisconnect() async {
+        await entered.signal()
+        await released.wait()
+    }
+}
+
+/// Module whose `handleDisconnect()` calls back into `disconnect()` on its client.
+private final class ReentrantDisconnectModule: XMPPModule, Sendable {
+    private let client = OSAllocatedUnfairLock<XMPPClient?>(initialState: nil)
+
+    func attach(_ client: XMPPClient) {
+        self.client.withLock { $0 = client }
+    }
+
+    func setUp(_ context: ModuleContext) {}
+
+    func handleDisconnect() async {
+        guard let client = client.withLock({ $0 }) else { return }
+        await disconnectFast(client)
     }
 }

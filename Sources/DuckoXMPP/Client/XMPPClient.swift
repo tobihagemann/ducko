@@ -22,6 +22,11 @@ public actor XMPPClient {
     private var interceptors: [any StanzaInterceptor] = []
     private var state: ConnectionState = .disconnected
     private var disconnectInFlight: Bool = false
+    private var disconnectTask: Task<Void, Never>?
+    private var cleanUpTask: Task<Void, Never>?
+    /// Set while module `handleDisconnect` hooks run, so a hook calling back into `disconnect()` doesn't wait for
+    /// the teardown it is part of.
+    @TaskLocal private static var isTearingDown = false
     private var readerTask: Task<Void, Never>?
     private var pendingIQs: [String: PendingIQ] = [:]
     private var pendingStreamClose: PendingStreamClose?
@@ -451,12 +456,24 @@ public actor XMPPClient {
     // MARK: - Disconnect
 
     public func disconnect(streamCloseTimeout: Duration = .milliseconds(500)) async {
-        // Reentrancy guard: module `handleDisconnect` can re-call `disconnect()`, and `cleanUp` is reachable from
-        // non-disconnect paths (stream errors, redirect, connection lost). Check-and-set is actor-atomic before any
-        // await; one-way flag is fine because XMPPClient is terminal after cleanUp.
-        guard !disconnectInFlight else { return }
+        // Reentrancy guard: module `handleDisconnect` can re-call `disconnect()`, and `cleanUp` also runs from
+        // stream-error, redirect, and connection-lost paths. Check-and-set is actor-atomic before any await. A one-way
+        // flag is fine because XMPPClient is terminal after a disconnect or cleanUp. A caller outside the teardown still
+        // waits for a disconnect or teardown another path already started.
+        guard !disconnectInFlight else {
+            if !Self.isTearingDown {
+                await disconnectTask?.value
+                await cleanUpTask?.value
+            }
+            return
+        }
         disconnectInFlight = true
+        let shutdown = Task { await shutDown(streamCloseTimeout: streamCloseTimeout) }
+        disconnectTask = shutdown
+        await shutdown.value
+    }
 
+    private func shutDown(streamCloseTimeout: Duration) async {
         // Send unavailable presence through `send` so the SM interceptor counts
         // it. Going through `connection.send` directly leaves SM's outgoing
         // counter one short of the server's, producing a phantom "Invalid ack"
@@ -484,6 +501,8 @@ public actor XMPPClient {
             }
         }
         await cleanUp(reason: .requested)
+        // cleanUp does nothing for a client that is already disconnected. Closing the connection anyway finishes its
+        // event stream, so a later connect on this client fails instead of opening a session.
         await connection.disconnect()
     }
 
@@ -1024,14 +1043,29 @@ public actor XMPPClient {
 
     private func cleanUp(reason: DisconnectReason) async {
         if case .disconnected = state { return }
+        // `state` isn't `.disconnected` until the teardown finishes, and cancelling the reader sends its loop into
+        // `handleStreamEnd`. A later caller therefore waits for the running teardown instead of repeating it.
+        if let cleanUpTask {
+            await cleanUpTask.value
+            return
+        }
         // Same reentrancy guard as disconnect() — cleanUp also runs from stream-error/redirect/connection-lost paths.
         disconnectInFlight = true
         readerTask?.cancel()
         readerTask = nil
 
-        for module in modules.values {
-            await module.handleDisconnect()
+        let teardown = Task { await tearDown(reason: reason) }
+        cleanUpTask = teardown
+        await teardown.value
+    }
+
+    private func tearDown(reason: DisconnectReason) async {
+        await Self.$isTearingDown.withValue(true) {
+            for module in modules.values {
+                await module.handleDisconnect()
+            }
         }
+        await connection.disconnect()
 
         state = .disconnected
         connectedJIDLock.withLock { $0 = nil }
