@@ -23,9 +23,14 @@ if [[ ${#ARCH_LIST[@]} -eq 0 ]]; then
   ARCH_LIST=("$HOST_ARCH")
 fi
 
+# One invocation builds every arch into a single (universal when several) binary. Swift 6.4's
+# default build system writes all arches to one products folder, so resolve it instead of guessing.
+ARCH_FLAGS=()
 for ARCH in "${ARCH_LIST[@]}"; do
-  swift build -c "$CONF" --arch "$ARCH"
+  ARCH_FLAGS+=(--arch "$ARCH")
 done
+swift build -c "$CONF" "${ARCH_FLAGS[@]}"
+BIN_DIR=$(swift build -c "$CONF" "${ARCH_FLAGS[@]}" --show-bin-path)
 
 APP="$ROOT/${APP_NAME}.app"
 rm -rf "$APP"
@@ -59,15 +64,6 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-build_product_path() {
-  local name="$1"
-  local arch="$2"
-  case "$arch" in
-    arm64|x86_64) echo ".build/${arch}-apple-macosx/$CONF/$name" ;;
-    *) echo ".build/$CONF/$name" ;;
-  esac
-}
-
 verify_binary_arches() {
   local binary="$1"; shift
   local expected=("$@")
@@ -91,21 +87,12 @@ verify_binary_arches() {
 install_binary() {
   local name="$1"
   local dest="$2"
-  local binaries=()
-  for arch in "${ARCH_LIST[@]}"; do
-    local src
-    src=$(build_product_path "$name" "$arch")
-    if [[ ! -f "$src" ]]; then
-      echo "ERROR: Missing ${name} build for ${arch} at ${src}" >&2
-      exit 1
-    fi
-    binaries+=("$src")
-  done
-  if [[ ${#ARCH_LIST[@]} -gt 1 ]]; then
-    lipo -create "${binaries[@]}" -output "$dest"
-  else
-    cp "${binaries[0]}" "$dest"
+  local src="$BIN_DIR/$name"
+  if [[ ! -f "$src" ]]; then
+    echo "ERROR: Missing ${name} build at ${src}" >&2
+    exit 1
   fi
+  cp "$src" "$dest"
   chmod +x "$dest"
   verify_binary_arches "$dest" "${ARCH_LIST[@]}"
 }
@@ -122,9 +109,8 @@ if [[ -f "$ROOT/Resources/Assets.car" ]]; then
 fi
 
 # SwiftPM resource bundles are emitted next to the built binary.
-PREFERRED_BUILD_DIR="$(dirname "$(build_product_path "$EXEC_NAME" "${ARCH_LIST[0]}")")"
 shopt -s nullglob
-SWIFTPM_BUNDLES=("${PREFERRED_BUILD_DIR}/"*.bundle)
+SWIFTPM_BUNDLES=("${BIN_DIR}/"*.bundle)
 shopt -u nullglob
 if [[ ${#SWIFTPM_BUNDLES[@]} -gt 0 ]]; then
   for bundle in "${SWIFTPM_BUNDLES[@]}"; do
@@ -133,15 +119,11 @@ if [[ ${#SWIFTPM_BUNDLES[@]} -gt 0 ]]; then
 fi
 
 # Embed frameworks if any exist in the build folder.
-FRAMEWORK_DIRS=(".build/$CONF" ".build/${ARCH_LIST[0]}-apple-macosx/$CONF")
-for dir in "${FRAMEWORK_DIRS[@]}"; do
-  if compgen -G "${dir}/"*.framework >/dev/null; then
-    cp -R "${dir}/"*.framework "$APP/Contents/Frameworks/"
-    chmod -R a+rX "$APP/Contents/Frameworks"
-    install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/$EXEC_NAME"
-    break
-  fi
-done
+if compgen -G "${BIN_DIR}/"*.framework >/dev/null; then
+  cp -R "${BIN_DIR}/"*.framework "$APP/Contents/Frameworks/"
+  chmod -R a+rX "$APP/Contents/Frameworks"
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/$EXEC_NAME"
+fi
 
 # Ensure contents are writable before stripping attributes and signing.
 chmod -R u+w "$APP"
