@@ -64,6 +64,87 @@ enum AttachmentModelTests {
             let attachment = makeAttachment(url: "https://example.com/document.pdf", fileName: "")
             #expect(attachment.displayFileName == "document.pdf")
         }
+
+        /// A peer's name, given outright or taken from its link, is shown the way an offered file's name is, so a
+        /// direction override cannot make `invoice‮fdp.exe` read as `invoiceexe.pdf`.
+        @Test(arguments: [
+            (nil, "https://example.com/invoice%E2%80%AEfdp.exe"),
+            ("invoice\u{202E}fdp.exe", "https://example.com/x")
+        ])
+        func `A peer's file name is reduced to one visible name`(fileName: String?, url: String) {
+            let attachment = makeAttachment(url: url, fileName: fileName)
+            #expect(attachment.displayFileName == "invoicefdp.exe")
+        }
+
+        /// This app named a file it saved itself, so that name is shown as it is.
+        @Test
+        func `A saved file keeps its own name`() {
+            let fileURL = URL(filePath: "/tmp/notes: draft.txt")
+            let attachment = DuckoCore.Attachment.locallySaved(id: UUID(), fileURL: fileURL)
+            #expect(attachment.displayFileName == "notes: draft.txt")
+        }
+    }
+
+    struct LocalFileURL {
+        @Test
+        func `A file this app saved is its own file`() {
+            let saved = Attachment.locallySaved(id: UUID(), fileURL: URL(fileURLWithPath: "/Users/me/Downloads/photo.png"))
+            #expect(saved.localFileURL?.path == "/Users/me/Downloads/photo.png")
+            #expect(saved.origin == .locallySaved)
+        }
+
+        /// The defect this guards: a peer sends `file:///Users/me/Documents/tax-return.pdf` and the bubble offers to
+        /// preview and reveal the recipient's own document. The scheme is identical to the one above, so only
+        /// provenance separates them.
+        @Test(arguments: [
+            "file:///Users/me/Documents/tax-return.pdf",
+            "file:///etc/passwd",
+            "https://example.com/photo.png",
+            "mailto:someone@example.com"
+        ])
+        func `Anything this app did not save has no local file`(url: String) {
+            let attachment = makeAttachment(url: url)
+            #expect(attachment.origin == .remote)
+            #expect(attachment.localFileURL == nil)
+        }
+
+        /// Records written before provenance was stored carry no origin at all, and must decode as the safe reading
+        /// rather than as a file this app can be talked into opening.
+        @Test
+        func `A record stored before provenance existed decodes as remote`() throws {
+            let legacy = Data(#"{"id":"\#(UUID().uuidString)","url":"file:///Users/me/Documents/tax-return.pdf"}"#.utf8)
+            let decoded = try JSONDecoder().decode(Attachment.self, from: legacy)
+            #expect(decoded.origin == .remote)
+            #expect(decoded.localFileURL == nil)
+        }
+
+        /// A saved attachment has to survive the transcript round trip, or preview and reveal break on relaunch.
+        @Test
+        func `A saved file keeps its provenance across a round trip`() throws {
+            let saved = Attachment.locallySaved(id: UUID(), fileURL: URL(fileURLWithPath: "/Users/me/Downloads/photo.png"))
+            let decoded = try JSONDecoder().decode(Attachment.self, from: JSONEncoder().encode(saved))
+            #expect(decoded.origin == .locallySaved)
+            #expect(decoded.localFileURL?.path == "/Users/me/Downloads/photo.png")
+        }
+    }
+
+    struct RemoteURL {
+        @Test(arguments: ["https://example.com/photo.png", "http://example.com/photo.png"])
+        func `A web address is the attachment's remote URL`(url: String) {
+            #expect(makeAttachment(url: url).remoteURL?.absoluteString == url)
+        }
+
+        /// Everything a peer could put in the string that must never reach an image loader or the browser.
+        @Test(arguments: [
+            "file:///Users/me/Documents/tax-return.pdf",
+            "javascript:alert(1)",
+            "mailto:someone@example.com",
+            "ftp://example.com/photo.png",
+            "not a url at all"
+        ])
+        func `Anything that is not a web address has no remote URL`(url: String) {
+            #expect(makeAttachment(url: url).remoteURL == nil)
+        }
     }
 
     struct FormattedFileSize {

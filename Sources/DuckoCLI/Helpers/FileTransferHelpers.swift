@@ -135,146 +135,51 @@ func handleSendFileREPLCommand(
 }
 
 func handleAcceptREPLCommand(_ input: String, context: REPLContext) async {
-    await handleFileTransferREPLCommand(input, prefix: "/accept", verb: "Accepted", context: context) { sid, accountID in
-        try await context.environment.fileTransferService.acceptIncomingTransfer(sid, accountID: accountID)
-    }
+    // `downloadsDirectory` is nonisolated, but reaching the service through `environment` is not.
+    let downloadsPath = await MainActor.run { context.environment.fileTransferService.downloadsDirectory.path }
+    await handleFileTransferREPLCommand(
+        input, prefix: "/accept", context: context,
+        confirmation: { "Accepted file transfer: \($0), saving to \(downloadsPath)" },
+        action: { offerID, accountID in
+            try await context.environment.fileTransferService.acceptIncomingTransfer(offerID, accountID: accountID)
+        }
+    )
 }
 
 func handleDeclineREPLCommand(_ input: String, context: REPLContext) async {
-    await handleFileTransferREPLCommand(input, prefix: "/decline", verb: "Declined", context: context) { sid, accountID in
-        let isFileRequest = await MainActor.run {
-            context.environment.fileTransferService.incomingRequests.contains { $0.sid == sid }
+    await handleFileTransferREPLCommand(
+        input, prefix: "/decline", context: context,
+        confirmation: { "Declined file transfer: \($0)" },
+        action: { offerID, accountID in
+            try await context.environment.fileTransferService.declineIncomingTransfer(offerID, accountID: accountID)
         }
-        if isFileRequest {
-            try await context.environment.fileTransferService.declineFileRequest(sid, accountID: accountID)
-        } else {
-            try await context.environment.fileTransferService.declineIncomingTransfer(sid, accountID: accountID)
-        }
-    }
-}
-
-func handleFulfillREPLCommand(_ input: String, context: REPLContext) async {
-    let args = input.dropFirst("/fulfill".count).trimmingCharacters(in: .whitespaces)
-    let parts = args.split(separator: " ", maxSplits: 1)
-
-    let sid: String
-    let filePath: String
-
-    if parts.count == 2 {
-        sid = String(parts[0])
-        filePath = String(parts[1])
-    } else if parts.count == 1 {
-        guard let request = await MainActor.run(body: { context.environment.fileTransferService.incomingRequests.last }) else {
-            print(context.formatter.formatError(CLIError.noIncomingOffers))
-            return
-        }
-        sid = request.sid
-        filePath = String(parts[0])
-    } else {
-        print("Usage: /fulfill [sid] <path>")
-        return
-    }
-
-    let fileURL = URL(fileURLWithPath: filePath)
-    do {
-        try await context.environment.fileTransferService.fulfillFileRequest(sid, fileURL: fileURL, accountID: context.accountID)
-        print("Fulfilling file request: \(sid)")
-    } catch {
-        print(context.formatter.formatError(error))
-    }
+    )
 }
 
 private func handleFileTransferREPLCommand(
-    _ input: String, prefix: String, verb: String, context: REPLContext,
+    _ input: String, prefix: String, context: REPLContext,
+    confirmation: (String) -> String,
     action: (String, UUID) async throws -> Void
 ) async {
     let args = input.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
-    let sid: String
+    let offerID: String
     if args.isEmpty {
-        guard let offer = await MainActor.run(body: { context.environment.fileTransferService.incomingOffers.last }) else {
+        // The same projection the GUI banner shows, so a link offer can be taken here too. The action runs on this
+        // session's account, so the newest offer is taken from that account's.
+        let latest = await MainActor.run {
+            context.environment.fileTransferService.viewIncomingOffers.last { $0.accountID == context.accountID }?.offerID
+        }
+        guard let latest else {
             print(context.formatter.formatError(CLIError.noIncomingOffers))
             return
         }
-        sid = offer.sid
+        offerID = latest
     } else {
-        sid = args
+        offerID = args
     }
     do {
-        try await action(sid, context.accountID)
-        print("\(verb) file transfer: \(sid)")
-    } catch {
-        print(context.formatter.formatError(error))
-    }
-}
-
-func handleRequestFileREPLCommand(_ input: String, context: REPLContext) async {
-    let args = input.dropFirst("/request-file".count).trimmingCharacters(in: .whitespaces)
-    let parts = args.split(separator: " ", maxSplits: 2)
-    guard parts.count >= 2 else {
-        print("Usage: /request-file <full-jid> <filename> [size]")
-        return
-    }
-    let jidString = String(parts[0])
-    let fileName = String(parts[1])
-    let fileSize: Int64 = parts.count >= 3 ? Int64(parts[2]) ?? 0 : 0
-
-    do {
-        try await context.environment.fileTransferService.requestFile(
-            from: jidString, fileName: fileName, fileSize: fileSize, accountID: context.accountID
-        )
-        print("Requested file '\(fileName)' from \(jidString)")
-    } catch {
-        print(context.formatter.formatError(error))
-    }
-}
-
-func handleAddFileREPLCommand(_ input: String, context: REPLContext) async {
-    let args = input.dropFirst("/add-file".count).trimmingCharacters(in: .whitespaces)
-    let parts = args.split(separator: " ", maxSplits: 1)
-
-    let sid: String
-    let filePath: String
-
-    if parts.count == 2 {
-        sid = String(parts[0])
-        filePath = String(parts[1])
-    } else if parts.count == 1 {
-        guard let transfer = await MainActor.run(body: {
-            context.environment.fileTransferService.activeTransfers.last { $0.isSessionLevel }
-        }), let transferSID = transfer.sid else {
-            print(context.formatter.formatError(CLIError.noActiveJingleSession))
-            return
-        }
-        sid = transferSID
-        filePath = String(parts[0])
-    } else {
-        print("Usage: /add-file [sid] <path>")
-        return
-    }
-
-    let fileURL = URL(fileURLWithPath: filePath)
-    do {
-        try await context.environment.fileTransferService.addFileToSession(sid: sid, url: fileURL, accountID: context.accountID)
-        print("Added file to session: \(sid)")
-    } catch {
-        print(context.formatter.formatError(error))
-    }
-}
-
-func handleRemoveContentREPLCommand(_ input: String, context: REPLContext) async {
-    let args = input.dropFirst("/remove-content".count).trimmingCharacters(in: .whitespaces)
-    let parts = args.split(separator: " ", maxSplits: 1)
-    guard parts.count == 2 else {
-        print("Usage: /remove-content <sid> <content-name>")
-        return
-    }
-    let sid = String(parts[0])
-    let contentName = String(parts[1])
-    do {
-        try await context.environment.fileTransferService.removeContent(
-            sid: sid, contentName: contentName, accountID: context.accountID
-        )
-        print("Removed content '\(contentName)' from session \(sid)")
+        try await action(offerID, context.accountID)
+        print(confirmation(offerID))
     } catch {
         print(context.formatter.formatError(error))
     }
@@ -310,5 +215,6 @@ func formatTransferState(_ state: FileTransferService.TransferState) -> String {
     case let .transferring(progress): "transferring \(Int(progress * 100))%"
     case .awaitingAcceptance: "awaiting acceptance"
     case .completedTransfer: "completed"
+    case let .received(fileURL): "saved to \(fileURL.path)"
     }
 }

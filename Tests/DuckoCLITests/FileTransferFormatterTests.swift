@@ -45,11 +45,11 @@ struct PlainFileTransferFormatterTests {
     }
 
     @Test func `format file offer`() {
-        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
+        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", offerID: "offer-123")
         #expect(output.contains("report.pdf"))
         #expect(output.contains("MB"))
         #expect(output.contains("bob@example.com"))
-        #expect(output.contains("sid-123"))
+        #expect(output.contains("offer-123"))
         #expect(output.contains("/accept"))
         #expect(output.contains("/decline"))
     }
@@ -87,6 +87,10 @@ struct PlainFileTransferFormatterTests {
     @Test func `format transfer state shows the failure reason alone`() {
         #expect(formatTransferState(.failed("You declined the transfer")) == "You declined the transfer")
     }
+
+    @Test func `format transfer state says where a received file was saved`() {
+        #expect(formatTransferState(.received(fileURL: URL(filePath: "/tmp/ducko/notes.txt"))) == "saved to /tmp/ducko/notes.txt")
+    }
 }
 
 // MARK: - ANSIFormatter File Transfer Tests
@@ -121,11 +125,11 @@ struct ANSIFileTransferFormatterTests {
     }
 
     @Test func `format file offer contains yellow`() {
-        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
+        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", offerID: "offer-123")
         #expect(output.contains("\u{001B}[33m")) // yellow
         #expect(output.contains("report.pdf"))
         #expect(output.contains("bob@example.com"))
-        #expect(output.contains("sid-123"))
+        #expect(output.contains("offer-123"))
     }
 
     @Test func `format jingle transfer progress contains progress bar`() {
@@ -199,15 +203,29 @@ struct JSONFileTransferFormatterTests {
         #expect(json["fileSizeBytes"] == nil)
     }
 
-    @Test func `format file offer is valid JSON`() throws {
-        let output = formatter.formatFileOffer(fileName: "report.pdf", fileSize: 5_242_880, from: "bob@example.com", sid: "sid-123")
+    @Test func `a file offer event carries the offer id`() throws {
+        let peer = try #require(FullJID.parse("bob@example.com/res"))
+        let offer = JingleFileOffer(offerID: "offer-1", sid: "session-1", from: peer, fileName: "report.pdf", fileSize: 5_242_880)
+        let output = try #require(formatter.formatEvent(.jingleFileTransferReceived(offer), accountID: UUID()))
         let data = try #require(output.data(using: .utf8))
         let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
         #expect(json["type"] == "file_offer")
         #expect(json["fileName"] == "report.pdf")
         #expect(json["from"] == "bob@example.com")
-        #expect(json["sid"] == "sid-123")
+        #expect(json["offerId"] == "offer-1")
+        #expect(json["sid"] == "session-1")
         #expect(json["fileSizeBytes"] == "5242880")
+    }
+
+    @Test func `a link offer event carries the offer id`() throws {
+        let peer = try #require(FullJID.parse("bob@example.com/res"))
+        let offer = OOBIQOffer(offerID: "offer-2", id: "stanza-2", from: .full(peer), url: "https://example.com/a.bin", desc: nil)
+        let output = try #require(formatter.formatEvent(.oobIQOfferReceived(offer), accountID: UUID()))
+        let data = try #require(output.data(using: .utf8))
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["type"] == "oob_iq_offer")
+        #expect(json["offerId"] == "offer-2")
+        #expect(json["id"] == "stanza-2")
     }
 
     @Test func `format jingle transfer progress is valid JSON`() throws {

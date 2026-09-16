@@ -63,6 +63,12 @@ public struct ChatMessage: Sendable, Identifiable {
         self.attachments = attachments
     }
 
+    /// What the message reads as wherever one line stands for it — a conversation's last-message preview, a
+    /// notification. A received file arrives with no text, so the file's name is what it says.
+    public var previewText: String {
+        body.isEmpty ? attachments.first?.displayFileName ?? "" : body
+    }
+
     /// Creates a display-only message for CLI output formatting.
     public static func displayPlaceholder(
         fromJID: String,

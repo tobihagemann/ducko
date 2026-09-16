@@ -5,6 +5,11 @@ import Testing
 @testable import DuckoUI
 
 struct ContactPresenceDisplayTests {
+    @Test(arguments: [(true, ContactPresenceDisplay.available), (false, ContactPresenceDisplay.unknown)])
+    func `A room reads present while this account occupies it`(isJoined: Bool, expected: ContactPresenceDisplay) {
+        #expect(ContactPresenceDisplay.resolve(isJoined: isJoined) == expected)
+    }
+
     @Test
     func `pending overrides subscription and presence`() {
         for subscription in [Contact.Subscription.none, .from, .to, .both] {

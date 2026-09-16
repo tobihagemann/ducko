@@ -33,6 +33,7 @@ public final class AppEnvironment {
         credentialStore: (any CredentialStore)? = nil,
         omemoStore: (any OMEMOStore)? = nil,
         linkPreviewFetcher: any LinkPreviewFetcher = NoOpLinkPreviewFetcher(),
+        downloadsDirectory: URL = .downloadsDirectory,
         onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)? = nil
     ) {
         let resolvedCredentialStore = credentialStore ?? CredentialStoreFactory.makeDefault()
@@ -46,7 +47,7 @@ public final class AppEnvironment {
         bookmarksService.autoJoinEnabled = true
         let avatarService = AvatarService(store: store)
         let profileService = ProfileService()
-        let fileTransferService = FileTransferService()
+        let fileTransferService = FileTransferService(downloadsDirectory: downloadsDirectory)
         let linkPreviewService = LinkPreviewService(fetcher: linkPreviewFetcher, store: store)
         let omemoService = OMEMOService(omemoStore: omemoStore ?? NoOpOMEMOStore())
 

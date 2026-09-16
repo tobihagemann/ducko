@@ -44,7 +44,7 @@ struct ChatView: View {
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
 
-                    TransferProgressView()
+                    TransferProgressView(accountID: windowState.resolvedAccountID)
 
                     Divider()
 

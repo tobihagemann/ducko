@@ -37,6 +37,7 @@ public enum XMPPNamespaces {
     public static let jingleFileTransfer = "urn:xmpp:jingle:apps:file-transfer:5"
     public static let jingleS5B = "urn:xmpp:jingle:transports:s5b:1"
     public static let jingleIBB = "urn:xmpp:jingle:transports:ibb:1"
+    public static let jingleErrors = "urn:xmpp:jingle:errors:1"
     public static let bytestreams = "http://jabber.org/protocol/bytestreams"
     public static let ibb = "http://jabber.org/protocol/ibb"
     public static let blocking = "urn:xmpp:blocking"

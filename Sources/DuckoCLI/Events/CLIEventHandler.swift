@@ -17,7 +17,7 @@ actor CLIEventHandler {
             ringBell()
         case .messageCarbonReceived, .messageCarbonSent,
              .roomMessageReceived, .mucPrivateMessageReceived, .roomInviteReceived,
-             .jingleFileTransferReceived, .jingleFileRequestReceived,
+             .jingleFileTransferReceived,
              .oobIQOfferReceived:
             ringBell()
         case let .chatStateChanged(from, state):
@@ -40,9 +40,7 @@ actor CLIEventHandler {
              .roomOccupantNickChanged, .roomSubjectChanged, .roomDestroyed,
              .mucSelfPingFailed,
              .jingleFileTransferCompleted, .jingleFileTransferFailed,
-             .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoEncryptedMessageReceived, .omemoRecipientsPartial,
              .serviceOutageReceived:

@@ -65,8 +65,8 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/config` — show room configuration fields
 - `/rooms [service]` — discover available rooms on MUC service
 - `/sendfile [jid] <path>` — send a file (uses current room if jid omitted)
-- `/accept [sid]` — accept incoming Jingle file transfer (uses latest offer if sid omitted)
-- `/decline [sid]` — decline incoming Jingle file transfer (uses latest offer if sid omitted)
+- `/accept [id]` — accept an incoming file offer (Jingle or link) and save it to `~/Downloads`. The id is the one printed in the `[File offer]` line. Without an id, it takes this account's newest offer.
+- `/decline [id]` — decline an incoming file offer. Without an id, it takes this account's newest offer.
 - `/transfers` — list active file transfers with progress
 - `/add <jid> [name]` — add contact to roster
 - `/remove <jid>` — remove contact from roster
@@ -87,10 +87,6 @@ REPL mode. Connects once, then accepts commands on stdin:
 - `/check-registration [jid]` — show server registration form
 - `/submit-registration [jid]` — submit registration to server/component
 - `/unregister-account` — unregister account from server
-- `/request-file <jid> <file>` — request a file from a peer
-- `/fulfill [sid] <path>` — fulfill incoming file request
-- `/add-file [sid] <path>` — add a file to an active Jingle session
-- `/remove-content <sid> <cid>` — remove content from a Jingle session
 - `help` — show available commands
 - `quit` / `exit` — disconnect and exit
 

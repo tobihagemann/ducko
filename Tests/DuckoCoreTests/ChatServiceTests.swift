@@ -36,9 +36,77 @@ private func makeIncomingMessage(
     return message
 }
 
+/// An incoming message carrying an XEP-0066 out-of-band `<url>`, which is how a contact shares a file by link. It
+/// carries a body as well, because a message with neither body nor attachment is not persisted at all — which would
+/// leave these tests asserting against a conversation that was never created.
+private func makeIncomingOOBMessage(from jid: BareJID, url: String, body: String = "Shared a file") -> XMPPMessage {
+    var message = makeIncomingMessage(from: jid, body: body)
+    var oob = DuckoXMPP.XMLElement(name: "x", namespace: "jabber:x:oob")
+    oob.setChildText(named: "url", to: url)
+    message.element.addChild(oob)
+    return message
+}
+
 // MARK: - Tests
 
 enum ChatServiceTests {
+    struct OOBAttachments {
+        @Test
+        @MainActor
+        func `A shared image link carries the type that makes it render as an image`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            let message = makeIncomingOOBMessage(from: contactJID, url: "https://example.com/photo.png")
+            await service.handleEvent(.messageReceived(message), accountID: testAccountID)
+
+            let conversation = try #require(try await store.fetchConversations(for: testAccountID).first)
+            let messages = try await transcripts.fetchMessages(for: conversation.id, before: nil, limit: 50)
+            let attachment = try #require(messages.first?.attachments.first)
+            // The peer's link names no type, so without deriving one from the extension this renders as a file card.
+            #expect(attachment.mimeType == "image/png")
+            #expect(attachment.isImage)
+        }
+
+        @Test
+        @MainActor
+        func `A peer's file URL is not taken as an attachment`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+
+            let message = makeIncomingOOBMessage(from: contactJID, url: "file:///Users/victim/Pictures/private.png")
+            await service.handleEvent(.messageReceived(message), accountID: testAccountID)
+
+            let conversation = try #require(try await store.fetchConversations(for: testAccountID).first)
+            let messages = try await transcripts.fetchMessages(for: conversation.id, before: nil, limit: 50)
+            // A peer cannot legitimately name a path on this machine, so the link is not kept.
+            #expect(messages.first?.body == "Shared a file")
+            #expect(messages.first?.attachments.isEmpty == true)
+        }
+    }
+
+    struct ReceivedFilePreview {
+        @Test
+        @MainActor
+        func `A message that is only a file previews as the file's name`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            let attachment = Attachment(
+                id: UUID(), url: "file:///tmp/report.pdf", mimeType: "application/pdf",
+                fileName: "report.pdf", fileSize: 12
+            )
+
+            try await service.recordReceivedFile(attachment, from: contactJID, accountID: testAccountID)
+
+            let conversation = try #require(try await store.fetchConversations(for: testAccountID).first)
+            // A received file has no text of its own, so the preview reads as empty unless the name stands in.
+            #expect(conversation.lastMessagePreview == "report.pdf")
+        }
+    }
+
     struct IncomingMessages {
         @Test
         @MainActor

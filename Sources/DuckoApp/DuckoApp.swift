@@ -228,7 +228,7 @@ struct DuckoApp: App {
             let senderName = conversation.displayTitle
             notificationManager.postMessageNotification(
                 from: senderName,
-                body: message.body,
+                body: message.previewText,
                 jidString: conversation.jid.description,
                 accountID: conversation.accountID,
                 avatarData: nil

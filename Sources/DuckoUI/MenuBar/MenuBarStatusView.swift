@@ -7,7 +7,7 @@ public struct MenuBarStatusView: View {
     @Environment(\.openWindow) private var openWindow
 
     private var currentStatus: PresenceService.PresenceStatus {
-        environment.presenceService.myPresence
+        environment.presenceService.displayedPresence(for: environment.accountService.firstConnectedAccount?.id).status
     }
 
     public init() {}

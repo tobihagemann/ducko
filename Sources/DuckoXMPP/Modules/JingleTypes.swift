@@ -1,3 +1,5 @@
+import CryptoKit
+
 /// Jingle action per XEP-0166 §7.
 enum JingleAction: String {
     case sessionInitiate = "session-initiate"
@@ -37,6 +39,8 @@ public enum JingleTransferFailureReason: String, Sendable {
     case proxyActivationFailed = "proxy-activation-failed"
     case transportReject = "transport-reject"
     case transportReplaceFailed = "transport-replace-failed"
+    case incomplete
+    case checksumMismatch = "checksum-mismatch"
 
     public var displayText: String {
         switch self {
@@ -51,6 +55,8 @@ public enum JingleTransferFailureReason: String, Sendable {
         case .proxyActivationFailed: "The file transfer proxy could not be activated"
         case .transportReject: "The peer rejected the connection method"
         case .transportReplaceFailed: "Switching the connection method failed"
+        case .incomplete: "The transfer ended before the whole file arrived"
+        case .checksumMismatch: "The received file is corrupted"
         }
     }
 
@@ -78,18 +84,20 @@ public enum JingleContentSenders: String, Sendable {
     case both
 }
 
-/// Range element for partial file transfers per XEP-0234 §6.
-public struct JingleFileRange: Sendable, Hashable {
-    public let offset: Int64?
-    public let length: Int64?
+/// Range element for partial file transfers per XEP-0234 §6. This side never offers or requests a partial transfer.
+/// `JingleModule.requiresUnsupportedRange` decides on the raw elements whether a peer's range is accepted, and parsing
+/// only rejects a range that does not fit the file's size.
+struct JingleFileRange: Sendable, Hashable {
+    let offset: Int64?
+    let length: Int64?
 
-    public init(offset: Int64? = nil, length: Int64? = nil) {
+    init(offset: Int64? = nil, length: Int64? = nil) {
         self.offset = offset
         self.length = length
     }
 
     /// Parses from a `<range/>` element.
-    public init?(from element: XMLElement) {
+    init?(from element: XMLElement) {
         guard element.name == "range" else { return nil }
         let parsedOffset = element.attribute("offset").flatMap(Int64.init)
         let parsedLength = element.attribute("length").flatMap(Int64.init)
@@ -100,8 +108,16 @@ public struct JingleFileRange: Sendable, Hashable {
         self.length = parsedLength
     }
 
+    /// Whether the range lies within a file of `size` bytes.
+    func fits(within size: Int64) -> Bool {
+        let start = offset ?? 0
+        guard start >= 0, start <= size else { return false }
+        guard let length else { return true }
+        return length >= 0 && length <= size - start
+    }
+
     /// Serializes to a `<range/>` element.
-    public func toXML() -> XMLElement {
+    func toXML() -> XMLElement {
         var attributes: [String: String] = [:]
         if let offset { attributes["offset"] = String(offset) }
         if let length { attributes["length"] = String(length) }
@@ -115,18 +131,35 @@ public struct JingleFileDescription: Sendable, Hashable {
     public let size: Int64
     public let mediaType: String?
     public let hash: String?
+    public let hashAlgo: String?
+    /// Whether the offer promised a checksum in a later session-info (`<hash-used/>`).
+    public let hashUsed: Bool
     public let date: String?
     public let desc: String?
-    public let range: JingleFileRange?
+    let range: JingleFileRange?
 
+    /// Describes a file this side offers. Nothing here offers part of a file, so an offer never carries a range.
     public init(
-        name: String, size: Int64, mediaType: String? = nil, hash: String? = nil,
-        date: String? = nil, desc: String? = nil, range: JingleFileRange? = nil
+        name: String, size: Int64, mediaType: String? = nil, hash: String? = nil, hashAlgo: String? = nil,
+        hashUsed: Bool = false, date: String? = nil, desc: String? = nil
+    ) {
+        self.init(
+            name: name, size: size, mediaType: mediaType, hash: hash, hashAlgo: hashAlgo,
+            hashUsed: hashUsed, date: date, desc: desc, range: nil
+        )
+    }
+
+    /// `range` deliberately has no default, so a call that omits it can only mean the offer initializer above.
+    init(
+        name: String, size: Int64, mediaType: String? = nil, hash: String? = nil, hashAlgo: String? = nil,
+        hashUsed: Bool = false, date: String? = nil, desc: String? = nil, range: JingleFileRange?
     ) {
         self.name = name
         self.size = size
         self.mediaType = mediaType
         self.hash = hash
+        self.hashAlgo = hashAlgo
+        self.hashUsed = hashUsed
         self.date = date
         self.desc = desc
         self.range = range
@@ -139,15 +172,36 @@ public struct JingleFileDescription: Sendable, Hashable {
               let file = element.child(named: "file"),
               let name = file.childText(named: "name"),
               let sizeText = file.childText(named: "size"),
-              let size = Int64(sizeText) else { return nil }
+              let size = Int64(sizeText),
+              size >= 0, size <= Self.maxSize else { return nil }
 
+        let range: JingleFileRange?
+        if let rangeElement = file.child(named: "range") {
+            guard let parsed = JingleFileRange(from: rangeElement), parsed.fits(within: size) else { return nil }
+            range = parsed
+        } else {
+            range = nil
+        }
+
+        let hashElement = file.child(named: "hash", namespace: XMPPNamespaces.hashes2)
         self.name = Self.sanitizeFileName(name)
         self.size = size
         self.mediaType = file.childText(named: "media-type")
-        self.hash = file.child(named: "hash")?.textContent
+        self.hash = hashElement?.textContent
+        self.hashAlgo = hashElement?.attribute("algo")
+        self.hashUsed = file.child(named: "hash-used", namespace: XMPPNamespaces.hashes2) != nil
         self.date = file.childText(named: "date")
         self.desc = file.childText(named: "desc")
-        self.range = file.child(named: "range").flatMap(JingleFileRange.init(from:))
+        self.range = range
+    }
+
+    /// The largest size an offer may declare. A received file is held in memory whole before it is saved, so a size past
+    /// this is refused before any byte arrives.
+    public static let maxSize: Int64 = 16 * 1024 * 1024 * 1024
+
+    /// The base64 SHA-256 digest of `data`, as carried in a `<hash algo='sha-256'>` element.
+    public static func sha256Hash(of data: [UInt8]) -> String {
+        Base64.encode(Array(SHA256.hash(data: data)))
     }
 
     /// Serializes to a `<description>` element containing a `<file>`.
@@ -159,7 +213,7 @@ public struct JingleFileDescription: Sendable, Hashable {
             file.setChildText(named: "media-type", to: mediaType)
         }
         if let hash {
-            var hashElement = XMLElement(name: "hash", namespace: "urn:xmpp:hashes:2", attributes: ["algo": "sha-256"])
+            var hashElement = XMLElement(name: "hash", namespace: XMPPNamespaces.hashes2, attributes: ["algo": hashAlgo ?? "sha-256"])
             hashElement.addText(hash)
             file.addChild(hashElement)
         }
@@ -178,19 +232,18 @@ public struct JingleFileDescription: Sendable, Hashable {
         return description
     }
 
-    /// Strips path components from a filename to prevent directory traversal (XEP-0234 §9).
-    static func sanitizeFileName(_ name: String) -> String {
-        var result = name
-        if let lastSlash = result.lastIndex(of: "/") {
-            result = String(result[result.index(after: lastSlash)...])
+    /// Reduces a peer's filename to one visible file name (XEP-0234 §9). Path components are stripped so the file can't land
+    /// outside its directory, and leading dots, control and format characters are dropped so it can't be hidden or disguised.
+    public static func sanitizeFileName(_ name: String) -> String {
+        let lastComponent = name.split { $0 == "/" || $0 == "\\" }.last ?? ""
+        let visible = lastComponent.replacing(":", with: "-").filter { character in
+            !character.unicodeScalars.contains { [.control, .format].contains($0.properties.generalCategory) }
         }
-        if let lastBackslash = result.lastIndex(of: "\\") {
-            result = String(result[result.index(after: lastBackslash)...])
+        var result = String(visible.drop { $0 == "." || $0.isWhitespace })
+        while result.last?.isWhitespace == true {
+            result.removeLast()
         }
-        if result.isEmpty || result == "." || result == ".." {
-            result = "unnamed"
-        }
-        return result
+        return result.isEmpty ? "unnamed" : result
     }
 }
 
@@ -403,7 +456,6 @@ struct IBBSessionState {
     let blockSize: Int
     var receivedData: [UInt8] = []
     var nextExpectedSeq: UInt16 = 0
-    let expectedSize: Int64
     var hasOpened: Bool = false
 }
 
@@ -419,26 +471,23 @@ enum TransportState {
 /// State of a Jingle session.
 struct JingleSession {
     let peer: FullJID
+    /// The initiator sends the file and the responder receives it.
     let role: Role
     var transportState: TransportState
     var selectedTransport: JingleTransportKind?
-    /// Set when this side starts accepting the session, so a repeated accept is rejected. Cleared when the session-accept
-    /// fails to send, so the accept can be retried.
+    /// The id this side gave the session, stamped by `JingleModule.addSession`. A peer can reuse the sid once this
+    /// session ends, so accept, decline and receive name the session by this id. An outcome that outlived its session
+    /// checks it too, so it cannot mutate the session that replaced it.
+    var offerID = ""
+    /// Set when this side starts accepting the session, so a repeated accept is rejected, and read as the peer's
+    /// permission to send bytes: nothing may be buffered for a transfer the user has not taken. Cleared when the
+    /// session-accept fails to send, so the accept can be retried.
     var isAccepted = false
-    /// Set when the SOCKS5 attempt starts, so no later session-accept or content-accept starts another.
+    /// Set when the SOCKS5 attempt starts, so no later session-accept starts another.
     var isTransportAttemptStarted = false
 
-    /// The primary content negotiated at session-initiate. Updated in place during
-    /// range negotiation; its name stays stable for the session's lifetime.
-    var content: JingleContent
-
-    /// Additional file contents added via content-add (XEP-0234 multi-file), keyed
-    /// by name. Never holds the primary.
-    var secondaryContents: [String: JingleContent]
-
-    var primaryContentName: String {
-        content.name
-    }
+    /// The content the session was created with. Fixed for the session's lifetime — nothing renegotiates it.
+    let content: JingleContent
 
     /// Whether this side initiated or is responding.
     enum Role {
@@ -458,58 +507,26 @@ struct JingleSession {
         self.transportState = transportState
         self.selectedTransport = selectedTransport
         self.content = content
-        self.secondaryContents = [:]
-    }
-
-    /// Routes a session-accept content to the primary or a secondary by name — the
-    /// responder may echo the primary back with a `<range/>` added.
-    mutating func applyAcceptedContent(_ acceptedContent: JingleContent) {
-        if acceptedContent.name == content.name {
-            content = acceptedContent
-        } else {
-            secondaryContents[acceptedContent.name] = acceptedContent
-        }
-    }
-
-    /// A unique `file-N` name for a new additional content, skipping names still held
-    /// by the primary or surviving secondaries after earlier removals.
-    func nextAdditionalFileContentName() -> String {
-        var index = secondaryContents.count + 1
-        while content.name == "file-\(index)" || secondaryContents["file-\(index)"] != nil {
-            index += 1
-        }
-        return "file-\(index)"
     }
 }
 
 /// Simplified file offer for event consumers.
 public struct JingleFileOffer: Sendable {
+    /// The id this side gave the offer, which accepting, declining and receiving it take.
+    public let offerID: String
     public let sid: String
     public let from: FullJID
     public let fileName: String
     public let fileSize: Int64
     public let mediaType: String?
 
-    public init(sid: String, from: FullJID, fileName: String, fileSize: Int64, mediaType: String? = nil) {
+    public init(offerID: String, sid: String, from: FullJID, fileName: String, fileSize: Int64, mediaType: String? = nil) {
+        self.offerID = offerID
         self.sid = sid
         self.from = from
         self.fileName = fileName
         self.fileSize = fileSize
         self.mediaType = mediaType
-    }
-}
-
-/// A file request from a peer via session-initiate with senders='responder'.
-/// The peer is the initiator but wants us (the responder) to send data.
-public struct JingleFileRequest: Sendable {
-    public let sid: String
-    public let from: FullJID
-    public let fileDescription: JingleFileDescription
-
-    public init(sid: String, from: FullJID, fileDescription: JingleFileDescription) {
-        self.sid = sid
-        self.from = from
-        self.fileDescription = fileDescription
     }
 }
 

@@ -117,9 +117,7 @@ public final class AvatarService {
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:

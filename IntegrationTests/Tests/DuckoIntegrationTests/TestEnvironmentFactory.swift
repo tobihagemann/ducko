@@ -37,6 +37,7 @@ enum TestEnvironmentFactory {
                 transcripts: transcripts,
                 credentialStore: credentialStore,
                 omemoStore: omemoStore,
+                downloadsDirectory: tempDir.appendingPathComponent("Downloads", isDirectory: true),
                 onExternalEvent: onExternalEvent
             )
 

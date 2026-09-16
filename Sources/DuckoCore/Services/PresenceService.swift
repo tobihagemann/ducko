@@ -273,9 +273,7 @@ public final class PresenceService {
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
@@ -458,8 +456,8 @@ public final class PresenceService {
     }
 
     /// The presence pinned for `accountID`, falling back to the global values when no override is set.
-    /// Every outbound presence path reads this so an overridden account never reverts to global; the Contacts
-    /// header also reads it so the dot/label reflect the displayed identity account's actual status.
+    /// Every outbound presence path reads this so an overridden account never reverts to global.
+    /// `displayedPresence(for:)` builds on it for what the UI shows.
     public func effectivePresence(for accountID: UUID) -> (status: PresenceStatus, message: String?) {
         if let override = presenceOverridesByAccount[accountID] {
             return (override.status, override.message)
@@ -467,14 +465,19 @@ public final class PresenceService {
         return (myPresence, myStatusMessage)
     }
 
+    /// The status to show for `accountID`: its effective status while that account is connected, and `.offline`
+    /// otherwise, so a header can't claim a presence the server never saw. Display-only — what an account broadcasts
+    /// still comes from `effectivePresence(for:)`.
+    public func displayedPresence(for accountID: UUID?) -> (status: PresenceStatus, message: String?) {
+        guard let accountID, case .connected? = accountService?.connectionStates[accountID] else {
+            return (.offline, nil)
+        }
+        return effectivePresence(for: accountID)
+    }
+
     /// The effective `Show` for an account, mirroring `currentShow` over `effectivePresence(for:)`.
     func effectiveShow(for accountID: UUID) -> XMPPPresence.Show? {
         Self.show(for: effectivePresence(for: accountID).status)
-    }
-
-    /// The effective status for an account, surfaced to the UI's per-account submenu.
-    public func effectiveStatus(for accountID: UUID) -> PresenceStatus {
-        effectivePresence(for: accountID).status
     }
 
     private static func show(for status: PresenceStatus) -> XMPPPresence.Show? {

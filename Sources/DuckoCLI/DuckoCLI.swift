@@ -1719,13 +1719,9 @@ private func printREPLHelp() {
     print("  /config [submit-default] Show room config or accept defaults")
     print("  /moderate [reason]       Moderate last message in room")
     print("  /sendfile [jid] <path>   Send a file")
-    print("  /accept [sid]            Accept incoming file transfer")
-    print("  /decline [sid]           Decline incoming file transfer")
-    print("  /fulfill [sid] <path>    Fulfill incoming file request")
+    print("  /accept [id]             Accept incoming file transfer into Downloads")
+    print("  /decline [id]            Decline incoming file transfer")
     print("  /transfers               List active transfers")
-    print("  /request-file <jid> <f>  Request a file from a peer")
-    print("  /add-file [sid] <path>   Add file to Jingle session")
-    print("  /remove-content <s> <c>  Remove content from Jingle session")
     print("  /rooms [service]         Discover available rooms")
     print("  /avatar [jid]            View avatar info (own or contact's)")
     print("  /connection-info         Show TLS connection info")
@@ -1767,11 +1763,7 @@ private func dispatchREPLCommand(
     } else if input == "/sendfile" || input.hasPrefix("/sendfile ")
         || input == "/accept" || input.hasPrefix("/accept ")
         || input == "/decline" || input.hasPrefix("/decline ")
-        || input == "/fulfill" || input.hasPrefix("/fulfill ")
-        || input == "/transfers"
-        || input.hasPrefix("/request-file ")
-        || input.hasPrefix("/add-file ")
-        || input.hasPrefix("/remove-content ") {
+        || input == "/transfers" {
         await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
     } else if isMiscREPLCommand(input) {
         await dispatchMiscREPLCommand(input, context: context)
@@ -2059,16 +2051,8 @@ private func dispatchFileTransferREPLCommand(
         await handleAcceptREPLCommand(input, context: context)
     } else if input == "/decline" || input.hasPrefix("/decline ") {
         await handleDeclineREPLCommand(input, context: context)
-    } else if input == "/fulfill" || input.hasPrefix("/fulfill ") {
-        await handleFulfillREPLCommand(input, context: context)
     } else if input == "/transfers" {
         await handleTransfersREPLCommand(context: context)
-    } else if input.hasPrefix("/request-file ") {
-        await handleRequestFileREPLCommand(input, context: context)
-    } else if input.hasPrefix("/add-file ") {
-        await handleAddFileREPLCommand(input, context: context)
-    } else if input.hasPrefix("/remove-content ") {
-        await handleRemoveContentREPLCommand(input, context: context)
     }
 }
 

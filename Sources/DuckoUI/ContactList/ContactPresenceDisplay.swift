@@ -62,6 +62,11 @@ enum ContactPresenceDisplay {
         }
     }
 
+    /// A room's treatment: occupying it is presence enough, and a room this account has left has no presence to show.
+    static func resolve(isJoined: Bool) -> ContactPresenceDisplay {
+        isJoined ? .available : .unknown
+    }
+
     /// Maps a known presence (own/local presence, or a subscribed peer's) into a
     /// display treatment — never `.unknown`/`.pending`, which derive from subscription.
     static func resolve(presence: PresenceService.PresenceStatus?) -> ContactPresenceDisplay {

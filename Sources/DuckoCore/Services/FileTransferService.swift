@@ -1,25 +1,10 @@
+import CoreServices
 import DuckoXMPP
 import Foundation
 import Logging
 import UniformTypeIdentifiers
 
 private let log = Logger(label: "im.ducko.core.filetransfer")
-
-private struct FileAttributes {
-    let fileName: String
-    let fileSize: Int64
-    let mimeType: String
-}
-
-/// Reads file name, size, and MIME type from a local file URL.
-private func readFileAttributes(at url: URL) throws -> FileAttributes {
-    let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
-    return FileAttributes(
-        fileName: url.lastPathComponent,
-        fileSize: (attributes[.size] as? Int64) ?? 0,
-        mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
-    )
-}
 
 @MainActor @Observable
 public final class FileTransferService {
@@ -36,67 +21,33 @@ public final class FileTransferService {
         case incoming
     }
 
-    /// View-friendly representation of an incoming Jingle file offer.
+    /// View-friendly representation of an offer waiting on the user, Jingle or OOB.
     /// Uses strings instead of DuckoXMPP types so DuckoUI can access it without importing DuckoXMPP.
     public struct IncomingFileOffer: Sendable, Identifiable {
         public var id: String {
-            sid
+            offerID
         }
 
-        public let sid: String
+        /// The id this side gave the offer, which Accept and Decline take. The ids on the wire are the peers' to choose, so
+        /// two offers can share one; this one names a single offer.
+        public let offerID: String
         public let fileName: String
         public let fileSize: Int64
         public let fromJIDString: String
+        public let accountID: UUID
 
-        public init(sid: String, fileName: String, fileSize: Int64, fromJIDString: String) {
-            self.sid = sid
+        public init(offerID: String, fileName: String, fileSize: Int64, fromJIDString: String, accountID: UUID) {
+            self.offerID = offerID
             self.fileName = fileName
             self.fileSize = fileSize
-            self.fromJIDString = fromJIDString
-        }
-    }
-
-    /// View-friendly representation of an incoming Jingle content-add offer.
-    public struct IncomingContentAddOffer: Sendable, Identifiable {
-        public var id: String {
-            "\(sid)/\(contentName)"
-        }
-
-        public let sid: String
-        public let contentName: String
-        public let fileName: String
-        public let fileSize: Int64
-        public let fromJIDString: String
-    }
-
-    /// Tracking type for a Jingle content-add offer.
-    public struct PendingContentAdd: Sendable {
-        public let sid: String
-        public let contentName: String
-        public let offer: JingleFileOffer
-    }
-
-    /// View-friendly representation of an incoming Jingle file request.
-    public struct IncomingFileRequest: Sendable, Identifiable {
-        public var id: String {
-            sid
-        }
-
-        public let sid: String
-        public let fileName: String
-        public let fileSize: Int64
-        public let fromJIDString: String
-
-        public init(sid: String, fileName: String, fileSize: Int64, fromJIDString: String) {
-            self.sid = sid
-            self.fileName = fileName
-            self.fileSize = fileSize
+            self.accountID = accountID
             self.fromJIDString = fromJIDString
         }
     }
 
     public struct ActiveTransfer: Sendable, Identifiable {
         public let id: UUID
+        public let accountID: UUID
         public let fileName: String
         public let fileSize: Int64
         public var state: TransferState
@@ -104,19 +55,13 @@ public final class FileTransferService {
         public let direction: TransferDirection
         public let sid: String?
 
-        /// Whether this is a session-level Jingle transfer (not a content-add sub-transfer).
-        /// Content-add sub-transfers use a composite sid of `sessionSID/contentName`.
-        public var isSessionLevel: Bool {
-            guard let sid else { return false }
-            return method == .jingle && direction == .outgoing && !sid.contains("/")
-        }
-
         public init(
-            id: UUID, fileName: String, fileSize: Int64,
+            id: UUID, accountID: UUID, fileName: String, fileSize: Int64,
             state: TransferState, method: TransferMethod = .httpUpload,
             direction: TransferDirection = .outgoing, sid: String? = nil
         ) {
             self.id = id
+            self.accountID = accountID
             self.fileName = fileName
             self.fileSize = fileSize
             self.state = state
@@ -138,31 +83,62 @@ public final class FileTransferService {
         case transferring(progress: Double)
         case awaitingAcceptance
         case completedTransfer
+        case received(fileURL: URL)
     }
 
     public enum FileTransferError: Error, LocalizedError {
         case fileReadFailed(String)
+        case fileSaveFailed(String)
+        case downloadFailed(String)
+        case offerNotFound
         case noClient
         case noUploadModule
         case noJingleModule
         case uploadFailed(String)
         case jingleFailed(String)
-        case checksumMismatch(sid: String)
-        case checksumUnsupportedAlgorithm(sid: String, algo: String)
 
         public var errorDescription: String? {
             switch self {
             case let .fileReadFailed(reason): "Could not read the file: \(reason)"
+            case let .fileSaveFailed(reason): "Could not save the file: \(reason)"
+            case let .downloadFailed(reason): "Could not download the file: \(reason)"
+            case .offerNotFound: "The file offer is no longer waiting"
             case .noClient: "Not connected to the server"
             case .noUploadModule: "File upload is not available"
             case .noJingleModule: "Direct file transfer is not available"
             case let .uploadFailed(reason): "Upload failed: \(reason)"
             case let .jingleFailed(reason): "File transfer failed: \(reason)"
-            case .checksumMismatch: "The received file is corrupted"
-            case let .checksumUnsupportedAlgorithm(_, algo): "The received file cannot be verified (unsupported hash algorithm \(algo))"
             }
         }
     }
+
+    /// A Jingle offer waiting on the user, with the account it arrived on. Sids are per session, so the same one can be
+    /// live on two accounts at once.
+    public struct PendingJingleOffer: Sendable {
+        public let offer: JingleFileOffer
+        public let accountID: UUID
+        /// Orders the offer among waiting offers of both kinds.
+        public let receivedAt: Date
+    }
+
+    /// An OOB offer waiting on the user. Held so the banner can show it with Accept and Decline, as it does a Jingle
+    /// offer — the id alone identifies it, but says nothing a person could act on.
+    public struct PendingOOBOffer: Sendable {
+        public let offer: OOBIQOffer
+        public let accountID: UUID
+        /// Orders the offer among waiting offers of both kinds.
+        public let receivedAt: Date
+        /// The transfer row this offer drives. The row's sid is the peer's stanza id, which another offer can share, so
+        /// the row is found by this instead.
+        public let rowID: UUID
+
+        public var displayFileName: String {
+            Attachment.fileName(forLink: offer.url)
+        }
+    }
+
+    /// The most a download of a peer's link may write, matching the largest size a Jingle offer may declare.
+    nonisolated static let maxDownloadSize = JingleFileDescription.maxSize
 
     /// Bundles file metadata extracted from the file system.
     private struct FileInfo {
@@ -170,52 +146,64 @@ public final class FileTransferService {
         let name: String
         let size: Int64
         let mimeType: String
+
+        init(readingAttributesAt url: URL) throws {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            self.url = url
+            self.name = url.lastPathComponent
+            self.size = (attributes[.size] as? Int64) ?? 0
+            self.mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        }
     }
 
     // MARK: - State
 
     public private(set) var activeTransfers: [ActiveTransfer] = []
-    public private(set) var incomingOffers: [JingleFileOffer] = []
-    public private(set) var incomingContentAddOffers: [PendingContentAdd] = []
-    public private(set) var incomingRequests: [JingleFileRequest] = []
-    private var pendingOOBOfferIDs: Set<String> = []
+    public private(set) var incomingOffers: [PendingJingleOffer] = []
+    public private(set) var incomingOOBOffers: [PendingOOBOffer] = []
+    /// Jingle rows whose session ended, reported by its completion or failure event or by a finished send, so a later
+    /// session under the same sid is not mistaken for theirs.
+    private var endedSessionRows: Set<UUID> = []
+    private func pendingOOBOffer(offerID: String, accountID: UUID) -> PendingOOBOffer? {
+        incomingOOBOffers.first { $0.offer.offerID == offerID && $0.accountID == accountID }
+    }
 
-    /// View-friendly projection of `incomingOffers` for modules that cannot import DuckoXMPP.
+    private func pendingJingleOffer(offerID: String, accountID: UUID) -> PendingJingleOffer? {
+        incomingOffers.first { $0.offer.offerID == offerID && $0.accountID == accountID }
+    }
+
+    /// Where every file this app receives or saves from a chat is written.
+    public nonisolated let downloadsDirectory: URL
+
+    /// View-friendly projection of every offer waiting on the user, for modules that cannot import DuckoXMPP. Both
+    /// kinds reach the same Accept and Decline, which route by offer id. An OOB offer declares no size, so it reports zero.
+    /// Ordered by arrival across both kinds, so the last one is the newest whichever kind it is.
     public var viewIncomingOffers: [IncomingFileOffer] {
-        incomingOffers.map {
-            IncomingFileOffer(sid: $0.sid, fileName: $0.fileName, fileSize: $0.fileSize, fromJIDString: $0.from.bareJID.description)
+        let jingle = incomingOffers.map { pending in
+            (pending.receivedAt, IncomingFileOffer(
+                offerID: pending.offer.offerID, fileName: pending.offer.fileName, fileSize: pending.offer.fileSize,
+                fromJIDString: pending.offer.from.bareJID.description, accountID: pending.accountID
+            ))
         }
-    }
-
-    /// View-friendly projection of `incomingContentAddOffers` for modules that cannot import DuckoXMPP.
-    public var viewIncomingContentAddOffers: [IncomingContentAddOffer] {
-        incomingContentAddOffers.map {
-            IncomingContentAddOffer(
-                sid: $0.sid, contentName: $0.contentName,
-                fileName: $0.offer.fileName, fileSize: $0.offer.fileSize,
-                fromJIDString: $0.offer.from.bareJID.description
-            )
+        let oob = incomingOOBOffers.map { pending in
+            (pending.receivedAt, IncomingFileOffer(
+                offerID: pending.offer.offerID, fileName: pending.displayFileName,
+                fileSize: 0, fromJIDString: pending.offer.from.bareJID.description, accountID: pending.accountID
+            ))
         }
-    }
-
-    /// View-friendly projection of `incomingRequests` for modules that cannot import DuckoXMPP.
-    public var viewIncomingRequests: [IncomingFileRequest] {
-        incomingRequests.map {
-            IncomingFileRequest(
-                sid: $0.sid, fileName: $0.fileDescription.name,
-                fileSize: $0.fileDescription.size, fromJIDString: $0.from.bareJID.description
-            )
-        }
+        return (jingle + oob).sorted { $0.0 < $1.0 }.map(\.1)
     }
 
     private weak var accountService: AccountService?
     private weak var chatService: ChatService?
-    /// Fire-and-forget Jingle receive/send tasks that outlive the accept/fulfill call that spawned them.
+    /// Fire-and-forget Jingle receive tasks that outlive the accept call that spawned them.
     /// Drained by `AppEnvironment.shutdown(within:)` so they can't race teardown; each task removes its
     /// own handle on completion via `defer`.
     private var pendingTasks: [UUID: Task<Void, Never>] = [:]
 
-    public init() {}
+    public init(downloadsDirectory: URL = .downloadsDirectory) {
+        self.downloadsDirectory = downloadsDirectory
+    }
 
     // MARK: - Wiring
 
@@ -242,6 +230,12 @@ public final class FileTransferService {
         func registerPendingTaskForTesting(_ task: Task<Void, Never>) {
             pendingTasks[UUID()] = task
         }
+
+        /// Test seam: puts a row in place without driving a session to it, so the rules for applying events to rows can be
+        /// exercised on rows in any state.
+        func registerTransferForTesting(_ transfer: ActiveTransfer) {
+            activeTransfers.append(transfer)
+        }
     #endif
 
     // MARK: - Public API
@@ -253,18 +247,12 @@ public final class FileTransferService {
         peerJID: String? = nil,
         onProgress: (@MainActor @Sendable (Double) -> Void)? = nil
     ) async throws -> String {
-        let attrs: FileAttributes
+        let file: FileInfo
         do {
-            attrs = try readFileAttributes(at: url)
+            file = try FileInfo(readingAttributesAt: url)
         } catch {
             throw FileTransferError.fileReadFailed(error.localizedDescription)
         }
-        let file = FileInfo(
-            url: url,
-            name: attrs.fileName,
-            size: attrs.fileSize,
-            mimeType: attrs.mimeType
-        )
 
         let resolved = await resolveMethod(method, peerJIDString: peerJID ?? conversation.jid.description, accountID: accountID)
 
@@ -279,30 +267,20 @@ public final class FileTransferService {
 
     // MARK: - Jingle Event Handling
 
-    public func handleJingleEvent(_ event: XMPPEvent, accountID _: UUID) {
+    public func handleJingleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
         case let .jingleFileTransferReceived(offer):
-            trackIncomingOffer(offer)
-        case let .jingleFileRequestReceived(request):
-            handleIncomingFileRequest(request)
+            trackIncomingOffer(offer, accountID: accountID)
         case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
             let progress = Double(bytesTransferred) / Double(totalBytes)
-            updateTransferState(forSID: sid, state: .transferring(progress: progress))
+            updateTransferState(forSID: sid, accountID: accountID, state: .transferring(progress: progress))
         case let .jingleFileTransferCompleted(sid, _):
-            finishSession(sid: sid, state: .completedTransfer)
+            finishSession(sid: sid, accountID: accountID, state: .completedTransfer)
         case let .jingleFileTransferFailed(sid, reason):
-            finishSession(sid: sid, state: .failed(reason.displayText))
-        case let .jingleContentAddReceived(sid, contentName, offer):
-            trackIncomingContentAdd(sid: sid, contentName: contentName, offer: offer)
-        case let .jingleContentAccepted(sid, contentName):
-            log.info("Content accepted: \(Self.contentAddID(sid: sid, contentName: contentName))")
-        case let .jingleContentRejected(sid, contentName):
-            failContentAdd(sid: sid, contentName: contentName, reason: "The peer rejected the file")
-        case let .jingleContentRemoved(sid, contentName):
-            failContentAdd(sid: sid, contentName: contentName, reason: "The peer removed the file")
+            finishSession(sid: sid, accountID: accountID, state: .failed(reason.displayText))
         case let .oobIQOfferReceived(offer):
-            trackIncomingOOBOffer(offer)
-        case .jingleChecksumReceived, .jingleChecksumMismatch:
+            trackIncomingOOBOffer(offer, accountID: accountID)
+        case .jingleChecksumReceived:
             break
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
@@ -326,12 +304,13 @@ public final class FileTransferService {
         }
     }
 
-    private func trackIncomingOOBOffer(_ offer: OOBIQOffer) {
-        pendingOOBOfferIDs.insert(offer.id)
-        let fileName = URL(string: offer.url)?.lastPathComponent ?? offer.url
+    private func trackIncomingOOBOffer(_ offer: OOBIQOffer, accountID: UUID) {
+        let pending = PendingOOBOffer(offer: offer, accountID: accountID, receivedAt: Date(), rowID: UUID())
+        incomingOOBOffers.append(pending)
         let transfer = ActiveTransfer(
-            id: UUID(),
-            fileName: fileName,
+            id: pending.rowID,
+            accountID: accountID,
+            fileName: pending.displayFileName,
             fileSize: 0,
             state: .awaitingAcceptance,
             method: .httpUpload,
@@ -341,258 +320,343 @@ public final class FileTransferService {
         activeTransfers.append(transfer)
     }
 
-    private func trackIncomingOffer(_ offer: JingleFileOffer) {
-        incomingOffers.append(offer)
-        let transfer = ActiveTransfer(
-            id: UUID(),
-            fileName: offer.fileName,
-            fileSize: offer.fileSize,
-            state: .awaitingAcceptance,
-            method: .jingle,
-            direction: .incoming,
-            sid: offer.sid
-        )
-        activeTransfers.append(transfer)
+    /// Records an offer waiting on the user. Its transfer row is created when the user accepts, so the banner is the
+    /// only thing on screen until then and a declined offer leaves nothing behind.
+    private func trackIncomingOffer(_ offer: JingleFileOffer, accountID: UUID) {
+        incomingOffers.append(PendingJingleOffer(offer: offer, accountID: accountID, receivedAt: Date()))
     }
 
-    /// Moves a session's transfer rows to their final state and drops its pending offers and requests.
-    private func finishSession(sid: String, state: TransferState) {
-        updateTransferState(forSID: sid, state: state)
-        updateContentAddTransferStates(forSessionSID: sid, state: state)
-        incomingOffers.removeAll { $0.sid == sid }
-        incomingRequests.removeAll { $0.sid == sid }
-        incomingContentAddOffers.removeAll { $0.sid == sid }
+    /// Moves a session's transfer row to its final state and drops its pending offer. The module holds one session per
+    /// sid at a time and reports a session's end before a later one can take its sid, so the sid names that session here.
+    private func finishSession(sid: String, accountID: UUID, state: TransferState) {
+        if let index = sessionRowIndex(sid: sid, accountID: accountID) {
+            setTransferState(state, at: index)
+            endedSessionRows.insert(activeTransfers[index].id)
+        }
+        incomingOffers.removeAll { $0.offer.sid == sid && $0.accountID == accountID }
     }
 
-    /// Drops a content-add offer that was rejected or removed and fails its transfer row with `reason`.
-    private func failContentAdd(sid: String, contentName: String, reason: String) {
-        let id = Self.contentAddID(sid: sid, contentName: contentName)
-        incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
-        updateTransferState(forSID: id, state: .failed(reason))
+    private func removeOffer(offerID: String) {
+        incomingOffers.removeAll { $0.offer.offerID == offerID }
     }
 
-    private static func contentAddID(sid: String, contentName: String) -> String {
-        "\(sid)/\(contentName)"
-    }
-
-    private func trackIncomingContentAdd(sid: String, contentName: String, offer: JingleFileOffer) {
-        incomingContentAddOffers.append(PendingContentAdd(sid: sid, contentName: contentName, offer: offer))
-        let id = Self.contentAddID(sid: sid, contentName: contentName)
-        let transfer = ActiveTransfer(
-            id: UUID(),
-            fileName: offer.fileName,
-            fileSize: offer.fileSize,
-            state: .awaitingAcceptance,
-            method: .jingle,
-            direction: .incoming,
-            sid: id
-        )
-        activeTransfers.append(transfer)
-    }
-
-    private func handleIncomingFileRequest(_ request: JingleFileRequest) {
-        incomingRequests.append(request)
-        let transfer = ActiveTransfer(
-            id: UUID(),
-            fileName: request.fileDescription.name,
-            fileSize: request.fileDescription.size,
-            state: .awaitingAcceptance,
-            method: .jingle,
-            direction: .outgoing,
-            sid: request.sid
-        )
-        activeTransfers.append(transfer)
+    private func removeOOBOffer(offerID: String) {
+        incomingOOBOffers.removeAll { $0.offer.offerID == offerID }
     }
 
     // MARK: - Incoming Transfer Management
 
-    public func acceptIncomingTransfer(_ sid: String, accountID: UUID, range: JingleFileRange? = nil) async throws {
-        // Route OOB IQ offers to OOBModule
-        if pendingOOBOfferIDs.contains(sid) {
-            let oobModule = try await oobModule(for: accountID)
-            try await oobModule.acceptOffer(id: sid)
-            pendingOOBOfferIDs.remove(sid)
-            updateTransferState(forSID: sid, state: .completedTransfer)
+    public func acceptIncomingTransfer(_ offerID: String, accountID: UUID) async throws {
+        if let pending = pendingOOBOffer(offerID: offerID, accountID: accountID) {
+            try await acceptOOBOffer(pending)
             return
         }
 
-        let jingleModule = try await jingleModule(for: accountID)
-
-        try await jingleModule.acceptFileTransfer(sid: sid, range: range)
-
-        let offer = incomingOffers.first { $0.sid == sid }
-        guard let offer else { return }
-
-        let expectedSize: Int64
-        if let range {
-            let offset = range.offset ?? 0
-            expectedSize = range.length ?? (offer.fileSize - offset)
-        } else {
-            expectedSize = offer.fileSize
+        guard pendingJingleOffer(offerID: offerID, accountID: accountID) != nil else {
+            throw FileTransferError.offerNotFound
         }
-
-        let taskID = UUID()
-        pendingTasks[taskID] = Task { [weak self] in
-            defer { self?.pendingTasks[taskID] = nil }
-            guard let self else { return }
-            do {
-                try await jingleModule.awaitTransportReady(sid: sid)
-                updateTransferState(forSID: sid, state: .transferring(progress: 0))
-                let data = try await jingleModule.receiveFileData(sid: sid, expectedSize: expectedSize)
-                switch jingleModule.verifyChecksum(sid: sid, receivedData: data) {
-                case .noPendingChecksum, .verified:
-                    try? await jingleModule.sendReceivedSessionInfo(sid: sid)
-                    log.info("Received \(data.count) bytes via Jingle for sid: \(sid)")
-                    updateTransferState(forSID: sid, state: .completedTransfer)
-                case let .mismatch(expected, computed):
-                    log.error("Checksum mismatch for sid \(sid): expected \(expected), computed \(computed)")
-                    try? await jingleModule.terminateSession(sid: sid, reason: .cancel)
-                    throw FileTransferError.checksumMismatch(sid: sid)
-                case let .unsupportedAlgorithm(algo):
-                    log.error("Unsupported checksum algorithm '\(algo)' for sid \(sid)")
-                    try? await jingleModule.terminateSession(sid: sid, reason: .cancel)
-                    throw FileTransferError.checksumUnsupportedAlgorithm(sid: sid, algo: algo)
-                }
-            } catch {
-                log.warning("Jingle receive failed for sid \(sid): \(error)")
-                recordJingleTransferFailure(error, sid: sid)
-            }
+        let jingleModule = try await jingleModule(for: accountID)
+        // Looked up again once the module is resolved: a second accept or a decline can have taken the offer meanwhile.
+        guard let pending = pendingJingleOffer(offerID: offerID, accountID: accountID) else {
+            throw FileTransferError.offerNotFound
         }
-    }
+        let offer = pending.offer
 
-    /// Fulfills an incoming file request by sending the file at the given URL.
-    public func fulfillFileRequest(_ sid: String, fileURL: URL, accountID: UUID) async throws {
-        let fileData = try Array(Data(contentsOf: fileURL))
-        try await fulfillFileRequest(sid, fileData: fileData, accountID: accountID)
-    }
-
-    /// Fulfills an incoming file request with pre-read file data.
-    /// Use this overload when the file data must be read before a security-scoped resource is released.
-    public func fulfillFileRequest(_ sid: String, fileData: [UInt8], accountID: UUID) async throws {
-        let jingleModule = try await jingleModule(for: accountID)
-
-        try await jingleModule.acceptFileTransfer(sid: sid)
-        incomingRequests.removeAll { $0.sid == sid }
-
-        updateTransferState(forSID: sid, state: .connectingTransport)
-
-        let taskID = UUID()
-        pendingTasks[taskID] = Task { [weak self] in
-            defer { self?.pendingTasks[taskID] = nil }
-            guard let self else { return }
-            do {
-                try await jingleModule.awaitTransportReady(sid: sid)
-                updateTransferState(forSID: sid, state: .transferring(progress: 0))
-                try? await jingleModule.sendChecksumSessionInfo(sid: sid, data: fileData)
-                try await jingleModule.sendFileData(sid: sid, data: fileData)
-                updateTransferState(forSID: sid, state: .completedTransfer)
-            } catch {
-                log.warning("Jingle file request fulfillment failed for sid \(sid): \(error)")
-                recordJingleTransferFailure(error, sid: sid)
-            }
-        }
-    }
-
-    /// Declines an incoming file request.
-    public func declineFileRequest(_ sid: String, accountID: UUID) async throws {
-        let jingleModule = try await jingleModule(for: accountID)
-        try await jingleModule.declineFileTransfer(sid: sid)
-        incomingRequests.removeAll { $0.sid == sid }
-    }
-
-    public func declineIncomingTransfer(_ sid: String, accountID: UUID) async throws {
-        // Route OOB IQ offers to OOBModule
-        if pendingOOBOfferIDs.contains(sid) {
-            let oobModule = try await oobModule(for: accountID)
-            try await oobModule.rejectOffer(id: sid)
-            pendingOOBOfferIDs.remove(sid)
-            updateTransferState(forSID: sid, state: .failed("You declined the transfer"))
-            return
-        }
-
-        let jingleModule = try await jingleModule(for: accountID)
-
-        try await jingleModule.declineFileTransfer(sid: sid)
-        incomingOffers.removeAll { $0.sid == sid }
-    }
-
-    // MARK: - Content-Add Management
-
-    /// Accepts a content-add offer from a peer.
-    public func acceptContentAdd(sid: String, contentName: String, accountID: UUID) async throws {
-        let jingleModule = try await jingleModule(for: accountID)
-        try await jingleModule.acceptContentAdd(sid: sid, contentName: contentName)
-        let id = Self.contentAddID(sid: sid, contentName: contentName)
-        incomingContentAddOffers.removeAll { Self.contentAddID(sid: $0.sid, contentName: $0.contentName) == id }
-        updateTransferState(forSID: id, state: .connectingTransport)
-    }
-
-    /// Rejects a content-add offer from a peer.
-    public func rejectContentAdd(sid: String, contentName: String, accountID: UUID) async throws {
-        let jingleModule = try await jingleModule(for: accountID)
-        try await jingleModule.rejectContentAdd(sid: sid, contentName: contentName)
-        failContentAdd(sid: sid, contentName: contentName, reason: "You declined the transfer")
-    }
-
-    /// Removes content from an existing Jingle session.
-    public func removeContent(sid: String, contentName: String, accountID: UUID) async throws {
-        let jingleModule = try await jingleModule(for: accountID)
-        try await jingleModule.removeContent(sid: sid, contentName: contentName)
-        let id = Self.contentAddID(sid: sid, contentName: contentName)
-        updateTransferState(forSID: id, state: .failed("You removed the file from the transfer"))
-    }
-
-    /// Requests a file from a peer (receiver-initiated transfer, XEP-0234).
-    public func requestFile(
-        from peerJIDString: String, fileName: String, fileSize: Int64,
-        mediaType: String? = nil, accountID: UUID
-    ) async throws {
-        let jingleModule = try await jingleModule(for: accountID)
-        guard let peerJID = FullJID.parse(peerJIDString) else {
-            throw FileTransferError.jingleFailed("Invalid recipient address: \(peerJIDString)")
-        }
-        let file = JingleFileDescription(
-            name: fileName, size: fileSize,
-            mediaType: mediaType ?? "application/octet-stream"
-        )
-        let sid = try await jingleModule.requestFileTransfer(from: peerJID, file: file)
-        let transfer = ActiveTransfer(
-            id: UUID(),
-            fileName: fileName,
-            fileSize: fileSize,
-            state: .negotiating,
+        // The banner gives way to the transfer's own row before the session-accept goes out, so a decline or failure
+        // arriving while that stanza is in flight has a row to record it on.
+        removeOffer(offerID: offerID)
+        let rowID = UUID()
+        activeTransfers.append(ActiveTransfer(
+            id: rowID,
+            accountID: accountID,
+            fileName: offer.fileName,
+            fileSize: offer.fileSize,
+            state: .connectingTransport,
             method: .jingle,
             direction: .incoming,
-            sid: sid
-        )
-        activeTransfers.append(transfer)
+            sid: offer.sid
+        ))
+
+        do {
+            try await jingleModule.acceptFileTransfer(sid: offer.sid, offerID: offerID)
+        } catch {
+            // A session-accept that did not go out leaves the session acceptable again, so the offer returns to the banner
+            // for another try — unless the session ended meanwhile and its row already records why.
+            if !endedSessionRows.contains(rowID) {
+                activeTransfers.removeAll { $0.id == rowID }
+                incomingOffers.append(pending)
+            }
+            throw error
+        }
+        startJingleReceiveTask(offer: offer, rowID: rowID, accountID: accountID, jingleModule: jingleModule)
     }
 
-    /// Adds a file to an existing Jingle session (multi-file transfer, XEP-0234).
-    public func addFileToSession(sid: String, url: URL, accountID: UUID) async throws {
-        let jingleModule = try await jingleModule(for: accountID)
-        let attrs: FileAttributes
-        do {
-            attrs = try readFileAttributes(at: url)
-        } catch {
-            throw FileTransferError.fileReadFailed(error.localizedDescription)
+    /// Accepts a link a peer offered: the file is downloaded and saved as an accepted Jingle transfer is, and the offer
+    /// is answered only once it is on disk (XEP-0066 §2). The offer leaves the banner for the length of the download, so
+    /// a second accept or a decline cannot act on it meanwhile, and a download that fails puts it back for another try.
+    private func acceptOOBOffer(_ pending: PendingOOBOffer) async throws {
+        let offerID = pending.offer.offerID
+        let accountID = pending.accountID
+        guard let url = URL(string: pending.offer.url) else {
+            throw FileTransferError.downloadFailed("The link could not be read")
         }
-        let file = JingleFileDescription(
-            name: attrs.fileName, size: attrs.fileSize,
-            mediaType: attrs.mimeType
+        let oobModule = try await oobModule(for: accountID)
+        // Claimed only if still waiting once the module is resolved: a second accept or a decline can have taken it.
+        guard pendingOOBOffer(offerID: offerID, accountID: accountID) != nil else {
+            throw FileTransferError.offerNotFound
+        }
+        removeOOBOffer(offerID: offerID)
+        updateTransferState(id: pending.rowID, state: .transferring(progress: 0))
+
+        let download: (fileURL: URL, byteCount: Int64)
+        do {
+            download = try await Self.downloadRemoteFile(from: url, named: pending.displayFileName, into: downloadsDirectory)
+        } catch {
+            updateTransferState(id: pending.rowID, state: .awaitingAcceptance)
+            incomingOOBOffers.append(pending)
+            throw error
+        }
+        await recordReceivedFile(
+            at: download.fileURL, byteCount: download.byteCount, mediaType: nil,
+            from: pending.offer.from.bareJID, accountID: accountID
         )
-        let contentName = try await jingleModule.sendContentAdd(sid: sid, file: file)
-        let id = Self.contentAddID(sid: sid, contentName: contentName)
-        let transfer = ActiveTransfer(
-            id: UUID(),
-            fileName: attrs.fileName,
-            fileSize: attrs.fileSize,
-            state: .negotiating,
-            method: .jingle,
-            direction: .outgoing,
-            sid: id
+        updateTransferState(id: pending.rowID, state: .received(fileURL: download.fileURL))
+        do {
+            try await oobModule.acceptOffer(offerID: offerID)
+        } catch {
+            // The file is saved and recorded regardless; an answer that cannot be sent leaves the peer's request to time out.
+            log.warning("Could not acknowledge an accepted link: \(error)")
+        }
+    }
+
+    /// Starts the task that receives an accepted offer's bytes once its connection is ready and saves them. The module's
+    /// completion or failure event records the transfer's outcome, and the saved file then replaces a completion.
+    private func startJingleReceiveTask(offer: JingleFileOffer, rowID: UUID, accountID: UUID, jingleModule: JingleModule) {
+        let sid = offer.sid
+        let taskID = UUID()
+        pendingTasks[taskID] = Task { [weak self] in
+            defer { self?.pendingTasks[taskID] = nil }
+            guard let self else { return }
+            do {
+                try await jingleModule.awaitTransportReady(sid: sid, offerID: offer.offerID)
+                updateTransferState(id: rowID, state: .transferring(progress: 0))
+                let data = try await jingleModule.receiveFileData(sid: sid, offerID: offer.offerID)
+                let fileURL = try await Self.saveReceivedFile(data, named: offer.fileName, in: downloadsDirectory)
+                log.debug("Saved \(data.count) bytes received via Jingle for sid: \(sid)")
+                await recordReceivedFile(
+                    at: fileURL, byteCount: Int64(data.count), mediaType: offer.mediaType,
+                    from: offer.from.bareJID, accountID: accountID
+                )
+                updateTransferState(id: rowID, state: .received(fileURL: fileURL))
+            } catch {
+                log.warning("Jingle receive failed for sid \(sid): \(error)")
+                recordJingleTransferFailure(error, id: rowID)
+            }
+        }
+    }
+
+    /// Reads and hashes a file off the main actor, so a large send doesn't freeze the UI before its row appears.
+    private nonisolated static func readAndHash(at url: URL) async throws -> (bytes: [UInt8], hash: String) {
+        let bytes = try Array(Data(contentsOf: url))
+        return (bytes, JingleFileDescription.sha256Hash(of: bytes))
+    }
+
+    /// Adds a saved file to the conversation with its sender, where it shows like any other attachment.
+    private func recordReceivedFile(
+        at fileURL: URL, byteCount: Int64, mediaType: String?, from jid: BareJID, accountID: UUID
+    ) async {
+        guard let chatService else {
+            log.warning("No chat service to record a received file with")
+            return
+        }
+        // XEP-0234 does not require `<media-type>`, and without one the saved file would render as a card while the
+        // same file shared as a link renders inline. The file is on disk, so its own extension answers for it.
+        let resolvedType = mediaType ?? UTType(filenameExtension: fileURL.pathExtension)?.preferredMIMEType
+        // Marked as this app's own file, which is what lets it be previewed and revealed. A peer's `file:` URL reaches
+        // `Attachment.init` instead and stays remote.
+        let attachment = Attachment.locallySaved(
+            id: UUID(), fileURL: fileURL, mimeType: resolvedType, fileSize: byteCount
         )
-        activeTransfers.append(transfer)
+        do {
+            try await chatService.recordReceivedFile(attachment, from: jid, accountID: accountID)
+        } catch {
+            log.warning("Could not add a received file to its conversation: \(error)")
+        }
+    }
+
+    /// Declines an offer still waiting on the user. A transfer already under way is not an offer, so this does not end it.
+    public func declineIncomingTransfer(_ offerID: String, accountID: UUID) async throws {
+        if pendingOOBOffer(offerID: offerID, accountID: accountID) != nil {
+            let oobModule = try await oobModule(for: accountID)
+            // Taken off the banner before the rejection goes out, so an accept cannot start a download meanwhile, and only
+            // if still waiting once the module is resolved.
+            guard let pending = pendingOOBOffer(offerID: offerID, accountID: accountID) else {
+                throw FileTransferError.offerNotFound
+            }
+            removeOOBOffer(offerID: offerID)
+            do {
+                try await oobModule.rejectOffer(offerID: offerID)
+            } catch {
+                incomingOOBOffers.append(pending)
+                throw error
+            }
+            updateTransferState(id: pending.rowID, state: .failed("You declined the transfer"))
+            return
+        }
+
+        guard pendingJingleOffer(offerID: offerID, accountID: accountID) != nil else {
+            throw FileTransferError.offerNotFound
+        }
+        let jingleModule = try await jingleModule(for: accountID)
+        guard let pending = pendingJingleOffer(offerID: offerID, accountID: accountID) else {
+            throw FileTransferError.offerNotFound
+        }
+        // Taken before the terminate goes out: the module ends the session whether or not the terminate reaches the peer.
+        removeOffer(offerID: offerID)
+        try await jingleModule.declineFileTransfer(sid: pending.offer.sid, offerID: offerID)
+    }
+
+    // MARK: - Received Files
+
+    /// Fetches a remote image and saves it the way an accepted transfer is saved: same folder, a free name rather than
+    /// an overwrite, and quarantined.
+    public func saveRemoteImage(from url: URL, named name: String) async throws -> URL {
+        try await Self.downloadRemoteFile(from: url, named: name, into: downloadsDirectory).fileURL
+    }
+
+    /// Downloads a file a peer linked to and saves it into `directory` the way `saveReceivedFile` does. Only a web
+    /// address is fetched, and only a 200 is kept. An error page or a partial response arrives as a status rather than
+    /// an error, and saved under the file's name it would pass for the file. The server must declare the body's length
+    /// and every byte of it must arrive, since a body cut off where its framing allows an end reads as a finished one.
+    /// The body is streamed to disk and capped at `maxDownloadSize`.
+    nonisolated static func downloadRemoteFile(
+        from url: URL, named name: String, into directory: URL
+    ) async throws -> (fileURL: URL, byteCount: Int64) {
+        guard url.isWebAddress else {
+            throw FileTransferError.downloadFailed("The link is not a web address")
+        }
+        let stagingURL = FileManager.default.temporaryDirectory
+            .appending(path: "ducko-download-\(UUID().uuidString)", directoryHint: .notDirectory)
+        defer { try? FileManager.default.removeItem(at: stagingURL) }
+
+        var request = URLRequest(url: url)
+        // The declared length counts the bytes as sent, so a body decoded on arrival could not be checked against it.
+        request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+        let byteCount: Int64
+        do {
+            let (bytes, response) = try await URLSession.shared.bytes(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                bytes.task.cancel()
+                throw FileTransferError.downloadFailed("The file is not available at that link")
+            }
+            if let encoding = http.value(forHTTPHeaderField: "Content-Encoding"), encoding.lowercased() != "identity" {
+                bytes.task.cancel()
+                throw FileTransferError.downloadFailed("The server sent the file in a form whose size cannot be checked")
+            }
+            let expectedLength = response.expectedContentLength
+            guard expectedLength >= 0 else {
+                bytes.task.cancel()
+                throw FileTransferError.downloadFailed("The server did not provide a file size")
+            }
+            guard expectedLength <= maxDownloadSize else {
+                bytes.task.cancel()
+                throw FileTransferError.downloadFailed("The file is too large")
+            }
+            byteCount = try await writeDownload(bytes, expectedLength: expectedLength, to: stagingURL)
+        } catch let error as FileTransferError {
+            throw error
+        } catch {
+            throw FileTransferError.downloadFailed(error.localizedDescription)
+        }
+        return try (saveReceivedFile(movingFrom: stagingURL, named: name, in: directory), byteCount)
+    }
+
+    /// Streams a download to `fileURL` in chunks, refusing a body that does not come to exactly `expectedLength` bytes.
+    private nonisolated static func writeDownload(
+        _ bytes: URLSession.AsyncBytes, expectedLength: Int64, to fileURL: URL
+    ) async throws -> Int64 {
+        guard FileManager.default.createFile(atPath: fileURL.path, contents: nil) else {
+            throw FileTransferError.downloadFailed("The download could not be stored")
+        }
+        let handle = try FileHandle(forWritingTo: fileURL)
+        defer { try? handle.close() }
+        let chunkSize = 64 * 1024
+        var chunk: [UInt8] = []
+        chunk.reserveCapacity(chunkSize)
+        var total: Int64 = 0
+        for try await byte in bytes {
+            chunk.append(byte)
+            guard chunk.count == chunkSize else { continue }
+            total += Int64(chunk.count)
+            guard total <= expectedLength else {
+                bytes.task.cancel()
+                throw FileTransferError.downloadFailed("The download does not match the file size the server gave")
+            }
+            try handle.write(contentsOf: chunk)
+            chunk.removeAll(keepingCapacity: true)
+        }
+        total += Int64(chunk.count)
+        guard total == expectedLength else {
+            throw FileTransferError.downloadFailed("The download does not match the file size the server gave")
+        }
+        try handle.write(contentsOf: chunk)
+        return total
+    }
+
+    /// Writes a received file into `directory` under `name`, adding a number when that name is taken, and quarantines it
+    /// like any other download. The name reaches here from a peer, so it is sanitized before it can become a path.
+    public nonisolated static func saveReceivedFile(_ bytes: [UInt8], named name: String, in directory: URL) async throws -> URL {
+        let data = Data(bytes)
+        return try placeReceivedFile(named: name, in: directory) { try data.write(to: $0, options: .withoutOverwriting) }
+    }
+
+    /// Moves a downloaded file into `directory` under `name`, with the same naming and quarantine as `saveReceivedFile`.
+    nonisolated static func saveReceivedFile(movingFrom stagingURL: URL, named name: String, in directory: URL) throws -> URL {
+        try placeReceivedFile(named: name, in: directory) { try FileManager.default.moveItem(at: stagingURL, to: $0) }
+    }
+
+    /// Places a received file under the first free variant of its sanitized name, using `write`, which must fail with
+    /// `CocoaError.fileWriteFileExists` rather than replace a file already there, then quarantines it.
+    private nonisolated static func placeReceivedFile(
+        named name: String, in directory: URL, write: (URL) throws -> Void
+    ) throws -> URL {
+        let safeName = JingleFileDescription.sanitizeFileName(name)
+        let nameURL = URL(filePath: safeName, directoryHint: .notDirectory)
+        let stem = nameURL.deletingPathExtension().lastPathComponent
+        let pathExtension = nameURL.pathExtension
+        var written: URL?
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            for number in 1 ... 1000 {
+                let candidate = number == 1 ? safeName : [stem + " \(number)", pathExtension].filter { !$0.isEmpty }.joined(separator: ".")
+                let fileURL = directory.appending(path: candidate, directoryHint: .notDirectory)
+                do {
+                    try write(fileURL)
+                } catch CocoaError.fileWriteFileExists {
+                    continue
+                }
+                written = fileURL
+                break
+            }
+        } catch {
+            throw FileTransferError.fileSaveFailed(error.localizedDescription)
+        }
+        guard var fileURL = written else {
+            throw FileTransferError.fileSaveFailed("Every name for the file is taken")
+        }
+
+        var values = URLResourceValues()
+        // The file came from a contact in a chat, which is the provenance Gatekeeper should tell the user about.
+        values.quarantineProperties = [kLSQuarantineTypeKey as String: kLSQuarantineTypeInstantMessageAttachment as String]
+        do {
+            try fileURL.setResourceValues(values)
+        } catch {
+            // Unmarked, the file would open with none of the checks macOS gives a download, so it is not one this side
+            // hands on as saved.
+            try? FileManager.default.removeItem(at: fileURL)
+            throw FileTransferError.fileSaveFailed(error.localizedDescription)
+        }
+        return fileURL
     }
 
     // MARK: - Private: Method Resolution
@@ -626,6 +690,7 @@ public final class FileTransferService {
         let transferID = UUID()
         let transfer = ActiveTransfer(
             id: transferID,
+            accountID: accountID,
             fileName: file.name,
             fileSize: file.size,
             state: .requestingSlot,
@@ -663,14 +728,21 @@ public final class FileTransferService {
             throw FileTransferError.jingleFailed("A direct transfer needs the recipient's full address with a resource: \(peer)")
         }
 
-        let fileDesc = JingleFileDescription(name: file.name, size: file.size, mediaType: file.mimeType)
+        let (fileData, hash) = try await Self.readAndHash(at: file.url)
+        // The size is taken from the bytes that were hashed, not from the earlier attribute read. A file still being
+        // written changes between the two, and the peer would then stop short of a size it never receives or fail the
+        // checksum on bytes that no longer match.
+        let fileDesc = JingleFileDescription(
+            name: file.name, size: Int64(fileData.count), mediaType: file.mimeType, hash: hash
+        )
         let sid = try await jingleModule.initiateFileTransfer(to: peerJID, file: fileDesc)
 
         let transferID = UUID()
         let transfer = ActiveTransfer(
             id: transferID,
+            accountID: accountID,
             fileName: file.name,
-            fileSize: file.size,
+            fileSize: fileDesc.size,
             state: .negotiating,
             method: .jingle,
             direction: .outgoing,
@@ -681,13 +753,12 @@ public final class FileTransferService {
         do {
             try await jingleModule.awaitTransportReady(sid: sid)
             updateTransferState(id: transferID, state: .connectingTransport)
-
-            let fileData = try Array(Data(contentsOf: file.url))
             updateTransferState(id: transferID, state: .transferring(progress: 0))
 
-            try? await jingleModule.sendChecksumSessionInfo(sid: sid, data: fileData)
             try await jingleModule.sendFileData(sid: sid, data: fileData)
             updateTransferState(id: transferID, state: .completedTransfer)
+            // A send can end its session without a completion event, which leaves its sid free for a later session.
+            endedSessionRows.insert(transferID)
             return ""
         } catch {
             recordJingleTransferFailure(error, id: transferID)
@@ -803,39 +874,45 @@ public final class FileTransferService {
 
     private func updateTransferState(id: UUID, state: TransferState) {
         if let index = activeTransfers.firstIndex(where: { $0.id == id }) {
-            activeTransfers[index].state = state
+            setTransferState(state, at: index)
         }
     }
 
-    private func updateTransferState(forSID sid: String, state: TransferState) {
-        if let index = activeTransfers.firstIndex(where: { $0.sid == sid }) {
-            activeTransfers[index].state = state
+    private func updateTransferState(forSID sid: String, accountID: UUID, state: TransferState) {
+        if let index = sessionRowIndex(sid: sid, accountID: accountID) {
+            setTransferState(state, at: index)
         }
+    }
+
+    /// The row of the session a Jingle event names by sid. A peer can reuse a sid once its session ended and can choose a
+    /// link offer's stanza id as one, so the row is a Jingle row whose session has not yet reported its end: one that has
+    /// belongs to an earlier session.
+    private func sessionRowIndex(sid: String, accountID: UUID) -> Int? {
+        activeTransfers.firstIndex { row in
+            row.method == .jingle && row.sid == sid && row.accountID == accountID && !endedSessionRows.contains(row.id)
+        }
+    }
+
+    /// A failed row stays failed: only another failure replaces its state. A received row likewise keeps the file it
+    /// saved — the transport's completion event is dispatched independently of the save, so one landing after it would
+    /// otherwise replace the saved URL with a bare completion and leave Quick Look and Reveal with nothing to open.
+    private func setTransferState(_ state: TransferState, at index: Int) {
+        if case .failed = activeTransfers[index].state {
+            guard case .failed = state else { return }
+        }
+        if case .received = activeTransfers[index].state {
+            guard case .received = state else { return }
+        }
+        activeTransfers[index].state = state
     }
 
     /// Records a Jingle transfer task's failure. A `JingleError` that arrives after the transfer already failed is a side
     /// effect of the session ending, like a cancelled wait or a closed socket, so the failure event's reason is kept. Any
-    /// other error, like a checksum mismatch, is recorded.
-    func recordJingleTransferFailure(_ error: any Error, sid: String) {
-        recordJingleTransferFailure(error, at: activeTransfers.firstIndex { $0.sid == sid })
-    }
-
-    private func recordJingleTransferFailure(_ error: any Error, id: UUID) {
-        recordJingleTransferFailure(error, at: activeTransfers.firstIndex { $0.id == id })
-    }
-
-    private func recordJingleTransferFailure(_ error: any Error, at index: Int?) {
-        guard let index else { return }
+    /// other error, like a file that could not be read, is recorded.
+    func recordJingleTransferFailure(_ error: any Error, id: UUID) {
+        guard let index = activeTransfers.firstIndex(where: { $0.id == id }) else { return }
         if error is JingleModule.JingleError, case .failed = activeTransfers[index].state { return }
-        activeTransfers[index].state = .failed(error.localizedDescription)
-    }
-
-    /// Updates all content-add transfers belonging to the given session SID.
-    private func updateContentAddTransferStates(forSessionSID sid: String, state: TransferState) {
-        let prefix = sid + "/"
-        for index in activeTransfers.indices where activeTransfers[index].sid?.hasPrefix(prefix) == true {
-            activeTransfers[index].state = state
-        }
+        setTransferState(.failed(error.localizedDescription), at: index)
     }
 }
 

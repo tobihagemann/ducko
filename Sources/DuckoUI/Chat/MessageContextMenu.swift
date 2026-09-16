@@ -24,6 +24,13 @@ struct MessageContextMenu: View {
             }
         }
 
+        let localFileURLs = message.attachments.compactMap(\.localFileURL)
+        if !localFileURLs.isEmpty {
+            Button("Reveal in Finder") {
+                revealInFinder(localFileURLs)
+            }
+        }
+
         if message.isOutgoing, !message.isRetracted, message.stanzaID != nil {
             Button("Edit") {
                 windowState.startEdit(of: message)

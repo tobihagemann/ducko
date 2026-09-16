@@ -224,9 +224,7 @@ public final class RosterService {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
             break

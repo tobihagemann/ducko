@@ -9,13 +9,13 @@ struct ReplyComposeBar: View {
             composeRow(
                 icon: "arrowshape.turn.up.left",
                 label: "Replying to \(replyingTo.fromJID)",
-                preview: replyingTo.body
+                preview: replyingTo.previewText
             )
         } else if let editing = windowState.editingMessage {
             composeRow(
                 icon: "pencil",
                 label: "Editing message",
-                preview: editing.body
+                preview: editing.previewText
             )
         }
     }

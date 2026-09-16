@@ -7,15 +7,24 @@ struct RoomRow: View {
     @Environment(\.colorScheme) private var colorScheme
     let conversation: Conversation
 
+    /// One lookup feeds both the ring and the caption, so a row cannot say it is joined in one place and not the other.
+    private var participantCount: Int {
+        RoomCaption.participantCount(for: conversation, chatService: environment.chatService)
+    }
+
     private var caption: RoomCaption {
-        RoomCaption.resolve(for: conversation, chatService: environment.chatService)
+        RoomCaption.resolve(roomSubject: conversation.roomSubject, participantCount: participantCount)
+    }
+
+    private var display: ContactPresenceDisplay {
+        ContactPresenceDisplay.resolve(isJoined: participantCount > 0)
     }
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "bubble.left.and.bubble.right.fill")
-                .foregroundStyle(.secondary)
-                .frame(width: 28, height: 28)
+            if theme.current.showPresenceIndicators {
+                PresenceIndicator(display: display)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(conversation.displayTitle)
@@ -48,6 +57,14 @@ struct RoomRow: View {
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .background(theme.current.unreadBadgeColor.resolved(for: colorScheme), in: .capsule)
+            }
+
+            // Rooms have no avatar, so the icon takes the avatar's place and keeps both kinds of row aligned.
+            if theme.current.showAvatars {
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: theme.current.avatarSize * 0.45))
+                    .foregroundStyle(.secondary)
+                    .frame(width: theme.current.avatarSize, height: theme.current.avatarSize)
             }
         }
         .padding(.vertical, 2)

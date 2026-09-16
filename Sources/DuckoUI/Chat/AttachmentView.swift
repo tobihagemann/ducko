@@ -8,45 +8,106 @@ struct AttachmentView: View {
     @Environment(\.colorScheme) private var colorScheme
     let attachment: Attachment
     let isOutgoing: Bool
-    @State private var showPreview = false
+    @State private var showQuickLook = false
+    @State private var showSheet = false
+    @State private var isHovering = false
+    /// Whether the viewer has asked for a remote image to be fetched. Per view, and deliberately not persisted: the
+    /// consent covers this one image in this one session, not every link the sender ever posts.
+    @State private var isRemoteImageRequested = false
+
+    private static let maxImageSize: CGFloat = 240
 
     var body: some View {
-        if attachment.isImage {
-            imageAttachment
-        } else {
-            fileAttachment
+        Group {
+            if attachment.isImage {
+                imageAttachment
+            } else {
+                fileAttachment
+            }
+        }
+        .background {
+            if let localFileURL {
+                QuickLookPreview(fileURL: localFileURL, isPresented: $showQuickLook)
+            }
+        }
+        .onHover { isHovering = $0 }
+        .sheet(isPresented: $showSheet) {
+            ImagePreviewSheet(attachment: attachment)
+        }
+        .accessibilityIdentifier("attachment-view")
+    }
+
+    /// A saved file opens the system Quick Look panel. A remote image is fetched only once the viewer asks for it, so
+    /// the first tap loads it inline and a later one opens the in-app sheet.
+    private func openPreview() {
+        if localFileURL != nil {
+            showQuickLook = true
+        } else if attachment.isImage, attachment.remoteURL != nil, !isRemoteImageRequested {
+            isRemoteImageRequested = true
+        } else if attachment.isImage {
+            showSheet = true
         }
     }
 
     private var imageAttachment: some View {
         Group {
-            if let imageURL = URL(string: attachment.url) {
-                AsyncImage(url: imageURL) { phase in
-                    switch phase {
-                    case let .success(image):
-                        image
-                            .resizable()
-                            .scaledToFit()
-                    case .failure:
-                        imagePlaceholder(systemName: "photo.badge.exclamationmark")
-                    case .empty:
-                        imagePlaceholder(systemName: "photo")
-                            .overlay { ProgressView() }
-                    @unknown default:
-                        imagePlaceholder(systemName: "photo")
+            if let localFileURL {
+                localImage(localFileURL)
+            } else if let imageURL = attachment.remoteURL {
+                // Rendering a peer's URL on sight would fetch it, telling the sender the recipient's address and the
+                // moment they read the message, so the viewer asks first.
+                if isRemoteImageRequested {
+                    AsyncImage(url: imageURL) { phase in
+                        switch phase {
+                        case let .success(image):
+                            image
+                                .resizable()
+                                .scaledToFit()
+                        case .failure:
+                            imagePlaceholder(systemName: "photo.badge.exclamationmark")
+                        case .empty:
+                            imagePlaceholder(systemName: "photo")
+                                .overlay { ProgressView() }
+                        @unknown default:
+                            imagePlaceholder(systemName: "photo")
+                        }
                     }
+                } else {
+                    imagePlaceholder(systemName: "photo.badge.arrow.down")
+                        .accessibilityIdentifier("attachment-load-image")
                 }
             } else {
                 imagePlaceholder(systemName: "photo")
             }
         }
-        .frame(maxWidth: 240, maxHeight: 240)
+        // Aligned to the message's own side: the cap is a maximum, so a smaller image would otherwise float in the
+        // middle of the capped frame.
+        .frame(maxWidth: Self.maxImageSize, maxHeight: Self.maxImageSize, alignment: isOutgoing ? .trailing : .leading)
         .clipShape(.rect(cornerRadius: 8))
-        .onTapGesture { showPreview = true }
-        .sheet(isPresented: $showPreview) {
-            ImagePreviewSheet(attachment: attachment)
+        .onTapGesture { openPreview() }
+        .overlay(alignment: .bottomTrailing) {
+            if let localFileURL, isHovering {
+                revealButton(localFileURL)
+                    .padding(6)
+            }
         }
-        .accessibilityIdentifier("attachment-view")
+    }
+
+    /// A saved file is read from disk: `AsyncImage` fetches through URLSession, which does not load `file://` URLs, so
+    /// it would show its failure placeholder for every file this app itself saved.
+    @ViewBuilder
+    private func localImage(_ url: URL) -> some View {
+        if let image = NSImage(contentsOf: url) {
+            Image(nsImage: image)
+                .resizable()
+                .scaledToFit()
+                // Bounded by the image's own size as well as the cap, so a small one is shown as it is rather than
+                // blown up to fill the frame. A remote image has no size to read until it loads, so it only gets the cap.
+                .frame(maxWidth: min(image.size.width, Self.maxImageSize), maxHeight: min(image.size.height, Self.maxImageSize))
+        } else {
+            // The saved file was moved, deleted, or cannot be decoded.
+            imagePlaceholder(systemName: "photo.badge.exclamationmark")
+        }
     }
 
     private func imagePlaceholder(systemName: String) -> some View {
@@ -57,6 +118,43 @@ struct AttachmentView: View {
     }
 
     private var fileAttachment: some View {
+        HStack(spacing: 8) {
+            Button {
+                openPreview()
+            } label: {
+                fileSummary
+            }
+            .buttonStyle(.plain)
+            .disabled(localFileURL == nil)
+            .accessibilityIdentifier("attachment-preview-button")
+
+            if let localFileURL {
+                // Shown by presence rather than by opacity: an invisible button still takes clicks and still answers
+                // to VoiceOver.
+                if isHovering {
+                    revealButton(localFileURL)
+                }
+            } else if let remoteURL = attachment.remoteURL {
+                Button {
+                    NSWorkspace.shared.open(remoteURL)
+                } label: {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.title3)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("attachment-open-button")
+            }
+        }
+        .padding(8)
+        .background(
+            isOutgoing
+                ? theme.current.outgoingBubbleColor.resolved(for: colorScheme).opacity(0.3)
+                : theme.current.backgroundColor.resolved(for: colorScheme),
+            in: .rect(cornerRadius: 8)
+        )
+    }
+
+    private var fileSummary: some View {
         HStack(spacing: 8) {
             Image(systemName: fileIcon)
                 .font(.title2)
@@ -82,25 +180,24 @@ struct AttachmentView: View {
             }
 
             Spacer()
-
-            if let fileURL = URL(string: attachment.url) {
-                Button {
-                    NSWorkspace.shared.open(fileURL)
-                } label: {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.title3)
-                }
-                .buttonStyle(.plain)
-            }
         }
-        .padding(8)
-        .background(
-            isOutgoing
-                ? theme.current.outgoingBubbleColor.resolved(for: colorScheme).opacity(0.3)
-                : theme.current.backgroundColor.resolved(for: colorScheme),
-            in: .rect(cornerRadius: 8)
-        )
-        .accessibilityIdentifier("attachment-view")
+        .contentShape(.rect)
+    }
+
+    private var localFileURL: URL? {
+        attachment.localFileURL
+    }
+
+    private func revealButton(_ url: URL) -> some View {
+        Button {
+            revealInFinder([url])
+        } label: {
+            Image(systemName: "folder")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help("Reveal in Finder")
+        .accessibilityIdentifier("attachment-reveal-button")
     }
 
     private var fileIcon: String {

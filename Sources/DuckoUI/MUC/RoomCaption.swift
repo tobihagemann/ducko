@@ -19,10 +19,16 @@ enum RoomCaption: Equatable {
     /// renders against (zero when the room has no bound account).
     @MainActor
     static func resolve(for conversation: Conversation, chatService: ChatService) -> RoomCaption {
-        let participantCount = conversation.accountID.map {
+        resolve(roomSubject: conversation.roomSubject, participantCount: participantCount(for: conversation, chatService: chatService))
+    }
+
+    /// The one derivation of a room's occupant count, shared by the row and the contact-list height memo so they cannot
+    /// disagree about whether the room is joined.
+    @MainActor
+    static func participantCount(for conversation: Conversation, chatService: ChatService) -> Int {
+        conversation.accountID.map {
             chatService.participantCount(forRoomJIDString: conversation.jid.description, accountID: $0)
         } ?? 0
-        return resolve(roomSubject: conversation.roomSubject, participantCount: participantCount)
     }
 
     static func resolve(roomSubject: String?, participantCount: Int) -> RoomCaption {

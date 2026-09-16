@@ -110,7 +110,7 @@ struct StatusBarView: View {
                         preferences.identityAccountID = account.id
                     } label: {
                         HStack {
-                            MenuStatusDot(status: displayedStatus(for: account.id))
+                            MenuStatusDot(status: environment.presenceService.displayedPresence(for: account.id).status)
                             Text(account.displayName ?? account.jid.description)
                         }
                     }
@@ -143,7 +143,7 @@ struct StatusBarView: View {
                     MenuStatusRow(
                         status: status,
                         label: status.displayName,
-                        isActive: status == environment.presenceService.myPresence && environment.presenceService.myStatusMessage == nil
+                        isActive: status == headerPresence.status && headerPresence.message == nil
                     )
                 }
             }
@@ -221,14 +221,10 @@ struct StatusBarView: View {
             ?? "Me"
     }
 
-    /// The status the header reflects: the displayed identity account's effective status, so a per-account
-    /// override on that account shows through (not the global value). With no override — the common case —
-    /// effective equals global, so the header is unchanged.
+    /// The identity account's displayed status, so a per-account override shows through and a disconnected account
+    /// reads Offline.
     private var headerPresence: (status: PresenceService.PresenceStatus, message: String?) {
-        guard let id = identityAccount?.id else {
-            return (environment.presenceService.myPresence, environment.presenceService.myStatusMessage)
-        }
-        return environment.presenceService.effectivePresence(for: id)
+        environment.presenceService.displayedPresence(for: identityAccount?.id)
     }
 
     /// The closed-menu label: the custom status message when one is set,
@@ -246,15 +242,6 @@ struct StatusBarView: View {
     private var customSheetPresence: PresenceService.PresenceStatus {
         let current = headerPresence.status
         return current == .offline ? .available : current
-    }
-
-    /// An account's status as shown next to its name: Offline when not connected (so a disconnected account
-    /// never displays the leaked global status), otherwise its effective (override-aware) status.
-    private func displayedStatus(for accountID: UUID) -> PresenceService.PresenceStatus {
-        if case .connected? = environment.accountService.connectionStates[accountID] {
-            return environment.presenceService.effectiveStatus(for: accountID)
-        }
-        return .offline
     }
 
     // MARK: - Actions

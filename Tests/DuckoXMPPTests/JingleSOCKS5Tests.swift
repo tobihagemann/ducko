@@ -1,4 +1,5 @@
 import DuckoTestSupport
+import struct os.OSAllocatedUnfairLock
 import Testing
 @testable import DuckoXMPP
 
@@ -203,10 +204,6 @@ enum JingleSOCKS5Tests {
             iq.child(named: "query")?.child(named: "activate") != nil
         }
 
-        private static func isFailedTransportTerminate(_ stanza: XMLElement?) -> Bool {
-            stanza?.child(named: "jingle")?.child(named: "reason")?.child(named: "failed-transport") != nil
-        }
-
         /// Starts a session whose SOCKS5 attempt is inside this side's listener accept, proven by a probe that holds a
         /// handshake open.
         private static func startAttempt(_ harness: JingleInitiatorHarness) async throws -> (sid: String, probe: SOCKS5GreetingProbe) {
@@ -265,81 +262,51 @@ enum JingleSOCKS5Tests {
         }
 
         @Test
-        func `Adding a file keeps the primary content's listener`() async throws {
-            let harness = JingleInitiatorHarness()
-            let sid = try await harness.initiate()
-            let direct = try harness.offeredCandidate(type: "direct")
-            _ = try await harness.module.sendContentAdd(sid: sid, file: JingleFileDescription(name: "second.txt", size: 3))
-
-            try harness.receive(action: JingleAction.sessionAccept.rawValue, sid: sid)
-            let probe = try #require(SOCKS5GreetingProbe(candidate: direct))
-            #expect(probe.awaitReply())
-        }
-
-        @Test
-        func `Ending a session closes only its own added files' listeners`() async throws {
-            // Both sessions share one module's listeners. A listener queues one pending connection, so each added file's
-            // listener is probed only once.
-            let harness = JingleInitiatorHarness()
-            let endedSID = try await harness.initiate()
-            let liveSID = try await harness.initiate()
-            _ = try await harness.module.sendContentAdd(sid: endedSID, file: JingleFileDescription(name: "second.txt", size: 3))
-            _ = try await harness.module.sendContentAdd(sid: liveSID, file: JingleFileDescription(name: "second.txt", size: 3))
-            let contentAdd = JingleAction.contentAdd.rawValue
-            let ended = try harness.offeredCandidate(type: "direct", action: contentAdd, sid: endedSID)
-            let live = try harness.offeredCandidate(type: "direct", action: contentAdd, sid: liveSID)
-
-            try await harness.module.terminateSession(sid: endedSID, reason: .cancel)
-            #expect(SOCKS5GreetingProbe(candidate: ended) == nil)
-            // The other session still accepts connections on its added file's listener.
-            #expect(SOCKS5GreetingProbe(candidate: live) != nil)
-        }
-
-        @Test
-        func `A proxy activation failure abandons the transport`() async throws {
-            let harness = JingleInitiatorHarness(answerIQ: Self.answerWithFailingProxy)
+        func `An unusable proxy tells the peer and falls back to IBB`() async throws {
+            // The advertised proxy is unroutable, so the dial fails; the bounded proxy wait is what keeps that prompt.
+            let harness = JingleInitiatorHarness(
+                timing: JingleTiming(proxyConnectWait: .milliseconds(50)), answerIQ: Self.answerWithFailingProxy
+            )
             let sid = try await harness.initiate()
 
             try harness.receive(action: "transport-info", sid: sid, payload: [Self.candidateUsed(harness.offeredCandidate(type: "proxy"))])
-            let failure = try await harness.event { event in
-                if case .jingleFileTransferFailed(_, .proxyActivationFailed) = event { return true }
-                return false
-            }
-            #expect(failure != nil)
-            #expect(try await Self.isFailedTransportTerminate(harness.sentJingle(action: JingleAction.sessionTerminate.rawValue)))
 
-            let outcome = try await boundedOutcome { try await harness.module.awaitTransportReady(sid: sid) }
-            guard case let .failure(error)? = outcome else {
-                Issue.record("Expected the wait to fail, got \(String(describing: outcome))")
-                return
-            }
-            #expect(error as? JingleModule.JingleError == .sessionNotFound)
-
-            // The abandoned negotiation stays closed to a late candidate-error.
-            try harness.receive(action: "transport-info", sid: sid, payload: [Self.candidateError()])
-            #expect(try await harness.sentJingle(action: JingleAction.transportReplace.rawValue, timeout: .seconds(1)) == nil)
+            // XEP-0260 §2.4: say the proxy is unusable, then offer another transport rather than ending the transfer.
+            let info = try await harness.sentStanza(matching: { stanza in
+                stanza.child(named: "jingle")?.attribute("action") == JingleAction.transportInfo.rawValue
+                    && stanza.child(named: "jingle")?.child(named: "content")?.child(named: "transport")?.child(named: "proxy-error") != nil
+            })
+            #expect(info != nil)
+            #expect(try await harness.sentJingle(action: JingleAction.transportReplace.rawValue) != nil)
+            #expect(harness.eventCount { if case .jingleFileTransferFailed = $0 { true } else { false } } == 0)
+            // Nothing is activated, because this side never reached a proxy to activate: announcing otherwise would
+            // point the peer at a bytestream no connection backs.
+            #expect(try await harness.sentIQ(timeout: .milliseconds(100), matching: Self.isActivation) == nil)
         }
 
         @Test
         func `An abandoned session accepts no further actions`() async throws {
-            let harness = JingleInitiatorHarness(answerIQ: Self.answerWithFailingProxy)
+            // The proxy fails and the IBB fallback cannot be sent either, so the session really is abandoned.
+            let harness = JingleInitiatorHarness(
+                timing: JingleTiming(proxyConnectWait: .milliseconds(50)),
+                failingActions: [JingleAction.transportReplace.rawValue], answerIQ: Self.answerWithFailingProxy
+            )
             let sid = try await harness.initiate()
             try harness.receive(action: "transport-info", sid: sid, payload: [Self.candidateUsed(harness.offeredCandidate(type: "proxy"))])
             #expect(try await harness.sentJingle(action: JingleAction.sessionTerminate.rawValue) != nil)
 
-            // A send finishing now can't end the session as a success, and nothing can be added to it.
+            // A send finishing now can't end the session as a success.
             await #expect(throws: JingleModule.JingleError.sessionNotFound) {
                 try await harness.module.terminateSession(sid: sid, reason: .success)
-            }
-            await #expect(throws: JingleModule.JingleError.sessionNotFound) {
-                _ = try await harness.module.sendContentAdd(sid: sid, file: JingleFileDescription(name: "second.txt", size: 3))
             }
             #expect(harness.sentJingleCount(action: JingleAction.sessionTerminate.rawValue) == 1)
         }
 
         @Test
         func `Abandoning a transport closes its listener`() async throws {
-            let harness = JingleInitiatorHarness(answerIQ: Self.answerWithFailingProxy)
+            let harness = JingleInitiatorHarness(
+                timing: JingleTiming(proxyConnectWait: .milliseconds(50)), answerIQ: Self.answerWithFailingProxy
+            )
             let (sid, probe) = try await Self.startAttempt(harness)
 
             try harness.receive(action: "transport-info", sid: sid, payload: [Self.candidateUsed(harness.offeredCandidate(type: "proxy"))])
@@ -366,28 +333,258 @@ enum JingleSOCKS5Tests {
         }
 
         @Test
-        func `A proxy activation that fails after switching to IBB leaves the fallback in place`() async throws {
-            let activationGate = AsyncSemaphore()
-            let harness = JingleInitiatorHarness { iq in
-                if Self.isActivation(iq) {
-                    await activationGate.wait()
-                }
-                return try Self.answerWithFailingProxy(iq)
-            }
+        func `A proxy failure that lands after switching to IBB leaves the fallback in place`() async throws {
+            // The dial is given long enough to still be running when the peer's candidate-error switches to IBB, so its
+            // failure arrives afterwards — the case where a stale proxy outcome could tear down a settled fallback.
+            let harness = JingleInitiatorHarness(
+                timing: JingleTiming(proxyConnectWait: .seconds(1)), answerIQ: Self.answerWithFailingProxy
+            )
             let sid = try await harness.initiate()
 
             try harness.receive(action: "transport-info", sid: sid, payload: [Self.candidateUsed(harness.offeredCandidate(type: "proxy"))])
-            #expect(try await harness.sentIQ(matching: Self.isActivation) != nil)
+            // Armed before the candidate-error lands. The dial has to still be running, or this exercises the reverse
+            // ordering, where the failure switches to IBB first and every assertion below holds for the wrong reason.
+            // Whether the dial blocks depends on the network, so it is asserted rather than assumed. A host that answers
+            // or refuses TEST-NET-1 immediately fails here instead of passing green.
+            #expect(try await harness.sentJingle(action: JingleAction.transportInfo.rawValue, timeout: .milliseconds(50)) == nil)
+            #expect(harness.sentJingleCount(action: JingleAction.transportReplace.rawValue) == 0)
+
             try harness.receive(action: "transport-info", sid: sid, payload: [Self.candidateError()])
             #expect(try await harness.sentJingle(action: JingleAction.transportReplace.rawValue) != nil)
 
-            await activationGate.signal()
-            let failure = try await harness.event(timeout: .seconds(1)) { event in
+            let failure = try await harness.event(timeout: .seconds(2)) { event in
                 if case .jingleFileTransferFailed = event { return true }
                 return false
             }
             #expect(failure == nil)
             #expect(try await harness.sentJingle(action: JingleAction.sessionTerminate.rawValue, timeout: .milliseconds(100)) == nil)
+            // The late proxy failure must not propose a second fallback on top of the one already in place.
+            #expect(harness.sentJingleCount(action: JingleAction.transportReplace.rawValue) == 1)
+        }
+    }
+
+    /// Serialized because each transfer parks cooperative threads in blocking socket calls (the listener's accept, the peer's
+    /// handshake, this side's read or write); run in parallel they starve the pool that every other test needs.
+    @Suite(.serialized)
+    struct DirectListenerTransfers {
+        private static let incomplete = JingleModule.JingleError.transportFailed("The transfer ended before the whole file arrived")
+
+        /// Offers a large file to the peer and connects to this side's direct listener as the peer, once the peer accepted it.
+        private static func connect(_ harness: JingleInitiatorHarness) async throws -> (sid: String, peer: SOCKS5Connection) {
+            let file = JingleFileDescription(name: "big.bin", size: 16_000_000)
+            let sid = try await harness.initiate(file: file)
+            try harness.receive(action: JingleAction.sessionAccept.rawValue, sid: sid, payload: [JingleInitiatorHarness.fileContent(file)])
+            let peer = try await harness.connectToDirectCandidate(sid: sid)
+            try await harness.module.awaitTransportReady(sid: sid)
+            return (sid, peer)
+        }
+
+        /// Accepts the peer's offer of a 3-byte file and waits until this side connected to the peer's direct candidate, a
+        /// listener the test runs.
+        private static func accept(
+            _ harness: JingleInitiatorHarness, cid: String = "peer-direct"
+        ) async throws -> (sid: String, peer: SOCKS5Connection) {
+            let listener = SOCKS5Listener()
+            let port = try await listener.start()
+            let peerJID = JingleInitiatorHarness.peer.description
+            let candidate = SOCKS5Transport.Candidate(cid: cid, host: "127.0.0.1", port: port, jid: peerJID, priority: 100, type: .direct)
+            let content = JingleContent(
+                name: "a-file-offer", creator: "initiator", description: JingleFileDescription(name: "test.txt", size: 3),
+                transport: .socks5(SOCKS5Transport(sid: "transport-sid", candidates: [candidate]))
+            )
+            try harness.receive(action: JingleAction.sessionInitiate.rawValue, sid: "sid-1", payload: [content.toXML()])
+            try await harness.module.acceptFileTransfer(sid: "sid-1")
+
+            let destination = SOCKS5Connection.destinationAddress(sid: "transport-sid", initiatorJID: peerJID, targetJID: "user@example.com/res")
+            let peer = try await listener.accept(expectedDstAddr: destination)
+            await listener.close()
+            try await harness.module.awaitTransportReady(sid: "sid-1")
+            return ("sid-1", peer)
+        }
+
+        /// This side dials none of the responder's candidates, and XEP-0260 §2.3 has it say so even when the responder
+        /// reached its listener, since a responder can wait for both sides' reports before using the stream.
+        @Test
+        func `An initiator reached on its listener reports it used none of the peer's candidates`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (_, peer) = try await Self.connect(harness)
+
+            let report = try await harness.sentStanza { stanza in
+                stanza.child(named: "jingle")?.attribute("action") == JingleAction.transportInfo.rawValue
+            }
+            let transport = report?.child(named: "jingle")?.child(named: "content")?.child(named: "transport")
+            #expect(transport?.child(named: "candidate-error") != nil)
+            #expect(transport?.child(named: "candidate-used") == nil)
+            withExtendedLifetime(peer) {}
+        }
+
+        /// An initiator reports candidate-error even when this side's connection works, since it dials none of this side's
+        /// candidates. Only the initiator decides a fallback, so the working stream stays and carries the file.
+        @Test
+        func `A responder keeps its connected stream after the initiator's candidate-error`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (sid, peer) = try await Self.accept(harness)
+
+            try harness.receive(
+                action: JingleAction.transportInfo.rawValue, sid: sid,
+                payload: [JingleInitiatorHarness.socks5Info(XMLElement(name: "candidate-error"))]
+            )
+            try await peer.send([1, 2, 3])
+
+            // Bounded: a responder that dropped its stream would wait for bytes that never come.
+            let module = harness.module
+            let received = OSAllocatedUnfairLock<[UInt8]?>(initialState: nil)
+            let outcome = try await boundedOutcome(timeout: .seconds(5)) {
+                let data = try await module.receiveFileData(sid: sid)
+                received.withLock { $0 = data }
+            }
+            #expect(outcome != nil)
+            #expect(received.withLock { $0 } == [1, 2, 3])
+            #expect(harness.sentJingleCount(action: JingleAction.transportReplace.rawValue) == 0)
+            withExtendedLifetime(peer) {}
+        }
+
+        /// The initiator chooses candidate ids, so one can equal any name this side uses internally. A responder reports
+        /// the candidate it connected to whatever its id.
+        @Test
+        func `A responder reports the candidate it used whatever the candidate's id`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (_, peer) = try await Self.accept(harness, cid: "direct-listener")
+
+            let report = try await harness.sentStanza { stanza in
+                stanza.child(named: "jingle")?.attribute("action") == JingleAction.transportInfo.rawValue
+            }
+            let used = report?.child(named: "jingle")?.child(named: "content")?.child(named: "transport")?.child(named: "candidate-used")
+            #expect(used?.attribute("cid") == "direct-listener")
+            withExtendedLifetime(peer) {}
+        }
+
+        @Test
+        func `A received file completes once every byte arrived`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (sid, peer) = try await Self.accept(harness)
+
+            try await peer.send([1, 2, 3])
+            #expect(try await harness.module.receiveFileData(sid: sid) == [1, 2, 3])
+            #expect(harness.eventCount { if case .jingleFileTransferCompleted(sid, .socks5) = $0 { true } else { false } } == 1)
+            #expect(try await harness.sentJingle(action: JingleAction.sessionInfo.rawValue)?.child(named: "jingle")?.child(named: "received") != nil)
+            let terminate = try await harness.sentJingle(action: JingleAction.sessionTerminate.rawValue)
+            #expect(terminate?.child(named: "jingle")?.child(named: "reason")?.child(named: "success") != nil)
+            withExtendedLifetime(peer) {}
+        }
+
+        @Test
+        func `A success terminate before the last bytes still completes`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (sid, peer) = try await Self.accept(harness)
+            try await peer.send([1, 2])
+            let receive = Task { try await harness.module.receiveFileData(sid: sid) }
+            try await Task.sleep(for: .milliseconds(100))
+
+            try harness.receive(action: "session-terminate", sid: sid, payload: [JingleInitiatorHarness.reason("success")])
+            try await peer.send([3])
+            #expect(try await receive.value == [1, 2, 3])
+            #expect(harness.eventCount(matching: JingleInitiatorHarness.isCompletion) == 1)
+            // The peer already ended the session, so this side sends no terminate back.
+            try await Task.sleep(for: .milliseconds(100))
+            #expect(harness.sentJingleCount(action: JingleAction.sessionTerminate.rawValue) == 0)
+        }
+
+        @Test
+        func `A short EOF fails as incomplete`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (sid, peer) = try await Self.accept(harness)
+            try await peer.send([1, 2])
+            await peer.close()
+
+            await #expect(throws: Self.incomplete) {
+                _ = try await harness.module.receiveFileData(sid: sid)
+            }
+            #expect(harness.eventCount { if case .jingleFileTransferFailed(sid, .incomplete) = $0 { true } else { false } } == 1)
+        }
+
+        @Test
+        func `A stall past the end-of-stream wait fails as incomplete`() async throws {
+            let harness = JingleInitiatorHarness(timing: .short)
+            let (sid, peer) = try await Self.accept(harness)
+            try await peer.send([1, 2])
+            let receive = Task { try await harness.module.receiveFileData(sid: sid) }
+            try await Task.sleep(for: .milliseconds(50))
+
+            try harness.receive(action: "session-terminate", sid: sid, payload: [JingleInitiatorHarness.reason("success")])
+            await #expect(throws: Self.incomplete) {
+                _ = try await receive.value
+            }
+            withExtendedLifetime(peer) {}
+        }
+
+        @Test
+        func `A success terminate before the claim with a stalled socket fails as incomplete after the wait`() async throws {
+            let harness = JingleInitiatorHarness(timing: JingleTiming(endOfStreamWait: .milliseconds(300), unclaimedReceiveExpiry: .seconds(30)))
+            let (sid, peer) = try await Self.accept(harness)
+            try await peer.send([1, 2])
+            try harness.receive(action: "session-terminate", sid: sid, payload: [JingleInitiatorHarness.reason("success")])
+
+            let start = ContinuousClock.now
+            await #expect(throws: Self.incomplete) {
+                _ = try await harness.module.receiveFileData(sid: sid)
+            }
+            let elapsed = ContinuousClock.now - start
+            #expect(elapsed >= .milliseconds(250))
+            // Bounded above as well: the 30 s unclaimed expiry this test deliberately set alongside the 300 ms
+            // end-of-stream wait satisfies the lower bound just as well, so only a ceiling tells the two apart.
+            #expect(elapsed < .seconds(5))
+            #expect(harness.eventCount { if case .jingleFileTransferFailed(sid, .incomplete) = $0 { true } else { false } } == 1)
+            withExtendedLifetime(peer) {}
+        }
+
+        @Test
+        func `A success terminate mid-write leaves the session up until the send commits it`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (sid, peer) = try await Self.connect(harness)
+            let send = Task { try await harness.module.sendFileData(sid: sid, data: [UInt8](repeating: 7, count: 16_000_000)) }
+            try await Task.sleep(for: .milliseconds(200))
+
+            try harness.receive(action: "session-terminate", sid: sid, payload: [JingleInitiatorHarness.reason("success")])
+            #expect(harness.eventCount(matching: JingleInitiatorHarness.isCompletion) == 0)
+            await peer.close()
+
+            let outcome = try await boundedOutcome(timeout: .seconds(5)) { try await send.value }
+            guard case .success? = outcome else {
+                Issue.record("Expected the send to return, got \(String(describing: outcome))")
+                return
+            }
+            #expect(harness.eventCount { if case .jingleFileTransferCompleted(sid, .socks5) = $0 { true } else { false } } == 1)
+            #expect(harness.eventCount(matching: JingleInitiatorHarness.isFailure) == 0)
+        }
+
+        @Test
+        func `A write that fails without a confirmation throws`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (sid, peer) = try await Self.connect(harness)
+            let send = Task { try await harness.module.sendFileData(sid: sid, data: [UInt8](repeating: 7, count: 16_000_000)) }
+            try await Task.sleep(for: .milliseconds(200))
+
+            await peer.close()
+            let outcome = try await boundedOutcome(timeout: .seconds(5)) { try await send.value }
+            guard case .failure? = outcome else {
+                Issue.record("Expected the send to throw, got \(String(describing: outcome))")
+                return
+            }
+            #expect(harness.eventCount(matching: JingleInitiatorHarness.isCompletion) == 0)
+        }
+
+        @Test
+        func `A transport-replace after the connection opened is rejected`() async throws {
+            let harness = JingleInitiatorHarness()
+            let (sid, peer) = try await Self.accept(harness)
+
+            try harness.receive(action: "transport-replace", sid: sid, payload: [JingleInitiatorHarness.ibbContent()])
+            #expect(try await harness.sentJingle(action: JingleAction.transportReject.rawValue) != nil)
+            #expect(harness.sentJingleCount(action: JingleAction.transportAccept.rawValue) == 0)
+
+            try await peer.send([1, 2, 3])
+            #expect(try await harness.module.receiveFileData(sid: sid) == [1, 2, 3])
         }
     }
 

@@ -66,7 +66,7 @@ enum IBBTransportTests {
     struct IBBSessionStateAccumulation {
         @Test
         func `IBBSessionState accumulates received data`() {
-            var ibbState = IBBSessionState(ibbSID: "ibb-1", blockSize: 4096, expectedSize: 10)
+            var ibbState = IBBSessionState(ibbSID: "ibb-1", blockSize: 4096)
 
             #expect(ibbState.receivedData.isEmpty)
             #expect(ibbState.nextExpectedSeq == 0)
@@ -82,9 +82,6 @@ enum IBBTransportTests {
 
             #expect(ibbState.receivedData.count == 10)
             #expect(ibbState.nextExpectedSeq == 2)
-
-            let received = Int64(ibbState.receivedData.count)
-            #expect(received >= ibbState.expectedSize)
         }
     }
 }

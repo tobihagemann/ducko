@@ -60,6 +60,32 @@ enum ChatServiceSearchTests {
             #expect(allContainCafe)
         }
 
+        /// A received file is stored with an empty body, so its name is the only text there is to match. Without the
+        /// attachment clause in `searchMessages`, every file a contact sent is permanently unfindable.
+        @Test
+        func `finds a received file by its name`() async throws {
+            let store = makeStore()
+            let transcripts = makeTranscripts()
+            let service = makeChatService(store: store, transcripts: transcripts)
+            await seedMessages(transcripts: transcripts, conversationID: testConversationID)
+            await transcripts.addMessage(ChatMessage(
+                id: UUID(),
+                conversationID: testConversationID,
+                fromJID: contactJID.description,
+                body: "",
+                timestamp: Date(timeIntervalSince1970: 600),
+                isOutgoing: false,
+                isDelivered: false,
+                isEdited: false,
+                type: "chat",
+                attachments: [Attachment(id: UUID(), url: "file:///tmp/quarterly-report.pdf", fileName: "quarterly-report.pdf")]
+            ))
+
+            let results = try await service.searchMessages(for: testConversationID, query: "quarterly")
+            #expect(results.count == 1)
+            #expect(results.first?.attachments.first?.displayFileName == "quarterly-report.pdf")
+        }
+
         @Test
         func `no matches returns empty`() async throws {
             let store = makeStore()

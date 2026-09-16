@@ -299,7 +299,7 @@ public actor AdiumImportService {
               latestMessage.timestamp > (conv.lastMessageDate ?? .distantPast) else { return }
         var updated = conv
         updated.lastMessageDate = latestMessage.timestamp
-        updated.lastMessagePreview = String(latestMessage.body.prefix(100))
+        updated.lastMessagePreview = String(latestMessage.previewText.prefix(100))
         try await store.upsertConversation(updated)
     }
 

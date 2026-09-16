@@ -113,7 +113,7 @@ public final class ChatWindowState {
 
     /// The account to route this tab's reads/sends through: the bound `accountID`, falling back
     /// to the first account only defensively (no live tab actually has a nil account).
-    private var resolvedAccountID: UUID? {
+    var resolvedAccountID: UUID? {
         accountID ?? environment.accountService.accounts.first?.id
     }
 

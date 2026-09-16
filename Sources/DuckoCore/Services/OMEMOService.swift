@@ -172,9 +172,7 @@ public final class OMEMOService {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:

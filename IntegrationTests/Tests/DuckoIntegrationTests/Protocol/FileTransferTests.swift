@@ -154,7 +154,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 harness.addCleanup { sendTask.cancel() }
 
                 let offer = try await Self.waitForOffer(on: bob)
-                try await harness.environment.fileTransferService.acceptIncomingTransfer(offer.sid, accountID: bob.accountID)
+                try await harness.environment.fileTransferService.acceptIncomingTransfer(offer.offerID, accountID: bob.accountID)
 
                 let result = try await sendTask.value
                 #expect(result.isEmpty)
@@ -171,7 +171,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
-        @Test(.timeLimit(.minutes(1))) @MainActor func `Service accept incoming transfer marks it completed`() async throws {
+        @Test(.timeLimit(.minutes(1))) @MainActor func `Service accept incoming transfer saves the file`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: [
                     "alice": TestCredentials.alice,
@@ -198,14 +198,10 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 harness.addCleanup { sendTask.cancel() }
 
                 let offer = try await Self.waitForOffer(on: bob)
-                try await harness.environment.fileTransferService.acceptIncomingTransfer(offer.sid, accountID: bob.accountID)
+                try await harness.environment.fileTransferService.acceptIncomingTransfer(offer.offerID, accountID: bob.accountID)
                 _ = try await sendTask.value
 
                 // Wait for Bob's own `.jingleFileTransferCompleted` event.
-                // FileTransferService.activeTransfers is shared across
-                // accounts and its sid-based state updater mutates the first
-                // match only, so asserting against that array can pass on
-                // Alice's sender-side entry alone.
                 _ = try await bob.waitForEvent(
                     matching: { event in
                         if case let .jingleFileTransferCompleted(completedSID, _) = event, completedSID == offer.sid { return true }
@@ -213,6 +209,20 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     },
                     timeout: TestTimeout.fileTransfer
                 )
+
+                // Rows are kept per account, so Bob's row ends with the file he saved while Alice's row tracks her send.
+                let fileTransferService = harness.environment.fileTransferService
+                var savedURL: URL?
+                for _ in 0 ..< 100 where savedURL == nil {
+                    let row = fileTransferService.activeTransfers.first { $0.accountID == bob.accountID && $0.sid == offer.sid }
+                    if case let .received(fileURL)? = row?.state {
+                        savedURL = fileURL
+                    } else {
+                        try await Task.sleep(for: .milliseconds(50))
+                    }
+                }
+                let fileURL = try #require(savedURL)
+                #expect(try Data(contentsOf: fileURL) == Data(contentsOf: fixtureURL))
             }
         }
 
@@ -243,7 +253,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
             async let received: [UInt8] = {
                 try await bobJingle.awaitTransportReady(sid: offer.sid)
-                return try await bobJingle.receiveFileData(sid: offer.sid, expectedSize: offer.fileSize)
+                return try await bobJingle.receiveFileData(sid: offer.sid)
             }()
             async let sent: Void = {
                 try await aliceJingle.awaitTransportReady(sid: sid)
@@ -256,9 +266,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 #expect(receivedBytes == fileData)
             }
 
-            // JingleModule emits `.jingleFileTransferCompleted` only on receipt
-            // of session-terminate or IBB close — the sender sends these
-            // without emitting locally, so the event fires on the receiver only.
+            // The receiver emits `.jingleFileTransferCompleted` once it verified
+            // every byte; the sender returned after the receiver confirmed.
             _ = try await bob.waitForEvent(
                 matching: { event in
                     if case let .jingleFileTransferCompleted(completedSID, _) = event, completedSID == sid { return true }

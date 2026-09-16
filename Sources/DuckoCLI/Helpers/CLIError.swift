@@ -17,7 +17,6 @@ enum CLIError: Error, LocalizedError {
     case noConversationTarget
     case invalidTransferMethod(String)
     case noIncomingOffers
-    case noActiveJingleSession
     case malformedQuotedArgument(String)
 
     var errorDescription: String? {
@@ -54,8 +53,6 @@ enum CLIError: Error, LocalizedError {
             "Invalid transfer method: \(method). Valid values: auto, http, jingle"
         case .noIncomingOffers:
             "No incoming file transfer offers."
-        case .noActiveJingleSession:
-            "No active Jingle session."
         case let .malformedQuotedArgument(detail):
             "Invalid nickname argument: \(detail). Quote nicknames containing spaces, e.g. \"Alice Smith\"."
         }

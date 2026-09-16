@@ -58,7 +58,7 @@ struct MessageBubbleView: View {
                     if let replied = repliedMessage {
                         ReplyQuoteView(
                             senderName: replied.isOutgoing ? "You" : replied.fromJID,
-                            bodyPreview: replied.body
+                            bodyPreview: replied.previewText
                         )
                     }
                 },

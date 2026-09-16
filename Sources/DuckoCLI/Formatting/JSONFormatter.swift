@@ -119,11 +119,9 @@ struct JSONFormatter: CLIFormatter {
              .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
              .mucSelfPingFailed:
             return formatMUCEvent(event, account: account)
-        case .jingleFileTransferReceived, .jingleFileRequestReceived,
+        case .jingleFileTransferReceived,
              .jingleFileTransferProgress, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
-             .oobIQOfferReceived:
+             .jingleFileTransferFailed, .oobIQOfferReceived:
             return formatJingleEvent(event, account: account)
         case let .serviceOutageReceived(info):
             return formatOutageEvent(info, account: account)
@@ -179,10 +177,9 @@ struct JSONFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .oobIQOfferReceived, .serviceOutageReceived:
             return nil
@@ -232,10 +229,9 @@ struct JSONFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
@@ -305,10 +301,9 @@ struct JSONFormatter: CLIFormatter {
              .roomOccupantNickChanged,
              .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
              .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
@@ -355,13 +350,10 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
-    // swiftlint:disable:next function_body_length
     private func formatJingleEvent(_ event: XMPPEvent, account: String) -> String? {
         switch event {
         case let .jingleFileTransferReceived(offer):
             return formatFileOfferEvent(offer, account: account)
-        case let .jingleFileRequestReceived(request):
-            return formatFileRequest(request, account: account)
         case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
             let (progress, _) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
             return encode([
@@ -381,25 +373,9 @@ struct JSONFormatter: CLIFormatter {
             ])
         case let .jingleFileTransferFailed(sid, reason):
             return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason.rawValue, "account": account])
-        case let .jingleChecksumMismatch(sid, expected, computed):
-            return encode([
-                "type": "jingle_checksum_mismatch", "sid": sid,
-                "expected": expected, "computed": computed, "account": account
-            ])
-        case let .jingleContentAddReceived(sid, contentName, offer):
-            return encode([
-                "type": "jingle_content_add",
-                "sid": sid,
-                "contentName": contentName,
-                "fileName": offer.fileName,
-                "fileSizeBytes": "\(offer.fileSize)",
-                "from": offer.from.bareJID.description,
-                "account": account
-            ])
         case let .oobIQOfferReceived(offer):
             return formatOOBIQOfferEvent(offer, account: account)
         case .jingleChecksumReceived,
-             .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
              .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
@@ -426,6 +402,7 @@ struct JSONFormatter: CLIFormatter {
         var dict: [String: String] = [
             "type": "oob_iq_offer",
             "id": offer.id,
+            "offerId": offer.offerID,
             "url": offer.url,
             "from": offer.from.bareJID.description,
             "account": account
@@ -472,30 +449,8 @@ struct JSONFormatter: CLIFormatter {
             "fileSizeBytes": "\(offer.fileSize)",
             "from": offer.from.bareJID.description,
             "sid": offer.sid,
+            "offerId": offer.offerID,
             "account": account
-        ])
-    }
-
-    private func formatFileRequest(_ request: JingleFileRequest, account: String) -> String {
-        encode([
-            "type": "file_request",
-            "fileName": request.fileDescription.name,
-            "fileSize": formatByteCount(request.fileDescription.size),
-            "fileSizeBytes": "\(request.fileDescription.size)",
-            "from": request.from.bareJID.description,
-            "sid": request.sid,
-            "account": account
-        ])
-    }
-
-    func formatFileOffer(fileName: String, fileSize: Int64, from: String, sid: String) -> String {
-        encode([
-            "type": "file_offer",
-            "fileName": fileName,
-            "fileSize": formatByteCount(fileSize),
-            "fileSizeBytes": "\(fileSize)",
-            "from": from,
-            "sid": sid
         ])
     }
 
@@ -628,10 +583,9 @@ struct JSONFormatter: CLIFormatter {
              .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
-             .jingleFileTransferReceived, .jingleFileRequestReceived, .jingleFileTransferCompleted,
+             .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted, .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:

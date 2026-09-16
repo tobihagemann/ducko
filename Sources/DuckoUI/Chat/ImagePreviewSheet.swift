@@ -3,8 +3,10 @@ import DuckoCore
 import SwiftUI
 
 struct ImagePreviewSheet: View {
+    @Environment(AppEnvironment.self) private var environment
     let attachment: Attachment
     @Environment(\.dismiss) private var dismiss
+    @State private var saveError: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,11 +39,16 @@ struct ImagePreviewSheet: View {
         }
         .frame(minWidth: 400, minHeight: 300)
         .accessibilityIdentifier("image-preview")
+        // The service already composes the whole sentence, so the alert carries it as it is rather than adding a second
+        // label on top of it. Presented straight from the optional, so dismissing clears the text with it.
+        .alert(saveError ?? "", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+            Button("OK", role: .cancel) {}
+        }
     }
 
     @ViewBuilder
     private var imageContent: some View {
-        if let imageURL = URL(string: attachment.url) {
+        if let imageURL = attachment.remoteURL {
             AsyncImage(url: imageURL) { phase in
                 switch phase {
                 case let .success(image):
@@ -65,16 +72,13 @@ struct ImagePreviewSheet: View {
     }
 
     private func saveToDownloads() {
-        guard let imageURL = URL(string: attachment.url) else { return }
-
-        Task.detached {
+        guard let imageURL = attachment.remoteURL else { return }
+        let fileName = attachment.displayFileName
+        Task {
             do {
-                let (data, _) = try await URLSession.shared.data(from: imageURL)
-                guard let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
-                let destination = downloadsURL.appendingPathComponent(attachment.displayFileName)
-                try data.write(to: destination)
+                _ = try await environment.fileTransferService.saveRemoteImage(from: imageURL, named: fileName)
             } catch {
-                // Save failed — silent for now
+                saveError = error.localizedDescription
             }
         }
     }

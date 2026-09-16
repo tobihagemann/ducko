@@ -334,8 +334,19 @@ final class SOCKS5GreetingProbe: Sendable {
 
 // MARK: - Jingle Initiator Harness
 
+extension JingleTiming {
+    /// Wait limits short enough for a test to observe each one elapse.
+    static let short = JingleTiming(
+        endOfStreamWait: .milliseconds(300),
+        checksumWait: .milliseconds(300),
+        unclaimedReceiveExpiry: .milliseconds(300),
+        senderConfirmationWait: .milliseconds(300),
+        proxyConnectWait: .milliseconds(300)
+    )
+}
+
 /// Drives a `JingleModule` through a recording `ModuleContext` without a client, so a test can play the peer of a
-/// session this side initiates, answer or fail its IQs, and fail chosen outbound Jingle actions.
+/// session, answer or fail its IQs, and fail chosen outbound Jingle actions.
 final class JingleInitiatorHarness: Sendable {
     private struct Recorded {
         var stanzas: [XMLElement] = []
@@ -346,16 +357,18 @@ final class JingleInitiatorHarness: Sendable {
 
     static let peer = FullJID.parse("peer@example.com/res")!
 
-    let module = JingleModule()
+    let module: JingleModule
     private let recorded = OSAllocatedUnfairLock(initialState: Recorded())
 
     /// - Parameters:
     ///   - failingActions: Jingle actions whose outbound send fails.
     ///   - answerIQ: Returns the payload answering an outbound IQ, or throws its error.
     init(
+        timing: JingleTiming = .init(),
         failingActions: Set<String> = [],
         answerIQ: @escaping @Sendable (XMLElement) async throws -> XMLElement? = { _ in nil }
     ) {
+        module = JingleModule(timing: timing)
         let recorded = recorded
         module.setUp(ModuleContext(
             sendStanza: { stanza in
@@ -380,21 +393,107 @@ final class JingleInitiatorHarness: Sendable {
         ))
     }
 
-    /// Starts a transfer to the peer and returns its session ID.
-    func initiate() async throws -> String {
-        try await module.initiateFileTransfer(to: Self.peer, file: JingleFileDescription(name: "test.txt", size: 3))
+    func initiate(file: JingleFileDescription = JingleFileDescription(name: "test.txt", size: 3)) async throws -> String {
+        try await module.initiateFileTransfer(to: Self.peer, file: file)
     }
 
-    /// Delivers a Jingle IQ from the peer with `action` and `payload` for the session.
-    func receive(action: String, sid: String, payload: [XMLElement] = []) throws {
+    /// Delivers a Jingle IQ from `from` (the peer by default) with `action` and `payload` for the session.
+    func receive(
+        action: String, sid: String, payload: [XMLElement] = [], id: String? = nil, from: FullJID = JingleInitiatorHarness.peer
+    ) throws {
         var jingle = XMLElement(name: "jingle", namespace: XMPPNamespaces.jingle, attributes: ["action": action, "sid": sid])
         for child in payload {
             jingle.addChild(child)
         }
-        var iq = XMPPIQ(type: .set, id: "peer-\(action)")
-        iq.from = .full(Self.peer)
-        iq.element.addChild(jingle)
+        try deliver(jingle, id: id ?? "peer-\(action)", from: from)
+    }
+
+    func deliver(_ child: XMLElement, id: String, from: FullJID = JingleInitiatorHarness.peer) throws {
+        var iq = XMPPIQ(type: .set, id: id)
+        iq.from = .full(from)
+        iq.element.addChild(child)
         _ = try module.handleIQ(iq)
+    }
+
+    /// Delivers the peer's session-initiate for `file`, whose content names `senders` when given.
+    func receiveOffer(
+        sid: String, file: JingleFileDescription = JingleFileDescription(name: "test.txt", size: 3), senders: JingleContentSenders? = nil
+    ) throws {
+        try receive(action: JingleAction.sessionInitiate.rawValue, sid: sid, payload: [Self.fileContent(file, senders: senders)], id: "initiate-\(sid)")
+    }
+
+    /// Matches this side's IQ reply of `type` (`result` or `error`) to the peer's IQ `id`.
+    static func isReply(to id: String, type: String) -> @Sendable (XMLElement) -> Bool {
+        { $0.name == "iq" && $0.attribute("id") == id && $0.attribute("type") == type }
+    }
+
+    /// A content offering `file`, sent with `senders`, over a SOCKS5 transport without candidates.
+    static func fileContent(_ file: JingleFileDescription, senders: JingleContentSenders? = nil) -> XMLElement {
+        JingleContent(
+            name: "a-file-offer", creator: "initiator", senders: senders, description: file,
+            transport: .socks5(SOCKS5Transport(sid: "transport-sid"))
+        ).toXML()
+    }
+
+    /// A content switching the transfer to IBB stream `ibbSID`.
+    static func ibbContent(ibbSID: String = "ibb-sid") -> XMLElement {
+        var content = XMLElement(name: "content", attributes: ["creator": "initiator", "name": "a-file-offer"])
+        content.addChild(IBBTransport(sid: ibbSID, blockSize: 4096).toXML())
+        return content
+    }
+
+    /// An IBB data chunk carrying `bytes`.
+    static func ibbData(_ bytes: [UInt8], seq: UInt16, ibbSID: String = "ibb-sid") -> XMLElement {
+        var data = XMLElement(name: "data", namespace: XMPPNamespaces.ibb, attributes: ["sid": ibbSID, "seq": String(seq)])
+        data.addText(Base64.encode(bytes))
+        return data
+    }
+
+    static func ibbClose(ibbSID: String = "ibb-sid") -> XMLElement {
+        XMLElement(name: "close", namespace: XMPPNamespaces.ibb, attributes: ["sid": ibbSID])
+    }
+
+    /// A session-info carrying a checksum of `hash` in `algo`.
+    static func checksum(_ hash: String, algo: String = "sha-256") -> XMLElement {
+        var hashElement = XMLElement(name: "hash", namespace: XMPPNamespaces.hashes2, attributes: ["algo": algo])
+        hashElement.addText(hash)
+        var file = XMLElement(name: "file")
+        file.addChild(hashElement)
+        var checksum = XMLElement(name: "checksum", namespace: XMPPNamespaces.jingleFileTransfer, attributes: ["name": "a-file-offer"])
+        checksum.addChild(file)
+        return checksum
+    }
+
+    /// A `<reason>` naming `name`, as a session-terminate carries.
+    static func reason(_ name: String) -> XMLElement {
+        var reason = XMLElement(name: "reason")
+        reason.addChild(XMLElement(name: name))
+        return reason
+    }
+
+    static func isCompletion(_ event: XMPPEvent) -> Bool {
+        if case .jingleFileTransferCompleted = event { return true }
+        return false
+    }
+
+    static func isFailure(_ event: XMPPEvent) -> Bool {
+        if case .jingleFileTransferFailed = event { return true }
+        return false
+    }
+
+    /// Connects to this side's direct candidate as the peer would, completing the SOCKS5 handshake for session `sid`.
+    func connectToDirectCandidate(sid: String) async throws -> SOCKS5Connection {
+        let candidate = try offeredCandidate(type: "direct", sid: sid)
+        let host = try #require(candidate.attribute("host"))
+        let port = try #require(candidate.attribute("port").flatMap(UInt16.init))
+        let offer = try #require(offeredContent(sid: sid))
+        let transportSID = try #require(offer.child(named: "transport")?.attribute("sid"))
+        let destination = SOCKS5Connection.destinationAddress(
+            sid: transportSID, initiatorJID: "user@example.com/res", targetJID: Self.peer.description
+        )
+        let connection = SOCKS5Connection()
+        try await connection.connect(host: host, port: port, destinationAddress: destination)
+        return connection
     }
 
     /// A transport-info content carrying one SOCKS5 child, like `<candidate-error/>` or `<candidate-used cid='…'/>`.
@@ -406,16 +505,20 @@ final class JingleInitiatorHarness: Sendable {
         return content
     }
 
-    /// The SOCKS5 candidates this side offered in its first stanza with `action` (session-initiate or content-add), for
-    /// session `sid` when one is given.
+    /// The SOCKS5 candidates this side offered in its first stanza with `action`, for session `sid` when one is given.
     func offeredCandidates(action: String = JingleAction.sessionInitiate.rawValue, sid: String? = nil) -> [XMLElement] {
+        offeredContent(action: action, sid: sid)?.child(named: "transport")?.children(named: "candidate") ?? []
+    }
+
+    /// The content this side offered in its first stanza with `action`, for session `sid` when one is given.
+    func offeredContent(action: String = JingleAction.sessionInitiate.rawValue, sid: String? = nil) -> XMLElement? {
         let offer = recorded.withLock { recorded in
-            recorded.stanzas.first { stanza in
+            (recorded.iqs + recorded.stanzas).first { stanza in
                 guard let jingle = stanza.child(named: "jingle"), jingle.attribute("action") == action else { return false }
                 return sid == nil || jingle.attribute("sid") == sid
             }
         }
-        return offer?.child(named: "jingle")?.child(named: "content")?.child(named: "transport")?.children(named: "candidate") ?? []
+        return offer?.child(named: "jingle")?.child(named: "content")
     }
 
     /// Waits up to `timeout` for a sent Jingle stanza with `action`.
@@ -434,6 +537,28 @@ final class JingleInitiatorHarness: Sendable {
     /// The first offered candidate of `type` (`direct` or `proxy`).
     func offeredCandidate(type: String, action: String = JingleAction.sessionInitiate.rawValue, sid: String? = nil) throws -> XMLElement {
         try #require(offeredCandidates(action: action, sid: sid).first { $0.attribute("type") == type })
+    }
+
+    /// Waits up to `timeout` for a sent stanza matching `predicate`.
+    func sentStanza(timeout: Duration = .seconds(2), matching predicate: @escaping @Sendable (XMLElement) -> Bool) async throws -> XMLElement? {
+        try await poll(timeout) { recorded in recorded.stanzas.first(where: predicate) }
+    }
+
+    func sentStanzaCount(matching predicate: @escaping @Sendable (XMLElement) -> Bool) -> Int {
+        recorded.withLock { $0.stanzas.count(where: predicate) }
+    }
+
+    func eventCount(matching predicate: @escaping @Sendable (XMPPEvent) -> Bool) -> Int {
+        recorded.withLock { $0.events.count(where: predicate) }
+    }
+
+    /// The file offers the module announced, oldest first.
+    func receivedOffers() -> [JingleFileOffer] {
+        recorded.withLock { state in
+            state.events.compactMap { event in
+                if case let .jingleFileTransferReceived(offer) = event { offer } else { nil }
+            }
+        }
     }
 
     /// Waits up to `timeout` for a sent IQ matching `predicate`.

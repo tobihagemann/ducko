@@ -1,6 +1,7 @@
 import DuckoXMPP
 import Foundation
 import Logging
+import UniformTypeIdentifiers
 
 private let log = Logger(label: "im.ducko.core.chat")
 
@@ -1372,9 +1373,7 @@ public final class ChatService {
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
@@ -1415,9 +1414,7 @@ public final class ChatService {
              .vcardAvatarHashReceived,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
@@ -1459,9 +1456,7 @@ public final class ChatService {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
@@ -1507,9 +1502,7 @@ public final class ChatService {
              .roomDestroyed, .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
              .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
              .oobIQOfferReceived, .serviceOutageReceived:
@@ -1656,9 +1649,7 @@ public final class ChatService {
              .mucSelfPingFailed,
              .jingleFileTransferReceived, .jingleFileTransferCompleted,
              .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleFileRequestReceived, .jingleChecksumReceived, .jingleChecksumMismatch,
-             .jingleContentAddReceived, .jingleContentAccepted,
-             .jingleContentRejected, .jingleContentRemoved,
+             .jingleChecksumReceived,
              .pepItemsPublished, .pepItemsRetracted,
              .vcardAvatarHashReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked,
@@ -1863,6 +1854,25 @@ public final class ChatService {
         )
         try await store.upsertConversation(conversation)
         return conversation
+    }
+
+    /// Records a file `jid` sent directly to this account as an incoming message that carries the saved file as its
+    /// attachment.
+    func recordReceivedFile(_ attachment: Attachment, from jid: BareJID, accountID: UUID) async throws {
+        let conversation = try await findOrCreateConversation(for: jid, accountID: accountID)
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: conversation.id,
+            fromJID: jid.description,
+            body: "",
+            timestamp: Date(),
+            isOutgoing: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            attachments: [attachment]
+        )
+        await persistAndNotify(message, in: conversation, accountID: accountID)
     }
 
     private func persistAndNotify(_ message: ChatMessage, in conversation: Conversation, accountID: UUID) async {
@@ -2346,9 +2356,14 @@ public final class ChatService {
     }
 
     private func parseOOBAttachments(from element: DuckoXMPP.XMLElement) -> [Attachment] {
-        XMPPMessage(element: element).oobData.map { oob in
-            let fileName = URL(string: oob.url)?.lastPathComponent
-            return Attachment(id: UUID(), url: oob.url, fileName: fileName, oobDescription: oob.desc)
+        XMPPMessage(element: element).oobData.compactMap { oob in
+            let url = URL(string: oob.url)
+            // A peer's `file:` URL names a path on the recipient's machine, which no peer can legitimately point at, so
+            // the link is dropped rather than kept as an attachment.
+            guard url?.isFileURL != true else { return nil }
+            // The type the peer's link implies, so a shared image renders like any other image rather than as a file.
+            let mimeType = url.flatMap { UTType(filenameExtension: $0.pathExtension)?.preferredMIMEType }
+            return Attachment(id: UUID(), url: oob.url, mimeType: mimeType, fileName: url?.lastPathComponent, oobDescription: oob.desc)
         }
     }
 
@@ -2362,7 +2377,7 @@ public final class ChatService {
 
         var updated = conversation
         updated.lastMessageDate = message.timestamp
-        updated.lastMessagePreview = String(message.body.prefix(100))
+        updated.lastMessagePreview = String(message.previewText.prefix(100))
         if incrementUnread {
             updated.unreadCount += 1
         }
@@ -2412,7 +2427,11 @@ public final class ChatService {
     ) async throws -> [ChatMessage] {
         let messages = try await transcripts.fetchMessages(for: conversationID, before: nil, limit: 500)
         return messages
-            .filter { $0.body.localizedStandardContains(query) }
+            .filter { message in
+                // A received file's message carries no body, so its name is reachable only through its attachment.
+                message.body.localizedStandardContains(query)
+                    || message.attachments.contains { $0.displayFileName.localizedStandardContains(query) }
+            }
             .prefix(limit)
             .reversed()
     }
@@ -2524,7 +2543,7 @@ public final class ChatService {
                 if let lastMessage = newMessages.last {
                     var updated = conversation
                     updated.lastMessageDate = lastMessage.timestamp
-                    updated.lastMessagePreview = String(lastMessage.body.prefix(100))
+                    updated.lastMessagePreview = String(lastMessage.previewText.prefix(100))
                     // Conditional update, not upsert: the conversation may have been
                     // destroyed during this MAM round-trip — don't recreate it.
                     try await store.updateConversationIfExists(updated)

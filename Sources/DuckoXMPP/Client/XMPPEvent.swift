@@ -39,16 +39,10 @@ public enum XMPPEvent: Sendable {
 
     // Jingle File Transfer (XEP-0166/0234)
     case jingleFileTransferReceived(JingleFileOffer)
-    case jingleFileRequestReceived(JingleFileRequest)
     case jingleFileTransferCompleted(sid: String, transport: JingleTransportKind)
     case jingleFileTransferFailed(sid: String, reason: JingleTransferFailureReason)
     case jingleFileTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64)
     case jingleChecksumReceived(sid: String, checksum: JingleChecksumInfo)
-    case jingleChecksumMismatch(sid: String, expected: String, computed: String)
-    case jingleContentAddReceived(sid: String, contentName: String, offer: JingleFileOffer)
-    case jingleContentAccepted(sid: String, contentName: String)
-    case jingleContentRejected(sid: String, contentName: String)
-    case jingleContentRemoved(sid: String, contentName: String)
 
     // PEP (XEP-0163)
     case pepItemsPublished(from: BareJID, node: String, items: [PEPItem])
@@ -111,17 +105,27 @@ public enum ChatMarkerType: String, Sendable, CaseIterable {
 
 /// An incoming OOB IQ file offer per XEP-0066 §3 (IQ-based).
 public struct OOBIQOffer: Sendable {
+    /// The id this side gave the offer, which accepting or rejecting it takes. `id` is the sender's stanza id, which
+    /// another sender can use too.
+    public let offerID: String
     public let id: String
     public let from: JID
     public let url: String
     public let desc: String?
 
-    public init(id: String, from: JID, url: String, desc: String?) {
+    public init(offerID: String, id: String, from: JID, url: String, desc: String?) {
+        self.offerID = offerID
         self.id = id
         self.from = from
         self.url = url
         self.desc = desc
     }
+}
+
+/// A random id this side gives an offer it received. The ids on the wire are chosen by peers, so two offers, whether
+/// from different peers or of different kinds, can carry the same one.
+func makeOfferID() -> String {
+    hexString((0 ..< 8).map { _ in UInt8.random(in: .min ... .max) })
 }
 
 /// Parsed service outage information per XEP-0455.

@@ -388,6 +388,42 @@ struct PlainFormatterTests {
 
     // MARK: - Attachments
 
+    /// A received file carries no body of its own, so the sender line is the only place its name can appear, and it
+    /// must appear there once.
+    @Test func `file-only message names the file once, on the sender line`() {
+        let message = ChatMessage(
+            id: UUID(),
+            conversationID: UUID(),
+            fromJID: "alice@example.com",
+            body: "",
+            timestamp: Date(),
+            isOutgoing: false,
+            isDelivered: false,
+            isEdited: false,
+            type: "chat",
+            attachments: [Attachment(id: UUID(), url: "file:///tmp/report.pdf", fileName: "report.pdf")]
+        )
+        let output = formatter.formatMessage(message)
+        let senderLine = output.components(separatedBy: "\n")[0]
+        #expect(senderLine.contains("report.pdf"))
+        #expect(output.components(separatedBy: "report.pdf").count - 1 == 1)
+    }
+
+    /// Only the attachment the sender line names is skipped; the rest of an empty-body message still gets its lines.
+    @Test func `file-only message with several attachments lists the ones after the first`() {
+        let message = ChatMessage(
+            id: UUID(), conversationID: UUID(), fromJID: "alice@example.com", body: "",
+            timestamp: Date(), isOutgoing: false, isDelivered: false, isEdited: false, type: "chat",
+            attachments: [
+                Attachment(id: UUID(), url: "https://example.com/first.pdf", fileName: "first.pdf"),
+                Attachment(id: UUID(), url: "https://example.com/second.pdf", fileName: "second.pdf")
+            ]
+        )
+        let output = formatter.formatMessage(message)
+        #expect(output.components(separatedBy: "first.pdf").count - 1 == 1)
+        #expect(output.contains("second.pdf"))
+    }
+
     @Test func `message with attachments includes file info`() {
         let message = ChatMessage(
             id: UUID(),

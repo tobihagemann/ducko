@@ -67,7 +67,6 @@ struct XMPPErrorDescriptionTests {
         (JingleModule.JingleError.notConnected, "Not connected to the server"),
         (JingleModule.JingleError.sessionNotFound, "The file transfer session was not found"),
         (JingleModule.JingleError.noConnectedJID, "Not connected to the server"),
-        (JingleModule.JingleError.cannotRemovePrimaryContent, "The primary file cannot be removed from the transfer"),
         (JingleModule.JingleError.alreadyAccepted, "The file transfer was already accepted"),
         (
             JingleModule.JingleError.transportNegotiationFailed("The peer rejected the connection method"),

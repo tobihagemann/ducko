@@ -45,8 +45,16 @@ func iso8601(_ date: Date) -> String {
     )
 }
 
+/// The attachments a message's sender line has not already named, each printed on a line of its own. An attachment
+/// whose URL is the body is named by the body, and the first attachment of an empty body by `previewText`.
+func attachmentsBelowSenderLine(_ message: ChatMessage) -> [Attachment] {
+    message.attachments.enumerated()
+        .filter { index, attachment in attachment.url != message.body && !(message.body.isEmpty && index == 0) }
+        .map(\.element)
+}
+
 func oobFileName(_ url: String) -> String {
-    URL(string: url)?.lastPathComponent ?? url
+    Attachment.fileName(forLink: url)
 }
 
 func occupantLeaveText(_ reason: OccupantLeaveReason?) -> String {

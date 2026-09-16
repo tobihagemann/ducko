@@ -25,6 +25,7 @@ The Contacts window has **no toolbar**. Its actions live in the app menu bar: Ne
 
 - Peekaboo CLI installed (`/opt/homebrew/bin/peekaboo`)
 - Accessibility permissions granted for Terminal/Claude
+- An unlocked GUI session. Check with `ioreg -n Root -d1 -a | grep -A1 CGSSessionScreenIsLocked`, run unsandboxed: `<true/>` means locked and no output means unlocked (a sandboxed `ioreg` also prints nothing). While locked, Peekaboo capture fails and the scripts report windows as not found, so ask the user to unlock rather than polling.
 
 ## Scripts
 
@@ -77,10 +78,13 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `send-directed-presence-menu-item` | "Send Directed Presence" context menu item on a contact | Contacts |
 | `attachment-button` | Paperclip file picker button | Chat |
 | `pending-attachments` | Pending attachment bar above input | Chat |
-| `add-file-to-session-button` | Add-file button on an active Jingle transfer session | Chat |
 | `transfer-progress` | Progress indicator for an active file transfer | Chat |
 | `file-drop-overlay` | Drag-and-drop overlay | Chat |
 | `attachment-view` | Attachment in message bubble | Chat |
+| `attachment-preview-button` | File attachment card that opens the system Quick Look panel. Disabled for remote files. The bubble combines its children, so only the merged `message-bubble-{id}` resolves, not this identifier. | Chat |
+| `attachment-reveal-button` | Reveal-in-Finder button on a saved file attachment, shown on hover (merged into the bubble) | Chat |
+| `attachment-open-button` | Open button on a remote (HTTP) file attachment (merged into the bubble) | Chat |
+| `attachment-load-image` | Placeholder for a remote image. Tapping it loads the image inline (merged into the bubble). | Chat |
 | `image-preview` | Full-size image preview sheet | Chat |
 | `link-preview` | Link preview card in message bubble | Chat |
 | `room-settings-menu-item` | "Room Settings..." context menu item | Contacts |
@@ -150,13 +154,9 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `verify-button-{deviceID}` | Verify device button | Device Fingerprints |
 | `encryptByDefaultToggle` | Encrypt by default preference toggle | Preferences (Chat) |
 | `tofuToggle` | Trust on first use preference toggle | Preferences (Chat) |
-| `file-transfer-banner` | Incoming file transfer/request banner | Chat |
-| `accept-file-transfer-button` | Accept button on incoming file transfer | Chat |
-| `decline-file-transfer-button` | Decline button on incoming file transfer | Chat |
-| `fulfill-file-request-button` | Fulfill button on incoming file request | Chat |
-| `decline-file-request-button` | Decline button on incoming file request | Chat |
-| `accept-content-add-button` | Accept button on content-add offer | Chat |
-| `decline-content-add-button` | Decline button on content-add offer | Chat |
+| `file-transfer-banner` | Incoming file offer banner, one row per offer. It masks the Accept/Decline buttons' own identifiers, so find those buttons by title inside it. | Chat |
+| `accept-file-transfer-button` | Accept button on an incoming file offer (masked by the banner's identifier) | Chat |
+| `decline-file-transfer-button` | Decline button on an incoming file offer (masked by the banner's identifier) | Chat |
 | `cancel-account-button` | Cancel Account button | Account Detail |
 | `check-registration-button` | Check Registration button | Account Detail |
 | `registration-form-sheet` | Registration form sheet | Registration |
@@ -249,6 +249,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-leave-room.sh` | Leave a room via context menu | `ROOM_JID` |
 | `ducko-retract.sh` | Retract a message via context menu | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
 | `ducko-moderate.sh` | Moderate (remove) a message via context menu | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
+| `ducko-reveal.sh` | Reveal a message's saved files in Finder via context menu | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
 | `ducko-encrypt.sh` | Open encryption menu, optionally toggle or open fingerprints | `[on\|off\|fingerprints]` (optional) |
 | `ducko-device-trust.sh` | Trust/untrust/verify an OMEMO device | `DEVICE_ID ACTION` (`ACTION`: trust\|untrust\|verify) |
 | `ducko-attach.sh` | Attach a file via the attachment button in chat | `FILE_PATH` |
@@ -766,6 +767,8 @@ $SCRIPTS/ducko-screenshot.sh "file-sent.png"
 $SCRIPTS/ducko-stop.sh
 ```
 
+For image-rendering checks, confirm a generated image fixture decodes: `sips -g pixelWidth <file>` returns a number, while `file` only reads the header. Confirm a rendering verdict against a screenshot, not against stored metadata such as the MIME type.
+
 ### Connection info test
 
 Tests viewing TLS connection details:
@@ -849,3 +852,4 @@ To allow these scripts in `settings.local.json` without prompts:
 - The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Arguments passed via `osascript - "$ARG" << 'APPLESCRIPT'` + `on run argv` (no shell injection).
 - Credentials are arguments, never hardcoded.
+- When the user drives the GUI on a profile, pause these scripts: `ducko-launch.sh`, `ducko-stop.sh` and `ducko-connect.sh` kill every running DuckoApp regardless of profile. Run CLI or integration tests meanwhile on other `DUCKO_PROFILE`s and accounts, so their offers and messages stay out of the user's window. Hand the GUI over by running `swift build` and launching `DUCKO_PROFILE=<name> .build/debug/DuckoApp` (a packaged bundle can be stale).

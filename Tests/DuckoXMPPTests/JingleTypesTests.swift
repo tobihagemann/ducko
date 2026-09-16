@@ -41,10 +41,20 @@ enum JingleTypesTests {
             (JingleTransferFailureReason.disconnected, "The connection to the server was lost"),
             (JingleTransferFailureReason.proxyActivationFailed, "The file transfer proxy could not be activated"),
             (JingleTransferFailureReason.transportReject, "The peer rejected the connection method"),
-            (JingleTransferFailureReason.transportReplaceFailed, "Switching the connection method failed")
+            (JingleTransferFailureReason.transportReplaceFailed, "Switching the connection method failed"),
+            (JingleTransferFailureReason.incomplete, "The transfer ended before the whole file arrived"),
+            (JingleTransferFailureReason.checksumMismatch, "The received file is corrupted")
         ])
         func `Failure reasons have readable display text`(reason: JingleTransferFailureReason, expected: String) {
             #expect(reason.displayText == expected)
+        }
+
+        @Test(arguments: [
+            (JingleTransferFailureReason.incomplete, "incomplete"),
+            (JingleTransferFailureReason.checksumMismatch, "checksum-mismatch")
+        ])
+        func `Receive failure reasons have stable raw tokens`(reason: JingleTransferFailureReason, expected: String) {
+            #expect(reason.rawValue == expected)
         }
     }
 
@@ -65,59 +75,27 @@ enum JingleTypesTests {
     }
 
     struct SessionContents {
-        private func makeContent(name: String) -> JingleContent {
+        private func makeContent(
+            name: String, size: Int64 = 100, range: JingleFileRange? = nil, transportSID: String? = nil
+        ) -> JingleContent {
             JingleContent(
                 name: name,
                 creator: "initiator",
-                description: JingleFileDescription(name: "\(name).txt", size: 100),
-                transport: .socks5(SOCKS5Transport(sid: "t-\(name)"))
+                description: JingleFileDescription(name: "\(name).txt", size: size, range: range),
+                transport: .socks5(SOCKS5Transport(sid: transportSID ?? "t-\(name)"))
             )
         }
 
-        private func makeSession(primaryName: String = "primary") throws -> JingleSession {
-            let bareJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
-            let peer = try #require(FullJID(bareJID: bareJID, resourcePart: "res"))
-            return JingleSession(peer: peer, role: .initiator, content: makeContent(name: primaryName))
+        private func makeSession() throws -> JingleSession {
+            let peer = try #require(FullJID.parse("user@example.com/res"))
+            return JingleSession(peer: peer, role: .initiator, content: makeContent(name: "primary"))
         }
 
         @Test
-        func `applyAcceptedContent updates the primary when the name matches`() throws {
-            var session = try makeSession()
-            // Responder echoes the primary back (e.g. with a range added).
-            session.applyAcceptedContent(makeContent(name: "primary"))
-            #expect(session.content.description.name == "primary.txt")
-            #expect(session.secondaryContents.isEmpty)
-        }
-
-        @Test
-        func `applyAcceptedContent routes a non-primary name to secondaryContents`() throws {
-            var session = try makeSession()
-            session.applyAcceptedContent(makeContent(name: "file-1"))
-            #expect(session.primaryContentName == "primary")
-            #expect(session.secondaryContents["file-1"] != nil)
-        }
-
-        @Test
-        func `nextAdditionalFileContentName starts at file-1`() throws {
+        func `A session keeps the content it was created with`() throws {
             let session = try makeSession()
-            #expect(session.nextAdditionalFileContentName() == "file-1")
-        }
-
-        @Test
-        func `nextAdditionalFileContentName skips a name still held by a surviving secondary`() throws {
-            var session = try makeSession()
-            session.secondaryContents["file-1"] = makeContent(name: "file-1")
-            session.secondaryContents["file-2"] = makeContent(name: "file-2")
-            session.secondaryContents.removeValue(forKey: "file-1")
-            // count+1 == 2 would collide with the live file-2, so it must skip to file-3.
-            #expect(session.nextAdditionalFileContentName() == "file-3")
-        }
-
-        @Test
-        func `nextAdditionalFileContentName skips a primary that is itself named file-N`() throws {
-            let session = try makeSession(primaryName: "file-1")
-            // count+1 == 1 collides with the primary's own name, so it must skip to file-2.
-            #expect(session.nextAdditionalFileContentName() == "file-2")
+            #expect(session.content.description.size == 100)
+            #expect(session.content.transport == .socks5(SOCKS5Transport(sid: "t-primary")))
         }
     }
 
@@ -144,6 +122,94 @@ enum JingleTypesTests {
             #expect(parsed?.mediaType == "text/plain")
             #expect(parsed?.hash == "abc123")
             #expect(parsed?.date == "2024-01-01T00:00:00Z")
+        }
+    }
+
+    struct FileDescriptionHash {
+        private func description(fileChildren: [XMLElement]) -> XMLElement {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "test.txt")
+            file.setChildText(named: "size", to: "3")
+            for child in fileChildren {
+                file.addChild(child)
+            }
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+            return description
+        }
+
+        @Test
+        func `Parses the hash algorithm and hash-used`() throws {
+            var hash = XMLElement(name: "hash", namespace: XMPPNamespaces.hashes2, attributes: ["algo": "sha-512"])
+            hash.addText("abc")
+            let parsed = try #require(JingleFileDescription(from: description(fileChildren: [
+                hash, XMLElement(name: "hash-used", namespace: XMPPNamespaces.hashes2, attributes: ["algo": "sha-256"])
+            ])))
+            #expect(parsed.hash == "abc")
+            #expect(parsed.hashAlgo == "sha-512")
+            #expect(parsed.hashUsed)
+        }
+
+        @Test
+        func `hash-used is false when absent`() throws {
+            let parsed = try #require(JingleFileDescription(from: description(fileChildren: [])))
+            #expect(!parsed.hashUsed)
+            #expect(parsed.hashAlgo == nil)
+        }
+
+        @Test
+        func `A hash serializes with its algorithm, defaulting to sha-256`() throws {
+            let defaulted = JingleFileDescription(name: "a", size: 1, hash: "abc").toXML()
+            #expect(defaulted.child(named: "file")?.child(named: "hash", namespace: XMPPNamespaces.hashes2)?.attribute("algo") == "sha-256")
+            let explicit = try #require(JingleFileDescription(from: JingleFileDescription(name: "a", size: 1, hash: "abc", hashAlgo: "sha-512").toXML()))
+            #expect(explicit.hashAlgo == "sha-512")
+        }
+
+        @Test
+        func `sha256Hash encodes the digest as base64`() {
+            #expect(JingleFileDescription.sha256Hash(of: [1, 2, 3]) == "A5BYxvLAy0ksUzsKTRTvd8wPeKvMztUofYShogEc+4E=")
+        }
+    }
+
+    struct FileDescriptionValidation {
+        private func parse(size: String, range: [String: String]?) -> JingleFileDescription? {
+            var file = XMLElement(name: "file")
+            file.setChildText(named: "name", to: "test.txt")
+            file.setChildText(named: "size", to: size)
+            if let range {
+                file.addChild(XMLElement(name: "range", attributes: range))
+            }
+            var description = XMLElement(name: "description", namespace: XMPPNamespaces.jingleFileTransfer)
+            description.addChild(file)
+            return JingleFileDescription(from: description)
+        }
+
+        @Test(arguments: [
+            ("-1", [String: String]?.none),
+            ("10", [String: String]?.some(["offset": "-1"])),
+            ("10", [String: String]?.some(["length": "-1"])),
+            ("10", [String: String]?.some(["offset": "11"])),
+            ("10", [String: String]?.some(["offset": "4", "length": "7"])),
+            ("10", [String: String]?.some(["length": "11"]))
+        ])
+        func `An invalid size or range fails the whole description`(size: String, range: [String: String]?) {
+            #expect(parse(size: size, range: range) == nil)
+        }
+
+        @Test(arguments: [
+            ("10", [String: String]?.none),
+            ("10", [String: String]?.some(["offset": "10"])),
+            ("10", [String: String]?.some(["offset": "4", "length": "6"])),
+            ("0", [String: String]?.some([:]))
+        ])
+        func `A range within the size parses`(size: String, range: [String: String]?) {
+            #expect(parse(size: size, range: range) != nil)
+        }
+
+        @Test
+        func `A size past the cap fails the whole description`() {
+            #expect(parse(size: String(JingleFileDescription.maxSize + 1), range: nil) == nil)
+            #expect(parse(size: String(JingleFileDescription.maxSize), range: nil) != nil)
         }
     }
 
@@ -213,11 +279,17 @@ enum JingleTypesTests {
             ("../../etc/passwd", "passwd"),
             ("/absolute/path/file.pdf", "file.pdf"),
             ("..\\..\\windows\\cmd.exe", "cmd.exe"),
+            ("folder/", "folder"),
             ("..", "unnamed"),
             (".", "unnamed"),
-            ("", "unnamed")
+            ("", "unnamed"),
+            (" .hidden", "hidden"),
+            ("report.pdf ", "report.pdf"),
+            ("a:b.txt", "a-b.txt"),
+            ("invoice\u{202E}fdp.exe", "invoicefdp.exe"),
+            ("line\nbreak.txt", "linebreak.txt")
         ])
-        func `sanitizeFileName strips path components`(input: String, expected: String) {
+        func `sanitizeFileName keeps one visible file name`(input: String, expected: String) {
             let result = JingleFileDescription.sanitizeFileName(input)
             #expect(result == expected)
         }

@@ -58,9 +58,7 @@ enum SOCKS5ConnectionTests {
             let target = "peer@example.com/xyz"
             let input = sid + initiator + target
             let digest = Insecure.SHA1.hash(data: Array(input.utf8))
-            let expected = digest.map { byte in
-                byte < 16 ? "0" + String(byte, radix: 16) : String(byte, radix: 16)
-            }.joined()
+            let expected = hexString(digest)
 
             let result = SOCKS5Connection.destinationAddress(sid: sid, initiatorJID: initiator, targetJID: target)
             #expect(result == expected)

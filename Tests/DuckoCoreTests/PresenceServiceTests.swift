@@ -40,6 +40,44 @@ enum PresenceServiceTests {
         }
     }
 
+    @MainActor
+    struct DisplayedPresence {
+        @Test
+        func `A disconnected account reads offline whatever status was picked`() {
+            let service = makePresenceService()
+            service.myPresence = .available
+            service.myStatusMessage = "Ready"
+
+            #expect(service.displayedPresence(for: testAccountID).status == .offline)
+            #expect(service.displayedPresence(for: testAccountID).message == nil)
+        }
+
+        @Test
+        func `No account at all reads offline`() {
+            let service = makePresenceService()
+            service.myPresence = .away
+
+            #expect(service.displayedPresence(for: nil).status == .offline)
+        }
+
+        @Test
+        func `A connected account reads its own override, and only a disconnected one falls back`() async throws {
+            let fixture = try await makeTwoConnectedAccounts()
+            let service = fixture.presenceService
+
+            await service.applyAccountPresence(.dnd, message: "busy", accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
+
+            #expect(service.displayedPresence(for: fixture.bobID).status == .dnd)
+            #expect(service.displayedPresence(for: fixture.bobID).message == "busy")
+
+            await fixture.accountService.disconnect(accountID: fixture.bobID)
+            #expect(service.displayedPresence(for: fixture.bobID).status == .offline)
+            #expect(service.displayedPresence(for: fixture.aliceID).status != .offline)
+
+            await fixture.teardown()
+        }
+    }
+
     struct PresenceUpdated {
         @Test
         @MainActor
@@ -621,7 +659,7 @@ enum PresenceServiceTests {
 
             // Pin Bob to DND, then clear the wire so the global broadcast is isolated.
             await service.applyAccountPresence(.dnd, message: "busy", accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
-            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .dnd)
             await fixture.aliceTransport.clearSentBytes()
             await fixture.bobTransport.clearSentBytes()
 
@@ -635,7 +673,7 @@ enum PresenceServiceTests {
             let bob = await fixture.bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
             #expect(alice.contains { $0.contains("<presence") && $0.contains("away") })
             #expect(bob.contains { $0.contains("<presence") && $0.contains("away") })
-            #expect(service.effectiveStatus(for: fixture.bobID) == .away)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .away)
 
             await fixture.teardown()
         }
@@ -658,12 +696,12 @@ enum PresenceServiceTests {
             let alice = await fixture.aliceTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
             #expect(bob.contains { $0.contains("<presence") && $0.contains("dnd") && $0.contains("busy") })
             #expect(alice.allSatisfy { !$0.contains("<presence") })
-            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .dnd)
             #expect(service.effectivePresence(for: fixture.bobID).message == "busy")
-            #expect(service.effectiveStatus(for: fixture.aliceID) == .available)
+            #expect(service.effectivePresence(for: fixture.aliceID).status == .available)
 
             await service.applyGlobalPresence(.available, message: nil, identityAccountID: nil, connect: { _ in }, disconnect: { _ in })
-            #expect(service.effectiveStatus(for: fixture.bobID) == .available)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .available)
 
             await fixture.teardown()
         }
@@ -676,7 +714,7 @@ enum PresenceServiceTests {
 
             // Pre-pin Bob so the assertion proves the override is dropped, not stored as an offline override.
             await service.applyAccountPresence(.dnd, message: nil, accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
-            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .dnd)
 
             await service.applyAccountPresence(.offline, message: nil, accountID: fixture.bobID) { id in
                 try await fixture.accountService.connect(accountID: id)
@@ -685,7 +723,7 @@ enum PresenceServiceTests {
             }
 
             // Effective falls back to the global Available — not Offline — so no override lingers.
-            #expect(service.effectiveStatus(for: fixture.bobID) == .available)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .available)
             #expect(fixture.accountService.connectedClient(for: fixture.bobID) == nil)
             #expect(fixture.accountService.connectedClient(for: fixture.aliceID) != nil)
 
@@ -699,12 +737,12 @@ enum PresenceServiceTests {
             let service = fixture.presenceService
 
             await service.applyAccountPresence(.dnd, message: nil, accountID: fixture.bobID, connect: { _ in }, disconnect: { _ in })
-            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .dnd)
 
             // A deliberate disconnect must drop the pin even though the cancelled event task never delivers
             // `.disconnected(.requested)` to `handleEvent`.
             await fixture.accountService.disconnect(accountID: fixture.bobID)
-            #expect(service.effectiveStatus(for: fixture.bobID) == .available)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .available)
 
             await fixture.teardown()
         }
@@ -715,13 +753,13 @@ enum PresenceServiceTests {
             let service = makePresenceService()
             let accountID = UUID()
             await service.applyAccountPresence(.dnd, message: nil, accountID: accountID, connect: { _ in }, disconnect: { _ in })
-            #expect(service.effectiveStatus(for: accountID) == .dnd)
+            #expect(service.effectivePresence(for: accountID).status == .dnd)
 
             await service.handleEvent(.disconnected(.connectionLost("dropped")), accountID: accountID)
-            #expect(service.effectiveStatus(for: accountID) == .dnd)
+            #expect(service.effectivePresence(for: accountID).status == .dnd)
 
             await service.handleEvent(.disconnected(.requested), accountID: accountID)
-            #expect(service.effectiveStatus(for: accountID) == .available)
+            #expect(service.effectivePresence(for: accountID).status == .available)
         }
 
         @Test
@@ -735,7 +773,7 @@ enum PresenceServiceTests {
             await service.applyAccountPresence(.dnd, message: "busy", accountID: accountID, connect: { _ in }, disconnect: { _ in })
             #expect(service.effectivePresence(for: accountID).status == .dnd)
             #expect(service.effectivePresence(for: accountID).message == "busy")
-            #expect(service.effectiveStatus(for: accountID) == .dnd)
+            #expect(service.effectivePresence(for: accountID).status == .dnd)
         }
     }
 
@@ -755,11 +793,11 @@ enum PresenceServiceTests {
             let bobAway = await fixture.bobTransport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
             #expect(aliceAway.contains { $0.contains("<presence") && $0.contains("away") })
             #expect(bobAway.allSatisfy { !$0.contains("away") })
-            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .dnd)
 
             await service.applyIdleTransition(idleTime: 0, timeout: 300)
             #expect(service.myPresence == .available)
-            #expect(service.effectiveStatus(for: fixture.bobID) == .dnd)
+            #expect(service.effectivePresence(for: fixture.bobID).status == .dnd)
 
             await fixture.teardown()
         }

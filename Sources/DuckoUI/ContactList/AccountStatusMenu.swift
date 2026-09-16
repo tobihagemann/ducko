@@ -9,7 +9,7 @@ struct AccountStatusMenu: View {
 
     var body: some View {
         ForEach(environment.accountService.connectedAccounts) { account in
-            let displayed = environment.presenceService.effectiveStatus(for: account.id)
+            let displayed = environment.presenceService.displayedPresence(for: account.id).status
             Menu {
                 ForEach(PresenceService.PresenceStatus.selectableCases, id: \.self) { status in
                     Button {
