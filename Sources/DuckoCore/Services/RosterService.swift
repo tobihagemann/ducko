@@ -104,9 +104,7 @@ public final class RosterService {
     }
 
     public func removeContact(_ contact: Contact, accountID: UUID) async throws {
-        guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
-        guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
-        try await rosterModule.removeContact(jid: contact.jid)
+        try await removeContact(jid: contact.jid, accountID: accountID)
     }
 
     public func addContact(jidString: String, name: String?, groups: [String], accountID: UUID) async throws {
@@ -116,9 +114,22 @@ public final class RosterService {
 
     public func removeContact(jidString: String, accountID: UUID) async throws {
         guard let jid = BareJID.parse(jidString) else { throw RosterServiceError.invalidJID(jidString) }
+        try await removeContact(jid: jid, accountID: accountID)
+    }
+
+    private func removeContact(jid: BareJID, accountID: UUID) async throws {
+        let generation = groupsLoadGeneration[accountID, default: 0]
         guard let client = accountService?.connectedClient(for: accountID) else { throw RosterServiceError.notConnected(accountID) }
         guard let rosterModule = await client.module(ofType: RosterModule.self) else { return }
         try await rosterModule.removeContact(jid: jid)
+        guard generationUnchanged(generation, for: accountID) else { return }
+        // A finite CLI command can disconnect before the roster push finishes persisting.
+        let contacts = try await store.fetchContacts(for: accountID)
+        guard generationUnchanged(generation, for: accountID) else { return }
+        if let contact = contacts.first(where: { $0.jid == jid }) {
+            try await store.deleteContact(contact.id)
+        }
+        try await loadContacts(for: accountID, ifGenerationUnchangedSince: generation)
     }
 
     /// Sends a presence subscription request without touching the roster item. Use for a

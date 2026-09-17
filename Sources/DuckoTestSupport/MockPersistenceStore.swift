@@ -22,6 +22,11 @@ public actor MockPersistenceStore: PersistenceStore {
         fetchContactsGateRelease = release
     }
 
+    public func clearFetchContactsGate() {
+        fetchContactsGateEntered = nil
+        fetchContactsGateRelease = nil
+    }
+
     public func setFetchConversationsError(_ error: Error?) {
         fetchConversationsError = error
     }

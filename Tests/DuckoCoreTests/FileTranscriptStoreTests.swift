@@ -36,6 +36,62 @@ private func makeMessage(
 
 enum FileTranscriptStoreTests {
     struct WriteAndRead {
+        @Test(arguments: [false, true])
+        func `Write failure propagates from single and batch append`(batch: Bool) async throws {
+            let (_, dir) = try makeTempStore()
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let readOnlyFile = dir.appendingPathComponent("read-only")
+            let original = Data("unchanged".utf8)
+            try original.write(to: readOnlyFile)
+            let store = FileTranscriptStore(baseDirectory: dir, openFileHandle: { _ in
+                try FileHandle(forReadingFrom: readOnlyFile)
+            })
+            let message = makeMessage(stanzaID: "failed")
+
+            await #expect(throws: (any Error).self) {
+                if batch {
+                    try await store.appendMessages([message])
+                } else {
+                    try await store.appendMessage(message)
+                }
+            }
+            #expect(try Data(contentsOf: readOnlyFile) == original)
+            #expect(try await store.fetchMessages(for: message.conversationID, before: nil, limit: 50).isEmpty)
+        }
+
+        @Test
+        func `Amendment write failure preserves the original transcript`() async throws {
+            let (store, dir) = try makeTempStore()
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let message = makeMessage(stanzaID: "original")
+            try await store.appendMessage(message)
+            let conversationDirectory = dir.appendingPathComponent(message.conversationID.uuidString)
+            let files = try FileManager.default.contentsOfDirectory(at: conversationDirectory, includingPropertiesForKeys: nil)
+            let file = try #require(files.first)
+            let original = try Data(contentsOf: file)
+            #expect(original.last == UInt8(ascii: "\n"))
+            #expect(original.split(separator: UInt8(ascii: "\n")).count == 1)
+            let failingStore = FileTranscriptStore(baseDirectory: dir, openFileHandle: { url in
+                try FileHandle(forReadingFrom: url)
+            })
+            let amendment = TranscriptAmendment(action: .edit, targetStanzaID: "original", timestamp: Date(), body: "edited")
+
+            await #expect(throws: (any Error).self) {
+                try await failingStore.appendAmendment(amendment, conversationID: message.conversationID)
+            }
+            #expect(try Data(contentsOf: file) == original)
+            try await store.appendAmendment(amendment, conversationID: message.conversationID)
+            let amended = try Data(contentsOf: file)
+            #expect(amended.starts(with: original))
+            #expect(amended.last == UInt8(ascii: "\n"))
+            #expect(amended.split(separator: UInt8(ascii: "\n")).count == 2)
+            let reloaded = FileTranscriptStore(baseDirectory: dir)
+            let messages = try await reloaded.fetchMessages(for: message.conversationID, before: nil, limit: 50)
+            #expect(messages.count == 1)
+            #expect(messages.first?.body == "edited")
+        }
+
         @Test
         func `Appended message is retrievable`() async throws {
             let (store, dir) = try makeTempStore()

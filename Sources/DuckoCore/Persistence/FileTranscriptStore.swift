@@ -8,6 +8,7 @@ public actor FileTranscriptStore: TranscriptStore {
     private let baseDirectory: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let fileHandle: @Sendable (URL) throws -> FileHandle
 
     /// In-memory index mapping stanzaID → (conversationID, date string) for single-file lookups in findMessage/messageExists.
     private var stanzaIndex: [String: (UUID, String)] = [:]
@@ -29,7 +30,12 @@ public actor FileTranscriptStore: TranscriptStore {
     }
 
     public init(baseDirectory: URL) {
+        self.init(baseDirectory: baseDirectory, openFileHandle: Self.openAppendFile)
+    }
+
+    init(baseDirectory: URL, openFileHandle: @escaping @Sendable (URL) throws -> FileHandle) {
         self.baseDirectory = baseDirectory
+        self.fileHandle = openFileHandle
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
@@ -69,7 +75,7 @@ public actor FileTranscriptStore: TranscriptStore {
         for group in grouped {
             let fileURL = transcriptFileURL(conversationID: group.key.0, dateString: group.key.1)
             try ensureDirectoryExists(for: group.key.0)
-            let handle = try fileHandle(for: fileURL)
+            let handle = try fileHandle(fileURL)
             defer { try? handle.close() }
 
             for message in group.messages {
@@ -384,7 +390,7 @@ public actor FileTranscriptStore: TranscriptStore {
         try FileManager.default.createOwnerOnlyDirectory(at: dir)
     }
 
-    private func fileHandle(for fileURL: URL) throws -> FileHandle {
+    private static func openAppendFile(_ fileURL: URL) throws -> FileHandle {
         let path = fileURL.path
         let fd = open(path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
         guard fd >= 0 else {
@@ -399,7 +405,7 @@ public actor FileTranscriptStore: TranscriptStore {
 
     private func appendRecord(_ record: TranscriptRecord, to fileURL: URL, conversationID: UUID) throws {
         try ensureDirectoryExists(for: conversationID)
-        let handle = try fileHandle(for: fileURL)
+        let handle = try fileHandle(fileURL)
         defer { try? handle.close() }
         try writeRecord(record, to: handle)
     }
@@ -407,7 +413,7 @@ public actor FileTranscriptStore: TranscriptStore {
     private func writeRecord(_ record: TranscriptRecord, to handle: FileHandle) throws {
         var data = try encoder.encode(record)
         data.append(Self.newline)
-        handle.write(data)
+        try handle.write(contentsOf: data)
     }
 
     /// Walks date files newest-first and returns the first message matching the predicate.

@@ -66,6 +66,70 @@ struct SwiftDataPersistenceStoreTests {
         private let outer = SwiftDataPersistenceStoreTests()
 
         @Test
+        func `Insert and update share all mutable account fields`() async throws {
+            let store = try outer.makeStore()
+            var account = outer.makeAccount()
+            let createdAt = account.createdAt
+            account.displayName = "Imported account"
+            account.isEnabled = false
+            account.connectOnLaunch = true
+            account.host = "xmpp.example.com"
+            account.port = 5223
+            account.resource = "desktop"
+            account.requireTLS = false
+            account.rosterVersion = "v1"
+            account.certificateFingerprint = "AA:BB"
+            account.importedFrom = "Adium"
+            try await store.saveAccount(account)
+
+            let inserted = try #require(try await store.fetchAccounts().first)
+            expectInsertedAccount(inserted, matches: account)
+
+            account.certificateFingerprint = "CC:DD"
+            account.importedFrom = "Other"
+            account.createdAt = createdAt.addingTimeInterval(100)
+            try await store.saveAccount(account)
+            let updated = try #require(try await store.fetchAccounts().first)
+            #expect(updated.certificateFingerprint == "CC:DD")
+            #expect(updated.importedFrom == "Other")
+            #expect(updated.id == account.id)
+            #expect(updated.createdAt == createdAt)
+
+            account.displayName = nil
+            account.host = nil
+            account.port = nil
+            account.resource = nil
+            account.rosterVersion = nil
+            account.certificateFingerprint = nil
+            account.importedFrom = nil
+            try await store.saveAccount(account)
+            let cleared = try #require(try await store.fetchAccounts().first)
+            #expect(cleared.displayName == nil)
+            #expect(cleared.host == nil)
+            #expect(cleared.port == nil)
+            #expect(cleared.resource == nil)
+            #expect(cleared.rosterVersion == nil)
+            #expect(cleared.certificateFingerprint == nil)
+            #expect(cleared.importedFrom == nil)
+        }
+
+        private func expectInsertedAccount(_ inserted: Account, matches account: Account) {
+            #expect(inserted.id == account.id)
+            #expect(inserted.jid == account.jid)
+            #expect(inserted.createdAt == account.createdAt)
+            #expect(inserted.displayName == account.displayName)
+            #expect(inserted.isEnabled == false)
+            #expect(inserted.connectOnLaunch == true)
+            #expect(inserted.host == account.host)
+            #expect(inserted.port == account.port)
+            #expect(inserted.resource == account.resource)
+            #expect(inserted.requireTLS == false)
+            #expect(inserted.rosterVersion == account.rosterVersion)
+            #expect(inserted.certificateFingerprint == "AA:BB")
+            #expect(inserted.importedFrom == "Adium")
+        }
+
+        @Test
         func `Save and fetch account`() async throws {
             let store = try outer.makeStore()
             let account = outer.makeAccount()
@@ -210,6 +274,108 @@ struct SwiftDataPersistenceStoreTests {
 
     struct Conversations {
         private let outer = SwiftDataPersistenceStoreTests()
+
+        @Test(arguments: [false, true])
+        func `Insert and update share mutable conversation fields`(imported: Bool) async throws {
+            let store = try outer.makeStore()
+            let account = outer.makeAccount()
+            try await store.saveAccount(account)
+            var conversation = outer.makeConversation(accountID: account.id, type: .groupchat)
+            let createdAt = conversation.createdAt
+            if imported { conversation.accountID = nil }
+            conversation.importSourceJID = "archive@example.com"
+            conversation.displayName = "Room"
+            conversation.isPinned = true
+            conversation.isMuted = true
+            conversation.lastMessageDate = createdAt
+            conversation.lastMessagePreview = "Preview"
+            conversation.unreadCount = 3
+            conversation.roomSubject = "Subject"
+            conversation.roomNickname = "Self"
+            conversation.encryptionEnabled = true
+            conversation.occupantNickname = "Other"
+            conversation.lastReadTimestamp = createdAt
+            try await store.upsertConversation(conversation)
+
+            let inserted = try #require(try await store.fetchAllConversations().first)
+            expectInsertedConversation(inserted, matches: conversation)
+
+            conversation.accountID = account.id
+            conversation.createdAt = createdAt.addingTimeInterval(100)
+            conversation.occupantNickname = "Renamed"
+            try await store.upsertConversation(conversation)
+            let updated = try #require(try await store.fetchConversations(for: account.id).first)
+            #expect(updated.accountID == account.id)
+            #expect(updated.id == conversation.id)
+            #expect(updated.createdAt == createdAt)
+            #expect(updated.occupantNickname == "Renamed")
+            #expect(updated.encryptionEnabled == true)
+
+            conversation.accountID = nil
+            conversation.importSourceJID = nil
+            conversation.displayName = nil
+            conversation.lastMessageDate = nil
+            conversation.lastMessagePreview = nil
+            conversation.roomSubject = nil
+            conversation.roomNickname = nil
+            conversation.encryptionEnabled = false
+            conversation.occupantNickname = nil
+            conversation.lastReadTimestamp = nil
+            try await store.upsertConversation(conversation)
+            let cleared = try #require(try await store.fetchAllConversations().first)
+            expectClearedConversation(cleared)
+        }
+
+        private func expectClearedConversation(_ cleared: Conversation) {
+            #expect(cleared.accountID == nil)
+            #expect(cleared.importSourceJID == nil)
+            #expect(cleared.displayName == nil)
+            #expect(cleared.lastMessageDate == nil)
+            #expect(cleared.lastMessagePreview == nil)
+            #expect(cleared.roomSubject == nil)
+            #expect(cleared.roomNickname == nil)
+            #expect(cleared.encryptionEnabled == false)
+            #expect(cleared.occupantNickname == nil)
+            #expect(cleared.lastReadTimestamp == nil)
+        }
+
+        private func expectInsertedConversation(_ inserted: Conversation, matches conversation: Conversation) {
+            #expect(inserted.id == conversation.id)
+            #expect(inserted.createdAt == conversation.createdAt)
+            #expect(inserted.jid == conversation.jid)
+            #expect(inserted.type == .groupchat)
+            #expect(inserted.accountID == conversation.accountID)
+            #expect(inserted.importSourceJID == conversation.importSourceJID)
+            #expect(inserted.displayName == conversation.displayName)
+            #expect(inserted.isPinned == true)
+            #expect(inserted.isMuted == true)
+            #expect(inserted.lastMessageDate == conversation.createdAt)
+            #expect(inserted.lastMessagePreview == "Preview")
+            #expect(inserted.unreadCount == 3)
+            #expect(inserted.roomSubject == "Subject")
+            #expect(inserted.roomNickname == "Self")
+            #expect(inserted.encryptionEnabled == true)
+            #expect(inserted.occupantNickname == "Other")
+            #expect(inserted.lastReadTimestamp == conversation.createdAt)
+        }
+
+        @Test
+        func `Missing parent rejects insertion but existing relationship reconciliation stays permissive`() async throws {
+            let store = try outer.makeStore()
+            var conversation = outer.makeConversation(accountID: UUID())
+            await #expect(throws: PersistenceStoreError.self) {
+                try await store.upsertConversation(conversation)
+            }
+            #expect(try await store.fetchAllConversations().isEmpty)
+
+            conversation.accountID = nil
+            try await store.upsertConversation(conversation)
+            conversation.accountID = UUID()
+            try await store.upsertConversation(conversation)
+            let updated = try #require(try await store.fetchAllConversations().first)
+            #expect(updated.id == conversation.id)
+            #expect(updated.accountID == nil)
+        }
 
         @Test
         func `Upsert and fetch conversations`() async throws {

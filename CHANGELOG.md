@@ -14,6 +14,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Remove the nonfunctional "Show Ducko in Dock" setting
 
+### Fixed
+
+- Prevent a failed message-history write from crashing Ducko
+- Preserve account and conversation settings when first saving them
+- Keep removed contacts from reappearing after a quick disconnect
+
 ## [0.1.0] - 2026-09-16
 
 ### Added

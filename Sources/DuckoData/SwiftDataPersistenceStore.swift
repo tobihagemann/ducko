@@ -30,16 +30,9 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
             let record = AccountRecord(
                 id: account.id,
                 jid: account.jid.description,
-                displayName: account.displayName,
-                isEnabled: account.isEnabled,
-                connectOnLaunch: account.connectOnLaunch,
-                host: account.host,
-                port: account.port,
-                resource: account.resource,
-                requireTLS: account.requireTLS,
-                rosterVersion: account.rosterVersion,
                 createdAt: account.createdAt
             )
+            record.update(from: account)
             modelContext.insert(record)
         }
         try modelContext.save()
@@ -173,20 +166,10 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
             let record = ConversationRecord(
                 id: conversation.id,
                 jid: conversation.jid.description,
-                type: conversation.type.rawValue,
-                displayName: conversation.displayName,
-                isPinned: conversation.isPinned,
-                isMuted: conversation.isMuted,
-                lastMessageDate: conversation.lastMessageDate,
-                lastMessagePreview: conversation.lastMessagePreview,
-                unreadCount: conversation.unreadCount,
                 account: accountRecord,
-                importSourceJID: conversation.importSourceJID,
-                roomSubject: conversation.roomSubject,
-                roomNickname: conversation.roomNickname,
-                lastReadTimestamp: conversation.lastReadTimestamp,
                 createdAt: conversation.createdAt
             )
+            record.update(from: conversation)
             modelContext.insert(record)
         }
         try modelContext.save()
