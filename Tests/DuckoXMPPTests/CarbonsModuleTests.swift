@@ -12,20 +12,15 @@ private func makeConnectedClient(mock: MockTransport) async throws -> XMPPClient
     )
     await client.register(CarbonsModule())
 
-    let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
-
-    // Simulate connect, then respond to carbons enable IQ
-    await simulateNoTLSConnect(mock)
-    try? await Task.sleep(for: .milliseconds(100))
-
-    let sentData = await mock.sentBytes
-    let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-    let enableIQ = sentStrings.first { $0.contains("urn:xmpp:carbons:2") && $0.contains("<enable") }
-    if let iqStr = enableIQ, let iqID = extractIQID(from: iqStr) {
+    try await withIQOperation(client: client, operation: {
+        try await client.connect(host: "example.com", port: 5222)
+    }, respond: {
+        await simulateNoTLSConnect(mock)
+        let iqID = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "urn:xmpp:carbons:2") {
+            $0.contains("<enable")
+        }.id
         await mock.simulateReceive("<iq type='result' id='\(iqID)'/>")
-    }
-
-    try await connectTask.value
+    })
 
     return client
 }
@@ -42,7 +37,7 @@ enum CarbonsModuleTests {
         }
 
         @Test
-        func `Handles enable timeout gracefully`() async {
+        func `Handles enable timeout gracefully`() async throws {
             let mock = MockTransport()
             let client = XMPPClient(
                 domain: "example.com",
@@ -51,16 +46,16 @@ enum CarbonsModuleTests {
             )
             await client.register(CarbonsModule())
 
-            let connectTask = Task { try await client.connect(host: "example.com", port: 5222) }
-
-            await simulateNoTLSConnect(mock)
-            try? await Task.sleep(for: .milliseconds(100))
-
-            // Disconnect without responding to the enable IQ — cancels the pending IQ
-            await disconnectFast(client)
-
-            // Connect should still succeed (or have already completed before disconnect)
-            try? await connectTask.value
+            try await withIQOperation(client: client, operation: {
+                try? await client.connect(host: "example.com", port: 5222)
+            }, respond: {
+                await simulateNoTLSConnect(mock)
+                _ = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "urn:xmpp:carbons:2") {
+                    $0.contains("<enable")
+                }
+                // Disconnect without responding — releases the pending enable IQ.
+                await disconnectFast(client)
+            })
 
             // Disconnect resets enabled state
         }

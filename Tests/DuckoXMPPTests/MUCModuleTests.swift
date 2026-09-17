@@ -120,18 +120,18 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "me")
             await mock.clearSentBytes()
 
-            let kickTask = Task {
+            try await withIQOperation(client: client, operation: {
                 try await module.kickOccupant(nickname: "Ni\u{00A0}ck", from: testRoomJID) // NO-BREAK SPACE
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "http://jabber.org/protocol/muc#admin") {
+                    $0.contains("nick=\"Ni ck\"") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
+                #expect(sent.contains("nick=\"Ni ck\""))
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
-            #expect(sent.contains("nick=\"Ni ck\""))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
-            try await kickTask.value
+                let iqID = request.id
+                await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            })
 
             await disconnectFast(client)
         }
@@ -795,27 +795,24 @@ enum MUCModuleTests {
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: MUCModule.self))
 
-            let discoverTask = Task {
+            let rooms = try await withIQOperation(client: client, operation: {
                 try await module.discoverRooms(on: "conference.example.com")
-            }
+            }, respond: {
+                // Wait for IQ to be sent, then respond
+                let request = try await awaitOutgoingIQ(on: mock, type: .get, namespace: "http://jabber.org/protocol/disco#items") {
+                    $0.contains("to=\"conference.example.com\"") && $0.contains("to=\"conference.example.com\"")
+                }
+                let iqID = request.id
 
-            // Wait for IQ to be sent, then respond
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sentStrings = sentData.map { String(decoding: $0, as: UTF8.self) }
-            let discoIQ = sentStrings.last(where: { $0.contains("disco#items") })
-            let iqID = try #require(discoIQ.flatMap { extractIQID(from: $0) })
-
-            await mock.simulateReceive("""
-            <iq type='result' id='\(iqID)' from='conference.example.com'>\
-            <query xmlns='http://jabber.org/protocol/disco#items'>\
-            <item jid='room@conference.example.com' name='General Chat'/>\
-            <item jid='dev@conference.example.com' name='Development'/>\
-            </query>\
-            </iq>
-            """)
-
-            let rooms = try await discoverTask.value
+                await mock.simulateReceive("""
+                <iq type='result' id='\(iqID)' from='conference.example.com'>\
+                <query xmlns='http://jabber.org/protocol/disco#items'>\
+                <item jid='room@conference.example.com' name='General Chat'/>\
+                <item jid='dev@conference.example.com' name='Development'/>\
+                </query>\
+                </iq>
+                """)
+            })
             #expect(rooms.count == 2)
             #expect(rooms[0].jid == testRoomJID)
             #expect(rooms[0].name == "General Chat")
@@ -1089,20 +1086,20 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "me")
             await mock.clearSentBytes()
 
-            let grantTask = Task {
+            try await withIQOperation(client: client, operation: {
                 try await module.grantVoice(nickname: "visitor1", in: testRoomJID)
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "http://jabber.org/protocol/muc#admin") {
+                    $0.contains("nick=\"visitor1\"") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+                #expect(sent.contains("role=\"participant\""))
+                #expect(sent.contains("nick=\"visitor1\""))
 
-            #expect(sent.contains("role=\"participant\""))
-            #expect(sent.contains("nick=\"visitor1\""))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
-            try await grantTask.value
+                let iqID = request.id
+                await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            })
 
             await disconnectFast(client)
         }
@@ -1116,20 +1113,20 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "me")
             await mock.clearSentBytes()
 
-            let revokeTask = Task {
+            try await withIQOperation(client: client, operation: {
                 try await module.revokeVoice(nickname: "talker1", in: testRoomJID)
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "http://jabber.org/protocol/muc#admin") {
+                    $0.contains("nick=\"talker1\"") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+                #expect(sent.contains("role=\"visitor\""))
+                #expect(sent.contains("nick=\"talker1\""))
 
-            #expect(sent.contains("role=\"visitor\""))
-            #expect(sent.contains("nick=\"talker1\""))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
-            try await revokeTask.value
+                let iqID = request.id
+                await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            })
 
             await disconnectFast(client)
         }
@@ -1147,28 +1144,27 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "me")
             await mock.clearSentBytes()
 
-            let listTask = Task {
+            let items = try await withIQOperation(client: client, operation: {
                 try await module.getAffiliationList(.member, in: testRoomJID)
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .get, namespace: "http://jabber.org/protocol/muc#admin") {
+                    $0.contains("affiliation=\"member\"") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+                #expect(sent.contains("affiliation=\"member\""))
+                #expect(sent.contains("muc#admin"))
 
-            #expect(sent.contains("affiliation=\"member\""))
-            #expect(sent.contains("muc#admin"))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("""
-            <iq type='result' id='\(iqID)' from='room@conference.example.com'>\
-            <query xmlns='http://jabber.org/protocol/muc#admin'>\
-            <item jid='alice@example.com' affiliation='member' nick='alice'/>\
-            <item jid='bob@example.com' affiliation='member'/>\
-            </query>\
-            </iq>
-            """)
-
-            let items = try await listTask.value
+                let iqID = request.id
+                await mock.simulateReceive("""
+                <iq type='result' id='\(iqID)' from='room@conference.example.com'>\
+                <query xmlns='http://jabber.org/protocol/muc#admin'>\
+                <item jid='alice@example.com' affiliation='member' nick='alice'/>\
+                <item jid='bob@example.com' affiliation='member'/>\
+                </query>\
+                </iq>
+                """)
+            })
             #expect(items.count == 2)
             #expect(items[0].jid.description == "alice@example.com")
             #expect(items[0].nickname == "alice")
@@ -1188,21 +1184,21 @@ enum MUCModuleTests {
             await mock.clearSentBytes()
 
             let targetJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
-            let setTask = Task {
+            try await withIQOperation(client: client, operation: {
                 try await module.setAffiliation(jid: targetJID, in: testRoomJID, to: .admin, reason: "Promotion")
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "http://jabber.org/protocol/muc#admin") {
+                    $0.contains("jid=\"user@example.com\"") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+                #expect(sent.contains("affiliation=\"admin\""))
+                #expect(sent.contains("jid=\"user@example.com\""))
+                #expect(sent.contains("Promotion"))
 
-            #expect(sent.contains("affiliation=\"admin\""))
-            #expect(sent.contains("jid=\"user@example.com\""))
-            #expect(sent.contains("Promotion"))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
-            try await setTask.value
+                let iqID = request.id
+                await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            })
 
             await disconnectFast(client)
         }
@@ -1220,21 +1216,21 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "me")
             await mock.clearSentBytes()
 
-            let destroyTask = Task {
+            try await withIQOperation(client: client, operation: {
                 try await module.destroyRoom(testRoomJID, reason: "Closing down")
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "http://jabber.org/protocol/muc#owner") {
+                    $0.contains("<destroy") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+                #expect(sent.contains("muc#owner"))
+                #expect(sent.contains("destroy"))
+                #expect(sent.contains("Closing down"))
 
-            #expect(sent.contains("muc#owner"))
-            #expect(sent.contains("destroy"))
-            #expect(sent.contains("Closing down"))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
-            try await destroyTask.value
+                let iqID = request.id
+                await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            })
 
             await disconnectFast(client)
         }
@@ -1302,33 +1298,32 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "me")
             await mock.clearSentBytes()
 
-            let configTask = Task {
+            let fields = try await withIQOperation(client: client, operation: {
                 try await module.getRoomConfig(testRoomJID)
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .get, namespace: "http://jabber.org/protocol/muc#owner") {
+                    $0.contains("<query") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+                #expect(sent.contains("muc#owner"))
 
-            #expect(sent.contains("muc#owner"))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("""
-            <iq type='result' id='\(iqID)' from='room@conference.example.com'>\
-            <query xmlns='http://jabber.org/protocol/muc#owner'>\
-            <x xmlns='jabber:x:data' type='form'>\
-            <field var='FORM_TYPE' type='hidden'>\
-            <value>http://jabber.org/protocol/muc#roomconfig</value>\
-            </field>\
-            <field var='muc#roomconfig_roomname' type='text-single' label='Room Name'>\
-            <value>Test Room</value>\
-            </field>\
-            </x>\
-            </query>\
-            </iq>
-            """)
-
-            let fields = try await configTask.value
+                let iqID = request.id
+                await mock.simulateReceive("""
+                <iq type='result' id='\(iqID)' from='room@conference.example.com'>\
+                <query xmlns='http://jabber.org/protocol/muc#owner'>\
+                <x xmlns='jabber:x:data' type='form'>\
+                <field var='FORM_TYPE' type='hidden'>\
+                <value>http://jabber.org/protocol/muc#roomconfig</value>\
+                </field>\
+                <field var='muc#roomconfig_roomname' type='text-single' label='Room Name'>\
+                <value>Test Room</value>\
+                </field>\
+                </x>\
+                </query>\
+                </iq>
+                """)
+            })
             #expect(fields.count == 2)
             let roomName = fields.first { $0.variable == "muc#roomconfig_roomname" }
             #expect(roomName?.values == ["Test Room"])
@@ -1345,20 +1340,20 @@ enum MUCModuleTests {
             try await module.joinRoom(testRoomJID, nickname: "me")
             await mock.clearSentBytes()
 
-            let acceptTask = Task {
+            try await withIQOperation(client: client, operation: {
                 try await module.acceptDefaultConfig(testRoomJID)
-            }
+            }, respond: {
+                let request = try await awaitOutgoingIQ(on: mock, type: .set, namespace: "http://jabber.org/protocol/muc#owner") {
+                    $0.contains("type=\"submit\"") && $0.contains("to=\"room@conference.example.com\"")
+                }
+                let sent = request.xml
 
-            try? await Task.sleep(for: .milliseconds(200))
-            let sentData = await mock.sentBytes
-            let sent = sentData.map { String(decoding: $0, as: UTF8.self) }.joined()
+                #expect(sent.contains("muc#owner"))
+                #expect(sent.contains("type=\"submit\""))
 
-            #expect(sent.contains("muc#owner"))
-            #expect(sent.contains("type=\"submit\""))
-
-            let iqID = try #require(extractIQID(from: sent))
-            await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
-            try await acceptTask.value
+                let iqID = request.id
+                await mock.simulateReceive("<iq type='result' id='\(iqID)' from='room@conference.example.com'/>")
+            })
 
             await disconnectFast(client)
         }

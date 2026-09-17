@@ -240,6 +240,59 @@ func simulateISRFailAndFallback(_ mock: MockTransport) async {
 
 // MARK: - Sent-Response Waiting
 
+/// Owns a client operation while the test plays its peer, including failure cleanup.
+func withIQOperation<Result: Sendable>(
+    client: XMPPClient,
+    operation: @escaping @Sendable () async throws -> Result,
+    respond: () async throws -> Void
+) async throws -> Result {
+    let task = Task { try await operation() }
+    do {
+        try await respond()
+        return try await task.value
+    } catch {
+        task.cancel()
+        await disconnectFast(client)
+        _ = await task.result
+        throw error
+    }
+}
+
+/// Waits for the intended client request without clearing history or sending a response.
+func awaitOutgoingIQ(
+    on mock: MockTransport,
+    type: XMPPIQ.IQType,
+    namespace: String,
+    timeout: Duration = .seconds(2),
+    matching predicate: @escaping @Sendable (String) -> Bool
+) async throws -> (xml: String, id: String) {
+    let xml = try await withThrowingTaskGroup(of: String?.self) { group in
+        defer { group.cancelAll() }
+        group.addTask {
+            await mock.waitForSent { stanza in
+                guard stanza.hasPrefix("<iq "), let end = stanza.firstIndex(of: ">") else { return false }
+                let opening = stanza[..<end]
+                let matchesType = opening.contains("type=\"\(type.rawValue)\"") || opening.contains("type='\(type.rawValue)'")
+                let matchesNamespace = stanza.contains("xmlns=\"\(namespace)\"") || stanza.contains("xmlns='\(namespace)'")
+                return matchesType && matchesNamespace && predicate(stanza)
+            }
+        }
+        group.addTask {
+            try await Task.sleep(for: timeout)
+            throw XMPPClientError.timeout
+        }
+        let result = try await group.next()!
+        try Task.checkCancellation()
+        guard let result else { throw XMPPClientError.timeout }
+        return result
+    }
+    let opening = String(xml.prefix { $0 != ">" })
+    guard let id = extractIQID(from: opening), !id.isEmpty else {
+        throw XMPPClientError.unexpectedStreamState("Outgoing IQ has no request ID")
+    }
+    return (xml, id)
+}
+
 /// Clears the mock's sent buffer, injects `stanza`, then suspends until an outgoing stanza satisfies
 /// `predicate` or `timeout` elapses. Returns the matching string, or `nil` on timeout / no match.
 ///
