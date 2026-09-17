@@ -279,3 +279,11 @@ enum ChatServiceCarbonTests {
         }
     }
 }
+
+extension ChatServiceCarbonTests {
+    @Test(arguments: [false, true], [false, true])
+    @MainActor
+    static func `carbon stanza metadata survives transcript reopening`(outgoing: Bool, hasReply: Bool) async throws {
+        try await verifyPersistedInboundMetadata(origin: outgoing ? .carbonSent : .carbonReceived, hasReply: hasReply)
+    }
+}

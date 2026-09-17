@@ -89,14 +89,15 @@ public final class AppEnvironment {
         omemoService.setAccountService(accountService)
         omemoService.setChatService(chatService)
         accountService.setOMEMOService(omemoService)
-        accountService.setRosterService(rosterService)
-        accountService.setPresenceService(presenceService)
-        accountService.setChatService(chatService)
-        accountService.setBookmarksService(bookmarksService)
-        accountService.setAvatarService(avatarService)
-        accountService.setProfileService(profileService)
         accountService.onRequestedDisconnect = { [weak self] accountID in
-            self?.cancelDispatchTasks(for: accountID)
+            guard let self else { return }
+            cancelDispatchTasks(for: accountID)
+            rosterService.purgeAccount(accountID)
+            presenceService.purgeAccount(accountID)
+            chatService.purgeAccount(accountID)
+            bookmarksService.purgeAccount(accountID)
+            avatarService.purgeAccount(accountID)
+            profileService.purgeAccount(accountID)
         }
     }
 

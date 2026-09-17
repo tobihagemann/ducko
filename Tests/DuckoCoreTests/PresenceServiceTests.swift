@@ -966,9 +966,9 @@ private func makeTwoConnectedAccounts() async throws -> TwoConnectedAccountsFixt
     let accountService = AccountService(store: store, credentialStore: credentials, clientFactory: factory)
     let presenceService = PresenceService()
     presenceService.setAccountService(accountService)
-    // `purgeAccount` clears the per-account override on a user-initiated disconnect, which needs the reverse
-    // wiring (`AccountService` → `PresenceService`).
-    accountService.setPresenceService(presenceService)
+    accountService.onRequestedDisconnect = { [weak presenceService] accountID in
+        presenceService?.purgeAccount(accountID)
+    }
 
     let aliceID = try await accountService.createAccount(jidString: "alice@example.com", host: "example.com", port: 5222)
     let bobID = try await accountService.createAccount(jidString: "bob@example.com", host: "example.com", port: 5222)

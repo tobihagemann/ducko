@@ -15,7 +15,20 @@ public actor MockPersistenceStore: PersistenceStore {
     private var fetchContactsGateEntered: AsyncSemaphore?
     private var fetchContactsGateRelease: AsyncSemaphore?
 
+    private var conversationWriteGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
+
     public init() {}
+
+    public func installConversationWriteGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
+        conversationWriteGate = (entered, release)
+    }
+
+    private func awaitConversationWriteGate() async {
+        guard let gate = conversationWriteGate else { return }
+        conversationWriteGate = nil
+        await gate.entered.signal()
+        await gate.release.wait()
+    }
 
     public func installFetchContactsGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
         fetchContactsGateEntered = entered
@@ -95,6 +108,7 @@ public actor MockPersistenceStore: PersistenceStore {
     }
 
     public func upsertConversation(_ conversation: Conversation) async throws {
+        await awaitConversationWriteGate()
         if let index = conversations.firstIndex(where: { $0.id == conversation.id }) {
             conversations[index] = conversation
         } else {
@@ -104,6 +118,7 @@ public actor MockPersistenceStore: PersistenceStore {
 
     @discardableResult
     public func updateConversationIfExists(_ conversation: Conversation) async throws -> Bool {
+        await awaitConversationWriteGate()
         guard let index = conversations.firstIndex(where: { $0.id == conversation.id }) else { return false }
         conversations[index] = conversation
         return true

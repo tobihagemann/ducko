@@ -270,12 +270,7 @@ enum ChatServiceMUCTests {
             #expect(afterMessages.isEmpty)
         }
 
-        /// Locks the call-site resurrection guard: a `.roomOccupantNickChanged`
-        /// whose deferred self-nick update task runs *after* the room was destroyed
-        /// must not re-insert the conversation. Deleting from the store while the
-        /// cache still holds the room reproduces the post-capture/pre-update window
-        /// the `updateConversationIfExists` guard closes; a regression to
-        /// `upsertConversation` would resurrect the row and fail this test.
+        /// Deletion while the captured nickname write is suspended must not re-insert the room.
         @Test
         @MainActor
         func `self-nick update does not resurrect a concurrently destroyed room`() async throws {
@@ -297,11 +292,11 @@ enum ChatServiceMUCTests {
                 try await store.fetchConversations(for: testAccountID).first { $0.jid == testRoomJID }
             )
 
-            // Delete from the store only, leaving the live cache intact — the
-            // window where in-flight async work still holds the room.
-            try await store.deleteConversation(conversation.id)
+            let entered = AsyncSemaphore()
+            let release = AsyncSemaphore()
+            await store.installConversationWriteGate(entered: entered, release: release)
+            defer { Task { await release.signal() } }
 
-            // The self-nick change spawns the deferred update task (cache still has "me").
             await service.handleEvent(
                 .roomOccupantNickChanged(
                     room: testRoomJID,
@@ -310,9 +305,11 @@ enum ChatServiceMUCTests {
                 ),
                 accountID: testAccountID
             )
-            // The self-nick change must have spawned the deferred update task;
-            // a vacuously-empty drain would let this test pass without exercising
-            // the guard at all.
+            let suspended = try await boundedOutcome { await entered.wait() }
+            try #require(suspended != nil)
+            try await store.deleteConversation(conversation.id)
+            await release.signal()
+
             let pending = service.takePendingTasks()
             #expect(!pending.isEmpty)
             for task in pending {
@@ -452,5 +449,13 @@ enum ChatServiceMUCTests {
             #expect(!service.pendingInvites.contains { $0.accountID == accountA })
             #expect(service.pendingInvites.contains { $0.accountID == accountB })
         }
+    }
+}
+
+extension ChatServiceMUCTests {
+    @Test(arguments: [false, true], [false, true])
+    @MainActor
+    static func `room and private room stanza metadata survives transcript reopening`(privateRoom: Bool, hasReply: Bool) async throws {
+        try await verifyPersistedInboundMetadata(origin: privateRoom ? .privateRoom : .room, hasReply: hasReply)
     }
 }

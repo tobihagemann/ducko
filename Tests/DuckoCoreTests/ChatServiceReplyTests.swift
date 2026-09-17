@@ -61,3 +61,11 @@ enum ChatServiceReplyTests {
         }
     }
 }
+
+extension ChatServiceReplyTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    static func `live stanza metadata survives transcript reopening`(hasReply: Bool) async throws {
+        try await verifyPersistedInboundMetadata(origin: .live, hasReply: hasReply)
+    }
+}

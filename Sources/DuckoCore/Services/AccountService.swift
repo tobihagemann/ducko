@@ -19,26 +19,25 @@ public final class AccountService {
     private let store: any PersistenceStore
     private let credentialStore: any CredentialStore
     private let clientFactory: any XMPPClientFactory
-    private var clients: [UUID: XMPPClient] = [:]
-    private var smModules: [UUID: StreamManagementModule] = [:]
-    private var smResumeStates: [UUID: SMResumeState] = [:]
-    private var passwords: [UUID: String] = [:]
-    private var eventTasks: [UUID: Task<Void, Never>] = [:]
-    private var reconnectTasks: [UUID: Task<Void, Never>] = [:]
-    private var reconnectAttempts: [UUID: Int] = [:]
-    private var redirectCounts: [UUID: Int] = [:]
+    private struct AccountConnectionResources {
+        var attemptID = UUID()
+        var client: XMPPClient?
+        var streamManagement: StreamManagementModule?
+        var resumeState: SMResumeState?
+        var password: String?
+        var eventTask: Task<Void, Never>?
+        var reconnectTask: Task<Void, Never>?
+        var reconnectAttempts = 0
+        var redirectCount = 0
+    }
+
+    private var connectionResources: [UUID: AccountConnectionResources] = [:]
     private var isAppActive: Bool = true
     private weak var omemoService: OMEMOService?
-    private weak var rosterService: RosterService?
-    private weak var presenceService: PresenceService?
-    private weak var chatService: ChatService?
-    private weak var bookmarksService: BookmarksService?
-    private weak var avatarService: AvatarService?
-    private weak var profileService: ProfileService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
     /// Fired at the start of a user-initiated `disconnect(accountID:)`, before the per-account event task is
-    /// cancelled. `AppEnvironment` uses it to cancel that account's in-flight event-dispatch fan-out tasks so a
-    /// stale event can't repopulate the per-account state the disconnect is about to purge. Not fired on
+    /// cancelled. `AppEnvironment` first cancels that account's dispatch tasks, then purges its feature caches
+    /// synchronously, so stale events cannot repopulate cleared state. Not fired on
     /// auto-reconnecting drops, which go through `handleDisconnect` and deliver `.disconnected` normally.
     var onRequestedDisconnect: ((UUID) -> Void)?
 
@@ -85,7 +84,7 @@ public final class AccountService {
     }
 
     public func connect(accountID: UUID, password: String) async throws {
-        passwords[accountID] = password
+        connectionResources[accountID, default: AccountConnectionResources()].password = password
         cancelReconnect(for: accountID, resetAttempts: true)
         try await performConnect(accountID: accountID)
     }
@@ -106,13 +105,13 @@ public final class AccountService {
             try? await loadAccounts()
         }
         guard let account = accounts.first(where: { $0.id == accountID }),
-              let password = passwords[accountID]
+              let password = connectionResources[accountID]?.password
         else { return }
         credentialStore.savePassword(password, for: account.jid.description)
     }
 
     public func savePassword(accountID: UUID, password: String) async {
-        passwords[accountID] = password
+        connectionResources[accountID, default: AccountConnectionResources()].password = password
         await savePassword(accountID: accountID)
     }
 
@@ -122,32 +121,38 @@ public final class AccountService {
     }
 
     public func disconnect(accountID: UUID) async {
-        // User-initiated teardown cancels the event task below before `.disconnected` can reach the services'
-        // handlers, so purge their per-account state here instead. `onRequestedDisconnect` first cancels any
-        // in-flight event-dispatch tasks for the account (AppEnvironment) so a stale event can't repopulate
-        // what we purge. This whole prefix is synchronous (no await until `client.disconnect()` below), so no
-        // dispatch task can interleave between the cancel and the purges. A stream-blip reconnect goes through
-        // `handleDisconnect`, never this, so pinned state survives a blip.
+        // Composition cancels queued dispatch and purges feature state synchronously, before connection
+        // teardown suspends. Stream-loss reconnect uses handleDisconnect and preserves its distinct policy.
         onRequestedDisconnect?(accountID)
-        purgeServiceCaches(for: accountID)
-        cancelReconnect(for: accountID, resetAttempts: true)
-        passwords[accountID] = nil
-        smResumeStates[accountID] = nil
-        redirectCounts[accountID] = nil
         certificateWarnings[accountID] = nil
-        smModules[accountID] = nil
-        eventTasks[accountID]?.cancel()
-        eventTasks[accountID] = nil
+        let detached = detachConnectionResources(for: accountID, terminal: true)
+        await detached?.client?.disconnect()
+        if connectionResources[accountID] == nil { connectionStates[accountID] = .disconnected }
+    }
 
-        if let client = clients.removeValue(forKey: accountID) {
-            await client.disconnect()
+    /// Detaches owned work synchronously; awaited cleanup uses the returned snapshot only.
+    /// Stream loss retains credentials and retry/resume policy in the same account record.
+    private func detachConnectionResources(for accountID: UUID, terminal: Bool) -> AccountConnectionResources? {
+        guard let detached = connectionResources[accountID] else { return nil }
+        detached.eventTask?.cancel()
+        detached.reconnectTask?.cancel()
+        if terminal {
+            connectionResources.removeValue(forKey: accountID)
+        } else {
+            connectionResources[accountID]?.attemptID = UUID()
+            connectionResources[accountID]?.client = nil
+            connectionResources[accountID]?.streamManagement = nil
+            connectionResources[accountID]?.eventTask = nil
+            connectionResources[accountID]?.reconnectTask = nil
         }
-        connectionStates[accountID] = .disconnected
+        return detached
     }
 
     public func disconnectAll() async {
-        // Reconnecting accounts have no `clients[]` entry but a delayed `reconnectTasks[]` that would reconnect after shutdown.
-        let ids = Set(clients.keys).union(reconnectTasks.keys)
+        // Include accounts whose delayed reconnect has no live client yet.
+        let ids = connectionResources.compactMap { id, resources in
+            resources.client != nil || resources.reconnectTask != nil ? id : nil
+        }
         for id in ids {
             await disconnect(accountID: id)
         }
@@ -235,7 +240,7 @@ public final class AccountService {
     /// `AppEnvironment.removeAccount` / `cancelAccount` for full teardown with optional transcript deletion.
     public func deleteAccount(_ id: UUID) async throws {
         // Disconnect first so the services' connected-client/generation guards see the account gone and no
-        // event task keeps delivering; this also clears the per-account service caches (via `purgeServiceCaches`).
+        // event task keeps delivering; composition also clears feature caches through onRequestedDisconnect.
         await disconnect(accountID: id)
         try await store.deleteAccount(id)
         deletePassword(accountID: id)
@@ -249,7 +254,7 @@ public final class AccountService {
 
     /// Fetches XEP-0157 server contact addresses via disco#info.
     public func fetchServerInfo(accountID: UUID) async throws -> ServerInfo {
-        guard let client = clients[accountID] else {
+        guard let client = connectionResources[accountID]?.client else {
             throw AccountServiceError.notConnected(accountID)
         }
         guard let disco = await client.module(ofType: ServiceDiscoveryModule.self) else {
@@ -344,7 +349,7 @@ public final class AccountService {
     public func changePassword(accountID: UUID, newPassword: String) async throws {
         let regModule = try await registrationModule(for: accountID)
         try await regModule.changePassword(newPassword: newPassword)
-        passwords[accountID] = newPassword
+        connectionResources[accountID]?.password = newPassword
         await savePassword(accountID: accountID)
     }
 
@@ -391,46 +396,10 @@ public final class AccountService {
         omemoService = service
     }
 
-    func setRosterService(_ service: RosterService) {
-        rosterService = service
-    }
-
-    func setPresenceService(_ service: PresenceService) {
-        presenceService = service
-    }
-
-    func setChatService(_ service: ChatService) {
-        chatService = service
-    }
-
-    func setBookmarksService(_ service: BookmarksService) {
-        bookmarksService = service
-    }
-
-    func setAvatarService(_ service: AvatarService) {
-        avatarService = service
-    }
-
-    func setProfileService(_ service: ProfileService) {
-        profileService = service
-    }
-
-    /// Drops every per-account service cache on a lifecycle teardown that bypasses the services'
-    /// `.disconnected` handlers. Shared by `disconnect(accountID:)` and `deleteAccount(_:)` so the next
-    /// per-account cache added to a service only needs wiring in one place.
-    private func purgeServiceCaches(for accountID: UUID) {
-        rosterService?.purgeAccount(accountID)
-        presenceService?.purgeAccount(accountID)
-        chatService?.purgeAccount(accountID)
-        bookmarksService?.purgeAccount(accountID)
-        avatarService?.purgeAccount(accountID)
-        profileService?.purgeAccount(accountID)
-    }
-
     // MARK: - Client Access
 
     private func registrationModule(for accountID: UUID) async throws -> RegistrationModule {
-        guard let client = clients[accountID] else {
+        guard let client = connectionResources[accountID]?.client else {
             throw AccountServiceError.notConnected(accountID)
         }
         guard let module = await client.module(ofType: RegistrationModule.self) else {
@@ -444,16 +413,16 @@ public final class AccountService {
     }
 
     public func client(for accountID: UUID) -> XMPPClient? {
-        clients[accountID]
+        connectionResources[accountID]?.client
     }
 
-    /// Returns the client only when state is `.connected`. Gates against the race where `clients[id]` is set before
+    /// Returns the client only when state is `.connected`. Gates against the race where the client is set before
     /// `client.connect()` resolves — that race would otherwise leak `XMPPClientError.notConnected` instead of the
     /// service's typed `notConnected`. Race window narrows to before the caller's next await; not airtight without a
     /// re-check inside `XMPPClient.module(...)`.
     public func connectedClient(for accountID: UUID) -> XMPPClient? {
         guard case .connected = connectionStates[accountID] else { return nil }
-        return clients[accountID]
+        return connectionResources[accountID]?.client
     }
 
     /// True when at least one account is `.connected`. Drives `WelcomeView`'s contacts-window transition and `ContactListView`'s `accessibilityValue` sentinel.
@@ -479,7 +448,7 @@ public final class AccountService {
     }
 
     public func tlsInfo(for accountID: UUID) -> TLSInfo? {
-        clients[accountID]?.tlsInfo
+        connectionResources[accountID]?.client?.tlsInfo
     }
 
     /// Persists the new certificate fingerprint and clears the warning.
@@ -497,8 +466,8 @@ public final class AccountService {
     /// Notifies all connected clients of app active/inactive state for CSI.
     public func setAppActive(_ active: Bool) async {
         isAppActive = active
-        for (_, client) in clients {
-            await applyCSIState(to: client)
+        for resources in connectionResources.values {
+            if let client = resources.client { await applyCSIState(to: client) }
         }
     }
 
@@ -506,14 +475,17 @@ public final class AccountService {
     public func rejectNewCertificate(for accountID: UUID) async {
         certificateWarnings[accountID] = nil
         cancelReconnect(for: accountID, resetAttempts: true)
-        await clients[accountID]?.disconnect()
+        await connectionResources[accountID]?.client?.disconnect()
         connectionStates[accountID] = .disconnected
     }
 
     // MARK: - Private: Connection
 
     private func performConnect(accountID: UUID) async throws {
-        redirectCounts[accountID] = nil
+        guard connectionResources[accountID] != nil else { throw CancellationError() }
+        let attemptID = UUID()
+        connectionResources[accountID]?.attemptID = attemptID
+        connectionResources[accountID]?.redirectCount = 0
 
         let account: Account
         if let existing = accounts.first(where: { $0.id == accountID }) {
@@ -524,33 +496,45 @@ public final class AccountService {
             account = fetched
         }
 
+        try Task.checkCancellation()
+        guard connectionResources[accountID]?.attemptID == attemptID else { throw CancellationError() }
         connectionStates[accountID] = .connecting
 
-        let previousSMState = smResumeStates.removeValue(forKey: accountID)
+        let previousSMState = connectionResources[accountID]?.resumeState
+        connectionResources[accountID]?.resumeState = nil
         let (client, sm) = await buildClient(account: account, previousSMState: previousSMState)
-        clients[accountID] = client
-        smModules[accountID] = sm
+        guard !Task.isCancelled, connectionResources[accountID]?.attemptID == attemptID else {
+            await client.disconnect()
+            throw CancellationError()
+        }
+        connectionResources[accountID]?.client = client
+        connectionResources[accountID]?.streamManagement = sm
 
         startEventConsumption(for: accountID, client: client)
 
         do {
-            if let location = previousSMState?.location {
-                let parts = location.split(separator: ":")
-                let host = String(parts[0])
-                let port = parts.count > 1 ? UInt16(parts[1]) ?? 5222 : 5222
-                try await client.connect(host: host, port: port)
-            } else if let host = account.host, let port = account.port {
-                try await client.connect(host: host, port: UInt16(port))
-            } else {
-                try await client.connect()
-            }
+            try await connect(client, account: account, resumeState: previousSMState)
         } catch {
+            guard connectionResources[accountID]?.attemptID == attemptID else { throw error }
             // Restore SM state so the next retry can attempt resumption
             if let smState = sm.resumeState {
-                smResumeStates[accountID] = smState
+                connectionResources[accountID]?.resumeState = smState
             }
             connectionStates[accountID] = .error(error.localizedDescription)
             throw error
+        }
+    }
+
+    private func connect(_ client: XMPPClient, account: Account, resumeState: SMResumeState?) async throws {
+        if let location = resumeState?.location {
+            let parts = location.split(separator: ":")
+            let host = String(parts[0])
+            let port = parts.count > 1 ? UInt16(parts[1]) ?? 5222 : 5222
+            try await client.connect(host: host, port: port)
+        } else if let host = account.host, let port = account.port {
+            try await client.connect(host: host, port: UInt16(port))
+        } else {
+            try await client.connect()
         }
     }
 
@@ -560,7 +544,7 @@ public final class AccountService {
     ) async -> (XMPPClient, StreamManagementModule) {
         await clientFactory.makeClient(
             account: account,
-            password: passwords[account.id] ?? "",
+            password: connectionResources[account.id]?.password ?? "",
             previousSMState: previousSMState,
             requireTLSOverride: requireTLSOverride,
             omemoService: omemoService
@@ -579,11 +563,11 @@ public final class AccountService {
     }
 
     private func startEventConsumption(for accountID: UUID, client: XMPPClient) {
-        eventTasks[accountID]?.cancel()
+        connectionResources[accountID]?.eventTask?.cancel()
 
-        eventTasks[accountID] = Task { [weak self] in
+        connectionResources[accountID]?.eventTask = Task { [weak self] in
             for await event in client.events {
-                guard let self, !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled, connectionResources[accountID]?.client === client else { return }
                 handleEvent(event, accountID: accountID)
             }
         }
@@ -593,10 +577,10 @@ public final class AccountService {
         switch event {
         case let .connected(jid), let .streamResumed(jid):
             connectionStates[accountID] = .connected(jid)
-            reconnectAttempts[accountID] = 0
-            redirectCounts[accountID] = nil
+            connectionResources[accountID]?.reconnectAttempts = 0
+            connectionResources[accountID]?.redirectCount = 0
             checkCertificateFingerprint(accountID: accountID)
-            if let client = clients[accountID] {
+            if let client = connectionResources[accountID]?.client {
                 Task { await applyCSIState(to: client) }
             }
         case let .disconnected(reason):
@@ -647,39 +631,36 @@ public final class AccountService {
     // MARK: - Private: Disconnect Handling
 
     private func handleDisconnect(_ reason: DisconnectReason, accountID: UUID) {
+        let detached = detachConnectionResources(for: accountID, terminal: false)
         switch reason {
         case .requested:
-            smResumeStates[accountID] = nil
-            redirectCounts[accountID] = nil
+            connectionResources[accountID]?.resumeState = nil
+            connectionResources[accountID]?.redirectCount = 0
             connectionStates[accountID] = .disconnected
         case let .streamError(condition, text):
-            smResumeStates[accountID] = smModules[accountID]?.resumeState
+            connectionResources[accountID]?.resumeState = detached?.streamManagement?.resumeState
             connectionStates[accountID] = .error(Self.streamErrorMessage(condition: condition, text: text))
             scheduleReconnect(accountID: accountID)
         case let .connectionLost(detail):
-            smResumeStates[accountID] = smModules[accountID]?.resumeState
+            connectionResources[accountID]?.resumeState = detached?.streamManagement?.resumeState
             connectionStates[accountID] = .error(Self.connectionLostMessage(detail))
             scheduleReconnect(accountID: accountID)
         case let .redirect(host, port):
-            let count = (redirectCounts[accountID] ?? 0) + 1
+            let count = (connectionResources[accountID]?.redirectCount ?? 0) + 1
             if count > 3 {
-                redirectCounts[accountID] = nil
+                connectionResources[accountID]?.redirectCount = 0
                 connectionStates[accountID] = .error("The server redirected too many times")
             } else {
-                redirectCounts[accountID] = count
+                connectionResources[accountID]?.redirectCount = count
                 redirectToHost(host: host, port: port, accountID: accountID)
             }
         }
-        smModules[accountID] = nil
-        clients[accountID] = nil
-        eventTasks[accountID]?.cancel()
-        eventTasks[accountID] = nil
     }
 
     // MARK: - Private: Certificate Fingerprint
 
     private func checkCertificateFingerprint(accountID: UUID) {
-        guard let client = clients[accountID],
+        guard let client = connectionResources[accountID]?.client,
               let currentFingerprint = client.tlsInfo?.certificateSHA256,
               let account = accounts.first(where: { $0.id == accountID })
         else { return }
@@ -707,45 +688,46 @@ public final class AccountService {
     // MARK: - Private: Reconnection
 
     private func cancelReconnect(for accountID: UUID, resetAttempts: Bool) {
-        reconnectTasks[accountID]?.cancel()
-        reconnectTasks[accountID] = nil
+        connectionResources[accountID]?.reconnectTask?.cancel()
+        connectionResources[accountID]?.reconnectTask = nil
         if resetAttempts {
-            reconnectAttempts[accountID] = 0
+            connectionResources[accountID]?.reconnectAttempts = 0
         }
     }
 
     private func redirectToHost(host: String, port: UInt16?, accountID: UUID) {
-        // Clean up old client before creating replacement
-        smModules[accountID] = nil
-        clients[accountID] = nil
-        eventTasks[accountID]?.cancel()
-        eventTasks[accountID] = nil
-
+        let attemptID = UUID()
+        connectionResources[accountID]?.attemptID = attemptID
         connectionStates[accountID] = .connecting
-        reconnectTasks[accountID] = Task { [weak self] in
+        connectionResources[accountID]?.reconnectTask = Task { [weak self] in
             guard !Task.isCancelled, let self else { return }
             guard let account = accounts.first(where: { $0.id == accountID }) else { return }
             // Force TLS for redirects to prevent plaintext credential exposure via see-other-host injection
             let (client, sm) = await buildClient(account: account, previousSMState: nil, requireTLSOverride: true)
-            clients[accountID] = client
-            smModules[accountID] = sm
+            guard !Task.isCancelled, connectionResources[accountID]?.attemptID == attemptID else {
+                await client.disconnect()
+                return
+            }
+            connectionResources[accountID]?.client = client
+            connectionResources[accountID]?.streamManagement = sm
             startEventConsumption(for: accountID, client: client)
             do {
                 try await client.connect(host: host, port: port ?? 5222)
             } catch {
+                guard connectionResources[accountID]?.attemptID == attemptID else { return }
                 connectionStates[accountID] = .error(error.localizedDescription)
             }
         }
     }
 
     private func scheduleReconnect(accountID: UUID) {
-        let attempt = reconnectAttempts[accountID] ?? 0
+        let attempt = connectionResources[accountID]?.reconnectAttempts ?? 0
         guard attempt < 5 else { return }
 
-        reconnectAttempts[accountID] = attempt + 1
+        connectionResources[accountID]?.reconnectAttempts = attempt + 1
         let delay = min(pow(2.0, Double(attempt)), 30.0) + Double.random(in: 0 ... 5)
 
-        reconnectTasks[accountID] = Task { [weak self] in
+        connectionResources[accountID]?.reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
             try? await self?.performConnect(accountID: accountID)

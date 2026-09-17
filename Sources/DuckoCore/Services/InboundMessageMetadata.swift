@@ -1,0 +1,37 @@
+import DuckoXMPP
+import Foundation
+import UniformTypeIdentifiers
+
+/// Stanza metadata without origin-specific trust, filtering, or persistence decisions.
+struct InboundMessageMetadata {
+    struct ServerIdentifier {
+        let id: String?
+        let by: String?
+    }
+
+    let stanzaID: String?
+    let serverIdentifiers: [ServerIdentifier]
+    let replyToID: String?
+    let attachments: [Attachment]
+
+    init(_ message: XMPPMessage) {
+        self.stanzaID = message.id
+        self.serverIdentifiers = message.element.children(named: "stanza-id")
+            .filter { $0.namespace == XMPPNamespaces.stanzaID }
+            .map { ServerIdentifier(id: $0.attribute("id"), by: $0.attribute("by")) }
+        self.replyToID = message.element.child(named: "reply", namespace: XMPPNamespaces.messageReply)?.attribute("id")
+        self.attachments = Self.parseAttachments(message)
+    }
+
+    private static func parseAttachments(_ message: XMPPMessage) -> [Attachment] {
+        message.oobData.compactMap { oob in
+            let url = URL(string: oob.url)
+            // A peer's `file:` URL names a path on the recipient's machine, which no peer can legitimately point at, so
+            // the link is dropped rather than kept as an attachment.
+            guard url?.isFileURL != true else { return nil }
+            // The type the peer's link implies, so a shared image renders like any other image rather than as a file.
+            let mimeType = url.flatMap { UTType(filenameExtension: $0.pathExtension)?.preferredMIMEType }
+            return Attachment(id: UUID(), url: oob.url, mimeType: mimeType, fileName: url?.lastPathComponent, oobDescription: oob.desc)
+        }
+    }
+}
