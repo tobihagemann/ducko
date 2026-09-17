@@ -3,25 +3,13 @@ import DuckoCore
 import QuartzCore
 import SwiftUI
 
-/// Caps on name and row measurement so a server-controlled roster (very many
-/// entries or pathologically long names) can't drive unbounded layout work.
-private let maxMeasuredNames = 200
-private let maxMeasuredNameLength = 64
-private let maxMeasuredRows = 200
-
-/// Flat per-row height estimate, used as `fittedHeight`'s fallback for an
-/// overflowing roster (clamps up to the screen cap) and an empty one (collapses
-/// to zero), and for rows past the measurement cap.
-private let estimatedRowChrome: CGFloat = 12
-
 /// The inputs the SwiftUI `ContactListTableView` pushes into its coordinator on
 /// each `updateNSView`, bundled into one value so the push is a single
 /// assignment rather than a property-by-property triple-touch (declare, assign,
 /// read). `@MainActor` because the ref/closure inputs never leave the main
-/// actor; each property keeps its prior per-var default so `Inputs()` reproduces
-/// the coordinator's initial state.
+/// actor.
 @MainActor
-private struct Inputs {
+struct ContactListTableInputs {
     var environment: AppEnvironment?
     var theme: ThemeEngine?
     var openChat = OpenChatAction { _, _ in }
@@ -35,62 +23,6 @@ private struct Inputs {
     var autoSizeHorizontal = true
     var maxWidthPreference = ContactListSizingDefaults.defaultMaxWidth
     var hasConnectedAccount = false
-}
-
-/// Cheap fingerprint of everything the fitted-width measurement reads, so a
-/// reconcile whose width inputs are unchanged reuses the cached width instead
-/// of re-running the font measurement over the names. `.auto` carries the exact
-/// capped strings `measuredNames()` produces — so any rename or account-label
-/// change busts it; `.manual` carries the window content width the manual path
-/// returns. (`measuredNames()` itself still runs each reconcile to build the key;
-/// the memo only skips the per-name `NSString` sizing.)
-private enum WidthMeasurementKey: Equatable {
-    case manual(width: CGFloat)
-    case auto(names: [String], avatarSize: CGFloat, maxWidth: CGFloat)
-}
-
-/// Whether a measured row shows its optional second (caption) line, the only
-/// per-row content that moves its height — every text element is `lineLimit(1)`,
-/// so the line's *text* doesn't matter, only its presence.
-private enum RowHeightSignature: Equatable {
-    case header
-    case contact(hasSecondLine: Bool)
-    case room(hasSecondLine: Bool)
-}
-
-/// The theme terms that move row height: the avatar (its size, and whether it
-/// shows at all). `showStatusMessages` is folded into each row's
-/// `RowHeightSignature` second-line flag, and the 8-pt presence dot never
-/// exceeds the text/avatar height, so neither belongs here. Properties are read
-/// only via the synthesized `==`, which Periphery can't see.
-private struct RowHeightThemeSignature: Equatable {
-    // periphery:ignore
-    let avatarSize: CGFloat
-    // periphery:ignore
-    let showAvatars: Bool
-}
-
-/// Cheap fingerprint of everything the per-row height measurement reads, so a
-/// reconcile whose height inputs are unchanged reuses the cached heights instead
-/// of laying out up to `maxMeasuredRows` `NSHostingView`s. Properties are read
-/// only via the synthesized `==`, which Periphery can't see.
-private struct HeightMeasurementKey: Equatable {
-    // periphery:ignore
-    let width: CGFloat
-    // periphery:ignore
-    let totalRowCount: Int
-    // periphery:ignore
-    let maxListHeight: CGFloat
-    // periphery:ignore
-    let rows: [RowHeightSignature]
-    // periphery:ignore
-    let theme: RowHeightThemeSignature
-}
-
-/// The memoized output of the per-row height measurement.
-private struct MeasuredGeometry {
-    let newHeights: [CGFloat]
-    let listHeight: CGFloat
 }
 
 /// AppKit contact list: a view-based `NSTableView` whose cells host the
@@ -123,7 +55,7 @@ struct ContactListTableView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         let coordinator = context.coordinator
-        coordinator.inputs = Inputs(
+        coordinator.inputs = ContactListTableInputs(
             environment: environment,
             theme: theme,
             openChat: openChat,
@@ -146,19 +78,13 @@ struct ContactListTableView: NSViewRepresentable {
     /// `NSObject` solely to adopt the AppKit table/menu delegate protocols.
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
-        fileprivate var inputs = Inputs()
+        fileprivate var inputs = ContactListTableInputs()
 
         private var rows: [ContactListRow] = []
         private var rowHeights: [CGFloat] = []
         private var lastAppliedKey: ContactListResize.LayoutKey?
         private var pendingInitialApply = true
-        private var measuringHost: NSHostingView<ContactListCellContent>?
-        // Geometry memos in front of the expensive measurement: a matching key
-        // means the measured output is identical, so the name scan / per-row
-        // `NSHostingView` layout can be skipped. Both keys are rebuilt from live
-        // service state every reconcile, so they invalidate on any input change.
-        private var widthMemo: (key: WidthMeasurementKey, width: CGFloat)?
-        private var heightMemo: (key: HeightMeasurementKey, geometry: MeasuredGeometry)?
+        private let measurement = ContactListMeasurement()
         private let resizeGate = ContactListResizeGate()
         private var didInstallGate = false
 
@@ -236,7 +162,7 @@ struct ContactListTableView: NSViewRepresentable {
         // MARK: - Reconciliation
 
         func reconcile() {
-            guard let theme = inputs.theme, inputs.environment != nil, inputs.preferences != nil,
+            guard inputs.theme != nil, inputs.environment != nil, inputs.preferences != nil,
                   let tableView, let scrollView else { return }
 
             container?.setAccessibilityValue(inputs.hasConnectedAccount ? "connected" : "connecting")
@@ -247,13 +173,9 @@ struct ContactListTableView: NSViewRepresentable {
             // `applyLayout` would leave the gate stale until an unrelated reconcile.
             updateResizeGateLocks()
 
-            let contentWidth = memoizedContentWidth()
-            let measureCount = min(inputs.incomingRows.count, maxMeasuredRows)
-            let flatRowHeight = theme.current.avatarSize + estimatedRowChrome
-            let geometry = memoizedHeights(
-                contentWidth: contentWidth,
-                measureCount: measureCount,
-                flatRowHeight: flatRowHeight
+            let contentWidth = measurement.contentWidth(inputs: inputs, manualWidth: manualContentWidth())
+            let geometry = measurement.heights(
+                inputs: inputs, contentWidth: contentWidth, maxListHeight: maxListHeight, cellContent: cellContent
             )
             let newHeights = geometry.newHeights
             let listHeight = geometry.listHeight
@@ -453,172 +375,11 @@ struct ContactListTableView: NSViewRepresentable {
             (NSScreen.main?.visibleFrame.height ?? 800) - 160
         }
 
-        /// Content width the rows render at, memoized: the auto-fit width when
-        /// horizontal auto-size is on, otherwise the window's current content
-        /// width (the coordinator never drives a manual axis). The capped name
-        /// scan runs each reconcile to build the key; on a match the per-name font
-        /// measurement and fitted-width calc are what's skipped.
-        private func memoizedContentWidth() -> CGFloat {
-            let key: WidthMeasurementKey = inputs.autoSizeHorizontal
-                ? .auto(names: measuredNames(), avatarSize: inputs.theme?.current.avatarSize ?? 0, maxWidth: clampedMaxWidth)
-                : .manual(width: manualContentWidth())
-            if let widthMemo, widthMemo.key == key { return widthMemo.width }
-            let width: CGFloat = switch key {
-            case let .auto(names, avatarSize, maxWidth): fittedContentWidth(names: names, avatarSize: avatarSize, maxWidth: maxWidth)
-            case let .manual(width): width
-            }
-            widthMemo = (key, width)
-            return width
-        }
-
         private func manualContentWidth() -> CGFloat {
             if let window = tableView?.window {
                 return window.contentRect(forFrameRect: window.frame).width
             }
             return scrollView?.bounds.width ?? ContactListWidthMetrics.floor
-        }
-
-        /// The capped contact/room names the fitted-width scan measures, in row
-        /// order: each contact's display name plus its account-disambiguation
-        /// label, each room's title; headers skipped. Capped so a pathological
-        /// roster can't drive unbounded measurement. Shared with the width memo
-        /// key so the cache invalidates on exactly the renames and account-label
-        /// changes that move the fitted width.
-        private func measuredNames() -> [String] {
-            guard let environment = inputs.environment else { return [] }
-            var names: [String] = []
-            for row in inputs.incomingRows where names.count < maxMeasuredNames {
-                let name: String? = switch row {
-                case .header:
-                    nil
-                case let .contact(_, contact):
-                    measuringName(for: contact, environment: environment)
-                case let .room(room):
-                    room.displayTitle
-                }
-                guard let name else { continue }
-                names.append(String(name.prefix(maxMeasuredNameLength)))
-            }
-            return names
-        }
-
-        /// Fits the window width to the widest measured name, via the row font.
-        /// `avatarSize` and `maxWidth` come from the memo key so the cached width
-        /// and the key that gates it are computed from identical inputs.
-        private func fittedContentWidth(names: [String], avatarSize: CGFloat, maxWidth: CGFloat) -> CGFloat {
-            let font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font]
-            let maxNameWidth = names.reduce(CGFloat(0)) { max($0, ($1 as NSString).size(withAttributes: attributes).width) }
-            return ContactListSizing.fittedWidth(
-                maxNameWidth: maxNameWidth,
-                avatarSize: avatarSize,
-                rowChrome: ContactListWidthMetrics.rowChrome,
-                floorWidth: ContactListWidthMetrics.floor,
-                maxWidth: maxWidth
-            )
-        }
-
-        private func measuringName(for contact: Contact, environment: AppEnvironment) -> String {
-            guard let label = AccountIndicator.label(
-                for: contact.accountID, bareJID: contact.jid.description,
-                accountService: environment.accountService, rosterService: environment.rosterService
-            ) else {
-                return contact.displayName
-            }
-            return "\(contact.displayName)  \(label)"
-        }
-
-        /// The per-row heights and the auto-sized list height, memoized: on a key
-        /// match the per-row `NSHostingView` layout loop is skipped.
-        private func memoizedHeights(contentWidth: CGFloat, measureCount: Int, flatRowHeight: CGFloat) -> MeasuredGeometry {
-            let key = HeightMeasurementKey(
-                width: contentWidth,
-                totalRowCount: inputs.incomingRows.count,
-                maxListHeight: maxListHeight,
-                rows: (0 ..< measureCount).map { rowHeightSignature(for: inputs.incomingRows[$0]) },
-                theme: themeHeightSignature()
-            )
-            if let heightMemo, heightMemo.key == key { return heightMemo.geometry }
-            let measuredHeights = (0 ..< measureCount).map { measureHeight(for: inputs.incomingRows[$0], width: contentWidth) }
-            let newHeights = (0 ..< inputs.incomingRows.count).map { $0 < measureCount ? measuredHeights[$0] : flatRowHeight }
-            let listHeight = targetListHeight(
-                measuredHeights: measuredHeights,
-                totalRowCount: inputs.incomingRows.count,
-                flatRowHeight: flatRowHeight
-            )
-            let geometry = MeasuredGeometry(newHeights: newHeights, listHeight: listHeight)
-            heightMemo = (key, geometry)
-            return geometry
-        }
-
-        /// The layout-affecting fingerprint of one row: its kind, and for the two
-        /// kinds with an optional caption line, whether that line shows. Derives
-        /// `hasSecondLine` from the same `ContactCaption`/`RoomCaption` resolvers
-        /// the row views render from, so the memo predicts the 1- vs 2-line height
-        /// without hosting the view and can't drift from what renders.
-        private func rowHeightSignature(for row: ContactListRow) -> RowHeightSignature {
-            switch row {
-            case .header:
-                return .header
-            case let .contact(_, contact):
-                return .contact(hasSecondLine: contactHasSecondLine(contact))
-            case let .room(room):
-                return .room(hasSecondLine: roomHasSecondLine(room))
-            }
-        }
-
-        private func contactHasSecondLine(_ contact: Contact) -> Bool {
-            guard let environment = inputs.environment, let theme = inputs.theme else { return false }
-            return ContactCaption.resolve(
-                for: contact,
-                showStatusMessages: theme.current.showStatusMessages,
-                presenceService: environment.presenceService
-            ).hasSecondLine
-        }
-
-        private func roomHasSecondLine(_ room: Conversation) -> Bool {
-            guard let environment = inputs.environment else { return false }
-            return RoomCaption.resolve(for: room, chatService: environment.chatService).hasSecondLine
-        }
-
-        private func themeHeightSignature() -> RowHeightThemeSignature {
-            let theme = inputs.theme?.current
-            return RowHeightThemeSignature(
-                avatarSize: theme?.avatarSize ?? 0,
-                showAvatars: theme?.showAvatars ?? false
-            )
-        }
-
-        /// Self-sized height of one row at the target content width, via a
-        /// reused off-screen `NSHostingView`.
-        private func measureHeight(for row: ContactListRow, width: CGFloat) -> CGFloat {
-            guard let content = cellContent(for: row) else {
-                return (inputs.theme?.current.avatarSize ?? 40) + estimatedRowChrome
-            }
-            let host: NSHostingView<ContactListCellContent>
-            if let measuringHost {
-                host = measuringHost
-                host.rootView = content
-            } else {
-                host = NSHostingView(rootView: content)
-                measuringHost = host
-            }
-            host.setFrameSize(NSSize(width: width, height: 0))
-            host.layoutSubtreeIfNeeded()
-            return host.fittingSize.height
-        }
-
-        /// The list's auto-sized height. An overflowing roster (more than
-        /// `maxMeasuredRows`) takes `fittedHeight`'s fallback — which clamps to
-        /// the screen cap and scrolls — instead of a truncated measured sum.
-        private func targetListHeight(measuredHeights: [CGFloat], totalRowCount: Int, flatRowHeight: CGFloat) -> CGFloat {
-            let overflowing = totalRowCount > maxMeasuredRows
-            let measured = overflowing ? 0 : measuredHeights.reduce(0, +)
-            return ContactListSizing.fittedHeight(
-                measuredHeight: measured,
-                fallbackHeight: CGFloat(totalRowCount) * flatRowHeight,
-                maxHeight: maxListHeight
-            )
         }
 
         // MARK: - Cell content
@@ -689,118 +450,11 @@ struct ContactListTableView: NSViewRepresentable {
         /// polls them; the sheets are SwiftUI, presented via `presentSheet`.
         private func contextMenu(forRow index: Int) -> NSMenu? {
             guard rows.indices.contains(index), let environment = inputs.environment else { return nil }
-            switch rows[index] {
-            case .header:
-                return nil
-            case let .contact(_, contact):
-                return contactMenu(for: contact, environment: environment)
-            case let .room(room):
-                return roomMenu(for: room, environment: environment)
-            }
-        }
-
-        private func contactMenu(for contact: Contact, environment: AppEnvironment) -> NSMenu {
-            let conversation = environment.chatService.openConversations.first {
-                $0.jid == contact.jid && $0.accountID == contact.accountID
-            }
-            let menu = NSMenu()
-            menu.addItem(item("Start Chat") { [weak self] in
-                self?.inputs.openChat(contact.jid.description, accountID: contact.accountID)
-            })
-            menu.addItem(item("Get Info", identifier: "contact-context-get-info") { [weak self] in
-                self?.inputs.openWindow?(id: "contact-info", value: ContactInfoRef(accountID: contact.accountID, jid: contact.jid.description))
-            })
-            menu.addItem(item("History", identifier: "contact-context-history") { [weak self] in
-                let ref = conversation.map { ConversationRef(conversation: $0) }
-                    ?? ConversationRef(accountID: contact.accountID, jid: contact.jid.description, type: .chat)
-                self?.inputs.transcriptScope?.request(ref)
-                self?.inputs.openWindow?(id: "transcripts")
-            })
-            menu.addItem(.separator())
-            if let conversation {
-                for menuItem in pinMuteItems(for: conversation, accountID: contact.accountID, environment: environment) {
-                    menu.addItem(menuItem)
-                }
-                menu.addItem(.separator())
-            }
-            menu.addItem(item("Rename…") { [weak self] in
-                self?.inputs.presentSheet(.rename(contact))
-            })
-            menu.addItem(item("Send Directed Presence", identifier: "send-directed-presence-menu-item") {
-                Task { try? await environment.presenceService.sendDirectedPresence(to: contact.jid.description, accountID: contact.accountID) }
-            })
-            menu.addItem(.separator())
-            menu.addItem(item(contact.isBlocked ? "Unblock" : "Block") {
-                Task {
-                    if contact.isBlocked {
-                        try? await environment.rosterService.unblockContact(jidString: contact.jid.description, accountID: contact.accountID)
-                    } else {
-                        try? await environment.rosterService.blockContact(jidString: contact.jid.description, accountID: contact.accountID)
-                    }
-                }
-            })
-            menu.addItem(item("Remove Contact") {
-                Task { try? await environment.rosterService.removeContact(contact, accountID: contact.accountID) }
-            })
-            return menu
-        }
-
-        private func roomMenu(for conversation: Conversation, environment: AppEnvironment) -> NSMenu {
-            let menu = NSMenu()
-            menu.addItem(item("Open Chat") { [weak self] in
-                self?.inputs.openChat(conversation.jid.description, accountID: conversation.accountID)
-            })
-            guard let accountID = conversation.accountID else { return menu }
-            menu.addItem(.separator())
-            for menuItem in pinMuteItems(for: conversation, accountID: accountID, environment: environment) {
-                menu.addItem(menuItem)
-            }
-            menu.addItem(.separator())
-            menu.addItem(item("Invite User…") { [weak self] in
-                self?.inputs.presentSheet(.invite(conversation))
-            })
-            if canManageRoom(conversation, accountID: accountID, environment: environment) {
-                menu.addItem(.separator())
-                menu.addItem(item("Room Settings…", identifier: "room-settings-menu-item") { [weak self] in
-                    self?.inputs.presentSheet(.roomSettings(conversation))
-                })
-            }
-            menu.addItem(.separator())
-            menu.addItem(item("Leave Room") {
-                Task { try? await environment.chatService.leaveRoom(jidString: conversation.jid.description, accountID: accountID) }
-            })
-            return menu
-        }
-
-        /// The Pin/Unpin + Mute/Unmute pair shared by the contact and room menus.
-        private func pinMuteItems(for conversation: Conversation, accountID: UUID, environment: AppEnvironment) -> [NSMenuItem] {
-            [
-                item(conversation.isPinned ? "Unpin" : "Pin") {
-                    Task { try? await environment.chatService.togglePin(conversationID: conversation.id, accountID: accountID) }
-                },
-                item(conversation.isMuted ? "Unmute" : "Mute") {
-                    Task { try? await environment.chatService.toggleMute(conversationID: conversation.id, accountID: accountID) }
-                }
-            ]
-        }
-
-        private func canManageRoom(_ conversation: Conversation, accountID: UUID, environment: AppEnvironment) -> Bool {
-            guard let nickname = conversation.roomNickname else { return false }
-            let participants = environment.chatService.participants(forRoomJIDString: conversation.jid.description, accountID: accountID)
-            return participants.first { $0.nickname == nickname }?.affiliation == .owner
-        }
-
-        /// One menu item whose action runs `run` via the single `@objc`
-        /// trampoline (closures aren't valid `NSMenuItem` actions; this is the
-        /// minimal target/action footprint).
-        private func item(_ title: String, identifier: String? = nil, run: @escaping @MainActor () -> Void) -> NSMenuItem {
-            let menuItem = NSMenuItem(title: title, action: #selector(performMenuItem(_:)), keyEquivalent: "")
-            menuItem.target = self
-            menuItem.representedObject = MenuCommand(run)
-            if let identifier {
-                menuItem.setAccessibilityIdentifier(identifier)
-            }
-            return menuItem
+            return ContactListMenuBuilder(
+                openChat: inputs.openChat, openWindow: inputs.openWindow, transcriptScope: inputs.transcriptScope,
+                presentSheet: inputs.presentSheet, target: self, action: #selector(performMenuItem(_:))
+            )
+            .menu(for: rows[index], environment: environment)
         }
 
         @objc private func performMenuItem(_ sender: NSMenuItem) {
@@ -827,7 +481,7 @@ struct ContactListTableView: NSViewRepresentable {
         }
 
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-            rowHeights.indices.contains(row) ? rowHeights[row] : (inputs.theme?.current.avatarSize ?? 40) + estimatedRowChrome
+            rowHeights.indices.contains(row) ? rowHeights[row] : (inputs.theme?.current.avatarSize ?? 40) + ContactListMeasurement.estimatedRowChrome
         }
 
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {

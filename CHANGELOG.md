@@ -19,6 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Prevent a failed message-history write from crashing Ducko
 - Preserve account and conversation settings when first saving them
 - Preserve reply context in synced and archived messages
+- Keep conversation history aligned with the latest conversation, date and search selection
 - Keep removed contacts from reappearing after a quick disconnect
 - Prevent a connection attempt from restoring an account after it has been disconnected
 - Keep delayed room-join updates from restoring participants after leaving
