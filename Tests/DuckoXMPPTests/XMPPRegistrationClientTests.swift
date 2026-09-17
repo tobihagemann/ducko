@@ -3,6 +3,136 @@ import Testing
 @testable import DuckoXMPP
 
 struct XMPPRegistrationClientTests {
+    @Test(arguments: [false, true])
+    func `pre-auth operation closes its transport after success`(register: Bool) async throws {
+        let transport = RegistrationTransport()
+        let task = registrationTask(transport: transport, register: register)
+        do {
+            try await negotiate(transport)
+            let request = try await awaitOutgoingIQ(on: transport.mock, type: register ? .set : .get, namespace: XMPPNamespaces.register) {
+                $0.contains("id=\"reg1\"")
+            }
+            if register {
+                #expect(request.xml.contains("<username>new-user</username>"))
+            }
+            await transport.mock.simulateReceive("<iq type='result' id='\(request.id)'><query xmlns='jabber:iq:register'><username/><password/></query></iq>")
+        } catch {
+            task.cancel()
+            await transport.disconnect()
+            _ = await task.result
+            throw error
+        }
+        let form = try await task.value
+        if !register {
+            #expect(form?.hasUsername == true)
+            #expect(form?.hasPassword == true)
+        }
+        #expect(await transport.disconnectCalls == 1)
+        #expect(await transport.mock.isConnected == false)
+        #expect(await transport.mock.tlsServerName == "example.com")
+    }
+
+    @Test(arguments: [false, true])
+    func `partial connect failure releases the registration transport`(register: Bool) async {
+        let transport = RegistrationTransport(failConnect: true)
+        let task = registrationTask(transport: transport, register: register)
+        await #expect(throws: XMPPClientError.self) { try await task.value }
+        #expect(await transport.disconnectCalls == 1)
+        #expect(await transport.mock.isConnected == false)
+    }
+
+    @Test(arguments: [false, true])
+    func `invalid registration domain never opens a transport`(register: Bool) async {
+        let transport = RegistrationTransport()
+        let task = registrationTask(transport: transport, register: register, domain: "bad domain.example")
+        await #expect(throws: XMPPRegistrationClient.RegistrationClientError.self) { try await task.value }
+        #expect(await transport.mock.connectedHost == nil)
+        #expect(await transport.disconnectCalls == 0)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func `registration cancellation releases the transport during negotiation or response wait`(register: Bool, afterTLS: Bool) async throws {
+        let transport = RegistrationTransport()
+        let task = registrationTask(transport: transport, register: register)
+        do {
+            if afterTLS {
+                try await negotiate(transport)
+                _ = try await awaitOutgoingIQ(on: transport.mock, type: register ? .set : .get, namespace: XMPPNamespaces.register) {
+                    $0.contains("id=\"reg1\"")
+                }
+            } else {
+                try await transport.awaitSent { $0.hasPrefix("<?xml") || $0.hasPrefix("<stream:stream") }
+            }
+        } catch {
+            task.cancel()
+            await transport.disconnect()
+            _ = await task.result
+            throw error
+        }
+        task.cancel()
+        await #expect(throws: (any Error).self) { try await task.value }
+        #expect(await transport.disconnectCalls == 1)
+        #expect(await transport.mock.isConnected == false)
+    }
+
+    @Test(arguments: [false, true])
+    func `registration rejection preserves operation-specific errors and closes transport`(register: Bool) async throws {
+        let transport = RegistrationTransport()
+        let task = registrationTask(transport: transport, register: register)
+        do {
+            try await negotiate(transport)
+            let request = try await awaitOutgoingIQ(on: transport.mock, type: register ? .set : .get, namespace: XMPPNamespaces.register) {
+                $0.contains("id=\"reg1\"")
+            }
+            await transport.mock.simulateReceive("<iq type='error' id='\(request.id)'><error type='cancel'><conflict xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>")
+        } catch {
+            task.cancel()
+            await transport.disconnect()
+            _ = await task.result
+            throw error
+        }
+        let error = await #expect(throws: XMPPRegistrationClient.RegistrationClientError.self) { try await task.value }
+        if register {
+            guard case let .registrationFailed(text) = error else {
+                Issue.record("Expected registration rejection")
+                return
+            }
+            #expect(text == "The username is already taken")
+        } else {
+            guard case .unexpectedResponse = error else {
+                Issue.record("Expected invalid form response")
+                return
+            }
+        }
+        #expect(await transport.disconnectCalls == 1)
+        #expect(await transport.mock.isConnected == false)
+    }
+
+    private func registrationTask(
+        transport: RegistrationTransport, register: Bool, domain: String = "example.com"
+    ) -> Task<RegistrationModule.RegistrationForm?, any Error> {
+        Task {
+            if register {
+                try await XMPPRegistrationClient.register(domain: domain, username: "new-user", password: "secret", host: "example.com", transport: transport)
+                return nil
+            }
+            return try await XMPPRegistrationClient.retrieveForm(domain: domain, host: "example.com", transport: transport)
+        }
+    }
+
+    private func negotiate(_ transport: RegistrationTransport) async throws {
+        try await transport.awaitSent { $0.hasPrefix("<?xml") || $0.hasPrefix("<stream:stream") }
+        await transport.mock.simulateReceive(testServerStreamOpen)
+        await transport.mock.simulateReceive(testFeaturesWithTLS)
+        try await transport.awaitSent { $0.contains("<starttls") }
+        // Clear before triggering the next phase so its stream opening cannot match the first one.
+        await transport.mock.clearSentBytes()
+        await transport.mock.simulateReceive(testProceed)
+        try await transport.awaitSent { $0.hasPrefix("<?xml") || $0.hasPrefix("<stream:stream") }
+        await transport.mock.simulateReceive(testServerStreamOpen)
+        await transport.mock.simulateReceive(testFeaturesNoTLS)
+    }
+
     @Test
     func `RegistrationClientError cases`() {
         let err1 = XMPPRegistrationClient.RegistrationClientError.connectionFailed("timeout")
@@ -115,6 +245,60 @@ struct XMPPRegistrationClientTests {
         // The IDNA guard throws before any network I/O (a space is not LDH, so no A-label).
         await #expect(throws: XMPPRegistrationClient.RegistrationClientError.self) {
             _ = try await XMPPRegistrationClient.retrieveForm(domain: "bad domain.example")
+        }
+    }
+}
+
+private actor RegistrationTransport: XMPPTransport {
+    nonisolated let mock = MockTransport()
+    nonisolated var receivedData: AsyncStream<[UInt8]> {
+        mock.receivedData
+    }
+
+    private let failConnect: Bool
+    private(set) var disconnectCalls = 0
+
+    init(failConnect: Bool = false) {
+        self.failConnect = failConnect
+    }
+
+    func connect(host: String, port: UInt16) async throws {
+        try await mock.connect(host: host, port: port)
+        if failConnect { throw XMPPClientError.connectionFailed("fixture") }
+    }
+
+    func connectWithTLS(host: String, port: UInt16, serverName: String) async throws {
+        try await mock.connectWithTLS(host: host, port: port, serverName: serverName)
+    }
+
+    func stopReceiving() async {
+        await mock.stopReceiving()
+    }
+
+    func upgradeTLS(serverName: String) async throws -> AsyncStream<[UInt8]> {
+        try await mock.upgradeTLS(serverName: serverName)
+    }
+
+    func send(_ bytes: [UInt8]) async throws {
+        try await mock.send(bytes)
+    }
+
+    func disconnect() async {
+        disconnectCalls += 1
+        await mock.disconnect()
+    }
+
+    func awaitSent(matching predicate: @escaping @Sendable (String) -> Bool) async throws {
+        try await withThrowingTaskGroup(of: String?.self) { group in
+            defer { group.cancelAll() }
+            group.addTask { await self.mock.waitForSent(matching: predicate) }
+            group.addTask {
+                try await Task.sleep(for: .seconds(2))
+                throw XMPPClientError.timeout
+            }
+            let result = try await group.next()!
+            try Task.checkCancellation()
+            guard result != nil else { throw XMPPClientError.timeout }
         }
     }
 }

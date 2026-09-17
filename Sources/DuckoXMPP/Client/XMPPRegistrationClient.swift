@@ -19,21 +19,13 @@ public enum XMPPRegistrationClient {
         host: String? = nil,
         port: UInt16 = 5222
     ) async throws -> RegistrationModule.RegistrationForm {
-        let connection = XMPPConnection(transport: POSIXTransport())
-        let reader = EventReader(connection.events)
-        guard let names = IDNA.names(for: domain) else {
-            throw RegistrationClientError.connectionFailed("Invalid domain: \(domain)")
-        }
+        try await retrieveForm(domain: domain, host: host, port: port, transport: POSIXTransport())
+    }
 
-        do {
-            if let host {
-                try await connection.connect(host: host, port: port)
-            } else {
-                try await connection.connect(domain: names.lookup)
-            }
-
-            try await negotiateStream(connection: connection, reader: reader, domain: names.stream, serverName: names.lookup)
-
+    static func retrieveForm(
+        domain: String, host: String? = nil, port: UInt16 = 5222, transport: any XMPPTransport
+    ) async throws -> RegistrationModule.RegistrationForm {
+        try await withRegistrationConnection(domain: domain, host: host, port: port, transport: transport) { connection, reader in
             var iq = XMPPIQ(type: .get, id: "reg1")
             let query = XMLElement(name: "query", namespace: XMPPNamespaces.register)
             iq.element.addChild(query)
@@ -47,11 +39,7 @@ public enum XMPPRegistrationClient {
                 throw RegistrationClientError.unexpectedResponse
             }
 
-            await connection.disconnect()
             return RegistrationModule.parseForm(queryResult)
-        } catch {
-            await connection.disconnect()
-            throw error
         }
     }
 
@@ -64,21 +52,14 @@ public enum XMPPRegistrationClient {
         host: String? = nil,
         port: UInt16 = 5222
     ) async throws {
-        let connection = XMPPConnection(transport: POSIXTransport())
-        let reader = EventReader(connection.events)
-        guard let names = IDNA.names(for: domain) else {
-            throw RegistrationClientError.connectionFailed("Invalid domain: \(domain)")
-        }
+        try await register(domain: domain, username: username, password: password, email: email, host: host, port: port, transport: POSIXTransport())
+    }
 
-        do {
-            if let host {
-                try await connection.connect(host: host, port: port)
-            } else {
-                try await connection.connect(domain: names.lookup)
-            }
-
-            try await negotiateStream(connection: connection, reader: reader, domain: names.stream, serverName: names.lookup)
-
+    static func register(
+        domain: String, username: String, password: String, email: String? = nil,
+        host: String? = nil, port: UInt16 = 5222, transport: any XMPPTransport
+    ) async throws {
+        try await withRegistrationConnection(domain: domain, host: host, port: port, transport: transport) { connection, reader in
             var iq = XMPPIQ(type: .set, id: "reg1")
             let query = RegistrationModule.buildRegistrationQuery(username: username, password: password, email: email)
             iq.element.addChild(query)
@@ -99,7 +80,29 @@ public enum XMPPRegistrationClient {
             }
 
             log.info("Registration successful for \(username)@\(domain)")
+        }
+    }
+
+    private static func withRegistrationConnection<Result: Sendable>(
+        domain: String, host: String?, port: UInt16, transport: any XMPPTransport,
+        operation: (XMPPConnection, EventReader) async throws -> Result
+    ) async throws -> Result {
+        guard let names = IDNA.names(for: domain) else {
+            throw RegistrationClientError.connectionFailed("Invalid domain: \(domain)")
+        }
+        let connection = XMPPConnection(transport: transport)
+        let reader = EventReader(connection.events)
+        do {
+            try Task.checkCancellation()
+            if let host {
+                try await connection.connect(host: host, port: port)
+            } else {
+                try await connection.connect(domain: names.lookup)
+            }
+            try await negotiateStream(connection: connection, reader: reader, domain: names.stream, serverName: names.lookup)
+            let result = try await operation(connection, reader)
             await connection.disconnect()
+            return result
         } catch {
             await connection.disconnect()
             throw error

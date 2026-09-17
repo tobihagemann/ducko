@@ -81,40 +81,26 @@ extension DuckoCLI {
             }
             let recipientJID = parsedJID.bareJID
 
-            let context = try await MainActor.run {
-                try CLIBootstrap.setUp(formatter: formatter)
+            try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                if let file {
+                    let resolvedMethod = try parseTransferMethod(method)
+                    let ftContext = FileTransferCLIContext(
+                        accountID: selectedAccount.id, environment: env, formatter: formatter
+                    )
+                    let peerOverride = resolvedMethod == .jingle ? jid : nil
+                    try await sendFileFromCLI(
+                        filePath: file, recipientJID: recipientJID,
+                        body: body, method: resolvedMethod,
+                        peerJID: peerOverride, context: ftContext
+                    )
+                } else if let body {
+                    try await env.chatService.sendMessage(to: recipientJID, body: body, accountID: selectedAccount.id)
+
+                    print(formatter.formatMessage(ChatMessage.displayPlaceholder(
+                        fromJID: recipientJID.description, body: body
+                    ), accountJID: selectedAccount.jid))
+                }
             }
-            let env = context.environment
-
-            let selectedAccount = try await resolveAccount(account, environment: env)
-
-            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                throw CLIError.noPassword
-            }
-
-            try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-            try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-            if let file {
-                let resolvedMethod = try parseTransferMethod(method)
-                let ftContext = FileTransferCLIContext(
-                    accountID: selectedAccount.id, environment: env, formatter: formatter
-                )
-                let peerOverride = resolvedMethod == .jingle ? jid : nil
-                try await sendFileFromCLI(
-                    filePath: file, recipientJID: recipientJID,
-                    body: body, method: resolvedMethod,
-                    peerJID: peerOverride, context: ftContext
-                )
-            } else if let body {
-                try await env.chatService.sendMessage(to: recipientJID, body: body, accountID: selectedAccount.id)
-
-                print(formatter.formatMessage(ChatMessage.displayPlaceholder(
-                    fromJID: recipientJID.description, body: body
-                ), accountJID: selectedAccount.jid))
-            }
-
-            await env.accountService.disconnect(accountID: selectedAccount.id)
         }
     }
 }
@@ -184,37 +170,23 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, _ in
+                    try await waitForRosterLoaded(environment: env)
+
+                    // Wait for initial presence stanzas
+                    try await Task.sleep(for: .seconds(1.5))
+
+                    let (groups, presences) = await MainActor.run {
+                        (env.rosterService.groups, env.presenceService.contactPresences)
+                    }
+
+                    guard !groups.isEmpty else {
+                        print("No contacts in roster.")
+                        return
+                    }
+
+                    printRoster(groups: groups, presences: presences, formatter: formatter)
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-                try await waitForRosterLoaded(environment: env)
-
-                // Wait for initial presence stanzas
-                try await Task.sleep(for: .seconds(1.5))
-
-                let (groups, presences) = await MainActor.run {
-                    (env.rosterService.groups, env.presenceService.contactPresences)
-                }
-
-                guard !groups.isEmpty else {
-                    print("No contacts in roster.")
-                    await env.accountService.disconnect(accountID: selectedAccount.id)
-                    return
-                }
-
-                printRoster(groups: groups, presences: presences, formatter: formatter)
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -244,26 +216,12 @@ extension DuckoCLI {
                     throw CLIError.invalidJID(jid)
                 }
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let groups = group.map { [$0] } ?? []
+                    try await env.rosterService.addContact(jid: bareJID, name: name, groups: groups, accountID: selectedAccount.id)
+
+                    print("Added \(jid) to roster.")
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                let groups = group.map { [$0] } ?? []
-                try await env.rosterService.addContact(jid: bareJID, name: name, groups: groups, accountID: selectedAccount.id)
-
-                print("Added \(jid) to roster.")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -287,26 +245,13 @@ extension DuckoCLI {
                     throw CLIError.invalidJID(jid)
                 }
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    try await waitForRosterLoaded(environment: env)
+
+                    try await env.rosterService.removeContact(jidString: bareJID.description, accountID: selectedAccount.id)
+
+                    print("Removed \(jid) from roster.")
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-                try await waitForRosterLoaded(environment: env)
-
-                try await env.rosterService.removeContact(jidString: bareJID.description, accountID: selectedAccount.id)
-
-                print("Removed \(jid) from roster.")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
     }
@@ -389,22 +334,19 @@ extension DuckoCLI {
                 return
             }
 
-            try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-            try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-            if let status {
-                let presenceStatus = try requirePresenceStatus(status)
-                await applyPresence(presenceStatus, message: message, environment: env, accountID: selectedAccount.id)
-                print(formatter.formatPresence(jid: selectedAccount.jid, status: presenceStatus.rawValue, message: message))
-                printToStandardError("Note: this status is session-scoped and reverts to unavailable when the command exits. Use --for <duration> or --keep-alive to hold it.")
-            } else {
-                let (myPresence, myMessage) = await MainActor.run {
-                    (env.presenceService.myPresence, env.presenceService.myStatusMessage)
+            try await ConnectedOperation.run(environment: env, account: selectedAccount, password: password) {
+                if let status {
+                    let presenceStatus = try requirePresenceStatus(status)
+                    await applyPresence(presenceStatus, message: message, environment: env, accountID: selectedAccount.id)
+                    print(formatter.formatPresence(jid: selectedAccount.jid, status: presenceStatus.rawValue, message: message))
+                    printToStandardError("Note: this status is session-scoped and reverts to unavailable when the command exits. Use --for <duration> or --keep-alive to hold it.")
+                } else {
+                    let (myPresence, myMessage) = await MainActor.run {
+                        (env.presenceService.myPresence, env.presenceService.myStatusMessage)
+                    }
+                    print(formatter.formatPresence(jid: selectedAccount.jid, status: myPresence.rawValue, message: myMessage))
                 }
-                print(formatter.formatPresence(jid: selectedAccount.jid, status: myPresence.rawValue, message: myMessage))
             }
-
-            await env.accountService.disconnect(accountID: selectedAccount.id)
         }
 
         private func resolvedLifetime() throws -> PresenceHoldLifetime? {
@@ -439,26 +381,12 @@ extension DuckoCLI {
         func run() async throws {
             let formatter = global.resolvedFormat.makeFormatter()
 
-            let context = try await MainActor.run {
-                try CLIBootstrap.setUp(formatter: formatter)
+            try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                let output = await fetchAndFormatProfile(
+                    environment: env, accountID: selectedAccount.id, formatter: formatter
+                )
+                print(output)
             }
-            let env = context.environment
-
-            let selectedAccount = try await resolveAccount(account, environment: env)
-
-            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                throw CLIError.noPassword
-            }
-
-            try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-            try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-            let output = await fetchAndFormatProfile(
-                environment: env, accountID: selectedAccount.id, formatter: formatter
-            )
-            print(output)
-
-            await env.accountService.disconnect(accountID: selectedAccount.id)
         }
     }
 }
@@ -523,18 +451,12 @@ extension DuckoCLI {
             if server, messages.isEmpty {
                 let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore)
                 guard let password else { throw CLIError.noPassword }
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-                do {
+                messages = try await ConnectedOperation.run(environment: env, account: selectedAccount, password: password) {
                     let (serverMessages, _) = try await env.chatService.fetchServerHistory(
                         jid: bareJID, accountID: selectedAccount.id, before: beforeDate, limit: limit
                     )
-                    messages = serverMessages
-                } catch {
-                    await env.accountService.disconnect(accountID: selectedAccount.id)
-                    throw error
+                    return serverMessages
                 }
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
 
             printHistory(messages, formatter: formatter, accountJID: selectedAccount.jid)
@@ -572,44 +494,30 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
-                }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                if let search {
-                    let channels = try await env.chatService.searchChannels(keyword: search, accountID: selectedAccount.id).channels
-                    for channel in channels {
-                        print(formatter.formatSearchedChannel(channel))
-                    }
-                    if channels.isEmpty {
-                        print("No channels found.")
-                    }
-                } else {
-                    let serviceJID: String
-                    if let service {
-                        serviceJID = service
-                    } else {
-                        guard let discovered = await env.chatService.discoverMUCService(accountID: selectedAccount.id) else {
-                            throw CLIError.noMUCService
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    if let search {
+                        let channels = try await env.chatService.searchChannels(keyword: search, accountID: selectedAccount.id).channels
+                        for channel in channels {
+                            print(formatter.formatSearchedChannel(channel))
                         }
-                        serviceJID = discovered
+                        if channels.isEmpty {
+                            print("No channels found.")
+                        }
+                    } else {
+                        let serviceJID: String
+                        if let service {
+                            serviceJID = service
+                        } else {
+                            guard let discovered = await env.chatService.discoverMUCService(accountID: selectedAccount.id) else {
+                                throw CLIError.noMUCService
+                            }
+                            serviceJID = discovered
+                        }
+
+                        let rooms = try await env.chatService.discoverRooms(on: serviceJID, accountID: selectedAccount.id)
+                        printDiscoveredRooms(rooms, formatter: formatter)
                     }
-
-                    let rooms = try await env.chatService.discoverRooms(on: serviceJID, accountID: selectedAccount.id)
-                    printDiscoveredRooms(rooms, formatter: formatter)
                 }
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -683,30 +591,17 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let nick = nickname ?? defaultNickname(for: selectedAccount)
+                    try await env.chatService.joinRoomAwaitingEcho(
+                        jidString: jid, nickname: nick,
+                        accountID: selectedAccount.id, timeout: .seconds(15)
+                    )
+
+                    await printRoomMembers(jidString: jid, accountID: selectedAccount.id, environment: env, formatter: formatter)
+
+                    try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                let nick = nickname ?? defaultNickname(for: selectedAccount)
-                try await env.chatService.joinRoomAwaitingEcho(
-                    jidString: jid, nickname: nick,
-                    accountID: selectedAccount.id, timeout: .seconds(15)
-                )
-
-                await printRoomMembers(jidString: jid, accountID: selectedAccount.id, environment: env, formatter: formatter)
-
-                try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -732,30 +627,17 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let nick = nickname ?? defaultNickname(for: selectedAccount)
+                    try await env.chatService.joinRoomAwaitingEcho(
+                        jidString: jid, nickname: nick,
+                        accountID: selectedAccount.id, timeout: .seconds(15)
+                    )
+
+                    try await env.chatService.sendGroupMessage(toJIDString: jid, body: body, accountID: selectedAccount.id)
+
+                    try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                let nick = nickname ?? defaultNickname(for: selectedAccount)
-                try await env.chatService.joinRoomAwaitingEcho(
-                    jidString: jid, nickname: nick,
-                    accountID: selectedAccount.id, timeout: .seconds(15)
-                )
-
-                try await env.chatService.sendGroupMessage(toJIDString: jid, body: body, accountID: selectedAccount.id)
-
-                try await env.chatService.leaveRoom(jidString: jid, accountID: selectedAccount.id)
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
     }
@@ -781,34 +663,19 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    await env.bookmarksService.loadBookmarks(accountID: selectedAccount.id)
+                    let bookmarks = await MainActor.run { env.bookmarksService.bookmarks }
+
+                    guard !bookmarks.isEmpty else {
+                        print("No bookmarks.")
+                        return
+                    }
+
+                    for bookmark in bookmarks {
+                        print(formatter.formatBookmark(bookmark))
+                    }
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                await env.bookmarksService.loadBookmarks(accountID: selectedAccount.id)
-                let bookmarks = await MainActor.run { env.bookmarksService.bookmarks }
-
-                guard !bookmarks.isEmpty else {
-                    print("No bookmarks.")
-                    await env.accountService.disconnect(accountID: selectedAccount.id)
-                    return
-                }
-
-                for bookmark in bookmarks {
-                    print(formatter.formatBookmark(bookmark))
-                }
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -840,32 +707,18 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let bookmark = RoomBookmark(
+                        jidString: jid,
+                        name: name,
+                        autojoin: autojoin,
+                        nickname: nickname,
+                        password: password
+                    )
+                    try await env.bookmarksService.addBookmark(bookmark, accountID: selectedAccount.id)
+
+                    print("Added bookmark for \(jid).")
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let pw = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: pw)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                let bookmark = RoomBookmark(
-                    jidString: jid,
-                    name: name,
-                    autojoin: autojoin,
-                    nickname: nickname,
-                    password: password
-                )
-                try await env.bookmarksService.addBookmark(bookmark, accountID: selectedAccount.id)
-
-                print("Added bookmark for \(jid).")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -885,25 +738,11 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    try await env.bookmarksService.removeBookmark(jidString: jid, accountID: selectedAccount.id)
+
+                    print("Removed bookmark for \(jid).")
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                try await env.bookmarksService.removeBookmark(jidString: jid, accountID: selectedAccount.id)
-
-                print("Removed bookmark for \(jid).")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
     }
@@ -934,40 +773,25 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    guard let bareJID = BareJID.parse(jid) else {
+                        throw CLIError.invalidJID(jid)
+                    }
+
+                    guard let avatar = await env.avatarService.fetchAvatar(for: bareJID, accountID: selectedAccount.id) else {
+                        print("No avatar found for \(jid).")
+                        return
+                    }
+
+                    let ext = avatar.mimeType.contains("png") ? "png" : "jpg"
+                    let filePath = save ?? "\(jid).\(ext)"
+                    try avatar.data.write(to: URL(fileURLWithPath: filePath))
+
+                    print("Saved avatar to \(filePath)")
+                    print("Hash: \(avatar.hash)")
+                    print("Type: \(avatar.mimeType)")
+                    print("Size: \(avatar.data.count) bytes")
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                guard let bareJID = BareJID.parse(jid) else {
-                    throw CLIError.invalidJID(jid)
-                }
-
-                guard let avatar = await env.avatarService.fetchAvatar(for: bareJID, accountID: selectedAccount.id) else {
-                    print("No avatar found for \(jid).")
-                    await env.accountService.disconnect(accountID: selectedAccount.id)
-                    return
-                }
-
-                let ext = avatar.mimeType.contains("png") ? "png" : "jpg"
-                let filePath = save ?? "\(jid).\(ext)"
-                try avatar.data.write(to: URL(fileURLWithPath: filePath))
-
-                print("Saved avatar to \(filePath)")
-                print("Hash: \(avatar.hash)")
-                print("Type: \(avatar.mimeType)")
-                print("Size: \(avatar.data.count) bytes")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -1004,17 +828,14 @@ extension DuckoCLI {
                 let ext = url.pathExtension
                 let mimeType = UTType(filenameExtension: ext)?.preferredMIMEType ?? "image/png"
 
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
+                try await ConnectedOperation.run(environment: env, account: selectedAccount, password: password) {
+                    try await env.avatarService.publishAvatar(imageData: imageData, mimeType: mimeType, accountID: selectedAccount.id)
 
-                try await env.avatarService.publishAvatar(imageData: imageData, mimeType: mimeType, accountID: selectedAccount.id)
-
-                let hash = await MainActor.run { env.avatarService.ownAvatarHash(for: selectedAccount.id) ?? "unknown" }
-                print("Avatar published successfully.")
-                print("Hash: \(hash)")
-                print("Size: \(imageData.count) bytes")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
+                    let hash = await MainActor.run { env.avatarService.ownAvatarHash(for: selectedAccount.id) ?? "unknown" }
+                    print("Avatar published successfully.")
+                    print("Hash: \(hash)")
+                    print("Size: \(imageData.count) bytes")
+                }
             }
         }
     }
@@ -1175,12 +996,12 @@ extension DuckoCLI {
                     throw CLIError.noPassword
                 }
 
-                try await env.accountService.connect(accountID: account.id, password: password)
-                try await waitForConnected(accountID: account.id, environment: env)
-                try await env.cancelAccount(account.id, includeHistory: includeHistory)
-                print("Account unregistered: \(jid)")
-                if includeHistory {
-                    print("Chat history deleted.")
+                try await ConnectedOperation.run(environment: env, account: account, password: password) {
+                    try await env.cancelAccount(account.id, includeHistory: includeHistory)
+                    print("Account unregistered: \(jid)")
+                    if includeHistory {
+                        print("Chat history deleted.")
+                    }
                 }
             }
         }
@@ -1290,24 +1111,10 @@ extension DuckoCLI {
         func run() async throws {
             let formatter = global.resolvedFormat.makeFormatter()
 
-            let context = try await MainActor.run {
-                try CLIBootstrap.setUp(formatter: formatter)
+            try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                let info = try await env.accountService.fetchServerInfo(accountID: selectedAccount.id)
+                print(formatter.formatServerInfo(info))
             }
-            let env = context.environment
-
-            let selectedAccount = try await resolveAccount(account, environment: env)
-
-            guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                throw CLIError.noPassword
-            }
-
-            try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-            try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-            let info = try await env.accountService.fetchServerInfo(accountID: selectedAccount.id)
-            print(formatter.formatServerInfo(info))
-
-            await env.accountService.disconnect(accountID: selectedAccount.id)
         }
     }
 
@@ -1333,28 +1140,14 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let fingerprint = await env.omemoService.ownFingerprint(accountID: selectedAccount.id)
+                    if let fingerprint {
+                        print(formatFingerprintHex(fingerprint))
+                    } else {
+                        print("No OMEMO identity found.")
+                    }
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                let fingerprint = await env.omemoService.ownFingerprint(accountID: selectedAccount.id)
-                if let fingerprint {
-                    print(formatFingerprintHex(fingerprint))
-                } else {
-                    print("No OMEMO identity found.")
-                }
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -1374,31 +1167,17 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
-                }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
-                if devices.isEmpty {
-                    print("No known OMEMO devices for \(jid).")
-                } else {
-                    for device in devices {
-                        let fp = device.fingerprint.isEmpty ? "(no fingerprint)" : formatFingerprintHex(device.fingerprint)
-                        print("  \(device.deviceID)  \(fp)  [\(device.trustLevel.rawValue)]")
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
+                    if devices.isEmpty {
+                        print("No known OMEMO devices for \(jid).")
+                    } else {
+                        for device in devices {
+                            let fp = device.fingerprint.isEmpty ? "(no fingerprint)" : formatFingerprintHex(device.fingerprint)
+                            print("  \(device.deviceID)  \(fp)  [\(device.trustLevel.rawValue)]")
+                        }
                     }
                 }
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -1421,34 +1200,19 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
+                    guard let device = devices.first(where: { $0.deviceID == deviceID }) else {
+                        print("Device \(deviceID) not found for \(jid).")
+                        return
+                    }
+
+                    try await env.omemoService.trustDevice(
+                        accountID: selectedAccount.id, peerJID: jid,
+                        deviceID: deviceID, fingerprint: device.fingerprint
+                    )
+                    print("Trusted device \(deviceID) for \(jid).")
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
-                guard let device = devices.first(where: { $0.deviceID == deviceID }) else {
-                    print("Device \(deviceID) not found for \(jid).")
-                    await env.accountService.disconnect(accountID: selectedAccount.id)
-                    return
-                }
-
-                try await env.omemoService.trustDevice(
-                    accountID: selectedAccount.id, peerJID: jid,
-                    deviceID: deviceID, fingerprint: device.fingerprint
-                )
-                print("Trusted device \(deviceID) for \(jid).")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
 
@@ -1471,26 +1235,12 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                let context = try await MainActor.run {
-                    try CLIBootstrap.setUp(formatter: formatter)
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    try await env.omemoService.untrustDevice(
+                        accountID: selectedAccount.id, peerJID: jid, deviceID: deviceID
+                    )
+                    print("Untrusted device \(deviceID) for \(jid).")
                 }
-                let env = context.environment
-
-                let selectedAccount = try await resolveAccount(account, environment: env)
-
-                guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: env.credentialStore) else {
-                    throw CLIError.noPassword
-                }
-
-                try await env.accountService.connect(accountID: selectedAccount.id, password: password)
-                try await waitForConnected(accountID: selectedAccount.id, environment: env)
-
-                try await env.omemoService.untrustDevice(
-                    accountID: selectedAccount.id, peerJID: jid, deviceID: deviceID
-                )
-                print("Untrusted device \(deviceID) for \(jid).")
-
-                await env.accountService.disconnect(accountID: selectedAccount.id)
             }
         }
     }
@@ -1659,77 +1409,23 @@ private func runREPL(formatter: any CLIFormatter, environment: AppEnvironment, a
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { continue }
 
-        if trimmed == "quit" || trimmed == "exit" {
-            await leaveCurrentRoom(currentRoom, environment: environment, accountID: accountID)
-            await environment.accountService.disconnect(accountID: accountID)
-            Foundation.exit(0)
-        }
-
-        if trimmed == "help" {
-            printREPLHelp()
-            continue
-        }
-
-        let result = await dispatchREPLCommand(trimmed, context: context, currentRoom: currentRoom)
+        let command = REPLCommand(trimmed)
+        let result = await dispatchREPLCommand(command, context: context, currentRoom: currentRoom)
         if result.handled {
-            if let updated = result.updatedCurrentRoom {
-                currentRoom = updated
-            }
+            currentRoom = result.updatedCurrentRoom.applying(to: currentRoom)
         } else {
             print("Unknown command: \(trimmed). Type 'help' for commands.")
         }
     }
 
     // stdin closed
-    await leaveCurrentRoom(currentRoom, environment: environment, accountID: accountID)
-    await environment.accountService.disconnect(accountID: accountID)
-    Foundation.exit(0)
+    await quitREPL(context: context, currentRoom: currentRoom)
 }
 
-private func printREPLHelp() {
-    print("Commands:")
-    print("  send <jid> <message>     Send a message")
-    print("  /roster                  Show contacts with presence")
-    print("  /status [status] [msg]   Get or set presence")
-    print("  /who                     Show online contacts")
-    print("  /add <jid> [name]        Add contact to roster")
-    print("  /remove <jid>            Remove contact from roster")
-    print("  /history <jid> [limit]   Show message history")
-    print("  /profile                 View own vCard profile")
-    print("  /reply <jid> <message>   Reply to last incoming message")
-    print("  /retract <jid>           Retract last sent message")
-    print("  /edit <jid> <new-body>   Edit last sent message")
-    print("  /search <jid> <query>    Search message history")
-    print("  /approve <jid>           Approve subscription request")
-    print("  /deny <jid>              Deny subscription request")
-    print("  /directed-presence <jid> Send directed presence to a JID")
-    print("  /unregister-account      Unregister account from server")
-    print("  /check-registration [jid]  Show server registration form")
-    print("  /submit-registration [jid] Submit registration to server/component")
-    print("  /join <room> [nick]      Join a MUC room")
-    print("  /leave [room]            Leave a MUC room")
-    print("  /members [room]          Show room occupants")
-    print("  /topic [room] [text]     View or set room topic")
-    print("  /nick <nickname>         Change nickname in current room")
-    print("  /destroy [reason]        Destroy current room")
-    print("  /voice grant|revoke <n>  Grant/revoke voice")
-    print("  /kick <nick> [reason]    Kick occupant; quote names w/ spaces")
-    print("  /pm <nick> <message>     PM an occupant; quote names w/ spaces")
-    print("  /affiliations [type]     List affiliations")
-    print("  /config [submit-default] Show room config or accept defaults")
-    print("  /moderate [reason]       Moderate last message in room")
-    print("  /sendfile [jid] <path>   Send a file")
-    print("  /accept [id]             Accept incoming file transfer into Downloads")
-    print("  /decline [id]            Decline incoming file transfer")
-    print("  /transfers               List active transfers")
-    print("  /rooms [service]         Discover available rooms")
-    print("  /avatar [jid]            View avatar info (own or contact's)")
-    print("  /connection-info         Show TLS connection info")
-    print("  /encrypt <jid> on|off    Toggle OMEMO encryption for a conversation")
-    print("  /pref chatstates on|off  Toggle chat state notifications")
-    print("  /pref markers on|off      Toggle displayed markers (read receipts)")
-    print("  help                     Show this help")
-    print("  quit                     Disconnect and exit")
+private func quitREPL(context: REPLContext, currentRoom: String?) async -> Never {
+    await leaveCurrentRoom(currentRoom, environment: context.environment, accountID: context.accountID)
+    await context.environment.accountService.disconnect(accountID: context.accountID)
+    Foundation.exit(0)
 }
 
 struct REPLContext {
@@ -1741,109 +1437,62 @@ struct REPLContext {
 
 private struct REPLDispatchResult {
     let handled: Bool
-    /// `nil` = no change, `.some(nil)` = clear, `.some(value)` = set
-    let updatedCurrentRoom: String??
+    let updatedCurrentRoom: RoomSelectionChange
 }
 
 private func dispatchREPLCommand(
-    _ input: String, context: REPLContext, currentRoom: String?
+    _ command: REPLCommand, context: REPLContext, currentRoom: String?
 ) async -> REPLDispatchResult {
+    let input = command.input
     let formatter = context.formatter
     let environment = context.environment
     let accountID = context.accountID
     let accountJID = context.accountJID
-    if input.hasPrefix("send ") {
-        await handleSendCommand(input, formatter: formatter, environment: environment, accountID: accountID)
-    } else if input == "/roster" {
-        await handleRosterCommand(formatter: formatter, environment: environment)
-    } else if input == "/status" || input.hasPrefix("/status ") {
-        await handleStatusCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
-    } else if input == "/who" {
-        await handleWhoCommand(formatter: formatter, environment: environment)
-    } else if input == "/sendfile" || input.hasPrefix("/sendfile ")
-        || input == "/accept" || input.hasPrefix("/accept ")
-        || input == "/decline" || input.hasPrefix("/decline ")
-        || input == "/transfers" {
-        await dispatchFileTransferREPLCommand(input, context: context, currentRoom: currentRoom)
-    } else if isMiscREPLCommand(input) {
-        await dispatchMiscREPLCommand(input, context: context)
-    } else {
-        return await dispatchRoomREPLCommand(input, context: context, currentRoom: currentRoom)
+    switch command.kind {
+    case .send: await handleSendCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+    case .roster: await handleRosterCommand(formatter: formatter, environment: environment)
+    case .status: await handleStatusCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
+    case .who: await handleWhoCommand(formatter: formatter, environment: environment)
+    case .add: await handleAddCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+    case .remove: await handleJIDCommand(input, prefix: "/remove ", successMessage: "Removed {jid} from roster.", formatter: formatter) { try await environment.rosterService.removeContact(jidString: $0, accountID: accountID) }
+    case .history: await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
+    case .profile: await handleProfileREPLCommand(context: context)
+    case .reply: await handleReplyREPLCommand(input, context: context)
+    case .retract: await handleRetractREPLCommand(input, context: context)
+    case .edit: await handleEditREPLCommand(input, context: context)
+    case .search: await handleSearchREPLCommand(input, context: context)
+    case .approve: await handleJIDCommand(input, prefix: "/approve ", successMessage: "Approved subscription from {jid}.", formatter: formatter) { try await environment.rosterService.approveSubscription(jidString: $0, accountID: accountID) }
+    case .deny: await handleJIDCommand(input, prefix: "/deny ", successMessage: "Denied subscription from {jid}.", formatter: formatter) { try await environment.rosterService.denySubscription(jidString: $0, accountID: accountID) }
+    case .directedPresence: await handleDirectedPresenceREPLCommand(input, context: context)
+    case .unregisterAccount: await handleUnregisterAccountREPLCommand(context: context)
+    case .checkRegistration: await handleCheckRegistrationREPLCommand(input, context: context)
+    case .submitRegistration: await handleSubmitRegistrationREPLCommand(input, context: context)
+    case .join: return await handleJoinREPLCommand(input, context: context)
+    case .leave: return await handleLeaveREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .members: return await handleMembersREPLCommand(input, context: context, currentRoom: currentRoom)
+    case .topic: return await handleTopicREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .nick: return await handleNickREPLCommand(command.arguments, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .destroy: return await handleDestroyREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .voice: return await handleVoiceREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .kick: return await handleKickREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .pm: return await handlePMREPLCommand(command.arguments, context: context, currentRoom: currentRoom)
+    case .affiliations: return await handleAffiliationsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .config: return await handleConfigREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .moderate: return await handleModerateREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
+    case .sendfile: await handleSendFileREPLCommand(input, context: context, currentRoom: currentRoom)
+    case .accept: await handleAcceptREPLCommand(input, context: context)
+    case .decline: await handleDeclineREPLCommand(input, context: context)
+    case .transfers: await handleTransfersREPLCommand(context: context)
+    case .rooms: await handleRoomsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID)
+    case .avatar: await handleAvatarREPLCommand(input, context: context)
+    case .connectionInfo: await handleConnectionInfoREPLCommand(context: context)
+    case .encrypt: await handleEncryptREPLCommand(input, context: context)
+    case .pref: await handlePrefREPLCommand(input)
+    case .help: print(REPLCommand.help)
+    case .quit: await quitREPL(context: context, currentRoom: currentRoom)
+    case nil: return REPLDispatchResult(handled: false, updatedCurrentRoom: .unchanged)
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-}
-
-private func isMiscREPLCommand(_ input: String) -> Bool {
-    input.hasPrefix("/add ") || input.hasPrefix("/remove ")
-        || input.hasPrefix("/approve ") || input.hasPrefix("/deny ")
-        || input == "/history" || input.hasPrefix("/history ")
-        || input == "/profile" || input == "/connection-info"
-        || input == "/avatar" || input.hasPrefix("/avatar ")
-        || input.hasPrefix("/reply ") || input.hasPrefix("/search ")
-        || input.hasPrefix("/retract ")
-        || input.hasPrefix("/edit ")
-        || input.hasPrefix("/encrypt ")
-        || input.hasPrefix("/pref ")
-        || input.hasPrefix("/directed-presence ")
-        || input == "/unregister-account"
-        || input == "/check-registration" || input.hasPrefix("/check-registration ")
-        || input == "/submit-registration" || input.hasPrefix("/submit-registration ")
-}
-
-// swiftlint:disable:next cyclomatic_complexity
-private func dispatchMiscREPLCommand(
-    _ input: String, context: REPLContext
-) async {
-    let formatter = context.formatter
-    let environment = context.environment
-    let accountID = context.accountID
-    let accountJID = context.accountJID
-    if input.hasPrefix("/add ") {
-        await handleAddCommand(input, formatter: formatter, environment: environment, accountID: accountID)
-    } else if input.hasPrefix("/remove ") {
-        await handleJIDCommand(
-            input, prefix: "/remove ", successMessage: "Removed {jid} from roster.",
-            formatter: formatter
-        ) { jid in
-            try await environment.rosterService.removeContact(jidString: jid, accountID: accountID)
-        }
-    } else if input.hasPrefix("/approve ") {
-        await handleJIDCommand(
-            input, prefix: "/approve ", successMessage: "Approved subscription from {jid}.",
-            formatter: formatter
-        ) { jid in
-            try await environment.rosterService.approveSubscription(jidString: jid, accountID: accountID)
-        }
-    } else if input.hasPrefix("/deny ") {
-        await handleJIDCommand(
-            input, prefix: "/deny ", successMessage: "Denied subscription from {jid}.",
-            formatter: formatter
-        ) { jid in
-            try await environment.rosterService.denySubscription(jidString: jid, accountID: accountID)
-        }
-    } else if input == "/history" || input.hasPrefix("/history ") {
-        await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
-    } else if input.hasPrefix("/directed-presence ") {
-        let jidString = input.dropFirst("/directed-presence ".count).trimmingCharacters(in: .whitespaces)
-        guard JID.parse(jidString) != nil else {
-            print(formatter.formatError(CLIError.invalidJID(jidString)))
-            return
-        }
-        do {
-            try await environment.presenceService.sendDirectedPresence(to: jidString, accountID: accountID)
-            print("Sent directed presence to \(jidString).")
-        } catch {
-            print(formatter.formatError(error))
-        }
-    } else if input == "/unregister-account" {
-        await handleUnregisterAccountREPLCommand(context: context)
-    } else if input == "/check-registration" || input.hasPrefix("/check-registration ") {
-        await handleCheckRegistrationREPLCommand(input, context: context)
-    } else if input == "/submit-registration" || input.hasPrefix("/submit-registration ") {
-        await handleSubmitRegistrationREPLCommand(input, context: context)
-    } else {
-        await dispatchInfoREPLCommand(input, context: context)
-    }
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleUnregisterAccountREPLCommand(context: REPLContext) async {
@@ -1947,30 +1596,6 @@ private func submitDataFormRegistration(form: RegistrationFormInfo, jid: String?
     )
 }
 
-private func dispatchInfoREPLCommand(
-    _ input: String, context: REPLContext
-) async {
-    if input == "/profile" {
-        await handleProfileREPLCommand(context: context)
-    } else if input == "/connection-info" {
-        await handleConnectionInfoREPLCommand(context: context)
-    } else if input.hasPrefix("/reply ") {
-        await handleReplyREPLCommand(input, context: context)
-    } else if input.hasPrefix("/search ") {
-        await handleSearchREPLCommand(input, context: context)
-    } else if input == "/avatar" || input.hasPrefix("/avatar ") {
-        await handleAvatarREPLCommand(input, context: context)
-    } else if input.hasPrefix("/retract ") {
-        await handleRetractREPLCommand(input, context: context)
-    } else if input.hasPrefix("/edit ") {
-        await handleEditREPLCommand(input, context: context)
-    } else if input.hasPrefix("/encrypt ") {
-        await handleEncryptREPLCommand(input, context: context)
-    } else if input.hasPrefix("/pref ") {
-        await handlePrefREPLCommand(input)
-    }
-}
-
 @MainActor
 private func handlePrefREPLCommand(_ input: String) async {
     let args = input.dropFirst("/pref ".count).trimmingCharacters(in: .whitespaces)
@@ -2042,71 +1667,18 @@ private func formatFingerprintHex(_ hex: String) -> String {
     OMEMODeviceInfo.formatFingerprint(hex)
 }
 
-private func dispatchFileTransferREPLCommand(
-    _ input: String, context: REPLContext, currentRoom: String?
-) async {
-    if input == "/sendfile" || input.hasPrefix("/sendfile ") {
-        await handleSendFileREPLCommand(input, context: context, currentRoom: currentRoom)
-    } else if input == "/accept" || input.hasPrefix("/accept ") {
-        await handleAcceptREPLCommand(input, context: context)
-    } else if input == "/decline" || input.hasPrefix("/decline ") {
-        await handleDeclineREPLCommand(input, context: context)
-    } else if input == "/transfers" {
-        await handleTransfersREPLCommand(context: context)
-    }
-}
-
-private func dispatchRoomREPLCommand(
-    _ input: String, context: REPLContext, currentRoom: String?
-) async -> REPLDispatchResult {
-    let formatter = context.formatter
-    let environment = context.environment
-    let accountID = context.accountID
-    if input == "/join" || input.hasPrefix("/join ") {
-        return await handleJoinREPLCommand(input, context: context)
-    } else if input == "/leave" || input.hasPrefix("/leave ") {
-        return await handleLeaveREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/members" || input.hasPrefix("/members ") {
-        let args = input.dropFirst("/members".count).trimmingCharacters(in: .whitespaces)
-        let roomJID = args.isEmpty ? currentRoom : args
-        guard let roomJID else {
-            print(formatter.formatError(CLIError.noRoomSpecified))
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-        }
-        await printRoomMembers(jidString: roomJID, accountID: accountID, environment: environment, formatter: formatter)
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-    } else if input == "/topic" || input.hasPrefix("/topic ") {
-        return await handleTopicREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/nick" || input.hasPrefix("/nick ")
-        || input == "/destroy" || input.hasPrefix("/destroy ")
-        || input == "/voice" || input.hasPrefix("/voice ")
-        || input == "/kick" || input.hasPrefix("/kick ")
-        || input == "/affiliations" || input.hasPrefix("/affiliations ")
-        || input == "/config" || input.hasPrefix("/config ")
-        || input == "/moderate" || input.hasPrefix("/moderate ") {
-        return await dispatchRoomAdminREPLCommand(input, context: context, currentRoom: currentRoom)
-    } else if input == "/rooms" || input.hasPrefix("/rooms ") {
-        await handleRoomsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID)
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-    } else if input == "/pm" || input.hasPrefix("/pm ") {
-        return await handlePMREPLCommand(input, context: context, currentRoom: currentRoom)
-    } else {
-        return REPLDispatchResult(handled: false, updatedCurrentRoom: nil)
-    }
-}
-
 private func handleJoinREPLCommand(
     _ input: String, context: REPLContext
 ) async -> REPLDispatchResult {
     let args = input.dropFirst("/join".count).trimmingCharacters(in: .whitespaces)
     guard !args.isEmpty else {
         print("Usage: /join <room-jid> [nickname]")
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     let parts = args.split(separator: " ", maxSplits: 1)
     guard let roomPart = parts.first else {
         print("Usage: /join <room-jid> [nickname]")
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     let roomJID = String(roomPart)
     let nick = parts.count > 1 ? String(parts[1]) : context.accountJID.localPart ?? context.accountJID.description
@@ -2121,10 +1693,10 @@ private func handleJoinREPLCommand(
         if isNewlyCreated {
             print("Room created and locked — run /config submit-default to open it, or /config to customize.")
         }
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: roomJID)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .select(roomJID))
     } catch {
         print(context.formatter.formatError(error))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
 }
 
@@ -2136,16 +1708,16 @@ private func handleLeaveREPLCommand(
     let roomJID = args.isEmpty ? currentRoom : args
     guard let roomJID else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     do {
         try await environment.chatService.leaveRoom(jidString: roomJID, accountID: accountID)
         print("Left \(roomJID).")
-        let cleared: String?? = currentRoom == roomJID ? .some(nil) : nil
+        let cleared: RoomSelectionChange = currentRoom == roomJID ? .clear : .unchanged
         return REPLDispatchResult(handled: true, updatedCurrentRoom: cleared)
     } catch {
         print(formatter.formatError(error))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
 }
 
@@ -2159,15 +1731,15 @@ private func handleTopicREPLCommand(
         // No API to read topic directly; confirm current room
         guard let roomJID = currentRoom else {
             print(formatter.formatError(CLIError.noRoomSpecified))
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
         }
         print("Current room: \(roomJID)")
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
 
     guard let (roomJID, subject) = parseTopicArgs(args, currentRoom: currentRoom) else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
 
     do {
@@ -2176,52 +1748,28 @@ private func handleTopicREPLCommand(
     } catch {
         print(formatter.formatError(error))
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
-}
-
-private func dispatchRoomAdminREPLCommand(
-    _ input: String, context: REPLContext, currentRoom: String?
-) async -> REPLDispatchResult {
-    let formatter = context.formatter
-    let environment = context.environment
-    let accountID = context.accountID
-    if input == "/nick" || input.hasPrefix("/nick ") {
-        return await handleNickREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/destroy" || input.hasPrefix("/destroy ") {
-        return await handleDestroyREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/voice" || input.hasPrefix("/voice ") {
-        return await handleVoiceREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/kick" || input.hasPrefix("/kick ") {
-        return await handleKickREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/affiliations" || input.hasPrefix("/affiliations ") {
-        return await handleAffiliationsREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/config" || input.hasPrefix("/config ") {
-        return await handleConfigREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    } else if input == "/moderate" || input.hasPrefix("/moderate ") {
-        return await handleModerateREPLCommand(input, formatter: formatter, environment: environment, accountID: accountID, currentRoom: currentRoom)
-    }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleNickREPLCommand(
-    _ input: String, formatter: any CLIFormatter, environment: AppEnvironment,
+    _ arguments: String, formatter: any CLIFormatter, environment: AppEnvironment,
     accountID: UUID, currentRoom: String?
 ) async -> REPLDispatchResult {
-    let args = input.dropFirst("/nick".count).trimmingCharacters(in: .whitespaces)
+    let args = arguments.trimmingCharacters(in: .whitespaces)
     guard !args.isEmpty else {
         print("Usage: /nick <new-nickname>")
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     do {
         try await environment.chatService.changeRoomNickname(jidString: roomJID, newNickname: args, accountID: accountID)
     } catch {
         print(formatter.formatError(error))
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleDestroyREPLCommand(
@@ -2230,7 +1778,7 @@ private func handleDestroyREPLCommand(
 ) async -> REPLDispatchResult {
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     let reason = input.dropFirst("/destroy".count).trimmingCharacters(in: .whitespaces)
     do {
@@ -2240,10 +1788,10 @@ private func handleDestroyREPLCommand(
             accountID: accountID
         )
         print("Room \(roomJID) destroyed.")
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: .some(nil))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .clear)
     } catch {
         print(formatter.formatError(error))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
 }
 
@@ -2255,11 +1803,11 @@ private func handleVoiceREPLCommand(
     let parts = args.split(separator: " ", maxSplits: 1)
     guard parts.count == 2, let action = parts.first, let nickname = parts.last else {
         print("Usage: /voice grant|revoke <nickname>")
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     do {
         switch String(action) {
@@ -2275,7 +1823,7 @@ private func handleVoiceREPLCommand(
     } catch {
         print(formatter.formatError(error))
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleKickREPLCommand(
@@ -2285,11 +1833,11 @@ private func handleKickREPLCommand(
     let args = input.dropFirst("/kick".count).trimmingCharacters(in: .whitespaces)
     guard !args.isEmpty else {
         print("Usage: /kick <nickname> [reason]  (quote nicknames with spaces: /kick \"Alice Smith\" reason)")
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     do {
         let parsed = try parseNicknameArgument(args)
@@ -2303,7 +1851,7 @@ private func handleKickREPLCommand(
     } catch {
         print(formatter.formatError(error))
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleAffiliationsREPLCommand(
@@ -2312,7 +1860,7 @@ private func handleAffiliationsREPLCommand(
 ) async -> REPLDispatchResult {
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     let args = input.dropFirst("/affiliations".count).trimmingCharacters(in: .whitespaces)
     let affiliation: RoomAffiliation = switch args {
@@ -2342,7 +1890,7 @@ private func handleAffiliationsREPLCommand(
     } catch {
         print(formatter.formatError(error))
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleConfigREPLCommand(
@@ -2351,7 +1899,7 @@ private func handleConfigREPLCommand(
 ) async -> REPLDispatchResult {
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     let args = input.dropFirst("/config".count).trimmingCharacters(in: .whitespaces)
     switch args {
@@ -2381,7 +1929,7 @@ private func handleConfigREPLCommand(
     default:
         print("Usage: /config [submit-default]")
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleModerateREPLCommand(
@@ -2390,12 +1938,12 @@ private func handleModerateREPLCommand(
 ) async -> REPLDispatchResult {
     guard let roomJID = currentRoom else {
         print(formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     let reason = input.dropFirst("/moderate".count).trimmingCharacters(in: .whitespaces)
     guard let bareJID = BareJID.parse(roomJID) else {
         print(formatter.formatError(CLIError.invalidJID(roomJID)))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     do {
         let messages = try await fetchHistory(
@@ -2406,7 +1954,7 @@ private func handleModerateREPLCommand(
               let serverID = target.serverID
         else {
             print("No moderatable message found.")
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
         }
         try await environment.chatService.moderateMessage(
             serverID: serverID, in: bareJID,
@@ -2416,7 +1964,7 @@ private func handleModerateREPLCommand(
     } catch {
         print(formatter.formatError(error))
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func handleRoomsREPLCommand(
@@ -2444,23 +1992,23 @@ private func handleRoomsREPLCommand(
 }
 
 private func handlePMREPLCommand(
-    _ input: String, context: REPLContext, currentRoom: String?
+    _ arguments: String, context: REPLContext, currentRoom: String?
 ) async -> REPLDispatchResult {
     let usage = "Usage: /pm <nickname> <message>  (quote nicknames with spaces: /pm \"Alice Smith\" hello)"
-    let args = input.dropFirst("/pm".count).trimmingCharacters(in: .whitespaces)
+    let args = arguments.trimmingCharacters(in: .whitespaces)
     guard !args.isEmpty else {
         print(usage)
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     guard let currentRoom else {
         print(context.formatter.formatError(CLIError.noRoomSpecified))
-        return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
     }
     do {
         let parsed = try parseNicknameArgument(args)
         guard let body = parsed.trailingArgument else {
             print(usage)
-            return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+            return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
         }
         try await context.environment.chatService.sendMUCPrivateMessage(
             roomJIDString: currentRoom, nickname: parsed.nickname, body: body, accountID: context.accountID
@@ -2469,7 +2017,7 @@ private func handlePMREPLCommand(
     } catch {
         print(context.formatter.formatError(error))
     }
-    return REPLDispatchResult(handled: true, updatedCurrentRoom: nil)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }
 
 private func leaveCurrentRoom(_ currentRoom: String?, environment: AppEnvironment, accountID: UUID) async {
@@ -2985,36 +2533,6 @@ private func boundedTeardown(environment: AppEnvironment, arbiter: HoldArbiter) 
     await environment.accountService.disconnectAll(within: .seconds(3))
 }
 
-private func resolveAccount(_ accountIDString: String?, environment: AppEnvironment) async throws -> DuckoCore.Account {
-    try await environment.accountService.loadAccounts()
-    let accounts = await MainActor.run { environment.accountService.accounts }
-    guard !accounts.isEmpty else {
-        throw CLIError.noAccounts
-    }
-
-    if let accountIDString {
-        guard let uuid = UUID(uuidString: accountIDString),
-              let found = accounts.first(where: { $0.id == uuid })
-        else {
-            throw CLIError.accountNotFound(accountIDString)
-        }
-        return found
-    }
-    return accounts[0]
-}
-
-private func resolveAccount(byJID jid: String, environment: AppEnvironment) async throws -> DuckoCore.Account {
-    guard let bareJID = BareJID.parse(jid) else {
-        throw CLIError.invalidJID(jid)
-    }
-    try await environment.accountService.loadAccounts()
-    let accounts = await MainActor.run { environment.accountService.accounts }
-    guard let account = accounts.first(where: { $0.jid == bareJID }) else {
-        throw CLIError.accountNotFound(jid)
-    }
-    return account
-}
-
 /// Rejects a `--port` supplied without `--host`. Every connect path (`account add`,
 /// `register`, `check-registration`) honors the host/port override only when both are
 /// set and otherwise falls back to SRV/domain discovery, so a lone `--port` silently
@@ -3023,22 +2541,6 @@ private func validateHostPort(host: String?, port: UInt16?) throws {
     if port != nil, host == nil {
         throw ValidationError("--port requires --host")
     }
-}
-
-private func waitForConnected(accountID: UUID, environment: AppEnvironment) async throws {
-    let deadline = ContinuousClock.now + .seconds(30)
-    while ContinuousClock.now < deadline {
-        let state = await MainActor.run { environment.accountService.connectionStates[accountID] }
-        switch state {
-        case .connected:
-            return
-        case let .error(message):
-            throw CLIError.connectionFailed(message)
-        case .disconnected, .connecting, .none:
-            try await Task.sleep(for: .milliseconds(100))
-        }
-    }
-    throw CLIError.connectionTimeout
 }
 
 private func waitForRosterLoaded(environment: AppEnvironment) async throws {
@@ -3051,4 +2553,35 @@ private func waitForRosterLoaded(environment: AppEnvironment) async throws {
         try await Task.sleep(for: .milliseconds(200))
     }
     // Empty roster — timeout expires gracefully.
+}
+
+private func handleDirectedPresenceREPLCommand(_ input: String, context: REPLContext) async {
+    let formatter = context.formatter
+    let environment = context.environment
+    let accountID = context.accountID
+    let jidString = input.dropFirst("/directed-presence ".count).trimmingCharacters(in: .whitespaces)
+    guard JID.parse(jidString) != nil else {
+        print(formatter.formatError(CLIError.invalidJID(jidString)))
+        return
+    }
+    do {
+        try await environment.presenceService.sendDirectedPresence(to: jidString, accountID: accountID)
+        print("Sent directed presence to \(jidString).")
+    } catch {
+        print(formatter.formatError(error))
+    }
+}
+
+private func handleMembersREPLCommand(_ input: String, context: REPLContext, currentRoom: String?) async -> REPLDispatchResult {
+    let formatter = context.formatter
+    let environment = context.environment
+    let accountID = context.accountID
+    let args = input.dropFirst("/members".count).trimmingCharacters(in: .whitespaces)
+    let roomJID = args.isEmpty ? currentRoom : args
+    guard let roomJID else {
+        print(formatter.formatError(CLIError.noRoomSpecified))
+        return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
+    }
+    await printRoomMembers(jidString: roomJID, accountID: accountID, environment: environment, formatter: formatter)
+    return REPLDispatchResult(handled: true, updatedCurrentRoom: .unchanged)
 }

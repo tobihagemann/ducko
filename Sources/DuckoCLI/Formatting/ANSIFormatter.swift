@@ -93,31 +93,41 @@ struct ANSIFormatter: CLIFormatter {
 
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String? {
         switch event {
-        case .connected, .streamResumed, .disconnected, .authenticationFailed:
-            return formatConnectionEvent(event)
-        case let .messageReceived(message):
-            return formatIncomingMessage(message)
-        case let .messageCarbonReceived(forwarded):
-            return formatCarbonEvent(forwarded, isOutgoing: false)
-        case let .messageCarbonSent(forwarded):
-            return formatCarbonEvent(forwarded, isOutgoing: true)
-        case .presenceSubscriptionRequest, .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .deliveryReceiptReceived,
-             .messageCorrected, .messageRetracted, .messageModerated, .messageError:
-            return formatMiscEvent(event)
-        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
-             .mucSelfPingFailed:
-            return formatMUCEvent(event)
-        case .jingleFileTransferReceived,
-             .jingleFileTransferProgress, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .oobIQOfferReceived:
-            return formatJingleEvent(event)
-        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial:
-            return formatOMEMOEvent(event)
-        case let .serviceOutageReceived(info):
-            return formatOutageEvent(info)
+        case let .connected(jid): "\(Color.green)connected as \(jid)\(Color.reset)"
+        case let .streamResumed(jid): "\(Color.green)stream resumed as \(jid)\(Color.reset)"
+        case let .disconnected(reason): formatDisconnect(reason)
+        case let .authenticationFailed(message): "\(Color.red)authentication failed: \(message)\(Color.reset)"
+        case let .messageReceived(message): formatIncomingMessage(message)
+        case let .messageCarbonReceived(forwarded): formatCarbonEvent(forwarded, isOutgoing: false)
+        case let .messageCarbonSent(forwarded): formatCarbonEvent(forwarded, isOutgoing: true)
+        case let .presenceSubscriptionRequest(from: jid): "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
+        case let .presenceSubscriptionApproved(from: jid): "\(Color.green)✓ Subscription approved by \(jid)\(Color.reset)"
+        case let .presenceSubscriptionRevoked(from: jid): "\(Color.yellow)✗ Subscription revoked by \(jid)\(Color.reset)"
+        case let .deliveryReceiptReceived(messageID, from): "\(Color.dim)\u{2713} delivery receipt: \(messageID) from \(from.bareJID)\(Color.reset)"
+        case let .messageCorrected(_, newBody, from): "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
+        case let .messageError(_, from, error): "\(Color.red)message error from \(from.bareJID): \(error.displayText)\(Color.reset)"
+        case let .messageRetracted(originalID, from): "\(Color.dim)\u{2298} message retracted by \(from.bareJID) (id: \(originalID))\(Color.reset)"
+        case let .messageModerated(originalID, moderator, room, reason): formatModeratedMessage(originalID: originalID, moderator: moderator, room: room, reason: reason)
+        case let .roomJoined(room, occupancy, isNewlyCreated): formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
+        case let .roomOccupantJoined(room, occupant): "\(Color.yellow)\(room): \(occupant.nickname) joined\(Color.reset)"
+        case let .roomOccupantLeft(room, occupant, reason): formatOccupantLeftMUC(room: room, occupant: occupant, reason: reason)
+        case let .roomOccupantNickChanged(room, oldNickname, occupant): "\(Color.yellow)\(room): \(oldNickname) is now known as \(occupant.nickname)\(Color.reset)"
+        case let .roomSubjectChanged(room, subject, setter): formatRoomSubject(room: room, subject: subject, setter: setter)
+        case let .roomInviteReceived(invite): formatRoomInviteMUC(invite)
+        case let .roomMessageReceived(message): formatIncomingRoomMessage(message)
+        case let .mucPrivateMessageReceived(message): formatIncomingPrivateMessage(message)
+        case let .roomDestroyed(room, reason, alternate): formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
+        case .mucSelfPingFailed: nil
+        case let .jingleFileTransferReceived(offer): formatFileOffer(fileName: offer.fileName, fileSize: offer.fileSize, from: offer.from.bareJID.description, offerID: offer.offerID)
+        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes): formatTransferProgress(sid: sid, bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+        case let .jingleFileTransferCompleted(sid, transport): formatJingleTransferCompleted(sid: sid, transport: transport)
+        case let .jingleFileTransferFailed(sid, reason): formatJingleTransferFailed(sid: sid, reason: reason)
+        case let .oobIQOfferReceived(offer): formatOOBOffer(offer: offer)
+        case let .omemoDeviceListReceived(jid, devices): "\(Color.dim)OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))\(Color.reset)"
+        case let .omemoSessionEstablished(jid, deviceID, _): "\(Color.green)OMEMO session established with \(jid) device \(deviceID)\(Color.reset)"
+        case let .omemoRecipientsPartial(conversation, dropped): "\(Color.yellow)⚠ OMEMO: skipped \(dropped.count) device(s) for \(conversation) — bundles missing\(Color.reset)"
+        case .omemoEncryptedMessageReceived, .omemoSessionAdvanced: nil
+        case let .serviceOutageReceived(info): formatOutageEvent(info)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
@@ -127,8 +137,34 @@ struct ANSIFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
-            return nil
+            nil
         }
+    }
+
+    private func formatModeratedMessage(originalID: String, moderator: String, room: BareJID, reason: String?) -> String {
+        let reasonStr = reason.map { ": \($0)" } ?? ""
+        return "\(Color.dim)\u{2298} message moderated by \(moderator) in \(room) (id: \(originalID))\(reasonStr)\(Color.reset)"
+    }
+
+    private func formatRoomSubject(room: BareJID, subject: String?, setter: JID?) -> String {
+        let who = setter?.bareJID.description ?? "someone"
+        let topic = subject ?? "(cleared)"
+        return "\(Color.yellow)\(room): topic changed by \(who): \(topic)\(Color.reset)"
+    }
+
+    private func formatTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64) -> String {
+        let (progress, state) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+        return formatJingleTransferProgress(
+            fileName: sid, fileSize: totalBytes, progress: progress, state: state
+        )
+    }
+
+    private func formatOOBOffer(offer: OOBIQOffer) -> String {
+        let fileName = oobFileName(offer.url)
+        return formatFileOffer(
+            fileName: fileName, fileSize: 0,
+            from: offer.from.bareJID.description, offerID: offer.offerID
+        )
     }
 
     private func formatOutageEvent(_ info: ServiceOutageInfo) -> String {
@@ -144,74 +180,6 @@ struct ANSIFormatter: CLIFormatter {
         }
         line += "\(Color.reset)"
         return line
-    }
-
-    private func formatOMEMOEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .omemoDeviceListReceived(jid, devices):
-            return "\(Color.dim)OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))\(Color.reset)"
-        case let .omemoSessionEstablished(jid, deviceID, _):
-            return "\(Color.green)OMEMO session established with \(jid) device \(deviceID)\(Color.reset)"
-        case let .omemoRecipientsPartial(conversation, dropped):
-            return "\(Color.yellow)⚠ OMEMO: skipped \(dropped.count) device(s) for \(conversation) — bundles missing\(Color.reset)"
-        case .omemoEncryptedMessageReceived, .omemoSessionAdvanced:
-            return nil
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
-    }
-
-    private func formatConnectionEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .connected(jid):
-            return "\(Color.green)connected as \(jid)\(Color.reset)"
-        case let .streamResumed(jid):
-            return "\(Color.green)stream resumed as \(jid)\(Color.reset)"
-        case let .disconnected(reason):
-            return formatDisconnect(reason)
-        case let .authenticationFailed(message):
-            return "\(Color.red)authentication failed: \(message)\(Color.reset)"
-        case .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
     }
 
     // MARK: - Room Formatting
@@ -296,49 +264,6 @@ struct ANSIFormatter: CLIFormatter {
         return line
     }
 
-    private func formatMUCEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .roomJoined(room, occupancy, isNewlyCreated):
-            return formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
-        case let .roomOccupantJoined(room, occupant):
-            return "\(Color.yellow)\(room): \(occupant.nickname) joined\(Color.reset)"
-        case let .roomOccupantLeft(room, occupant, reason):
-            return formatOccupantLeftMUC(room: room, occupant: occupant, reason: reason)
-        case let .roomOccupantNickChanged(room, oldNickname, occupant):
-            return "\(Color.yellow)\(room): \(oldNickname) is now known as \(occupant.nickname)\(Color.reset)"
-        case let .roomSubjectChanged(room, subject, setter):
-            let who = setter?.bareJID.description ?? "someone"
-            let topic = subject ?? "(cleared)"
-            return "\(Color.yellow)\(room): topic changed by \(who): \(topic)\(Color.reset)"
-        case let .roomInviteReceived(invite):
-            return formatRoomInviteMUC(invite)
-        case let .roomMessageReceived(message), let .mucPrivateMessageReceived(message):
-            return formatMUCMessage(event, message: message)
-        case let .roomDestroyed(room, reason, alternate):
-            return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
-        case .mucSelfPingFailed:
-            return nil
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
-    }
-
     private func formatRoomJoinedMUC(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool) -> String {
         var line = "\(Color.green)Joined \(Color.bold)\(room)\(Color.reset)\(Color.green) as \(occupancy.nickname) (\(occupancy.occupants.count) participants)\(Color.reset)"
         if isNewlyCreated {
@@ -379,13 +304,6 @@ struct ANSIFormatter: CLIFormatter {
         return line
     }
 
-    private func formatMUCMessage(_ event: XMPPEvent, message: XMPPMessage) -> String? {
-        if case .mucPrivateMessageReceived = event {
-            return formatIncomingPrivateMessage(message)
-        }
-        return formatIncomingRoomMessage(message)
-    }
-
     private func formatIncomingRoomMessage(_ message: XMPPMessage) -> String? {
         guard let from = message.from else { return nil }
         let oob = message.oobData
@@ -422,94 +340,6 @@ struct ANSIFormatter: CLIFormatter {
             line += "\n" + formatFileMessage(fileName: oobFileName(item.url), url: item.url, fileSize: nil)
         }
         return line
-    }
-
-    private func formatJingleEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .jingleFileTransferReceived(offer):
-            return formatFileOffer(
-                fileName: offer.fileName, fileSize: offer.fileSize,
-                from: offer.from.bareJID.description, offerID: offer.offerID
-            )
-        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
-            let (progress, state) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
-            return formatJingleTransferProgress(
-                fileName: sid, fileSize: totalBytes, progress: progress, state: state
-            )
-        case let .jingleFileTransferCompleted(sid, transport):
-            return formatJingleTransferCompleted(sid: sid, transport: transport)
-        case let .jingleFileTransferFailed(sid, reason):
-            return formatJingleTransferFailed(sid: sid, reason: reason)
-        case let .oobIQOfferReceived(offer):
-            let fileName = oobFileName(offer.url)
-            return formatFileOffer(
-                fileName: fileName, fileSize: 0,
-                from: offer.from.bareJID.description, offerID: offer.offerID
-            )
-        case .jingleChecksumReceived:
-            return nil
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .serviceOutageReceived:
-            return nil
-        }
-    }
-
-    private func formatMiscEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .presenceSubscriptionRequest(from: jid):
-            return "\(Color.yellow)⚡ Subscription request from \(jid) — use /approve or /deny\(Color.reset)"
-        case let .presenceSubscriptionApproved(from: jid):
-            return "\(Color.green)✓ Subscription approved by \(jid)\(Color.reset)"
-        case let .presenceSubscriptionRevoked(from: jid):
-            return "\(Color.yellow)✗ Subscription revoked by \(jid)\(Color.reset)"
-        case let .deliveryReceiptReceived(messageID, from):
-            return "\(Color.dim)\u{2713} delivery receipt: \(messageID) from \(from.bareJID)\(Color.reset)"
-        case let .messageCorrected(_, newBody, from):
-            return "\(Color.yellow)message corrected by \(from.bareJID): \(newBody)\(Color.reset)"
-        case let .messageError(_, from, error):
-            return "\(Color.red)message error from \(from.bareJID): \(error.displayText)\(Color.reset)"
-        case let .messageRetracted(originalID, from):
-            return "\(Color.dim)\u{2298} message retracted by \(from.bareJID) (id: \(originalID))\(Color.reset)"
-        case let .messageModerated(originalID, moderator, room, reason):
-            let reasonStr = reason.map { ": \($0)" } ?? ""
-            return "\(Color.dim)\u{2298} message moderated by \(moderator) in \(room) (id: \(originalID))\(reasonStr)\(Color.reset)"
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
     }
 
     private func styledBody(_ body: String) -> String {

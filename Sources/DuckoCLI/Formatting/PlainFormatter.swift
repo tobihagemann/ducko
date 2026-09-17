@@ -68,29 +68,37 @@ struct PlainFormatter: CLIFormatter {
 
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String? {
         switch event {
-        case .connected, .streamResumed, .disconnected, .authenticationFailed:
-            return formatConnectionEvent(event)
-        case let .messageReceived(message):
-            return formatIncomingMessage(message)
-        case let .messageCarbonReceived(forwarded):
-            return formatCarbonEvent(forwarded, isOutgoing: false)
-        case let .messageCarbonSent(forwarded):
-            return formatCarbonEvent(forwarded, isOutgoing: true)
-        case .presenceSubscriptionRequest, .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .deliveryReceiptReceived,
-             .messageCorrected, .messageRetracted, .messageModerated, .messageError:
-            return formatMiscEvent(event)
-        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
-             .mucSelfPingFailed:
-            return formatMUCEvent(event)
-        case .jingleFileTransferReceived,
-             .jingleFileTransferProgress, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .oobIQOfferReceived:
-            return formatJingleEvent(event)
-        case let .serviceOutageReceived(info):
-            return formatOutageEvent(info)
+        case let .connected(jid): "connected as \(jid)"
+        case let .streamResumed(jid): "stream resumed as \(jid)"
+        case let .disconnected(reason): formatDisconnect(reason)
+        case let .authenticationFailed(message): "authentication failed: \(message)"
+        case let .messageReceived(message): formatIncomingMessage(message)
+        case let .messageCarbonReceived(forwarded): formatCarbonEvent(forwarded, isOutgoing: false)
+        case let .messageCarbonSent(forwarded): formatCarbonEvent(forwarded, isOutgoing: true)
+        case let .presenceSubscriptionRequest(from: jid): "Subscription request from \(jid)"
+        case let .presenceSubscriptionApproved(from: jid): "Subscription approved by \(jid)"
+        case let .presenceSubscriptionRevoked(from: jid): "Subscription revoked by \(jid)"
+        case let .deliveryReceiptReceived(messageID, from): "delivery receipt: \(messageID) from \(from.bareJID)"
+        case let .messageCorrected(_, newBody, from): "message corrected by \(from.bareJID): \(newBody)"
+        case let .messageError(_, from, error): "message error from \(from.bareJID): \(error.displayText)"
+        case let .messageRetracted(originalID, from): "[retracted] message retracted by \(from.bareJID) (id: \(originalID))"
+        case let .messageModerated(originalID, moderator, room, reason): formatModeratedMessage(originalID: originalID, moderator: moderator, room: room, reason: reason)
+        case let .roomJoined(room, occupancy, isNewlyCreated): formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
+        case let .roomOccupantJoined(room, occupant): "\(room): \(occupant.nickname) joined"
+        case let .roomOccupantLeft(room, occupant, reason): formatOccupantLeftMUC(room: room, occupant: occupant, reason: reason)
+        case let .roomOccupantNickChanged(room, oldNickname, occupant): "\(room): \(oldNickname) is now known as \(occupant.nickname)"
+        case let .roomSubjectChanged(room, subject, setter): formatRoomSubject(room: room, subject: subject, setter: setter)
+        case let .roomInviteReceived(invite): formatRoomInviteMUC(invite)
+        case let .roomMessageReceived(message): formatIncomingRoomMessage(message)
+        case let .mucPrivateMessageReceived(message): formatIncomingPrivateMessage(message)
+        case let .roomDestroyed(room, reason, alternate): formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
+        case .mucSelfPingFailed: nil
+        case let .jingleFileTransferReceived(offer): formatFileOffer(fileName: offer.fileName, fileSize: offer.fileSize, from: offer.from.bareJID.description, offerID: offer.offerID)
+        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes): formatTransferProgress(sid: sid, bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+        case let .jingleFileTransferCompleted(sid, transport): formatJingleTransferCompleted(sid: sid, transport: transport)
+        case let .jingleFileTransferFailed(sid, reason): formatJingleTransferFailed(sid: sid, reason: reason)
+        case let .oobIQOfferReceived(offer): formatOOBOffer(offer: offer)
+        case let .serviceOutageReceived(info): formatOutageEvent(info)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
@@ -100,10 +108,38 @@ struct PlainFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
-            return nil
-        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial:
-            return formatOMEMOEvent(event)
+            nil
+        case let .omemoDeviceListReceived(jid, devices): "OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))"
+        case let .omemoSessionEstablished(jid, deviceID, _): "OMEMO session established with \(jid) device \(deviceID)"
+        case let .omemoRecipientsPartial(conversation, dropped): "OMEMO: skipped \(dropped.count) device(s) for \(conversation) — bundles missing"
+        case .omemoEncryptedMessageReceived, .omemoSessionAdvanced: nil
         }
+    }
+
+    private func formatModeratedMessage(originalID: String, moderator: String, room: BareJID, reason: String?) -> String {
+        let reasonStr = reason.map { ": \($0)" } ?? ""
+        return "[moderated] message moderated by \(moderator) in \(room) (id: \(originalID))\(reasonStr)"
+    }
+
+    private func formatRoomSubject(room: BareJID, subject: String?, setter: JID?) -> String {
+        let who = setter?.bareJID.description ?? "someone"
+        let topic = subject ?? "(cleared)"
+        return "\(room): topic changed by \(who): \(topic)"
+    }
+
+    private func formatTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64) -> String {
+        let (progress, state) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+        return formatJingleTransferProgress(
+            fileName: sid, fileSize: totalBytes, progress: progress, state: state
+        )
+    }
+
+    private func formatOOBOffer(offer: OOBIQOffer) -> String {
+        let fileName = oobFileName(offer.url)
+        return formatFileOffer(
+            fileName: fileName, fileSize: 0,
+            from: offer.from.bareJID.description, offerID: offer.offerID
+        )
     }
 
     private func formatOutageEvent(_ info: ServiceOutageInfo) -> String {
@@ -118,74 +154,6 @@ struct PlainFormatter: CLIFormatter {
             line += " [alternative: \(alt)]"
         }
         return line
-    }
-
-    private func formatOMEMOEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .omemoDeviceListReceived(jid, devices):
-            return "OMEMO devices for \(jid): \(devices.map(String.init).joined(separator: ", "))"
-        case let .omemoSessionEstablished(jid, deviceID, _):
-            return "OMEMO session established with \(jid) device \(deviceID)"
-        case let .omemoRecipientsPartial(conversation, dropped):
-            return "OMEMO: skipped \(dropped.count) device(s) for \(conversation) — bundles missing"
-        case .omemoEncryptedMessageReceived, .omemoSessionAdvanced:
-            return nil
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
-    }
-
-    private func formatConnectionEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .connected(jid):
-            return "connected as \(jid)"
-        case let .streamResumed(jid):
-            return "stream resumed as \(jid)"
-        case let .disconnected(reason):
-            return formatDisconnect(reason)
-        case let .authenticationFailed(message):
-            return "authentication failed: \(message)"
-        case .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
     }
 
     private func formatCarbonEvent(_ forwarded: ForwardedMessage, isOutgoing: Bool) -> String? {
@@ -223,48 +191,6 @@ struct PlainFormatter: CLIFormatter {
             line += "\n" + formatFileMessage(fileName: oobFileName(item.url), url: item.url, fileSize: nil)
         }
         return line
-    }
-
-    private func formatMUCEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .roomJoined(room, occupancy, isNewlyCreated):
-            return formatRoomJoinedMUC(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated)
-        case let .roomOccupantJoined(room, occupant):
-            return "\(room): \(occupant.nickname) joined"
-        case let .roomOccupantLeft(room, occupant, reason):
-            return formatOccupantLeftMUC(room: room, occupant: occupant, reason: reason)
-        case let .roomOccupantNickChanged(room, oldNickname, occupant):
-            return "\(room): \(oldNickname) is now known as \(occupant.nickname)"
-        case let .roomSubjectChanged(room, subject, setter):
-            let who = setter?.bareJID.description ?? "someone"
-            let topic = subject ?? "(cleared)"
-            return "\(room): topic changed by \(who): \(topic)"
-        case let .roomInviteReceived(invite):
-            return formatRoomInviteMUC(invite)
-        case let .roomMessageReceived(message), let .mucPrivateMessageReceived(message):
-            return formatMUCMessage(event, message: message)
-        case let .roomDestroyed(room, reason, alternate):
-            return formatRoomDestroyedMUC(room: room, reason: reason, alternate: alternate)
-        case .mucSelfPingFailed:
-            return nil
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent, .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
     }
 
     private func formatRoomJoinedMUC(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool) -> String {
@@ -307,13 +233,6 @@ struct PlainFormatter: CLIFormatter {
         return line
     }
 
-    private func formatMUCMessage(_ event: XMPPEvent, message: XMPPMessage) -> String? {
-        if case .mucPrivateMessageReceived = event {
-            return formatIncomingPrivateMessage(message)
-        }
-        return formatIncomingRoomMessage(message)
-    }
-
     private func formatIncomingRoomMessage(_ message: XMPPMessage) -> String? {
         guard let from = message.from else { return nil }
         let oob = message.oobData
@@ -350,94 +269,6 @@ struct PlainFormatter: CLIFormatter {
             line += "\n" + formatFileMessage(fileName: oobFileName(item.url), url: item.url, fileSize: nil)
         }
         return line
-    }
-
-    private func formatJingleEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .jingleFileTransferReceived(offer):
-            return formatFileOffer(
-                fileName: offer.fileName, fileSize: offer.fileSize,
-                from: offer.from.bareJID.description, offerID: offer.offerID
-            )
-        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
-            let (progress, state) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
-            return formatJingleTransferProgress(
-                fileName: sid, fileSize: totalBytes, progress: progress, state: state
-            )
-        case let .jingleFileTransferCompleted(sid, transport):
-            return formatJingleTransferCompleted(sid: sid, transport: transport)
-        case let .jingleFileTransferFailed(sid, reason):
-            return formatJingleTransferFailed(sid: sid, reason: reason)
-        case let .oobIQOfferReceived(offer):
-            let fileName = oobFileName(offer.url)
-            return formatFileOffer(
-                fileName: fileName, fileSize: 0,
-                from: offer.from.bareJID.description, offerID: offer.offerID
-            )
-        case .jingleChecksumReceived:
-            return nil
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .serviceOutageReceived:
-            return nil
-        }
-    }
-
-    private func formatMiscEvent(_ event: XMPPEvent) -> String? {
-        switch event {
-        case let .presenceSubscriptionRequest(from: jid):
-            return "Subscription request from \(jid)"
-        case let .presenceSubscriptionApproved(from: jid):
-            return "Subscription approved by \(jid)"
-        case let .presenceSubscriptionRevoked(from: jid):
-            return "Subscription revoked by \(jid)"
-        case let .deliveryReceiptReceived(messageID, from):
-            return "delivery receipt: \(messageID) from \(from.bareJID)"
-        case let .messageCorrected(_, newBody, from):
-            return "message corrected by \(from.bareJID): \(newBody)"
-        case let .messageError(_, from, error):
-            return "message error from \(from.bareJID): \(error.displayText)"
-        case let .messageRetracted(originalID, from):
-            return "[retracted] message retracted by \(from.bareJID) (id: \(originalID))"
-        case let .messageModerated(originalID, moderator, room, reason):
-            let reasonStr = reason.map { ": \($0)" } ?? ""
-            return "[moderated] message moderated by \(moderator) in \(room) (id: \(originalID))\(reasonStr)"
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
     }
 
     private func formatDisconnect(_ reason: DisconnectReason) -> String {

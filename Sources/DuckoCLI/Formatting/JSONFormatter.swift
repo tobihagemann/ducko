@@ -101,30 +101,38 @@ struct JSONFormatter: CLIFormatter {
 
     func formatEvent(_ event: XMPPEvent, accountID: UUID) -> String? {
         let account = accountID.uuidString
-        switch event {
-        case .connected, .streamResumed, .disconnected, .authenticationFailed:
-            return formatConnectionEvent(event, account: account)
-        case let .messageReceived(message):
-            return formatIncomingMessage(message, account: account)
-        case let .messageCarbonReceived(forwarded):
-            return formatCarbonEvent(forwarded, isOutgoing: false, account: account)
-        case let .messageCarbonSent(forwarded):
-            return formatCarbonEvent(forwarded, isOutgoing: true, account: account)
-        case .presenceSubscriptionRequest, .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .deliveryReceiptReceived,
-             .messageCorrected, .messageRetracted, .messageModerated, .messageError:
-            return formatMiscEvent(event, account: account)
-        case .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged, .roomSubjectChanged,
-             .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived, .roomDestroyed,
-             .mucSelfPingFailed:
-            return formatMUCEvent(event, account: account)
-        case .jingleFileTransferReceived,
-             .jingleFileTransferProgress, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .oobIQOfferReceived:
-            return formatJingleEvent(event, account: account)
-        case let .serviceOutageReceived(info):
-            return formatOutageEvent(info, account: account)
+        return switch event {
+        case let .connected(jid): encode(["type": "connected", "jid": jid.description, "account": account])
+        case let .streamResumed(jid): encode(["type": "stream_resumed", "jid": jid.description, "account": account])
+        case let .disconnected(reason): formatDisconnect(reason, account: account)
+        case let .authenticationFailed(message): encode(["type": "authentication_failed", "message": message, "account": account])
+        case let .messageReceived(message): formatIncomingMessage(message, account: account)
+        case let .messageCarbonReceived(forwarded): formatCarbonEvent(forwarded, isOutgoing: false, account: account)
+        case let .messageCarbonSent(forwarded): formatCarbonEvent(forwarded, isOutgoing: true, account: account)
+        case let .presenceSubscriptionRequest(from: jid): encode(["type": "subscription_request", "from": jid.description])
+        case let .presenceSubscriptionApproved(from: jid): encode(["type": "subscription_approved", "from": jid.description])
+        case let .presenceSubscriptionRevoked(from: jid): encode(["type": "subscription_revoked", "from": jid.description])
+        case let .deliveryReceiptReceived(messageID, from): encode(["type": "delivery_receipt", "messageID": messageID, "from": from.bareJID.description, "account": account])
+        case let .messageCorrected(originalID, newBody, from): encode(["type": "message_corrected", "originalID": originalID, "newBody": newBody, "from": from.bareJID.description, "account": account])
+        case let .messageError(_, from, error): formatMessageError(from: from, error: error, account: account)
+        case let .messageRetracted(originalID, from): encode(["type": "message_retracted", "original_id": originalID, "from": from.bareJID.description, "account": account])
+        case let .messageModerated(originalID, moderator, room, reason): formatModeratedMessage(originalID: originalID, moderator: moderator, room: room, reason: reason, account: account)
+        case let .roomJoined(room, occupancy, isNewlyCreated): formatRoomJoinedEvent(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated, account: account)
+        case let .roomOccupantJoined(room, occupant): encode(["type": "room_occupant_joined", "room": room.description, "nickname": occupant.nickname, "account": account])
+        case let .roomOccupantLeft(room, occupant, reason): formatOccupantLeftEvent(room: room, occupant: occupant, reason: reason, account: account)
+        case let .roomOccupantNickChanged(room, oldNickname, occupant): encode(["type": "room_nick_changed", "room": room.description, "old_nickname": oldNickname, "new_nickname": occupant.nickname, "account": account])
+        case let .roomSubjectChanged(room, subject, setter): formatRoomSubjectEvent(room: room, subject: subject, setter: setter, account: account)
+        case let .roomInviteReceived(invite): formatRoomInvite(invite: invite, account: account)
+        case let .roomMessageReceived(message): formatIncomingRoomMessage(message, account: account)
+        case let .mucPrivateMessageReceived(message): formatIncomingPrivateMessage(message, account: account)
+        case let .roomDestroyed(room, reason, alternate): formatRoomDestroyedEvent(room: room, reason: reason, alternate: alternate, account: account)
+        case .mucSelfPingFailed: nil
+        case let .jingleFileTransferReceived(offer): formatFileOfferEvent(offer, account: account)
+        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes): formatTransferProgress(sid: sid, bytesTransferred: bytesTransferred, totalBytes: totalBytes, account: account)
+        case let .jingleFileTransferCompleted(sid, transport): encode(["type": "jingle_transfer_completed", "sid": sid, "transport": transport.rawValue, "account": account])
+        case let .jingleFileTransferFailed(sid, reason): encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason.rawValue, "account": account])
+        case let .oobIQOfferReceived(offer): formatOOBIQOfferEvent(offer, account: account)
+        case let .serviceOutageReceived(info): formatOutageEvent(info, account: account)
         case .presenceReceived, .iqReceived,
              .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
              .presenceUpdated,
@@ -134,56 +142,63 @@ struct JSONFormatter: CLIFormatter {
              .vcardAvatarHashReceived,
              .jingleChecksumReceived,
              .blockListLoaded, .contactBlocked, .contactUnblocked:
-            return nil
-        case .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial:
-            return formatOMEMOEvent(event, account: account)
+            nil
+        case let .omemoDeviceListReceived(jid, devices): encode(["type": "omemo_device_list", "jid": jid.description, "devices": devices.map(String.init).joined(separator: ","), "account": account])
+        case let .omemoSessionEstablished(jid, deviceID, identityKey): formatOMEMOSession(jid: jid, deviceID: deviceID, identityKey: identityKey, account: account)
+        case let .omemoRecipientsPartial(conversation, dropped): formatOMEMORecipientsPartial(conversation: conversation, dropped: dropped, account: account)
+        case .omemoEncryptedMessageReceived, .omemoSessionAdvanced: nil
         }
     }
 
-    private func formatOMEMOEvent(_ event: XMPPEvent, account: String) -> String? {
-        switch event {
-        case let .omemoDeviceListReceived(jid, devices):
-            return encode([
-                "type": "omemo_device_list",
-                "jid": jid.description,
-                "devices": devices.map(String.init).joined(separator: ","),
-                "account": account
-            ])
-        case let .omemoSessionEstablished(jid, deviceID, identityKey):
-            let fingerprint = identityKey.map { String(format: "%02x", $0) }.joined()
-            return encode([
-                "type": "omemo_session_established",
-                "jid": jid.description,
-                "deviceID": "\(deviceID)",
-                "fingerprint": fingerprint,
-                "account": account
-            ])
-        case let .omemoRecipientsPartial(conversation, dropped):
-            return formatOMEMORecipientsPartial(conversation: conversation, dropped: dropped, account: account)
-        case .omemoEncryptedMessageReceived, .omemoSessionAdvanced:
-            return nil
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
+    private func formatMessageError(from: JID, error: XMPPStanzaError, account: String) -> String {
+        var dict: [String: String] = [
+            "type": "message_error",
+            "from": from.bareJID.description,
+            "condition": error.condition.rawValue,
+            "account": account
+        ]
+        if let text = error.text { dict["text"] = text }
+        return encode(dict)
+    }
+
+    private func formatModeratedMessage(originalID: String, moderator: String, room: BareJID, reason: String?, account: String) -> String {
+        var dict: [String: String] = ["type": "message_moderated", "original_id": originalID, "moderator": moderator, "room": room.description, "account": account]
+        if let reason { dict["reason"] = reason }
+        return encode(dict)
+    }
+
+    private func formatRoomInvite(invite: RoomInvite, account: String) -> String {
+        var dict: [String: String] = [
+            "type": "room_invite",
+            "room": invite.room.description,
+            "from": invite.from.bareJID.description,
+            "account": account
+        ]
+        if let reason = invite.reason { dict["reason"] = reason }
+        return encode(dict)
+    }
+
+    private func formatTransferProgress(sid: String, bytesTransferred: Int64, totalBytes: Int64, account: String) -> String {
+        let (progress, _) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
+        return encode([
+            "type": "jingle_transfer_progress",
+            "sid": sid,
+            "progress": "\(Int(progress * 100))",
+            "bytesTransferred": "\(bytesTransferred)",
+            "totalBytes": "\(totalBytes)",
+            "account": account
+        ])
+    }
+
+    private func formatOMEMOSession(jid: BareJID, deviceID: UInt32, identityKey: [UInt8], account: String) -> String {
+        let fingerprint = identityKey.map { String(format: "%02x", $0) }.joined()
+        return encode([
+            "type": "omemo_session_established",
+            "jid": jid.description,
+            "deviceID": "\(deviceID)",
+            "fingerprint": fingerprint,
+            "account": account
+        ])
     }
 
     /// Structured per-device drops so JSON consumers can parse without
@@ -203,40 +218,6 @@ struct JSONFormatter: CLIFormatter {
             account: account
         )
         return encode(envelope)
-    }
-
-    private func formatConnectionEvent(_ event: XMPPEvent, account: String) -> String? {
-        switch event {
-        case let .connected(jid):
-            return encode(["type": "connected", "jid": jid.description, "account": account])
-        case let .streamResumed(jid):
-            return encode(["type": "stream_resumed", "jid": jid.description, "account": account])
-        case let .disconnected(reason):
-            return formatDisconnect(reason, account: account)
-        case let .authenticationFailed(message):
-            return encode(["type": "authentication_failed", "message": message, "account": account])
-        case .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
     }
 
     private func formatCarbonEvent(_ forwarded: ForwardedMessage, isOutgoing: Bool, account: String) -> String? {
@@ -259,56 +240,6 @@ struct JSONFormatter: CLIFormatter {
             dict["attachments"] = extraOOB.map(\.url).joined(separator: ",")
         }
         return encode(dict)
-    }
-
-    private func formatMiscEvent(_ event: XMPPEvent, account: String) -> String? {
-        switch event {
-        case let .presenceSubscriptionRequest(from: jid):
-            return encode(["type": "subscription_request", "from": jid.description])
-        case let .presenceSubscriptionApproved(from: jid):
-            return encode(["type": "subscription_approved", "from": jid.description])
-        case let .presenceSubscriptionRevoked(from: jid):
-            return encode(["type": "subscription_revoked", "from": jid.description])
-        case let .deliveryReceiptReceived(messageID, from):
-            return encode(["type": "delivery_receipt", "messageID": messageID, "from": from.bareJID.description, "account": account])
-        case let .messageCorrected(originalID, newBody, from):
-            return encode(["type": "message_corrected", "originalID": originalID, "newBody": newBody, "from": from.bareJID.description, "account": account])
-        case let .messageError(_, from, error):
-            var dict: [String: String] = [
-                "type": "message_error",
-                "from": from.bareJID.description,
-                "condition": error.condition.rawValue,
-                "account": account
-            ]
-            if let text = error.text { dict["text"] = text }
-            return encode(dict)
-        case let .messageRetracted(originalID, from):
-            return encode(["type": "message_retracted", "original_id": originalID, "from": from.bareJID.description, "account": account])
-        case let .messageModerated(originalID, moderator, room, reason):
-            var dict: [String: String] = ["type": "message_moderated", "original_id": originalID, "moderator": moderator, "room": room.description, "account": account]
-            if let reason { dict["reason"] = reason }
-            return encode(dict)
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .chatMarkerReceived,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
     }
 
     private func formatDisconnect(_ reason: DisconnectReason, account: String) -> String {
@@ -348,54 +279,6 @@ struct JSONFormatter: CLIFormatter {
             dict["attachments"] = extraOOB.map(\.url).joined(separator: ",")
         }
         return encode(dict)
-    }
-
-    private func formatJingleEvent(_ event: XMPPEvent, account: String) -> String? {
-        switch event {
-        case let .jingleFileTransferReceived(offer):
-            return formatFileOfferEvent(offer, account: account)
-        case let .jingleFileTransferProgress(sid, bytesTransferred, totalBytes):
-            let (progress, _) = jingleProgressState(bytesTransferred: bytesTransferred, totalBytes: totalBytes)
-            return encode([
-                "type": "jingle_transfer_progress",
-                "sid": sid,
-                "progress": "\(Int(progress * 100))",
-                "bytesTransferred": "\(bytesTransferred)",
-                "totalBytes": "\(totalBytes)",
-                "account": account
-            ])
-        case let .jingleFileTransferCompleted(sid, transport):
-            return encode([
-                "type": "jingle_transfer_completed",
-                "sid": sid,
-                "transport": transport.rawValue,
-                "account": account
-            ])
-        case let .jingleFileTransferFailed(sid, reason):
-            return encode(["type": "jingle_transfer_failed", "sid": sid, "reason": reason.rawValue, "account": account])
-        case let .oobIQOfferReceived(offer):
-            return formatOOBIQOfferEvent(offer, account: account)
-        case .jingleChecksumReceived,
-             .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .roomJoined, .roomOccupantJoined, .roomOccupantLeft,
-             .roomOccupantNickChanged,
-             .roomSubjectChanged, .roomInviteReceived, .roomMessageReceived, .mucPrivateMessageReceived,
-             .roomDestroyed, .mucSelfPingFailed,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .serviceOutageReceived:
-            return nil
-        }
     }
 
     private func formatOOBIQOfferEvent(_ offer: OOBIQOffer, account: String) -> String {
@@ -546,53 +429,6 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
-    private func formatMUCEvent(_ event: XMPPEvent, account: String) -> String? {
-        switch event {
-        case let .roomJoined(room, occupancy, isNewlyCreated):
-            return formatRoomJoinedEvent(room: room, occupancy: occupancy, isNewlyCreated: isNewlyCreated, account: account)
-        case let .roomOccupantJoined(room, occupant):
-            return encode(["type": "room_occupant_joined", "room": room.description, "nickname": occupant.nickname, "account": account])
-        case let .roomOccupantLeft(room, occupant, reason):
-            return formatOccupantLeftEvent(room: room, occupant: occupant, reason: reason, account: account)
-        case let .roomOccupantNickChanged(room, oldNickname, occupant):
-            return encode(["type": "room_nick_changed", "room": room.description, "old_nickname": oldNickname, "new_nickname": occupant.nickname, "account": account])
-        case let .roomSubjectChanged(room, subject, setter):
-            return formatRoomSubjectEvent(room: room, subject: subject, setter: setter, account: account)
-        case let .roomInviteReceived(invite):
-            var dict: [String: String] = [
-                "type": "room_invite",
-                "room": invite.room.description,
-                "from": invite.from.bareJID.description,
-                "account": account
-            ]
-            if let reason = invite.reason { dict["reason"] = reason }
-            return encode(dict)
-        case let .roomMessageReceived(message), let .mucPrivateMessageReceived(message):
-            return formatMUCMessage(event, message: message, account: account)
-        case let .roomDestroyed(room, reason, alternate):
-            return formatRoomDestroyedEvent(room: room, reason: reason, alternate: alternate, account: account)
-        case .mucSelfPingFailed,
-             .connected, .streamResumed, .disconnected, .authenticationFailed,
-             .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
-             .presenceUpdated, .presenceSubscriptionRequest,
-             .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
-             .messageCarbonReceived, .messageCarbonSent,
-             .archivedMessagesLoaded,
-             .chatStateChanged, .deliveryReceiptReceived,
-             .chatMarkerReceived, .messageCorrected, .messageRetracted, .messageModerated, .messageError,
-             .pepItemsPublished, .pepItemsRetracted,
-             .vcardAvatarHashReceived,
-             .jingleFileTransferReceived, .jingleFileTransferCompleted,
-             .jingleFileTransferFailed, .jingleFileTransferProgress,
-             .jingleChecksumReceived,
-             .blockListLoaded, .contactBlocked, .contactUnblocked,
-             .omemoDeviceListReceived, .omemoEncryptedMessageReceived, .omemoSessionEstablished, .omemoSessionAdvanced, .omemoRecipientsPartial,
-             .oobIQOfferReceived, .serviceOutageReceived:
-            return nil
-        }
-    }
-
     private func formatRoomJoinedEvent(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool, account: String) -> String {
         var dict: [String: String] = [
             "type": "room_joined", "room": room.description,
@@ -660,13 +496,6 @@ struct JSONFormatter: CLIFormatter {
         if let subject { dict["subject"] = subject }
         if let setter { dict["setter"] = setter.bareJID.description }
         return encode(dict)
-    }
-
-    private func formatMUCMessage(_ event: XMPPEvent, message: XMPPMessage, account: String) -> String? {
-        if case .mucPrivateMessageReceived = event {
-            return formatIncomingPrivateMessage(message, account: account)
-        }
-        return formatIncomingRoomMessage(message, account: account)
     }
 
     private func formatIncomingRoomMessage(_ message: XMPPMessage, account: String) -> String? {
