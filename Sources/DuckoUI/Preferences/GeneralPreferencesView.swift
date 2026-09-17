@@ -1,12 +1,13 @@
 import SwiftUI
 
 struct GeneralPreferencesView: View {
-    @State private var preferences = GeneralPreferences()
+    @Environment(GeneralPreferences.self) private var preferences
 
     var body: some View {
         Form {
             Section("Application") {
-                Toggle("Show Ducko in Dock", isOn: Bindable(preferences).showInDock)
+                Toggle("Show Ducko in Menu Bar", isOn: Bindable(preferences).showInMenuBar)
+                    .accessibilityIdentifier("showInMenuBarToggle")
 
                 Toggle("Launch at Login", isOn: Bindable(preferences).launchAtLogin)
                     .disabled(!preferences.isLaunchAtLoginAvailable)

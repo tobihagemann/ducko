@@ -15,6 +15,7 @@ struct DuckoApp: App {
     @State private var chatContainer: ChatContainerState
     @State private var transcriptScope = TranscriptScope()
     @State private var themeEngine = ThemeEngine()
+    @State private var generalPreferences = GeneralPreferences()
     @State private var statusBarPreferences = StatusBarPreferences()
     @State private var updateManager = UpdateManager()
     @State private var notificationManager = NotificationManager()
@@ -201,7 +202,7 @@ struct DuckoApp: App {
             }
         }
 
-        MenuBarExtra("Ducko", systemImage: "bubble.left.and.bubble.right.fill") {
+        MenuBarExtra("Ducko", systemImage: "bubble.left.and.bubble.right.fill", isInserted: $generalPreferences.showInMenuBar) {
             MenuBarStatusView()
                 .environment(environment)
                 .environment(themeEngine)
@@ -211,6 +212,7 @@ struct DuckoApp: App {
             PreferencesView()
                 .environment(environment)
                 .environment(themeEngine)
+                .environment(generalPreferences)
                 .environment(statusBarPreferences)
         }
     }

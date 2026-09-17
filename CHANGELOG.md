@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add a General setting to show or hide Ducko's menu bar icon
+
+### Removed
+
+- Remove the nonfunctional "Show Ducko in Dock" setting
+
 ## [0.1.0] - 2026-09-16
 
 ### Added

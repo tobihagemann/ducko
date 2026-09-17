@@ -4,15 +4,15 @@ import ServiceManagement
 import SwiftUI
 
 @MainActor @Observable
-final class GeneralPreferences {
+public final class GeneralPreferences {
     private enum Keys {
-        static let showInDock = "generalShowInDock"
+        static let showInMenuBar = "generalShowInMenuBar"
     }
 
     private static let defaults = PreferencesDefaults.store
 
-    var showInDock: Bool {
-        didSet { showInDockStorage = showInDock }
+    public var showInMenuBar: Bool {
+        didSet { Self.defaults.set(showInMenuBar, forKey: Keys.showInMenuBar) }
     }
 
     var launchAtLogin: Bool {
@@ -29,13 +29,10 @@ final class GeneralPreferences {
     }
 
     @ObservationIgnored
-    @AppStorage(Keys.showInDock, store: GeneralPreferences.defaults) private var showInDockStorage = true
-
-    @ObservationIgnored
     private var launchAtLoginEnabled: Bool = false
 
-    init() {
-        self.showInDock = GeneralPreferences.defaults.object(forKey: Keys.showInDock) as? Bool ?? true
+    public init() {
+        self.showInMenuBar = GeneralPreferences.defaults.object(forKey: Keys.showInMenuBar) as? Bool ?? true
         self.launchAtLoginEnabled = Self.readLaunchAtLogin()
     }
 

@@ -118,6 +118,7 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `add-bookmark-confirm-button` | Add button in Add Bookmark sheet | Bookmarks |
 | `remove-bookmark-button` | Remove bookmark button (per row) | Bookmarks |
 | `preferences-window` | Preferences TabView container | Preferences |
+| `showInMenuBarToggle` | Show Ducko in Menu Bar toggle | Preferences (General) |
 | `chatStatesToggle` | Chat states (typing indicators) toggle | Preferences (Chat) |
 | `displayedMarkersToggle` | Displayed markers (read receipts) toggle | Preferences (Chat) |
 | `requireTLSToggle` | Require TLS toggle | Account Edit |
@@ -261,6 +262,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-register.sh` | Register a new account via in-band registration | `SERVER USERNAME PASSWORD [EMAIL]` |
 | `ducko-change-password.sh` | Change account password via Preferences > Accounts (best-effort; needs a connected account and a `List(selection:)` that synthetic clicks may not trigger) | `NEW_PASSWORD` |
 | `ducko-toggle-preference.sh` | Toggle any preference checkbox by identifier | `IDENTIFIER` (e.g., chatStatesToggle, encryptByDefaultToggle, tofuToggle) |
+| `ducko-menu-bar.sh` | Toggle menu bar icon visibility in General preferences | none |
 | `ducko-edit-profile.sh` | Edit profile fields and optionally save | `[--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]` |
 | `ducko-remove-contact.sh` | Remove a contact via context menu | `JID` |
 | `ducko-contact-info.sh` | Open the Contact Info window via context menu, optionally block/remove | `JID [block\|remove]` |

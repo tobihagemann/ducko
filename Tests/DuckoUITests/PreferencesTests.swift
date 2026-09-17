@@ -9,22 +9,6 @@ private nonisolated(unsafe) let defaults = PreferencesDefaults.store
 
 @MainActor
 struct GeneralPreferencesTests {
-    @Test func `default show in dock is true`() {
-        // Remove any stored value to test the default
-        defaults.removeObject(forKey: "generalShowInDock")
-        let prefs = GeneralPreferences()
-        #expect(prefs.showInDock == true)
-    }
-
-    @Test func `show in dock persists`() {
-        let prefs = GeneralPreferences()
-        defer { defaults.removeObject(forKey: "generalShowInDock") }
-
-        prefs.showInDock = false
-        let prefs2 = GeneralPreferences()
-        #expect(prefs2.showInDock == false)
-    }
-
     @Test func `launch at login unavailable in debug`() {
         let prefs = GeneralPreferences()
         #if DEBUG
