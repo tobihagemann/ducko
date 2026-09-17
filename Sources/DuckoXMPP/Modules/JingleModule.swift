@@ -67,29 +67,21 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     /// A proxy bytestream this side has connected to but which carries nothing until the offering party activates it
-    /// (XEP-0260 §2.4). Held apart from `activeConnections` so neither a transport wait nor a claim can take it early.
+    /// (XEP-0260 §2.4). Kept separate from the session's active connection so neither a transport wait nor a claim can take it early.
     private struct PendingProxy {
         let connection: SOCKS5Connection
         let cid: String
     }
 
-    /// Snapshot of state extracted during disconnect cleanup.
     private struct DisconnectSnapshot {
         let sids: [String]
         let context: ModuleContext?
-        let connections: [SOCKS5Connection]
-        let listeners: [SOCKS5Listener]
+        let resources: [SessionResources]
     }
 
-    /// Snapshot of state extracted during session termination.
     private struct TerminateSnapshot {
         let session: JingleSession
-        let continuations: SessionContinuations
-        let connection: SOCKS5Connection?
-        let listener: SOCKS5Listener?
-        /// A proxy socket connected but not yet activated. Detached with the session like every other transport
-        /// resource, so ending a session locally cannot leave one open with nothing left to close it.
-        let pendingProxy: SOCKS5Connection?
+        let resources: SessionResources
     }
 
     /// How the peer ended a receive without failing it.
@@ -169,7 +161,7 @@ public final class JingleModule: XMPPModule, Sendable {
         let peer: FullJID
         let content: JingleContent
         let peerEnd: PeerEnd?
-        let continuations: SessionContinuations
+        let resources: SessionResources
     }
 
     /// Outcome of registering a wait under the lock.
@@ -181,7 +173,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
     /// Outcome of resolving a send's end under the lock.
     private enum SendEnd {
-        case committed(JingleTransportKind, SessionContinuations)
+        case committed(JingleTransportKind, SessionResources)
         case confirmed
         case failed(any Error)
         case unconfirmed
@@ -195,30 +187,80 @@ public final class JingleModule: XMPPModule, Sendable {
 
     // MARK: - State
 
+    private struct SessionResources {
+        let offerID: String
+        var session: JingleSession?
+        var connection: SOCKS5Connection?
+        var pendingProxy: PendingProxy?
+        var listener: SOCKS5Listener?
+        var ibb: IBBSessionState?
+        var transportWait: CheckedContinuation<Void, Error>?
+        var receive: ReceiveState?
+        var send: SendState?
+
+        var continuations: SessionContinuations {
+            SessionContinuations(
+                transport: transportWait, wake: receive?.wake, checksumWait: receive?.checksumWait,
+                sendWait: send?.wait, tasks: [receive?.expiryTask, receive?.endOfStreamTask, send?.cleanupTask].compactMap(\.self)
+            )
+        }
+
+        func closeTransport() async {
+            await connection?.close()
+            await pendingProxy?.connection.close()
+            await listener?.close()
+        }
+
+        func cancel(with error: any Error) {
+            continuations.cancel(with: error)
+            Task { await closeTransport() }
+        }
+
+        mutating func takeTransportWait() -> CheckedContinuation<Void, Error>? {
+            defer { transportWait = nil }
+            return transportWait
+        }
+
+        mutating func takePendingProxy() -> PendingProxy? {
+            defer { pendingProxy = nil }
+            return pendingProxy
+        }
+
+        mutating func takeListener() -> SOCKS5Listener? {
+            defer { listener = nil }
+            return listener
+        }
+    }
+
     private struct State {
         var context: ModuleContext?
-        var sessions: [String: JingleSession] = [:]
+        var resources: [String: SessionResources] = [:]
         var cachedProxy65: ProxyInfo?
-        var activeConnections: [String: SOCKS5Connection] = [:]
-        var pendingProxyConnections: [String: PendingProxy] = [:]
-        var activeListeners: [String: SOCKS5Listener] = [:]
-        var ibbStates: [String: IBBSessionState] = [:]
         var ibbSIDToJingleSID: [String: String] = [:]
-        var transportReadyContinuations: [String: CheckedContinuation<Void, Error>] = [:]
-        var receives: [String: ReceiveState] = [:]
-        var sends: [String: SendState] = [:]
     }
 
     private let state: OSAllocatedUnfairLock<State>
     private let timing: JingleTiming
+    private let localAddresses: @Sendable () -> [NetworkInterfaces.Address]
+    private let startListener: @Sendable (SOCKS5Listener) async throws -> UInt16
 
     public var features: [String] {
         [XMPPNamespaces.jingle, XMPPNamespaces.jingleFileTransfer,
          XMPPNamespaces.jingleS5B, XMPPNamespaces.jingleIBB]
     }
 
-    public init(timing: JingleTiming = .init()) {
+    public convenience init(timing: JingleTiming = .init()) {
+        self.init(timing: timing, localAddresses: NetworkInterfaces.localAddresses, startListener: { try await $0.start() })
+    }
+
+    init(
+        timing: JingleTiming = .init(),
+        localAddresses: @escaping @Sendable () -> [NetworkInterfaces.Address],
+        startListener: @escaping @Sendable (SOCKS5Listener) async throws -> UInt16
+    ) {
         self.timing = timing
+        self.localAddresses = localAddresses
+        self.startListener = startListener
         self.state = OSAllocatedUnfairLock(initialState: State())
     }
 
@@ -229,31 +271,15 @@ public final class JingleModule: XMPPModule, Sendable {
     // MARK: - Lifecycle
 
     public func handleDisconnect() async {
-        let (snapshot, continuations) = state.withLock { state -> (DisconnectSnapshot, [SessionContinuations]) in
-            let snapshot = DisconnectSnapshot(
-                sids: Array(state.sessions.keys),
-                context: state.context,
-                connections: Array(state.activeConnections.values) + state.pendingProxyConnections.values.map(\.connection),
-                listeners: Array(state.activeListeners.values)
-            )
-            let continuations = Array(state.sessions.keys).map { cleanupSessionState(sid: $0, state: &state) }
-            state.sessions.removeAll()
-            state.activeConnections.removeAll()
-            state.pendingProxyConnections.removeAll()
-            state.activeListeners.removeAll()
+        let snapshot = state.withLock { state in
+            let sids = state.resources.compactMap { $0.value.session == nil ? nil : $0.key }
+            let resources = Array(state.resources.keys).compactMap { detachSessionResources(sid: $0, state: &state) }
             state.cachedProxy65 = nil
-            return (snapshot, continuations)
+            return DisconnectSnapshot(sids: sids, context: state.context, resources: resources)
         }
-
-        for sessionContinuations in continuations {
-            sessionContinuations.cancel(with: JingleError.notConnected)
-        }
-
-        for connection in snapshot.connections {
-            await connection.close()
-        }
-        for listener in snapshot.listeners {
-            await listener.close()
+        for resources in snapshot.resources {
+            resources.continuations.cancel(with: JingleError.notConnected)
+            await resources.closeTransport()
         }
 
         for sid in snapshot.sids {
@@ -281,13 +307,13 @@ public final class JingleModule: XMPPModule, Sendable {
               let action = JingleAction(rawValue: actionStr),
               let sid = jingle.attribute("sid") else { return }
 
-        let (context, session) = state.withLock { ($0.context, $0.sessions[sid]) }
+        let (context, session, hasResources) = state.withLock { ($0.context, $0.resources[sid]?.session, $0.resources[sid] != nil) }
         guard let context else { return }
 
         // `XMPPClient` dispatches IQs serially, so the sender stays verified for the handler below, and the conflict check
         // keeps a live sid from being replaced.
         if action == .sessionInitiate {
-            guard session == nil else {
+            guard !hasResources else {
                 log.debug("Rejecting session-initiate for a live sid: \(sid)")
                 replyError(to: iq, type: "cancel", condition: "conflict", jingleCondition: "tie-break", context: context)
                 return
@@ -444,17 +470,19 @@ public final class JingleModule: XMPPModule, Sendable {
     @discardableResult
     private static func addSession(_ session: JingleSession, sid: String, state: inout State) -> String {
         var stamped = session
-        stamped.offerID = makeOfferID()
-        state.sessions[sid] = stamped
+        let offerID = state.resources[sid]?.offerID ?? makeOfferID()
+        if state.resources[sid] == nil { state.resources[sid] = SessionResources(offerID: offerID) }
+        stamped.offerID = offerID
+        state.resources[sid]?.session = stamped
         if stamped.role == .responder {
-            state.receives[sid] = ReceiveState(content: stamped.content)
+            state.resources[sid]?.receive = ReceiveState(content: stamped.content)
         }
         return stamped.offerID
     }
 
     /// The session under `sid`, when it is the one `offerID` names. A nil `offerID` names whichever session holds the sid.
     private static func session(_ sid: String, offerID: String?, in state: State) -> JingleSession? {
-        guard let session = state.sessions[sid], offerID == nil || session.offerID == offerID else { return nil }
+        guard let session = state.resources[sid]?.session, offerID == nil || session.offerID == offerID else { return nil }
         return session
     }
 
@@ -470,11 +498,11 @@ public final class JingleModule: XMPPModule, Sendable {
             }
             let info = JingleChecksumInfo(contentName: contentName, algo: algo, hash: hashValue)
             let checksumWait = state.withLock { state -> CheckedContinuation<Void, Error>? in
-                guard var receive = state.receives[sid] else { return nil }
+                guard var receive = state.resources[sid]?.receive else { return nil }
                 receive.sessionInfoChecksum = info
                 let wait = receive.checksumWait
                 receive.checksumWait = nil
-                state.receives[sid] = receive
+                state.resources[sid]?.receive = receive
                 return wait
             }
             checksumWait?.resume()
@@ -484,13 +512,13 @@ public final class JingleModule: XMPPModule, Sendable {
 
         if jingle.child(named: "received", namespace: XMPPNamespaces.jingleFileTransfer) != nil {
             let sendWait = state.withLock { state -> CheckedContinuation<Void, Error>? in
-                guard var send = state.sends[sid] else { return nil }
+                guard var send = state.resources[sid]?.send else { return nil }
                 if send.confirmation == nil {
                     send.confirmation = .received
                 }
                 let wait = send.wait
                 send.wait = nil
-                state.sends[sid] = send
+                state.resources[sid]?.send = send
                 return wait
             }
             sendWait?.resume()
@@ -505,7 +533,7 @@ public final class JingleModule: XMPPModule, Sendable {
             guard let name = element.attribute("name"), let creator = element.attribute("creator") else { return nil }
             return XMLElement(name: "content", attributes: ["creator": creator, "name": name])
         }
-        let peer = state.withLock { $0.sessions[sid]?.peer }
+        let peer = state.withLock { $0.resources[sid]?.session?.peer }
         guard !contents.isEmpty, let peer else {
             log.warning("content-add without content elements for sid: \(sid)")
             return
@@ -532,7 +560,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func handleContentRemove(_ jingle: XMLElement, iq: XMPPIQ, sid: String, context: ModuleContext) {
         let names = jingle.children(named: "content").compactMap { $0.attribute("name") }
-        let primaryName = state.withLock { $0.sessions[sid]?.content.name }
+        let primaryName = state.withLock { $0.resources[sid]?.session?.content.name }
         guard let primaryName, !names.isEmpty, names.allSatisfy({ $0 == primaryName }) else {
             replyOutOfOrder(to: iq, context: context)
             return
@@ -544,7 +572,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func handleSessionAccept(_ jingle: XMLElement, sid: String, context: ModuleContext) {
         let offeredSize = state.withLock { state -> Int64? in
-            guard let session = state.sessions[sid], session.role == .initiator else { return nil }
+            guard let session = state.resources[sid]?.session, session.role == .initiator else { return nil }
             return session.content.description.size
         }
         guard let offeredSize else {
@@ -587,14 +615,13 @@ public final class JingleModule: XMPPModule, Sendable {
             log.debug("Ignoring session-terminate for unknown sid: \(sid)")
             return
         }
-        cleanupTransport(sid: sid)
         // Whoever is waiting learns the peer's reason, such as a decline, rather than that the session went missing.
-        removed.continuations.cancel(with: JingleError.transportFailed(failure.displayText))
+        removed.resources.cancel(with: JingleError.transportFailed(failure.displayText))
         context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: failure))
     }
 
     private func handleSuccessTerminate(sid: String, context: ModuleContext) {
-        let role = state.withLock { $0.sessions[sid]?.role }
+        let role = state.withLock { $0.resources[sid]?.session?.role }
         switch role {
         case nil:
             log.debug("Ignoring session-terminate for unknown sid: \(sid)")
@@ -608,23 +635,23 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Outcome of a receiver's success terminate on a sending session.
     private enum SenderTerminateResolution {
         case recorded(CheckedContinuation<Void, Error>?)
-        case committed(JingleTransportKind, SessionContinuations)
+        case committed(JingleTransportKind, SessionResources)
         case notStarted
     }
 
     private func handleSenderSuccessTerminate(sid: String, context: ModuleContext) {
         let resolution = state.withLock { state -> SenderTerminateResolution? in
-            guard state.sessions[sid] != nil else { return nil }
-            guard var send = state.sends[sid] else { return .notStarted }
+            guard state.resources[sid]?.session != nil else { return nil }
+            guard var send = state.resources[sid]?.send else { return .notStarted }
             guard !send.isOwnerActive else {
                 send.confirmation = .terminatedSuccess
                 let wait = send.wait
                 send.wait = nil
-                state.sends[sid] = send
+                state.resources[sid]?.send = send
                 return .recorded(wait)
             }
-            state.sessions.removeValue(forKey: sid)
-            return .committed(send.transport, cleanupSessionState(sid: sid, state: &state))
+            guard let resources = detachSessionResources(sid: sid, state: &state) else { return nil }
+            return .committed(send.transport, resources)
         }
 
         switch resolution {
@@ -632,9 +659,8 @@ public final class JingleModule: XMPPModule, Sendable {
             log.debug("Ignoring session-terminate for unknown sid: \(sid)")
         case let .recorded(wait):
             wait?.resume()
-        case let .committed(transport, continuations):
-            cleanupTransport(sid: sid)
-            continuations.cancel(with: JingleError.sessionNotFound)
+        case let .committed(transport, resources):
+            resources.cancel(with: JingleError.sessionNotFound)
             context.emitEvent(.jingleFileTransferCompleted(sid: sid, transport: transport))
         case .notStarted:
             abandonTransport(sid: sid, reason: .cancel, terminateReason: nil, context: context)
@@ -650,9 +676,9 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Records a peer's successful end of a receive and wakes its claim, or fails a receive with nothing left to claim.
     private func handlePeerSuccessEnd(sid: String, end: PeerEnd, context: ModuleContext) {
         let resolution = state.withLock { state -> PeerSuccessEndResolution? in
-            guard state.sessions[sid] != nil, var receive = state.receives[sid] else { return nil }
-            let hasBufferedBytes = state.ibbStates[sid]?.receivedData.isEmpty == false
-            let hasConnection = state.activeConnections[sid] != nil
+            guard state.resources[sid]?.session != nil, var receive = state.resources[sid]?.receive else { return nil }
+            let hasBufferedBytes = state.resources[sid]?.ibb?.receivedData.isEmpty == false
+            let hasConnection = state.resources[sid]?.connection != nil
             guard hasBufferedBytes || receive.isClaimed || hasConnection else { return .nothingClaimable }
 
             if receive.peerEnd == nil || end == .terminatedSuccess {
@@ -665,7 +691,7 @@ public final class JingleModule: XMPPModule, Sendable {
             } else if wake == nil, hasConnection {
                 armEndOfStream(sid: sid, receive: &receive)
             }
-            state.receives[sid] = receive
+            state.resources[sid]?.receive = receive
             return .recorded(wake: wake)
         }
 
@@ -699,7 +725,7 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func handleCandidateUsed(sid: String, cid: String, context: ModuleContext) {
-        let session = state.withLock { $0.sessions[sid] }
+        let session = state.withLock { $0.resources[sid]?.session }
         guard let session, Self.acceptsSOCKS5Outcome(session) else { return }
 
         // If we're the initiator and the peer selected a candidate, handle by type
@@ -730,7 +756,7 @@ public final class JingleModule: XMPPModule, Sendable {
     /// initiator's transport-replace.
     private func handleProxyError(sid: String, context: ModuleContext) {
         log.debug("Peer reported a proxy error for sid: \(sid)")
-        switch state.withLock({ $0.sessions[sid]?.role }) {
+        switch state.withLock({ $0.resources[sid]?.session?.role }) {
         case .initiator?:
             handleCandidateError(sid: sid, context: context)
         case .responder?:
@@ -758,16 +784,16 @@ public final class JingleModule: XMPPModule, Sendable {
     /// bytestream (XEP-0260 §2.4). Publishing it here is what lets the transport wait and the claim reach it.
     private func handleProxyActivated(sid: String, cid: String?) {
         let promoted = state.withLock { state -> (wake: CheckedContinuation<Void, Error>?, stale: SOCKS5Connection?) in
-            guard let pending = state.pendingProxyConnections.removeValue(forKey: sid) else { return (nil, nil) }
+            guard let pending = state.resources[sid]?.takePendingProxy() else { return (nil, nil) }
             // An activation can arrive after this session already settled on IBB, and promoting the parked socket then
             // would have the claim read a proxy stream nobody writes to while the bytes that did arrive sit unread.
-            guard let session = state.sessions[sid], Self.acceptsSOCKS5Outcome(session) else {
+            guard let session = state.resources[sid]?.session, Self.acceptsSOCKS5Outcome(session) else {
                 return (nil, pending.connection)
             }
-            state.activeConnections[sid] = pending.connection
-            state.sessions[sid]?.transportState = .connected(candidateCID: cid ?? pending.cid)
-            state.sessions[sid]?.selectedTransport = .socks5
-            return (state.transportReadyContinuations.removeValue(forKey: sid), nil)
+            state.resources[sid]?.connection = pending.connection
+            state.resources[sid]?.session?.transportState = .connected(candidateCID: cid ?? pending.cid)
+            state.resources[sid]?.session?.selectedTransport = .socks5
+            return (state.resources[sid]?.takeTransportWait(), nil)
         }
         if let stale = promoted.stale {
             Task { await stale.close() }
@@ -803,8 +829,8 @@ public final class JingleModule: XMPPModule, Sendable {
             // A repeated nomination that fails after another dial published the transport, or after its session ended,
             // decides nothing: falling back would close the transport that is carrying the file.
             let isCurrent = state.withLock { state in
-                guard let current = state.sessions[sid], current.offerID == session.offerID else { return false }
-                return Self.acceptsSOCKS5Outcome(current) && state.activeConnections[sid] == nil
+                guard let current = state.resources[sid]?.session, current.offerID == session.offerID else { return false }
+                return Self.acceptsSOCKS5Outcome(current) && state.resources[sid]?.connection == nil
             }
             guard isCurrent else { return }
             // XEP-0260 §2.4 asks the failing side to say so, and both sides to fall back rather than give up.
@@ -824,12 +850,12 @@ public final class JingleModule: XMPPModule, Sendable {
             // Nothing collapses repeated nominations, so a peer that names its proxy again starts another dial. The
             // first to publish owns the transport: a later winner would replace a socket an owner may already be
             // reading, leaving that one open with nothing left to close it. The loser closes its own connection below.
-            guard let current = state.sessions[sid], current.offerID == session.offerID,
-                  Self.acceptsSOCKS5Outcome(current), state.activeConnections[sid] == nil else { return (false, nil) }
-            state.activeConnections[sid] = connection
-            state.sessions[sid]?.transportState = .connected(candidateCID: cid)
-            state.sessions[sid]?.selectedTransport = .socks5
-            return (true, state.transportReadyContinuations.removeValue(forKey: sid))
+            guard let current = state.resources[sid]?.session, current.offerID == session.offerID,
+                  Self.acceptsSOCKS5Outcome(current), state.resources[sid]?.connection == nil else { return (false, nil) }
+            state.resources[sid]?.connection = connection
+            state.resources[sid]?.session?.transportState = .connected(candidateCID: cid)
+            state.resources[sid]?.session?.selectedTransport = .socks5
+            return (true, state.resources[sid]?.takeTransportWait())
         }
         guard published.isCurrent else {
             await connection.close()
@@ -843,13 +869,13 @@ public final class JingleModule: XMPPModule, Sendable {
         let fallback = state.withLock { state -> (session: JingleSession, transport: IBBTransport)? in
             // Only the responder connects to candidates, so the initiator's candidate-error decides nothing on the
             // responder: the initiator follows it with a transport-replace or a session-terminate.
-            guard let session = state.sessions[sid], session.role == .initiator, Self.acceptsSOCKS5Outcome(session) else {
+            guard let session = state.resources[sid]?.session, session.role == .initiator, Self.acceptsSOCKS5Outcome(session) else {
                 return nil
             }
             // Propose IBB fallback. Switching before the SOCKS5 resources close makes their late outcomes stale.
-            state.sessions[sid]?.transportState = .replacePending
-            state.sessions[sid]?.selectedTransport = .ibb
-            state.ibbStates[sid] = IBBSessionState(ibbSID: ibbSID, blockSize: Self.defaultIBBBlockSize)
+            state.resources[sid]?.session?.transportState = .replacePending
+            state.resources[sid]?.session?.selectedTransport = .ibb
+            state.resources[sid]?.ibb = IBBSessionState(ibbSID: ibbSID, blockSize: Self.defaultIBBBlockSize)
             state.ibbSIDToJingleSID[ibbSID] = sid
             return (session, IBBTransport(sid: ibbSID, blockSize: Self.defaultIBBBlockSize))
         }
@@ -917,19 +943,19 @@ public final class JingleModule: XMPPModule, Sendable {
         }
 
         let resolution = state.withLock { state -> TransportReplaceResolution in
-            guard state.sessions[sid] != nil else { return .unknown }
+            guard state.resources[sid]?.session != nil else { return .unknown }
             // An IBB sid owned by another session, an open SOCKS5 connection, or a claimed receive keeps its transport.
             if let owner = state.ibbSIDToJingleSID[ibbTransport.sid], owner != sid { return .rejected }
-            guard state.activeConnections[sid] == nil, state.receives[sid]?.isClaimed != true else { return .rejected }
+            guard state.resources[sid]?.connection == nil, state.resources[sid]?.receive?.isClaimed != true else { return .rejected }
 
-            if let previous = state.ibbStates[sid], state.ibbSIDToJingleSID[previous.ibbSID] == sid {
+            if let previous = state.resources[sid]?.ibb, state.ibbSIDToJingleSID[previous.ibbSID] == sid {
                 state.ibbSIDToJingleSID.removeValue(forKey: previous.ibbSID)
             }
-            state.ibbStates[sid] = IBBSessionState(ibbSID: ibbTransport.sid, blockSize: ibbTransport.blockSize)
+            state.resources[sid]?.ibb = IBBSessionState(ibbSID: ibbTransport.sid, blockSize: ibbTransport.blockSize)
             state.ibbSIDToJingleSID[ibbTransport.sid] = sid
-            state.sessions[sid]?.transportState = .pending
-            state.sessions[sid]?.selectedTransport = .ibb
-            return .accepted(state.transportReadyContinuations.removeValue(forKey: sid))
+            state.resources[sid]?.session?.transportState = .pending
+            state.resources[sid]?.session?.selectedTransport = .ibb
+            return .accepted(state.resources[sid]?.takeTransportWait())
         }
 
         switch resolution {
@@ -946,9 +972,9 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func handleTransportAccept(sid: String) {
         let continuation = state.withLock { state -> CheckedContinuation<Void, Error>? in
-            guard state.sessions[sid] != nil else { return nil }
-            state.sessions[sid]?.transportState = .pending
-            return state.transportReadyContinuations.removeValue(forKey: sid)
+            guard state.resources[sid]?.session != nil else { return nil }
+            state.resources[sid]?.session?.transportState = .pending
+            return state.resources[sid]?.takeTransportWait()
         }
         continuation?.resume()
     }
@@ -968,8 +994,7 @@ public final class JingleModule: XMPPModule, Sendable {
         if applies: @Sendable (State) -> Bool = { _ in true }
     ) {
         guard let abandoned = removeSession(sid: sid, if: applies) else { return }
-        cleanupTransport(sid: sid)
-        abandoned.continuations.cancel(with: JingleError.transportNegotiationFailed(reason.displayText))
+        abandoned.resources.cancel(with: JingleError.transportNegotiationFailed(reason.displayText))
         context.emitEvent(.jingleFileTransferFailed(sid: sid, reason: reason))
         guard let terminateReason else { return }
         Task {
@@ -984,11 +1009,11 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Removes the session and its transfer state in one critical section, which commits the session's end.
     private func removeSession(
         sid: String, if applies: @Sendable (State) -> Bool = { _ in true }
-    ) -> (session: JingleSession, continuations: SessionContinuations)? {
+    ) -> (session: JingleSession, resources: SessionResources)? {
         state.withLock { state in
-            guard let session = state.sessions[sid], applies(state) else { return nil }
-            state.sessions.removeValue(forKey: sid)
-            return (session, cleanupSessionState(sid: sid, state: &state))
+            guard let session = state.resources[sid]?.session, applies(state),
+                  let resources = detachSessionResources(sid: sid, state: &state) else { return nil }
+            return (session, resources)
         }
     }
 
@@ -1017,7 +1042,7 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func sendTransportAccept(sid: String, ibbTransport: IBBTransport, context: ModuleContext) {
-        let session = state.withLock { $0.sessions[sid] }
+        let session = state.withLock { $0.resources[sid]?.session }
         guard let session else { return }
         Task {
             var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
@@ -1042,7 +1067,7 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func sendTransportReject(sid: String, context: ModuleContext) {
-        let session = state.withLock { $0.sessions[sid] }
+        let session = state.withLock { $0.resources[sid]?.session }
         guard let session else { return }
         Task {
             var iq = XMPPIQ(type: .set, to: .full(session.peer), id: context.generateID())
@@ -1081,7 +1106,7 @@ public final class JingleModule: XMPPModule, Sendable {
     /// The session an IBB stanza addresses, when its sender is that session's peer. Must be called within a state.withLock.
     private static func ibbSessionID(for ibbSID: String, from: JID?, state: State) -> String? {
         guard let sid = state.ibbSIDToJingleSID[ibbSID],
-              let session = state.sessions[sid],
+              let session = state.resources[sid]?.session,
               from == .full(session.peer) else { return nil }
         return sid
     }
@@ -1095,7 +1120,7 @@ public final class JingleModule: XMPPModule, Sendable {
     /// blocks the receive will never use.
     private func failIBBStream(sid: String, context: ModuleContext) {
         let target = state.withLock { state -> (ibbSID: String, peer: FullJID)? in
-            guard let session = state.sessions[sid], let ibbState = state.ibbStates[sid] else { return nil }
+            guard let session = state.resources[sid]?.session, let ibbState = state.resources[sid]?.ibb else { return nil }
             return (ibbState.ibbSID, session.peer)
         }
         if let target {
@@ -1143,11 +1168,11 @@ public final class JingleModule: XMPPModule, Sendable {
         let from = iq.from
         let outcome = state.withLock { state -> IBBDataOutcome in
             guard let sid = Self.ibbSessionID(for: ibbSID, from: from, state: state),
-                  var receive = state.receives[sid],
-                  var ibbState = state.ibbStates[sid] else { return .unknownStream }
+                  var receive = state.resources[sid]?.receive,
+                  var ibbState = state.resources[sid]?.ibb else { return .unknownStream }
 
             // Bytes are only worth holding once the user has taken the offer; until then the peer is sending uninvited.
-            guard state.sessions[sid]?.isAccepted == true else {
+            guard state.resources[sid]?.session?.isAccepted == true else {
                 log.debug("IBB data before the transfer was accepted, ibb-sid: \(ibbSID)")
                 return .notAccepted(sid: sid)
             }
@@ -1169,7 +1194,7 @@ public final class JingleModule: XMPPModule, Sendable {
 
             ibbState.receivedData.append(contentsOf: decoded)
             ibbState.nextExpectedSeq &+= 1
-            state.ibbStates[sid] = ibbState
+            state.resources[sid]?.ibb = ibbState
 
             let transferred = Int64(ibbState.receivedData.count)
             if !receive.isClaimed {
@@ -1177,7 +1202,7 @@ public final class JingleModule: XMPPModule, Sendable {
             } else if receive.peerEnd == nil, receive.wake != nil, transferred >= receive.expectedSize {
                 armEndOfStream(sid: sid, receive: &receive)
             }
-            state.receives[sid] = receive
+            state.resources[sid]?.receive = receive
             return .appended(sid: sid, transferred: transferred, total: receive.expectedSize)
         }
 
@@ -1215,7 +1240,7 @@ public final class JingleModule: XMPPModule, Sendable {
         let from = iq.from
         let target = state.withLock { state -> (sid: String, role: JingleSession.Role)? in
             guard let sid = Self.ibbSessionID(for: ibbSID, from: from, state: state),
-                  let session = state.sessions[sid] else { return nil }
+                  let session = state.resources[sid]?.session else { return nil }
             return (sid, session.role)
         }
         guard let target else {
@@ -1234,20 +1259,13 @@ public final class JingleModule: XMPPModule, Sendable {
 
     // MARK: - Session State Cleanup
 
-    /// Removes a session's transfer state. Must be called within a state.withLock, by a caller that removes the session.
-    private func cleanupSessionState(sid: String, state: inout State) -> SessionContinuations {
-        if let ibbState = state.ibbStates.removeValue(forKey: sid), state.ibbSIDToJingleSID[ibbState.ibbSID] == sid {
-            state.ibbSIDToJingleSID.removeValue(forKey: ibbState.ibbSID)
+    /// Removes the complete lifetime record under the lock; callers release its captured resources outside it.
+    private func detachSessionResources(sid: String, state: inout State) -> SessionResources? {
+        guard let resources = state.resources.removeValue(forKey: sid) else { return nil }
+        if let ibb = resources.ibb, state.ibbSIDToJingleSID[ibb.ibbSID] == sid {
+            state.ibbSIDToJingleSID.removeValue(forKey: ibb.ibbSID)
         }
-        let receive = state.receives.removeValue(forKey: sid)
-        let send = state.sends.removeValue(forKey: sid)
-        return SessionContinuations(
-            transport: state.transportReadyContinuations.removeValue(forKey: sid),
-            wake: receive?.wake,
-            checksumWait: receive?.checksumWait,
-            sendWait: send?.wait,
-            tasks: [receive?.expiryTask, receive?.endOfStreamTask, send?.cleanupTask].compactMap(\.self)
-        )
+        return resources
     }
 
     /// Holds the waits and tasks cleanup detached, for the caller to end outside the lock with its own error.
@@ -1285,10 +1303,10 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Wakes a waiting IBB claim, or closes a SOCKS5 claim's connection so its read ends. The claim finalizes either way.
     private func endOfStreamWaitElapsed(sid: String) async {
         let (wake, connection) = state.withLock { state -> (CheckedContinuation<Void, Error>?, SOCKS5Connection?) in
-            guard state.sessions[sid] != nil else { return (nil, nil) }
-            let wake = state.receives[sid]?.wake
-            state.receives[sid]?.wake = nil
-            return (wake, wake == nil ? state.activeConnections[sid] : nil)
+            guard state.resources[sid]?.session != nil else { return (nil, nil) }
+            let wake = state.resources[sid]?.receive?.wake
+            state.resources[sid]?.receive?.wake = nil
+            return (wake, wake == nil ? state.resources[sid]?.connection : nil)
         }
         wake?.resume()
         await connection?.close()
@@ -1306,11 +1324,11 @@ public final class JingleModule: XMPPModule, Sendable {
     }
 
     private func unclaimedReceiveExpired(sid: String) {
-        let (context, peerEnd) = state.withLock { ($0.context, $0.receives[sid]?.peerEnd) }
+        let (context, peerEnd) = state.withLock { ($0.context, $0.resources[sid]?.receive?.peerEnd) }
         guard let context else { return }
         let terminateReason: JingleTerminateReason? = peerEnd == .terminatedSuccess ? nil : .timeout
         abandonTransport(sid: sid, reason: .timeout, terminateReason: terminateReason, context: context) { state in
-            state.receives[sid]?.isClaimed == false
+            state.resources[sid]?.receive?.isClaimed == false
         }
     }
 
@@ -1328,11 +1346,11 @@ public final class JingleModule: XMPPModule, Sendable {
                 case .connected: return .success(true)
                 case .pending, .connecting, .failed, .replacePending: break
                 }
-                if state.ibbStates[sid] != nil { return .success(true) }
-                guard state.transportReadyContinuations[sid] == nil else {
+                if state.resources[sid]?.ibb != nil { return .success(true) }
+                guard state.resources[sid]?.transportWait == nil else {
                     return .failure(.transportFailed("The transfer is already waiting for a connection"))
                 }
-                state.transportReadyContinuations[sid] = continuation
+                state.resources[sid]?.transportWait = continuation
                 return .success(false)
             }
             switch readiness {
@@ -1355,8 +1373,36 @@ public final class JingleModule: XMPPModule, Sendable {
         }
 
         let sid = Self.makeStreamID()
+        let offerID = makeOfferID()
+        state.withLock { $0.resources[sid] = SessionResources(offerID: offerID) }
+        return try await withTaskCancellationHandler {
+            do {
+                return try await prepareFileTransfer(to: peer, file: file, preparation: (sid, offerID), myJID: myJID, context: context)
+            } catch {
+                if let resources = detachPreparation(sid: sid, offerID: offerID) {
+                    resources.continuations.cancel(with: error)
+                    await resources.closeTransport()
+                }
+                throw error
+            }
+        } onCancel: {
+            self.detachPreparation(sid: sid, offerID: offerID)?.cancel(with: CancellationError())
+        }
+    }
+
+    private func detachPreparation(sid: String, offerID: String) -> SessionResources? {
+        state.withLock { state in
+            guard state.resources[sid]?.offerID == offerID else { return nil }
+            return detachSessionResources(sid: sid, state: &state)
+        }
+    }
+
+    private func prepareFileTransfer(
+        to peer: FullJID, file: JingleFileDescription, preparation: (sid: String, offerID: String), myJID: FullJID, context: ModuleContext
+    ) async throws -> String {
+        let (sid, offerID) = preparation
         let transportSID = Self.makeStreamID()
-        let candidates = await buildCandidates(sid: sid, context: context)
+        let candidates = try await buildCandidates(sid: sid, offerID: offerID, context: context)
 
         let transport = JingleTransportDescription.socks5(SOCKS5Transport(sid: transportSID, candidates: candidates))
         let content = JingleContent(
@@ -1368,7 +1414,13 @@ public final class JingleModule: XMPPModule, Sendable {
         )
 
         let session = JingleSession(peer: peer, role: .initiator, content: content)
-        state.withLock { Self.addSession(session, sid: sid, state: &$0) }
+        try Task.checkCancellation()
+        let attached = state.withLock { state in
+            guard state.resources[sid]?.offerID == offerID else { return false }
+            Self.addSession(session, sid: sid, state: &state)
+            return true
+        }
+        guard attached else { throw JingleError.sessionNotFound }
 
         var iq = XMPPIQ(type: .set, to: .full(peer), id: context.generateID())
         var jingle = XMLElement(
@@ -1383,15 +1435,9 @@ public final class JingleModule: XMPPModule, Sendable {
         jingle.addChild(content.toXML())
         iq.element.addChild(jingle)
 
-        do {
-            try await sendJingleIQ(iq, context: context, failure: JingleError.transportNegotiationFailed)
-        } catch {
-            if let rejected = removeSession(sid: sid) {
-                cleanupTransport(sid: sid)
-                rejected.continuations.cancel(with: JingleError.sessionNotFound)
-            }
-            throw error
-        }
+        try await sendJingleIQ(iq, context: context, failure: JingleError.transportNegotiationFailed)
+        try Task.checkCancellation()
+        guard state.withLock({ $0.resources[sid]?.offerID == offerID }) else { throw JingleError.sessionNotFound }
         return sid
     }
 
@@ -1430,8 +1476,8 @@ public final class JingleModule: XMPPModule, Sendable {
             // Only this session's own acceptance is rolled back: a sid freed and re-offered while the send was in
             // flight belongs to a later session, and this failure says nothing about whether that one was accepted.
             state.withLock { state in
-                guard state.sessions[sid]?.offerID == session.offerID else { return }
-                state.sessions[sid]?.isAccepted = false
+                guard state.resources[sid]?.session?.offerID == session.offerID else { return }
+                state.resources[sid]?.session?.isAccepted = false
             }
             throw error
         }
@@ -1458,7 +1504,7 @@ public final class JingleModule: XMPPModule, Sendable {
         let claim = state.withLock { state -> Result<JingleSession, JingleError> in
             guard let session = Self.session(sid, offerID: offerID, in: state) else { return .failure(.sessionNotFound) }
             guard !session.isAccepted else { return .failure(.alreadyAccepted) }
-            state.sessions[sid]?.isAccepted = true
+            state.resources[sid]?.session?.isAccepted = true
             return .success(session)
         }
         return try claim.get()
@@ -1501,23 +1547,14 @@ public final class JingleModule: XMPPModule, Sendable {
     public func terminateSession(sid: String, reason: JingleTerminateReason, offerID: String? = nil) async throws {
         let (context, snapshot) = state.withLock { state -> (ModuleContext?, TerminateSnapshot?) in
             guard let session = Self.session(sid, offerID: offerID, in: state) else { return (state.context, nil) }
-            state.sessions[sid] = nil
-            return (state.context, TerminateSnapshot(
-                session: session,
-                continuations: cleanupSessionState(sid: sid, state: &state),
-                connection: state.activeConnections.removeValue(forKey: sid),
-                listener: state.activeListeners.removeValue(forKey: sid),
-                pendingProxy: state.pendingProxyConnections.removeValue(forKey: sid)?.connection
-            ))
+            guard let resources = detachSessionResources(sid: sid, state: &state) else { return (state.context, nil) }
+            return (state.context, TerminateSnapshot(session: session, resources: resources))
         }
         guard let context else { throw JingleError.notConnected }
         guard let snapshot else { throw JingleError.sessionNotFound }
 
-        snapshot.continuations.cancel(with: JingleError.sessionNotFound)
-
-        await snapshot.connection?.close()
-        await snapshot.listener?.close()
-        await snapshot.pendingProxy?.close()
+        snapshot.resources.continuations.cancel(with: JingleError.sessionNotFound)
+        await snapshot.resources.closeTransport()
 
         try await sendSessionTerminate(sid: sid, peer: snapshot.session.peer, reason: reason, context: context)
     }
@@ -1548,14 +1585,14 @@ public final class JingleModule: XMPPModule, Sendable {
     public func sendFileData(sid: String, data: [UInt8]) async throws {
         let start = state.withLock { state -> Result<SendStart, JingleError> in
             guard let context = state.context else { return .failure(.notConnected) }
-            guard state.sessions[sid] != nil else { return .failure(.sessionNotFound) }
-            let connection = state.activeConnections[sid]
-            let ibbState = state.ibbStates[sid]
+            guard state.resources[sid]?.session != nil else { return .failure(.sessionNotFound) }
+            let connection = state.resources[sid]?.connection
+            let ibbState = state.resources[sid]?.ibb
             guard connection != nil || ibbState != nil else {
                 return .failure(.transportFailed("No connection is open for the transfer"))
             }
             // Recording starts before the first byte, so a confirmation that arrives mid-write is kept.
-            state.sends[sid] = SendState(transport: connection == nil ? .ibb : .socks5)
+            state.resources[sid]?.send = SendState(transport: connection == nil ? .ibb : .socks5)
             return .success(SendStart(context: context, connection: connection, ibbState: ibbState))
         }
         let started = try start.get()
@@ -1582,16 +1619,15 @@ public final class JingleModule: XMPPModule, Sendable {
             do {
                 try await awaitSendConfirmation(sid: sid, until: deadline)
             } catch {
-                state.withLock { $0.sends[sid]?.isOwnerActive = false }
+                state.withLock { $0.resources[sid]?.send?.isOwnerActive = false }
                 throw error
             }
             end = resolveSendEnd(sid: sid, writeError: nil, releasesOwner: true)
         }
 
         switch end {
-        case let .committed(transport, continuations):
-            cleanupTransport(sid: sid)
-            continuations.cancel(with: JingleError.sessionNotFound)
+        case let .committed(transport, resources):
+            resources.cancel(with: JingleError.sessionNotFound)
             context.emitEvent(.jingleFileTransferCompleted(sid: sid, transport: transport))
         case .confirmed:
             // The receiver normally ends the session itself; end it once the wait elapses if it hasn't.
@@ -1601,8 +1637,8 @@ public final class JingleModule: XMPPModule, Sendable {
                 try? await self?.terminateSession(sid: sid, reason: .success)
             }
             let isLive = state.withLock { state -> Bool in
-                guard state.sends[sid] != nil else { return false }
-                state.sends[sid]?.cleanupTask = cleanup
+                guard state.resources[sid]?.send != nil else { return false }
+                state.resources[sid]?.send?.cleanupTask = cleanup
                 return true
             }
             if !isLive { cleanup.cancel() }
@@ -1616,27 +1652,27 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Resolves a send's end under the lock. `.unconfirmed` keeps the owner active unless `releasesOwner` is set.
     private func resolveSendEnd(sid: String, writeError: (any Error)?, releasesOwner: Bool) -> SendEnd {
         state.withLock { state -> SendEnd in
-            guard state.sessions[sid] != nil, var send = state.sends[sid] else {
+            guard state.resources[sid]?.session != nil, var send = state.resources[sid]?.send else {
                 return .failed(writeError ?? JingleError.sessionNotFound)
             }
             switch send.confirmation {
             case .terminatedSuccess:
-                state.sessions.removeValue(forKey: sid)
-                return .committed(send.transport, cleanupSessionState(sid: sid, state: &state))
+                guard let resources = detachSessionResources(sid: sid, state: &state) else { return .failed(JingleError.sessionNotFound) }
+                return .committed(send.transport, resources)
             case .received:
                 // The receiver already has every byte, so a write that failed afterwards changes nothing.
                 send.isOwnerActive = false
-                state.sends[sid] = send
+                state.resources[sid]?.send = send
                 return .confirmed
             case nil:
                 if let writeError {
                     send.isOwnerActive = false
-                    state.sends[sid] = send
+                    state.resources[sid]?.send = send
                     return .failed(writeError)
                 }
                 if releasesOwner {
                     send.isOwnerActive = false
-                    state.sends[sid] = send
+                    state.resources[sid]?.send = send
                 }
                 return .unconfirmed
             }
@@ -1647,9 +1683,9 @@ public final class JingleModule: XMPPModule, Sendable {
     private func awaitSendConfirmation(sid: String, until deadline: ContinuousClock.Instant) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let registration = state.withLock { state -> WaitRegistration in
-                guard state.sessions[sid] != nil, let send = state.sends[sid] else { return .gone }
+                guard state.resources[sid]?.session != nil, let send = state.resources[sid]?.send else { return .gone }
                 guard send.confirmation == nil else { return .ready }
-                state.sends[sid]?.wait = continuation
+                state.resources[sid]?.send?.wait = continuation
                 return .waiting
             }
             switch registration {
@@ -1661,8 +1697,8 @@ public final class JingleModule: XMPPModule, Sendable {
                 Task { [weak self] in
                     try? await Task.sleep(until: deadline, clock: .continuous)
                     let wait = self?.state.withLock { state -> CheckedContinuation<Void, Error>? in
-                        let wait = state.sends[sid]?.wait
-                        state.sends[sid]?.wait = nil
+                        let wait = state.resources[sid]?.send?.wait
+                        state.resources[sid]?.send?.wait = nil
                         return wait
                     }
                     wait?.resume()
@@ -1695,17 +1731,17 @@ public final class JingleModule: XMPPModule, Sendable {
     private func sendIBBData(
         sid: String, data: [UInt8], ibbState: IBBSessionState, context: ModuleContext
     ) async throws {
-        let session = state.withLock { $0.sessions[sid] }
+        let session = state.withLock { $0.resources[sid]?.session }
         guard let session else { throw JingleError.sessionNotFound }
 
         // Send IBB open handshake if not yet sent
-        let needsOpen = state.withLock { !($0.ibbStates[sid]?.hasOpened ?? true) }
+        let needsOpen = state.withLock { !($0.resources[sid]?.ibb?.hasOpened ?? true) }
         if needsOpen {
             try await sendIBBOpen(
                 ibbSID: ibbState.ibbSID, blockSize: ibbState.blockSize,
                 peer: session.peer, context: context
             )
-            state.withLock { $0.ibbStates[sid]?.hasOpened = true }
+            state.withLock { $0.resources[sid]?.ibb?.hasOpened = true }
         }
 
         let totalBytes = Int64(data.count)
@@ -1810,14 +1846,14 @@ public final class JingleModule: XMPPModule, Sendable {
     private func claimReceive(sid: String, offerID: String?) throws -> ReceiveClaim {
         let claim = state.withLock { state -> Result<ReceiveClaim, JingleError> in
             guard let context = state.context else { return .failure(.notConnected) }
-            guard let session = Self.session(sid, offerID: offerID, in: state), var receive = state.receives[sid] else { return .failure(.sessionNotFound) }
+            guard let session = Self.session(sid, offerID: offerID, in: state), var receive = state.resources[sid]?.receive else { return .failure(.sessionNotFound) }
             guard receive.expectedSize > 0 else { return .failure(.transportFailed("The file size is invalid")) }
             guard !receive.isClaimed else { return .failure(.transportFailed("The transfer is already being received")) }
 
             let transport: ReceiveTransport
-            if let connection = state.activeConnections[sid] {
+            if let connection = state.resources[sid]?.connection {
                 transport = .socks5(connection)
-            } else if state.ibbStates[sid] != nil {
+            } else if state.resources[sid]?.ibb != nil {
                 transport = .ibb
             } else {
                 return .failure(.transportFailed("No connection is open for the transfer"))
@@ -1829,7 +1865,7 @@ public final class JingleModule: XMPPModule, Sendable {
             if case .socks5 = transport, receive.peerEnd == .terminatedSuccess {
                 armEndOfStream(sid: sid, receive: &receive)
             }
-            state.receives[sid] = receive
+            state.resources[sid]?.receive = receive
             return .success(ReceiveClaim(
                 context: context, expectedSize: receive.expectedSize, transport: transport,
                 expiryTask: expiryTask, offerID: session.offerID
@@ -1842,13 +1878,13 @@ public final class JingleModule: XMPPModule, Sendable {
     private func awaitIBBEnd(sid: String) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let registration = state.withLock { state -> WaitRegistration in
-                guard state.sessions[sid] != nil, var receive = state.receives[sid] else { return .gone }
+                guard state.resources[sid]?.session != nil, var receive = state.resources[sid]?.receive else { return .gone }
                 guard receive.peerEnd == nil else { return .ready }
                 receive.wake = continuation
-                if Int64(state.ibbStates[sid]?.receivedData.count ?? 0) >= receive.expectedSize {
+                if Int64(state.resources[sid]?.ibb?.receivedData.count ?? 0) >= receive.expectedSize {
                     armEndOfStream(sid: sid, receive: &receive)
                 }
-                state.receives[sid] = receive
+                state.resources[sid]?.receive = receive
                 return .waiting
             }
             switch registration {
@@ -1866,24 +1902,24 @@ public final class JingleModule: XMPPModule, Sendable {
     /// buffer. `offerID` binds the commit to the session the claim was taken against.
     private func finalizeReceive(sid: String, offerID: String, socks5Data: [UInt8]?, context: ModuleContext) async throws -> [UInt8] {
         let captured = state.withLock { state -> (data: [UInt8], receive: ReceiveState)? in
-            guard state.sessions[sid]?.offerID == offerID, let receive = state.receives[sid] else { return nil }
-            return (socks5Data ?? state.ibbStates[sid]?.receivedData ?? [], receive)
+            guard state.resources[sid]?.session?.offerID == offerID, let receive = state.resources[sid]?.receive else { return nil }
+            return (socks5Data ?? state.resources[sid]?.ibb?.receivedData ?? [], receive)
         }
         guard let captured else { throw JingleError.sessionNotFound }
 
         let failure = try await verifyReceivedData(sid: sid, offerID: offerID, data: captured.data, receive: captured.receive)
 
         let committed = state.withLock { state -> CommittedReceive? in
-            guard state.sessions[sid]?.offerID == offerID, let session = state.sessions.removeValue(forKey: sid) else { return nil }
-            let peerEnd = state.receives[sid]?.peerEnd
+            guard state.resources[sid]?.session?.offerID == offerID,
+                  let resources = detachSessionResources(sid: sid, state: &state), let session = resources.session else { return nil }
+            let peerEnd = resources.receive?.peerEnd
             return CommittedReceive(
                 peer: session.peer, content: session.content, peerEnd: peerEnd,
-                continuations: cleanupSessionState(sid: sid, state: &state)
+                resources: resources
             )
         }
         guard let committed else { throw JingleError.sessionNotFound }
-        cleanupTransport(sid: sid)
-        committed.continuations.cancel(with: JingleError.sessionNotFound)
+        committed.resources.cancel(with: JingleError.sessionNotFound)
         let peer = committed.peer
         let peerTerminated = committed.peerEnd == .terminatedSuccess
 
@@ -1952,9 +1988,9 @@ public final class JingleModule: XMPPModule, Sendable {
         let wait = timing.checksumWait
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let registration = state.withLock { state -> WaitRegistration in
-                guard state.sessions[sid]?.offerID == offerID, let receive = state.receives[sid] else { return .gone }
+                guard state.resources[sid]?.session?.offerID == offerID, let receive = state.resources[sid]?.receive else { return .gone }
                 guard receive.sessionInfoChecksum == nil else { return .ready }
-                state.receives[sid]?.checksumWait = continuation
+                state.resources[sid]?.receive?.checksumWait = continuation
                 return .waiting
             }
             switch registration {
@@ -1967,16 +2003,16 @@ public final class JingleModule: XMPPModule, Sendable {
                     try? await Task.sleep(for: wait)
                     // The timer outlives an ended session, so it only releases the wait of the session that started it.
                     let checksumWait = self?.state.withLock { state -> CheckedContinuation<Void, Error>? in
-                        guard state.sessions[sid]?.offerID == offerID else { return nil }
-                        let checksumWait = state.receives[sid]?.checksumWait
-                        state.receives[sid]?.checksumWait = nil
+                        guard state.resources[sid]?.session?.offerID == offerID else { return nil }
+                        let checksumWait = state.resources[sid]?.receive?.checksumWait
+                        state.resources[sid]?.receive?.checksumWait = nil
                         return checksumWait
                     }
                     checksumWait?.resume()
                 }
             }
         }
-        return state.withLock { $0.receives[sid]?.sessionInfoChecksum }
+        return state.withLock { $0.resources[sid]?.receive?.sessionInfoChecksum }
     }
 
     func receiveSOCKS5Data(
@@ -2010,12 +2046,12 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func beginTransportConnection(sid: String, context: ModuleContext) async {
         let (session, listener) = state.withLock { state -> (JingleSession?, SOCKS5Listener?) in
-            guard let session = state.sessions[sid], Self.acceptsSOCKS5Outcome(session), !session.isTransportAttemptStarted else {
+            guard let session = state.resources[sid]?.session, Self.acceptsSOCKS5Outcome(session), !session.isTransportAttemptStarted else {
                 return (nil, nil)
             }
-            state.sessions[sid]?.isTransportAttemptStarted = true
-            state.sessions[sid]?.transportState = .connecting
-            let listener = state.activeListeners[sid]
+            state.resources[sid]?.session?.isTransportAttemptStarted = true
+            state.resources[sid]?.session?.transportState = .connecting
+            let listener = state.resources[sid]?.listener
             return (session, listener)
         }
         guard let session else { return }
@@ -2059,9 +2095,9 @@ public final class JingleModule: XMPPModule, Sendable {
 
     private func cleanupTransport(sid: String) {
         let (connection, pending, listener) = state.withLock { state in
-            (state.activeConnections.removeValue(forKey: sid),
-             state.pendingProxyConnections.removeValue(forKey: sid),
-             state.activeListeners.removeValue(forKey: sid))
+            let connection = state.resources[sid]?.connection
+            state.resources[sid]?.connection = nil
+            return (connection, state.resources[sid]?.takePendingProxy(), state.resources[sid]?.takeListener())
         }
         if let connection {
             Task { await connection.close() }
@@ -2077,14 +2113,14 @@ public final class JingleModule: XMPPModule, Sendable {
     /// Drops a proxy socket that never became live, leaving the session, its receive state and its transport waiter in
     /// place so the peer's transport-replace can still switch this transfer to IBB.
     private func releasePendingProxy(sid: String) {
-        let pending = state.withLock { $0.pendingProxyConnections.removeValue(forKey: sid) }
+        let pending = state.withLock { $0.resources[sid]?.takePendingProxy() }
         if let pending {
             Task { await pending.connection.close() }
         }
     }
 
     private func cleanupListener(sid: String) {
-        let listener = state.withLock { $0.activeListeners.removeValue(forKey: sid) }
+        let listener = state.withLock { $0.resources[sid]?.takeListener() }
         if let listener {
             Task { await listener.close() }
         }
@@ -2144,16 +2180,16 @@ public final class JingleModule: XMPPModule, Sendable {
         let (isCurrent, continuation) = state.withLock { state -> (Bool, CheckedContinuation<Void, Error>?) in
             // A transport already in place owns the session, including a nominated proxy still awaiting activation. An
             // attempt that finishes after it closes its own connection instead of replacing that one.
-            guard let current = state.sessions[sid], current.offerID == session.offerID, Self.acceptsSOCKS5Outcome(current),
-                  state.activeConnections[sid] == nil, state.pendingProxyConnections[sid] == nil else { return (false, nil) }
+            guard let current = state.resources[sid]?.session, current.offerID == session.offerID, Self.acceptsSOCKS5Outcome(current),
+                  state.resources[sid]?.connection == nil, state.resources[sid]?.pendingProxy == nil else { return (false, nil) }
             guard !isProxy else {
-                state.pendingProxyConnections[sid] = PendingProxy(connection: result.connection, cid: result.cid)
+                state.resources[sid]?.pendingProxy = PendingProxy(connection: result.connection, cid: result.cid)
                 return (true, nil)
             }
-            state.activeConnections[sid] = result.connection
-            state.sessions[sid]?.transportState = .connected(candidateCID: result.cid)
-            state.sessions[sid]?.selectedTransport = .socks5
-            let cont = state.transportReadyContinuations.removeValue(forKey: sid)
+            state.resources[sid]?.connection = result.connection
+            state.resources[sid]?.session?.transportState = .connected(candidateCID: result.cid)
+            state.resources[sid]?.session?.selectedTransport = .socks5
+            let cont = state.resources[sid]?.takeTransportWait()
             return (true, cont)
         }
         guard isCurrent else {
@@ -2181,9 +2217,9 @@ public final class JingleModule: XMPPModule, Sendable {
         let isCurrent = state.withLock { state -> Bool in
             // A listener that times out after the peer's nominated proxy went live is not a failed transfer, and a dial for a
             // session that ended says nothing about a later one reusing its sid.
-            guard let current = state.sessions[sid], current.offerID == session.offerID, Self.acceptsSOCKS5Outcome(current),
-                  state.activeConnections[sid] == nil, state.pendingProxyConnections[sid] == nil else { return false }
-            state.sessions[sid]?.transportState = .failed
+            guard let current = state.resources[sid]?.session, current.offerID == session.offerID, Self.acceptsSOCKS5Outcome(current),
+                  state.resources[sid]?.connection == nil, state.resources[sid]?.pendingProxy == nil else { return false }
+            state.resources[sid]?.session?.transportState = .failed
             return true
         }
         guard isCurrent else {
@@ -2284,47 +2320,53 @@ public final class JingleModule: XMPPModule, Sendable {
 
     /// Builds SOCKS5 candidates for a session and registers its direct-candidate listener.
     private func buildCandidates(
-        sid: String,
-        context: ModuleContext
-    ) async -> [SOCKS5Transport.Candidate] {
+        sid: String, offerID: String, context: ModuleContext
+    ) async throws -> [SOCKS5Transport.Candidate] {
+        try checkPreparation(sid: sid, offerID: offerID)
         var candidates: [SOCKS5Transport.Candidate] = []
-
-        // Direct candidates from local network interfaces
-        let addresses = NetworkInterfaces.localAddresses().filter(\.isIPv4)
+        let addresses = localAddresses().filter(\.isIPv4)
         if !addresses.isEmpty {
             let listener = SOCKS5Listener()
-            if let port = try? await listener.start() {
-                state.withLock { $0.activeListeners[sid] = listener }
-
+            let registered = state.withLock { state in
+                guard state.resources[sid]?.offerID == offerID else { return false }
+                state.resources[sid]?.listener = listener
+                return true
+            }
+            guard registered else { throw JingleError.sessionNotFound }
+            let port = try? await startListener(listener)
+            do {
+                try checkPreparation(sid: sid, offerID: offerID)
+            } catch {
+                // A close before start cannot prevent that later start from opening its descriptors.
+                await listener.close()
+                throw error
+            }
+            if let port {
                 let myJID = context.connectedJID()?.description ?? ""
                 for (index, address) in addresses.enumerated() {
-                    let candidate = SOCKS5Transport.Candidate(
-                        cid: context.generateID(),
-                        host: address.ip,
-                        port: port,
-                        jid: myJID,
-                        priority: UInt32(100 + addresses.count - index),
-                        type: .direct
-                    )
-                    candidates.append(candidate)
+                    candidates.append(SOCKS5Transport.Candidate(
+                        cid: context.generateID(), host: address.ip, port: port, jid: myJID,
+                        priority: UInt32(100 + addresses.count - index), type: .direct
+                    ))
                 }
+            } else {
+                await listener.close()
             }
         }
 
-        // Proxy candidate
-        if let proxy = try? await discoverProxy65(context: context) {
-            let candidate = SOCKS5Transport.Candidate(
-                cid: context.generateID(),
-                host: proxy.host,
-                port: proxy.port,
-                jid: proxy.jid,
-                priority: 10,
-                type: .proxy
-            )
-            candidates.append(candidate)
+        let proxy = try? await discoverProxy65(context: context)
+        try checkPreparation(sid: sid, offerID: offerID)
+        if let proxy {
+            candidates.append(SOCKS5Transport.Candidate(
+                cid: context.generateID(), host: proxy.host, port: proxy.port, jid: proxy.jid, priority: 10, type: .proxy
+            ))
         }
-
         return candidates
+    }
+
+    private func checkPreparation(sid: String, offerID: String) throws {
+        try Task.checkCancellation()
+        guard state.withLock({ $0.resources[sid]?.offerID == offerID }) else { throw JingleError.sessionNotFound }
     }
 
     // MARK: - Proxy Activation
