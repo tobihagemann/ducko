@@ -9,8 +9,6 @@ final class NotificationPreferences {
         static let doNotDisturb = "notificationDoNotDisturb"
     }
 
-    private static let defaults = PreferencesDefaults.store
-
     var playNotificationSounds: Bool {
         didSet { playNotificationSoundsStorage = playNotificationSounds }
     }
@@ -20,13 +18,15 @@ final class NotificationPreferences {
     }
 
     @ObservationIgnored
-    @AppStorage(Keys.playNotificationSounds, store: NotificationPreferences.defaults) private var playNotificationSoundsStorage = true
+    @AppStorage(Keys.playNotificationSounds) private var playNotificationSoundsStorage = true
 
     @ObservationIgnored
-    @AppStorage(Keys.doNotDisturb, store: NotificationPreferences.defaults) private var doNotDisturbStorage = false
+    @AppStorage(Keys.doNotDisturb) private var doNotDisturbStorage = false
 
-    init() {
-        self.playNotificationSounds = NotificationPreferences.defaults.object(forKey: Keys.playNotificationSounds) as? Bool ?? true
-        self.doNotDisturb = NotificationPreferences.defaults.bool(forKey: Keys.doNotDisturb)
+    init(defaults: UserDefaults = PreferencesDefaults.store) {
+        _playNotificationSoundsStorage = AppStorage(wrappedValue: true, Keys.playNotificationSounds, store: defaults)
+        _doNotDisturbStorage = AppStorage(wrappedValue: false, Keys.doNotDisturb, store: defaults)
+        self.playNotificationSounds = defaults.object(forKey: Keys.playNotificationSounds) as? Bool ?? true
+        self.doNotDisturb = defaults.bool(forKey: Keys.doNotDisturb)
     }
 }

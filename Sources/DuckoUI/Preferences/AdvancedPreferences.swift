@@ -4,8 +4,6 @@ import SwiftUI
 
 @MainActor @Observable
 final class AdvancedPreferences {
-    private static let defaults = PreferencesDefaults.store
-
     var logLevel: LogLevelPreference {
         didSet { logLevelStorage = logLevel }
     }
@@ -15,10 +13,11 @@ final class AdvancedPreferences {
     }
 
     @ObservationIgnored
-    @AppStorage(LogLevelPreference.userDefaultsKey, store: AdvancedPreferences.defaults)
+    @AppStorage(LogLevelPreference.userDefaultsKey)
     private var logLevelStorage: LogLevelPreference = .standard
 
-    init() {
-        self.logLevel = LogLevelPreference.current
+    init(defaults: UserDefaults = PreferencesDefaults.store) {
+        _logLevelStorage = AppStorage(wrappedValue: .standard, LogLevelPreference.userDefaultsKey, store: defaults)
+        self.logLevel = LogLevelPreference.read(from: defaults)
     }
 }

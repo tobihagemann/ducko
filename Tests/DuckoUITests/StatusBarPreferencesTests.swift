@@ -3,59 +3,45 @@ import Foundation
 import Testing
 @testable import DuckoUI
 
-private nonisolated(unsafe) let defaults = PreferencesDefaults.store
-
-/// Serialized because every test mutates the same two shared `PreferencesDefaults` keys; parallel runs would
-/// race on them.
-@Suite(.serialized)
 @MainActor
 struct StatusBarPreferencesTests {
-    private func clear() {
-        defaults.removeObject(forKey: "statusBarIdentityAccountID")
-        defaults.removeObject(forKey: "statusBarSavedMessages")
-    }
-
     @Test func `identity account ID defaults to nil`() {
-        clear()
-        defer { clear() }
-        #expect(StatusBarPreferences().identityAccountID == nil)
+        let fixture = PreferencesFixture()
+        #expect(StatusBarPreferences(defaults: fixture.defaults).identityAccountID == nil)
     }
 
     @Test func `identity account ID persists`() {
-        clear()
-        defer { clear() }
+        let fixture = PreferencesFixture()
         let id = UUID()
-        let prefs = StatusBarPreferences()
+        let prefs = StatusBarPreferences(defaults: fixture.defaults)
         prefs.identityAccountID = id
-        #expect(StatusBarPreferences().identityAccountID == id)
+        #expect(StatusBarPreferences(defaults: fixture.defaults).identityAccountID == id)
     }
 
     @Test func `clearing identity account ID round-trips to nil`() {
-        clear()
-        defer { clear() }
-        let prefs = StatusBarPreferences()
+        let fixture = PreferencesFixture()
+        let prefs = StatusBarPreferences(defaults: fixture.defaults)
         prefs.identityAccountID = UUID()
         prefs.identityAccountID = nil
-        #expect(StatusBarPreferences().identityAccountID == nil)
+        #expect(StatusBarPreferences(defaults: fixture.defaults).identityAccountID == nil)
     }
 
     @Test func `saved messages round-trip per category`() {
-        clear()
-        defer { clear() }
-        let prefs = StatusBarPreferences()
+        let fixture = PreferencesFixture()
+        let prefs = StatusBarPreferences(defaults: fixture.defaults)
         prefs.saveMessage("Lunch", for: .away)
         prefs.saveMessage("Heads down", for: .dnd)
 
-        let reloaded = StatusBarPreferences()
+        let reloaded = StatusBarPreferences(defaults: fixture.defaults)
         #expect(reloaded.savedMessages(for: .away) == ["Lunch"])
         #expect(reloaded.savedMessages(for: .dnd) == ["Heads down"])
         #expect(reloaded.savedMessages(for: .available) == [])
+        #expect(StatusBarPreferences(defaults: PreferencesFixture().defaults).savedMessages.isEmpty)
     }
 
     @Test func `saving caps at five most-recent and dedupes`() {
-        clear()
-        defer { clear() }
-        let prefs = StatusBarPreferences()
+        let fixture = PreferencesFixture()
+        let prefs = StatusBarPreferences(defaults: fixture.defaults)
         for i in 1 ... 7 {
             prefs.saveMessage("msg \(i)", for: .away)
         }
@@ -67,21 +53,19 @@ struct StatusBarPreferencesTests {
     }
 
     @Test func `whitespace-only saved message is ignored`() {
-        clear()
-        defer { clear() }
-        let prefs = StatusBarPreferences()
+        let fixture = PreferencesFixture()
+        let prefs = StatusBarPreferences(defaults: fixture.defaults)
         prefs.saveMessage("   ", for: .away)
         #expect(prefs.savedMessages(for: .away) == [])
     }
 
     @Test func `removeMessage deletes a saved entry and persists`() {
-        clear()
-        defer { clear() }
-        let prefs = StatusBarPreferences()
+        let fixture = PreferencesFixture()
+        let prefs = StatusBarPreferences(defaults: fixture.defaults)
         prefs.saveMessage("Lunch", for: .away)
         prefs.saveMessage("Errand", for: .away)
         prefs.removeMessage("Lunch", for: .away)
         #expect(prefs.savedMessages(for: .away) == ["Errand"])
-        #expect(StatusBarPreferences().savedMessages(for: .away) == ["Errand"])
+        #expect(StatusBarPreferences(defaults: fixture.defaults).savedMessages(for: .away) == ["Errand"])
     }
 }

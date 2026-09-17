@@ -154,37 +154,72 @@ struct DuckoThemeTests {
 
 @MainActor
 struct ThemeEngineTests {
-    @Test func `init loads built in themes`() {
-        let engine = ThemeEngine()
-        let count = engine.availableThemes.count
-        #expect(count >= 4)
+    private func userTheme(from theme: DuckoTheme, id: String, name: String) throws -> DuckoTheme {
+        let data = try JSONEncoder().encode(theme)
+        var fields = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        fields["id"] = id
+        fields["name"] = name
+        return try JSONDecoder().decode(DuckoTheme.self, from: JSONSerialization.data(withJSONObject: fields))
     }
 
-    @Test func `select theme persists and updates current`() {
-        let engine = ThemeEngine()
-        defer { engine.selectTheme(engine.availableThemes[0]) }
-        guard engine.availableThemes.count >= 2 else { return }
+    @Test func `init loads built in themes`() {
+        let fixture = PreferencesFixture()
+        let engine = fixture.makeThemeEngine()
+        #expect(engine.availableThemes.count >= 4)
+    }
 
-        let second = engine.availableThemes[1]
+    @Test func `select theme persists and updates current`() throws {
+        let fixture = PreferencesFixture()
+        let engine = fixture.makeThemeEngine()
+        let second = try #require(engine.availableThemes.dropFirst().first)
         engine.selectTheme(second)
         #expect(engine.current.id == second.id)
-
-        let engine2 = ThemeEngine()
-        #expect(engine2.current.id == second.id)
+        #expect(fixture.makeThemeEngine().current.id == second.id)
+        #expect(PreferencesFixture().makeThemeEngine().current.id == "default")
     }
 
-    @Test func `unknown saved ID falls back to first`() {
-        let engine = ThemeEngine()
-        defer { engine.selectTheme(engine.availableThemes[0]) }
-        let defaults: UserDefaults = {
-            if let suite = DuckoCore.BuildEnvironment.userDefaultsSuiteName {
-                return UserDefaults(suiteName: suite) ?? .standard
-            }
-            return .standard
-        }()
-        defaults.set("nonexistent-theme-id", forKey: "selectedThemeID")
+    @Test func `unknown saved ID falls back to default`() {
+        let fixture = PreferencesFixture()
+        fixture.defaults.set("nonexistent-theme-id", forKey: "selectedThemeID")
+        #expect(fixture.makeThemeEngine().current.id == "default")
+    }
 
-        let engine2 = ThemeEngine()
-        #expect(engine2.current.id == "default")
+    @Test func `user theme reload uses only the injected directory`() throws {
+        let fixture = PreferencesFixture()
+        let engine = fixture.makeThemeEngine()
+        var theme = try userTheme(from: engine.current, id: "local-test", name: "Local test")
+        try FileManager.default.createDirectory(at: fixture.themeDirectory, withIntermediateDirectories: true)
+        let file = fixture.themeDirectory.appendingPathComponent("local.json")
+        try JSONEncoder().encode(theme).write(to: file)
+        engine.reloadUserThemes()
+        #expect(engine.availableThemes.contains(theme))
+        #expect(!PreferencesFixture().makeThemeEngine().availableThemes.contains(theme))
+        engine.selectTheme(theme)
+        theme = try userTheme(from: theme, id: theme.id, name: "Updated local test")
+        try JSONEncoder().encode(theme).write(to: file)
+        engine.reloadUserThemes()
+        #expect(engine.current == theme)
+        try FileManager.default.removeItem(at: file)
+        engine.reloadUserThemes()
+        #expect(engine.current.id == "default")
+    }
+
+    @Test func `temporary directory watcher reloads and releases its engine`() async throws {
+        let fixture = PreferencesFixture()
+        var engine: ThemeEngine? = fixture.makeThemeEngine(watchesUserThemes: true)
+        weak var releasedEngine = engine
+        let current = try #require(engine?.current)
+        let theme = try userTheme(from: current, id: "watched-test", name: "Watched test")
+        let file = fixture.themeDirectory.appendingPathComponent("watched.json")
+        try JSONEncoder().encode(theme).write(to: file)
+        let deadline = ContinuousClock.now + .seconds(3)
+        while engine?.availableThemes.contains(theme) == false, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(engine?.availableThemes.contains(theme) == true)
+        // Queue another reload and drop the owner while debounce work may be pending.
+        try JSONEncoder().encode(theme).write(to: file)
+        engine = nil
+        #expect(releasedEngine == nil)
     }
 }

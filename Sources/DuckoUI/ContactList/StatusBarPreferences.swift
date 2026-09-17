@@ -11,8 +11,6 @@ public final class StatusBarPreferences {
         static let savedMessages = "statusBarSavedMessages"
     }
 
-    private static let defaults = PreferencesDefaults.store
-
     /// How many recent custom messages to keep per presence category.
     private static let maxSavedPerCategory = 5
 
@@ -25,15 +23,21 @@ public final class StatusBarPreferences {
     }
 
     @ObservationIgnored
-    @AppStorage(Keys.identityAccountID, store: StatusBarPreferences.defaults) private var identityAccountIDStorage = ""
+    @AppStorage(Keys.identityAccountID) private var identityAccountIDStorage = ""
 
     @ObservationIgnored
-    @AppStorage(Keys.savedMessages, store: StatusBarPreferences.defaults) private var savedMessagesStorage = "{}"
+    @AppStorage(Keys.savedMessages) private var savedMessagesStorage = "{}"
 
-    public init() {
-        self.identityAccountID = StatusBarPreferences.defaults.string(forKey: Keys.identityAccountID)
+    public convenience init() {
+        self.init(defaults: PreferencesDefaults.store)
+    }
+
+    init(defaults: UserDefaults) {
+        _identityAccountIDStorage = AppStorage(wrappedValue: "", Keys.identityAccountID, store: defaults)
+        _savedMessagesStorage = AppStorage(wrappedValue: "{}", Keys.savedMessages, store: defaults)
+        self.identityAccountID = defaults.string(forKey: Keys.identityAccountID)
             .flatMap { $0.isEmpty ? nil : UUID(uuidString: $0) }
-        self.savedMessages = Self.loadSavedMessages()
+        self.savedMessages = Self.loadSavedMessages(from: defaults)
     }
 
     func savedMessages(for status: PresenceService.PresenceStatus) -> [String] {
@@ -65,7 +69,7 @@ public final class StatusBarPreferences {
         }
     }
 
-    private static func loadSavedMessages() -> [PresenceService.PresenceStatus: [String]] {
+    private static func loadSavedMessages(from defaults: UserDefaults) -> [PresenceService.PresenceStatus: [String]] {
         let json = defaults.string(forKey: Keys.savedMessages) ?? "{}"
         guard let data = json.data(using: .utf8),
               let keyed = try? JSONDecoder().decode([String: [String]].self, from: data)

@@ -13,6 +13,10 @@ public enum LogLevelPreference: String, CaseIterable, Sendable {
 
     /// The persisted preference, reading a missing or unrecognized value as `.standard`.
     public static var current: LogLevelPreference {
-        PreferencesDefaults.store.string(forKey: userDefaultsKey).flatMap(LogLevelPreference.init(rawValue:)) ?? .standard
+        read(from: PreferencesDefaults.store)
+    }
+
+    public static func read(from defaults: UserDefaults) -> LogLevelPreference {
+        defaults.string(forKey: userDefaultsKey).flatMap(LogLevelPreference.init(rawValue:)) ?? .standard
     }
 }

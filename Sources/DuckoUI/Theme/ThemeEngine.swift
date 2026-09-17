@@ -11,7 +11,10 @@ public final class ThemeEngine {
     private static let defaultThemeID = "default"
 
     @ObservationIgnored
-    private static let defaults = PreferencesDefaults.store
+    private let defaults: UserDefaults
+
+    @ObservationIgnored
+    private let userThemeDirectory: URL
 
     @ObservationIgnored
     private var builtInThemes: [DuckoTheme] = []
@@ -22,18 +25,28 @@ public final class ThemeEngine {
     public private(set) var availableThemes: [DuckoTheme] = []
     public private(set) var current: DuckoTheme
 
-    public init() {
+    public convenience init() {
+        self.init(
+            defaults: PreferencesDefaults.store,
+            userThemeDirectory: BuildEnvironment.appSupportDirectory.appendingPathComponent("Themes", isDirectory: true),
+            watchesUserThemes: true
+        )
+    }
+
+    init(defaults: UserDefaults, userThemeDirectory: URL, watchesUserThemes: Bool) {
+        self.defaults = defaults
+        self.userThemeDirectory = userThemeDirectory
         let builtIn = ThemeEngine.loadBuiltInThemes()
-        let userThemes = ThemeEngine.loadUserThemes()
+        let userThemes = ThemeEngine.loadThemes(from: userThemeDirectory)
         let all = builtIn + userThemes
         precondition(!all.isEmpty, "No themes found — built-in theme bundle is missing")
         self.builtInThemes = builtIn
         self.availableThemes = all
 
-        let savedID = ThemeEngine.defaults.string(forKey: Keys.selectedThemeID)
+        let savedID = defaults.string(forKey: Keys.selectedThemeID)
         self.current = all.first { $0.id == savedID } ?? all.first { $0.id == ThemeEngine.defaultThemeID } ?? all[0]
 
-        startWatchingUserThemes()
+        if watchesUserThemes { startWatchingUserThemes() }
     }
 
     deinit {
@@ -43,11 +56,11 @@ public final class ThemeEngine {
 
     public func selectTheme(_ theme: DuckoTheme) {
         current = theme
-        ThemeEngine.defaults.set(theme.id, forKey: Keys.selectedThemeID)
+        defaults.set(theme.id, forKey: Keys.selectedThemeID)
     }
 
     public func reloadUserThemes() {
-        let userThemes = ThemeEngine.loadUserThemes()
+        let userThemes = ThemeEngine.loadThemes(from: userThemeDirectory)
         availableThemes = builtInThemes + userThemes
 
         if let updated = availableThemes.first(where: { $0.id == current.id }) {
@@ -75,7 +88,7 @@ public final class ThemeEngine {
     }
 
     private func startWatchingUserThemes() {
-        let themesDir = BuildEnvironment.appSupportDirectory.appendingPathComponent("Themes", isDirectory: true)
+        let themesDir = userThemeDirectory
         try? FileManager.default.createDirectory(at: themesDir, withIntermediateDirectories: true)
 
         let fd = open(themesDir.path, O_EVTONLY)
@@ -106,11 +119,6 @@ public final class ThemeEngine {
             return []
         }
         return loadThemes(from: themesURL)
-    }
-
-    private static func loadUserThemes() -> [DuckoTheme] {
-        let userThemesDir = BuildEnvironment.appSupportDirectory.appendingPathComponent("Themes", isDirectory: true)
-        return loadThemes(from: userThemesDir)
     }
 
     private static func loadThemes(from directory: URL) -> [DuckoTheme] {

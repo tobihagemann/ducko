@@ -12,7 +12,11 @@ public enum LoggingConfiguration {
     /// Resolves the dynamic file-log level from the persisted preference at every emit, so a
     /// runtime change (Preferences > Advanced > Log Level) takes effect without re-bootstrapping.
     static var fileLogLevel: Logger.Level {
-        switch LogLevelPreference.current {
+        fileLogLevel(from: PreferencesDefaults.store)
+    }
+
+    static func fileLogLevel(from defaults: UserDefaults) -> Logger.Level {
+        switch LogLevelPreference.read(from: defaults) {
         case .standard: .info
         case .debug: .debug
         case .verbose: .trace
