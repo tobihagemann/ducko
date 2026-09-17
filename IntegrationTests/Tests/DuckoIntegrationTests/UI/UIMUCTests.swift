@@ -92,14 +92,14 @@ extension DuckoIntegrationTests.UILayer {
         ))
         @MainActor func `participant context menu offers change nickname for self`() async throws {
             try await UISeededApp.withSeededApp { app in
-                _ = try await Self.joinAndUnlockRoom(app)
+                let roomJID = try await Self.joinAndUnlockRoom(app)
 
                 // The participant sidebar is in the Chat window; the pinned
                 // Contacts window can overlap it. A synthetic right-click is
                 // hit-tested against the topmost window at the point, so move
                 // Contacts out of the way and bring Chat forward first.
                 try await app.setWindowMinimized(named: "Contacts", true)
-                try await app.activateWindow(named: "Chat")
+                try await app.activateWindow(named: roomJID)
 
                 try await app.click(identifier: "toggle-participant-sidebar")
                 try await app.waitForElement(identifier: "participant-sidebar", timeout: TestTimeout.uiElement)
@@ -128,7 +128,7 @@ extension DuckoIntegrationTests.UILayer {
                 // button (its title does bridge) to know the alert is up.
                 let newNickname = "alice-\(UUID().uuidString.prefix(4))"
                 try await app.waitForWindowButton(label: "Change")
-                await app.typeIntoFocusedElement(newNickname)
+                try await app.typeIntoFocusedElement(newNickname)
                 try await app.clickDescendantButton(label: "Change")
 
                 try await app.waitForDescendant(
@@ -146,12 +146,12 @@ extension DuckoIntegrationTests.UILayer {
         ))
         @MainActor func `room subject can be edited via the pencil`() async throws {
             try await UISeededApp.withSeededApp { app in
-                _ = try await Self.joinAndUnlockRoom(app)
+                let roomJID = try await Self.joinAndUnlockRoom(app)
 
                 // Make Chat the key window so its SwiftUI controls respond to
                 // kAXPress (the pinned Contacts window otherwise keeps key).
                 try await app.setWindowMinimized(named: "Contacts", true)
-                try await app.activateWindow(named: "Chat")
+                try await app.activateWindow(named: roomJID)
 
                 let topic = "topic-\(UUID().uuidString.prefix(6))"
                 // SwiftUI propagates `room-subject-view` onto each leaf, so the
@@ -255,12 +255,8 @@ extension DuckoIntegrationTests.UILayer {
             try await app.clickSheetButton(label: "Save")
             try await app.waitForSheetDismissed()
 
-            // Bring the chat window back to key for the test body. The chat
-            // window is a single tabbed `Window("Chat")` whose title is the
-            // selected conversation's displayName (nil for a freshly-joined
-            // room, so the literal "Chat"), not the room JID — and the room is
-            // already the selected tab, so re-keying "Chat" is sufficient.
-            try await app.activateWindow(named: "Chat")
+            // A fresh room has no display name, so its chat window is titled with the room JID.
+            try await app.activateWindow(named: roomJID)
             return roomJID
         }
     }

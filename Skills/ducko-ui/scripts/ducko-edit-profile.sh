@@ -26,28 +26,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS/ducko-helpers.sh"
 
 # Open profile sheet
 "$SCRIPTS/ducko-profile.sh" > /dev/null 2>&1
 sleep 0.5
 
-RESULT=$(osascript - "$FULLNAME" "$NICKNAME" "$EMAIL" "$SAVE" << 'APPLESCRIPT'
-on findByAttr(el, attrName, attrValue, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (value of attribute attrName of c) is attrValue then return c
-                end try
-                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByAttr
-
+RESULT=$(osascript - "$FULLNAME" "$NICKNAME" "$EMAIL" "$SAVE" << APPLESCRIPT
+$(ducko_as_handlers)
 on fillField(win, fieldId, fieldValue)
     set theField to my findByAttr(win, "AXIdentifier", fieldId, 0, 30)
     if theField is missing value then return false

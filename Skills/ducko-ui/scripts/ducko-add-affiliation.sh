@@ -17,29 +17,15 @@ fi
 ROOM_JID="$1"
 AFF_JID="$2"
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS/ducko-helpers.sh"
 
 # Open Room Settings sheet and switch to Members tab
 "$SCRIPTS/ducko-room-settings.sh" "$ROOM_JID" > /dev/null 2>&1
 "$SCRIPTS/ducko-room-settings-tab.sh" Members > /dev/null 2>&1
 sleep 0.5
 
-RESULT=$(osascript - "$AFF_JID" << 'APPLESCRIPT'
-on findByAttr(el, attrName, attrValue, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (value of attribute attrName of c) is attrValue then return c
-                end try
-                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByAttr
-
+RESULT=$(osascript - "$AFF_JID" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set affJID to item 1 of argv
     tell application "System Events"

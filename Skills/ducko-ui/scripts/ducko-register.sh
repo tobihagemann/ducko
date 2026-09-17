@@ -22,23 +22,11 @@ USERNAME="$2"
 PASSWORD="$3"
 EMAIL="${4:-__none__}"
 
-RESULT=$(osascript - "$SERVER" "$USERNAME" "$PASSWORD" "$EMAIL" << 'APPLESCRIPT'
-on findByAttr(el, attrName, attrValue, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (value of attribute attrName of c) is attrValue then return c
-                end try
-                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByAttr
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 
+RESULT=$(osascript - "$SERVER" "$USERNAME" "$PASSWORD" "$EMAIL" << APPLESCRIPT
+$(ducko_as_handlers)
 on fillField(win, fieldId, fieldValue)
     set theField to my findByAttr(win, "AXIdentifier", fieldId, 0, 30)
     if theField is missing value then return false

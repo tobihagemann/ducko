@@ -12,25 +12,11 @@ ROOM_JID="${1:?Usage: ducko-remove-bookmark.sh ROOM_JID}"
 
 # Ensure Bookmarks sheet is open
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 "$SCRIPT_DIR/ducko-bookmarks.sh" > /dev/null 2>&1 || true
 
-RESULT=$(osascript - "$ROOM_JID" << 'APPLESCRIPT'
-on findByAttr(el, attrName, attrValue, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (value of attribute attrName of c) is attrValue then return c
-                end try
-                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByAttr
-
+RESULT=$(osascript - "$ROOM_JID" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set roomJID to item 1 of argv
     set targetRowId to "bookmark-row-" & roomJID

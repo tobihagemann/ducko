@@ -9,25 +9,11 @@ set -euo pipefail
 
 # Ensure profile sheet is open
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 "$SCRIPT_DIR/ducko-profile.sh" > /dev/null 2>&1 || true
 
-RESULT=$(osascript << 'APPLESCRIPT'
-on findByAttr(el, attrName, attrValue, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (value of attribute attrName of c) is attrValue then return c
-                end try
-                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByAttr
-
+RESULT=$(osascript << APPLESCRIPT
+$(ducko_as_handlers)
 on run
     tell application "System Events"
         set frontmost of process "DuckoApp" to true

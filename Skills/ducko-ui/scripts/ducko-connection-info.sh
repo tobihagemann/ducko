@@ -11,26 +11,12 @@ set -euo pipefail
 
 # Ensure Preferences window is open on the Accounts tab
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
 "$SCRIPT_DIR/ducko-preferences.sh" > /dev/null 2>&1 || true
 "$SCRIPT_DIR/ducko-preferences-tab.sh" Accounts > /dev/null 2>&1 || true
 
-RESULT=$(osascript << 'APPLESCRIPT'
-on findByRoleAndName(el, roleWanted, nameWanted, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (role of c) is roleWanted and (name of c) is nameWanted then return c
-                end try
-                set found to my findByRoleAndName(c, roleWanted, nameWanted, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByRoleAndName
-
+RESULT=$(osascript << APPLESCRIPT
+$(ducko_as_handlers)
 on findAccountRow(el, depth, maxDepth)
     tell application "System Events"
         if depth > maxDepth then return missing value

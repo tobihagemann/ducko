@@ -15,44 +15,14 @@ fi
 
 ROOM_JID="$1"
 SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPTS/ducko-helpers.sh"
 
 # Open Room Settings sheet
 "$SCRIPTS/ducko-room-settings.sh" "$ROOM_JID" > /dev/null 2>&1
 sleep 0.5
 
-RESULT=$(osascript << 'APPLESCRIPT'
-on findByAttr(el, attrName, attrValue, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (value of attribute attrName of c) is attrValue then return c
-                end try
-                set found to my findByAttr(c, attrName, attrValue, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByAttr
-
-on findByRoleAndName(el, roleWanted, nameWanted, depth, maxDepth)
-    tell application "System Events"
-        if depth > maxDepth then return missing value
-        try
-            repeat with c in (UI elements of el)
-                try
-                    if (role of c) is roleWanted and (name of c) is nameWanted then return c
-                end try
-                set found to my findByRoleAndName(c, roleWanted, nameWanted, depth + 1, maxDepth)
-                if found is not missing value then return found
-            end repeat
-        end try
-    end tell
-    return missing value
-end findByRoleAndName
-
+RESULT=$(osascript << APPLESCRIPT
+$(ducko_as_handlers)
 on run
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
