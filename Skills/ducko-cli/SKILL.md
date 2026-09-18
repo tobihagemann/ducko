@@ -1,6 +1,6 @@
 ---
 name: ducko-cli
-description: "Operate the Ducko XMPP CLI tool. Use when asked to send XMPP messages, start an interactive XMPP session, list accounts, check roster, view history, manage presence, or test the CLI, including smoke-testing stream-level behavior (STARTTLS, stream features) against a local stub server. Covers running commands, authentication, output formats, and all subcommands."
+description: "Operate the Ducko XMPP CLI tool. Use when asked to send XMPP messages, start an interactive XMPP session, list accounts, check roster, view history, manage presence, or test the CLI, including scripted REPL sessions against a live account and smoke-testing stream-level behavior (STARTTLS, stream features) against a local stub server. Covers running commands, authentication, output formats, and all subcommands."
 ---
 
 # Ducko CLI
@@ -412,6 +412,29 @@ Same as plain with color codes (green incoming, cyan outgoing, red errors, dim t
 ```
 
 Optional keys: `"delivered":"true"`, `"edited":"true"`, `"encrypted":"true"`, `"error":"..."`. Keys are sorted alphabetically.
+
+## Throwaway Profiles
+
+Test runs use the debug binary `.build/debug/DuckoCLI` with a `DUCKO_PROFILE=<unique>` prefix on every command; release builds ignore `DUCKO_PROFILE` and write to the production store, and shell state does not carry between Bash tool calls, so an `export` is lost. Run these commands unsandboxed: the profile lives under `~/Library/Application Support/Ducko-Dev-<unique>/`, which the Bash sandbox refuses to create with "You don't have permission to save the file".
+
+Clean up afterwards:
+
+```bash
+rm -rf "$HOME/Library/Application Support/Ducko-Dev-<unique>"
+defaults delete im.ducko.dev.<unique>
+```
+
+## Live Smoke Testing
+
+Drive the REPL non-interactively against a live account by piping one command per line into `interactive`, ending with `quit`. Pass `--output plain`: the default format keys off stdout being a terminal, so piped stdin alone still yields ANSI. The session exits 0 even when commands fail, so read the transcript for the outcome.
+
+```bash
+DUCKO_PROFILE=<unique> .build/debug/DuckoCLI account add --no-connect --password secret alice@example.com
+printf '/status\n/roster\n/join chat@conference.example.com alice\n/members\n/leave\nquit\n' \
+  | DUCKO_PROFILE=<unique> .build/debug/DuckoCLI interactive --output plain
+```
+
+`/approve <jid>` adds a `subscription=none` roster stub for that JID on the server even when no request was pending. Remove it afterwards with `roster remove <jid>`, or use a syntactically invalid JID when only the error path matters.
 
 ## Stream-Level Smoke Testing
 

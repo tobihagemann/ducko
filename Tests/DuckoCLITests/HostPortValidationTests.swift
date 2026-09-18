@@ -19,8 +19,8 @@ struct HostPortValidationTests {
             "--server", "example.com", "--username", "alice",
             "--host", "127.0.0.1", "--port", "5223"
         ])
-        #expect(command.host == "127.0.0.1")
-        #expect(command.port == 5223)
+        #expect(command.endpoint.host == "127.0.0.1")
+        #expect(command.endpoint.port == 5223)
     }
 
     @Test func `check-registration rejects --port without --host`() {
@@ -36,7 +36,7 @@ struct HostPortValidationTests {
         let command = try DuckoCLI.Account.CheckRegistration.parse([
             "--server", "example.com", "--host", "127.0.0.1", "--port", "5223"
         ])
-        #expect(command.host == "127.0.0.1")
-        #expect(command.port == 5223)
+        #expect(command.endpoint.host == "127.0.0.1")
+        #expect(command.endpoint.port == 5223)
     }
 }

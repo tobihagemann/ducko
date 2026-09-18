@@ -4,10 +4,10 @@ Exercise stream-level behavior (STARTTLS negotiation, stream features, injected 
 
 ## Point the CLI at the Stub
 
-Run a one-connection Python stub on a free `127.0.0.1` port. Check the port with `lsof -iTCP:<port> -sTCP:LISTEN` first, record the stub's PID for cleanup, and start a fresh stub per scenario. Use the debug binary `.build/debug/DuckoCLI`: release builds ignore `DUCKO_PROFILE` and write to the production store.
+Run a one-connection Python stub on a free `127.0.0.1` port. Check the port with `lsof -iTCP:<port> -sTCP:LISTEN` first, record the stub's PID for cleanup, and start a fresh stub per scenario. Binary, profile prefix and cleanup follow the Throwaway Profiles section of SKILL.md.
 
 - **Pre-auth, creates no account**: `.build/debug/DuckoCLI account check-registration --server example.com --host 127.0.0.1 --port <port>`
-- **Login path**: `DUCKO_PROFILE=<unique> .build/debug/DuckoCLI account add alice@example.com --password x --host 127.0.0.1 --port <port>`. Delete `~/Library/Application Support/Ducko-Dev-<unique>/` afterwards.
+- **Login path**: `DUCKO_PROFILE=<unique> .build/debug/DuckoCLI account add alice@example.com --password x --host 127.0.0.1 --port <port>`.
 
 Failures exit 1 with `Error: <summary>[: <reason>]`. `account check-registration` reports a rejected stream header or features element only as `Error: Unexpected response from the server`.
 

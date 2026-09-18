@@ -34,6 +34,15 @@ func printRoomMembers(jidString: String, accountID: UUID, environment: AppEnviro
     }
 }
 
+/// The explicit service when given, otherwise the server's advertised MUC service.
+func resolveMUCService(_ explicit: String?, environment: AppEnvironment, accountID: UUID) async throws -> String {
+    if let explicit { return explicit }
+    guard let discovered = await environment.chatService.discoverMUCService(accountID: accountID) else {
+        throw CLIError.noMUCService
+    }
+    return discovered
+}
+
 func printDiscoveredRooms(_ rooms: [DiscoveredRoom], formatter: any CLIFormatter) {
     guard !rooms.isEmpty else {
         print("No rooms found.")

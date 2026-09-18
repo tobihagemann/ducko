@@ -26,8 +26,8 @@ struct AccountAddTests {
 
     @Test func `parse add command defaults host port and noConnect`() throws {
         let command = try DuckoCLI.Account.Add.parse(["alice@example.com"])
-        #expect(command.host == nil)
-        #expect(command.port == nil)
+        #expect(command.endpoint.host == nil)
+        #expect(command.endpoint.port == nil)
         #expect(command.noConnect == false)
     }
 
@@ -35,8 +35,8 @@ struct AccountAddTests {
         let command = try DuckoCLI.Account.Add.parse([
             "alice@example.com", "--host", "127.0.0.1", "--port", "5223"
         ])
-        #expect(command.host == "127.0.0.1")
-        #expect(command.port == 5223)
+        #expect(command.endpoint.host == "127.0.0.1")
+        #expect(command.endpoint.port == 5223)
     }
 
     @Test func `parse add command with no-connect flag`() throws {

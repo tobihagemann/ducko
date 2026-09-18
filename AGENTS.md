@@ -32,7 +32,7 @@ These boundaries are strict:
 DuckoApp (GUI) and DuckoCLI (CLI) are independent consumers of DuckoCore. When adding features:
 
 - **CLI formatters**: Update `ANSIFormatter`, `PlainFormatter`, and `JSONFormatter` for any new `XMPPEvent` cases or changed event semantics.
-- **REPL commands**: Add corresponding REPL commands (e.g., `/pm`, `/moderate`) when the GUI gets new interactive features.
+- **REPL commands**: Add corresponding REPL commands (e.g., `/pm`, `/moderate`) when the GUI gets new interactive features. Add the case to `REPLCommand` in `Sources/DuckoCLI/REPL/`, then the handler in the matching `REPL*Commands.swift` file there, which `REPL.swift` dispatches to.
 - **ducko-ui scripts**: Add automation scripts in `Skills/ducko-ui/scripts/` for new UI elements (buttons, context menu items, sheets). Update the ducko-ui skill's script inventory and accessibility identifier list.
 
 ## Build & Test

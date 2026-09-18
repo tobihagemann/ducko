@@ -4,19 +4,30 @@ import Foundation
 
 @MainActor
 enum ConnectedOperation {
+    struct Preparation {
+        let environment: AppEnvironment
+        let account: DuckoCore.Account
+        let password: String
+    }
+
+    /// Bootstraps the environment and resolves the selected account and its password without connecting.
+    static func prepare(formatter: any CLIFormatter, account: String?, isInteractive: Bool = false) async throws -> Preparation {
+        let environment = try CLIBootstrap.setUp(formatter: formatter, isInteractive: isInteractive).environment
+        let selectedAccount = try await resolveAccount(account, environment: environment)
+        guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: environment.credentialStore) else {
+            throw CLIError.noPassword
+        }
+        return Preparation(environment: environment, account: selectedAccount, password: password)
+    }
+
     static func run<Result: Sendable>(
         formatter: any CLIFormatter,
         account: String?,
         operation: @MainActor (AppEnvironment, DuckoCore.Account) async throws -> Result
     ) async throws -> Result {
-        let context = try CLIBootstrap.setUp(formatter: formatter)
-        let environment = context.environment
-        let selectedAccount = try await resolveAccount(account, environment: environment)
-        guard let password = CredentialHelper.getPassword(for: selectedAccount.jid.description, using: environment.credentialStore) else {
-            throw CLIError.noPassword
-        }
-        return try await run(environment: environment, account: selectedAccount, password: password) {
-            try await operation(environment, selectedAccount)
+        let prepared = try await prepare(formatter: formatter, account: account)
+        return try await run(environment: prepared.environment, account: prepared.account, password: prepared.password) {
+            try await operation(prepared.environment, prepared.account)
         }
     }
 
