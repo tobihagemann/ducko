@@ -73,11 +73,12 @@ func simulateDirectTLSConnect(_ mock: MockTransport, postAuthFeatures: String = 
 
 // MARK: - Disconnect
 
-/// Disconnects with a short stream-close timeout so teardown doesn't pay the production fallback while waiting
-/// for a server `</stream:stream>` reply the test never injects. Use wherever `disconnect()` is just cleanup;
-/// tests that exercise the happy-path reply or pin disconnect ordering drive the timeout themselves.
+/// Disconnects with short sync-ack and stream-close timeouts so teardown doesn't pay the production fallbacks: no
+/// test answers the `<r/>` a stream-management client sends on disconnect, and a mock whose receive stream has
+/// already ended cannot deliver the `</stream:stream>` reply. Use wherever `disconnect()` is just cleanup; tests
+/// that exercise the happy-path replies or pin disconnect ordering drive the timeouts themselves.
 func disconnectFast(_ client: XMPPClient) async {
-    await client.disconnect(streamCloseTimeout: .milliseconds(20))
+    await client.disconnect(streamCloseTimeout: .milliseconds(20), syncAckTimeout: .milliseconds(20))
 }
 
 // MARK: - STARTTLS Failure

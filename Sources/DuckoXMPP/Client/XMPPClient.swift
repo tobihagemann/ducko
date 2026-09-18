@@ -494,7 +494,7 @@ public actor XMPPClient {
 
     // MARK: - Disconnect
 
-    public func disconnect(streamCloseTimeout: Duration = .milliseconds(500)) async {
+    public func disconnect(streamCloseTimeout: Duration = .milliseconds(500), syncAckTimeout: Duration = .seconds(1.5)) async {
         // Reentrancy guard: module `handleDisconnect` can re-call `disconnect()`, and `cleanUp` also runs from
         // stream-error, redirect, and connection-lost paths. Check-and-set is actor-atomic before any await. A one-way
         // flag is fine because XMPPClient is terminal after a disconnect or cleanUp. A caller outside the teardown still
@@ -507,12 +507,12 @@ public actor XMPPClient {
             return
         }
         disconnectInFlight = true
-        let shutdown = Task { await shutDown(streamCloseTimeout: streamCloseTimeout) }
+        let shutdown = Task { await shutDown(streamCloseTimeout: streamCloseTimeout, syncAckTimeout: syncAckTimeout) }
         disconnectTask = shutdown
         await shutdown.value
     }
 
-    private func shutDown(streamCloseTimeout: Duration) async {
+    private func shutDown(streamCloseTimeout: Duration, syncAckTimeout: Duration) async {
         // Send unavailable presence through `send` so the SM interceptor counts
         // it. Going through `connection.send` directly leaves SM's outgoing
         // counter one short of the server's, producing a phantom "Invalid ack"
@@ -521,10 +521,10 @@ public actor XMPPClient {
             try? await send(XMPPPresence(type: .unavailable))
             // XEP-0198 sync ack: confirm server processed all sent stanzas (incl. the unavailable presence) before
             // closing the stream. Without this, prosody mod_smacks holds the session in resumption-pending state for
-            // hundreds of seconds. 1.5s fits under `AppDelegate.disconnectDeadline`.
+            // hundreds of seconds. The 1.5s default fits under `AppDelegate.disconnectDeadline`.
             if let smModule = modules[ObjectIdentifier(StreamManagementModule.self)] as? StreamManagementModule,
                smModule.isEnabled {
-                try? await smModule.requestSyncAck(timeout: .seconds(1.5))
+                try? await smModule.requestSyncAck(timeout: syncAckTimeout)
             }
         }
 
