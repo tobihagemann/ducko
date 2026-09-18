@@ -244,6 +244,9 @@ private struct AccountDetailView: View {
                 ConnectionInfoView(tlsInfo: info)
             }
         }
+        .onChange(of: environment.accountService.tlsInfo(for: account.id) == nil) { _, unavailable in
+            if unavailable { isShowingConnectionInfo = false }
+        }
         .sheet(isPresented: $isShowingServerInfo) {
             ServerInfoView(accountID: account.id)
         }

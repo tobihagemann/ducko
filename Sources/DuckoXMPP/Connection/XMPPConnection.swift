@@ -93,12 +93,7 @@ actor XMPPConnection {
     }
 
     var tlsInfo: TLSInfo? {
-        get async {
-            if let posix = transport as? POSIXTransport {
-                return await posix.tlsInfo
-            }
-            return nil
-        }
+        get async { await transport.tlsInfo }
     }
 
     var channelBindingData: [UInt8]? {

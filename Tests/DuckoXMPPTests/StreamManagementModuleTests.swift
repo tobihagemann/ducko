@@ -411,7 +411,7 @@ enum StreamManagementModuleTests {
         func `Resume failure falls through to normal bind`() async throws {
             // Phase 1: Connect with SM enabled
             let mock1 = MockTransport()
-            let (_, sm1) = try await makeConnectedClient(mock: mock1)
+            let (client1, sm1) = try await makeConnectedClient(mock: mock1)
 
             await mock1.simulateDisconnect()
             try? await Task.sleep(for: .milliseconds(100))
@@ -452,6 +452,7 @@ enum StreamManagementModuleTests {
             #expect(resumedEvent == nil)
 
             await disconnectAndAck(client2, sm: sm2, mock: mock2)
+            await disconnectAndAck(client1, sm: sm1, mock: mock1)
         }
 
         @Test
@@ -504,7 +505,7 @@ enum StreamManagementModuleTests {
         @Test
         func `State preserved across non-requested disconnect`() async throws {
             let mock = MockTransport()
-            let (_, sm) = try await makeConnectedClient(mock: mock)
+            let (client, sm) = try await makeConnectedClient(mock: mock)
 
             // Before disconnect, SM should be enabled with resume state
             #expect(sm.isResumable)
@@ -518,12 +519,13 @@ enum StreamManagementModuleTests {
             #expect(state != nil)
             #expect(state?.resumptionId == "sm-resume-1")
             #expect(state?.connectedJID.bareJID.description == "user@example.com")
+            await disconnectAndAck(client, sm: sm, mock: mock)
         }
 
         @Test
         func `resetResumption clears all state`() async throws {
             let mock = MockTransport()
-            let (_, sm) = try await makeConnectedClient(mock: mock)
+            let (client, sm) = try await makeConnectedClient(mock: mock)
 
             #expect(sm.isResumable)
 
@@ -531,6 +533,7 @@ enum StreamManagementModuleTests {
 
             #expect(!sm.isResumable)
             #expect(sm.resumeState == nil)
+            await disconnectAndAck(client, sm: sm, mock: mock)
         }
     }
 
@@ -608,7 +611,7 @@ enum StreamManagementModuleTests {
         @Test
         func `requestSyncAck times out when no <a/> arrives`() async throws {
             let mock = MockTransport()
-            let (_, sm) = try await makeConnectedClient(mock: mock)
+            let (client, sm) = try await makeConnectedClient(mock: mock)
 
             do {
                 try await sm.requestSyncAck(timeout: .milliseconds(100))
@@ -628,12 +631,13 @@ enum StreamManagementModuleTests {
             } catch XMPPClientError.timeout {
                 // expected
             }
+            await disconnectAndAck(client, sm: sm, mock: mock)
         }
 
         @Test
         func `requestSyncAck propagates parent cancellation`() async throws {
             let mock = MockTransport()
-            let (_, sm) = try await makeConnectedClient(mock: mock)
+            let (client, sm) = try await makeConnectedClient(mock: mock)
             let snapshotCount = await mock.sentBytes.count
 
             let task = Task {
@@ -658,12 +662,13 @@ enum StreamManagementModuleTests {
             } catch XMPPClientError.timeout {
                 // expected
             }
+            await disconnectAndAck(client, sm: sm, mock: mock)
         }
 
         @Test
         func `requestSyncAck rejects re-entry with streamManagementBusy`() async throws {
             let mock = MockTransport()
-            let (_, sm) = try await makeConnectedClient(mock: mock)
+            let (client, sm) = try await makeConnectedClient(mock: mock)
             let snapshotCount = await mock.sentBytes.count
 
             let firstTask = Task {
@@ -682,6 +687,7 @@ enum StreamManagementModuleTests {
 
             firstTask.cancel()
             _ = try? await firstTask.value
+            await disconnectAndAck(client, sm: sm, mock: mock)
         }
 
         @Test

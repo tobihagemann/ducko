@@ -377,3 +377,37 @@ private actor GateProbe {
         isOpen = true
     }
 }
+
+extension ConnectOrderingTests {
+    @Test
+    static func `teardown during SM enable cannot publish a late connected event`() async throws {
+        let transport = MockTransport()
+        let client = XMPPClient(domain: "example.com", credentials: .init(username: "user", password: "unused"), transport: transport, requireTLS: false)
+        let sm = StreamManagementModule()
+        await client.register(sm)
+        await client.addInterceptor(sm)
+        let events = Task { () -> [XMPPEvent] in
+            var collected: [XMPPEvent] = []
+            for await event in client.events {
+                collected.append(event)
+            }
+            return collected
+        }
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await transport.installDisconnectGate(entered: entered, release: release)
+        let connection = Task { try await client.connect(host: "example.com", port: 5222) }
+        await simulateNoTLSConnect(transport, postAuthFeatures: testFeaturesBindWithSM)
+        await transport.waitForSent(count: 5)
+        await transport.simulateReceive("<stream:error><see-other-host xmlns='urn:ietf:params:xml:ns:xmpp-streams'>redirect.example.com</see-other-host></stream:error>")
+        let arrival = try await boundedOutcome { await entered.wait() }
+        try #require(arrival != nil)
+        // Keep teardown parked while the resumed SM-enable caller has an opportunity to continue.
+        let prematureCompletion = try await boundedOutcome(timeout: .milliseconds(250)) { try await connection.value }
+        await release.signal()
+        await #expect(throws: XMPPClientError.self) { try await connection.value }
+        if case .success? = prematureCompletion { Issue.record("Connection succeeded during teardown") }
+        let collected = await events.value
+        #expect(!collected.contains { if case .connected = $0 { return true }; return false })
+    }
+}

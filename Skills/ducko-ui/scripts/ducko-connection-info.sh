@@ -6,12 +6,24 @@
 # which synthetic clicks cannot reliably trigger, and the "Connection Info…"
 # button only appears once the account is connected. The button is located via
 # findByRoleAndName rather than `entire contents`, which collapses on macOS 26.
-# Usage: ducko-connection-info.sh
+# Usage: ducko-connection-info.sh [open|close]
+# Closing requires DUCKO_PID to target the intended instance.
 set -euo pipefail
 
-# Ensure Preferences window is open on the Accounts tab
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
+case "${1:-open}" in
+    open) ;;
+    close)
+        if [[ ! "${DUCKO_PID:-}" =~ ^[0-9]+$ ]]; then
+            echo "Set DUCKO_PID to the intended Ducko instance's PID." >&2
+            exit 1
+        fi
+        exec swift "$SCRIPT_DIR/ducko-dismiss.swift" "$DUCKO_PID" "connection-info-view" "Done" ;;
+    *) echo "Usage: ducko-connection-info.sh [open|close]" >&2; exit 1 ;;
+esac
+
+# Ensure Preferences window is open on the Accounts tab
 "$SCRIPT_DIR/ducko-preferences.sh" > /dev/null 2>&1 || true
 "$SCRIPT_DIR/ducko-preferences-tab.sh" Accounts > /dev/null 2>&1 || true
 

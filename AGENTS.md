@@ -13,7 +13,7 @@ A native macOS XMPP client — spiritual successor to Adium.
 ## Module Boundaries
 
 ```
-DuckoXMPP   # standalone XMPP library, depends only on CLibxml2 + CDnssd (system libs)
+DuckoXMPP   # standalone XMPP library, depends on CLibxml2 + CDnssd (system libs), swift-log, SwiftNIO + NIOSSL
 DuckoCore   # depends on DuckoXMPP only
 DuckoData   # depends on DuckoCore
 DuckoUI     # depends on DuckoCore
@@ -51,6 +51,20 @@ Note: `swift build` only compiles executable and library targets. Use `swift bui
 After `swift build`, binaries are directly runnable from `.build/debug/` (e.g., `.build/debug/DuckoCLI`).
 
 `Sources/DuckoTestSupport/` is a regular library target that hosts shared test mocks and helpers (`MockPersistenceStore`, `MockTranscriptStore`, `NullCredentialStore`, `boundedOutcome`). Multiple test targets (`DuckoCoreTests`, `DuckoUITests`) depend on it via plain `import DuckoTestSupport`. Add new shared fakes here when more than one test target needs them — single-target fakes stay in the target's own folder.
+
+### TLS integration fixtures
+
+Transport fixtures use a local Python peer and fresh test certificates. Run the TLS policy cases with a Python linked to modern OpenSSL (including TLS 1.3):
+
+```sh
+DUCKO_TLS_PYTHON=/opt/homebrew/bin/python3 swift test --filter 'NIO|Transport|TLSInfo'
+```
+
+`NIOProtocolVersionTests` is skipped when `DUCKO_TLS_PYTHON` is unset; report that skip rather than treating it as policy coverage.
+
+The other opt-in fixtures require a disposable environment: `DUCKO_TLS_INSTALLED_ROOT=1` exercises a root already installed there, `DUCKO_TLS_EXPECT_UNTRUSTED=1` checks its removal, and `DUCKO_TLS_SRV_FIXTURE=1` exercises a configured local SRV fixture. `DUCKO_TLS_FIXTURE_DIRECTORY` selects that environment's certificate files.
+
+Never install fixture trust into a developer's normal keychains. Ordinary tests inject roots without modifying trust stores.
 
 ### Integration Tests
 
@@ -168,5 +182,5 @@ The set is a mix of Ducko-original skills written for this repo and upstream-der
 - **libxml2 / CLibxml2**: DuckoXMPP uses libxml2 via a `CLibxml2` system library target (`Sources/CLibxml2/`). For C callbacks that need a back-reference to a Swift class, use the `Unmanaged.passUnretained(self).toOpaque()` pattern — do not use NSObject or `@objc`.
 - **CryptoKit**: On macOS 26 it does not re-export Foundation, so `some DataProtocol` is out of scope in DuckoXMPP. Use `[UInt8]` for parameters that feed `HashFunction.hash(data:)`.
 - **Exhaustive switches**: Never use `default:` when switching on project-defined enums. List all cases explicitly so the compiler catches new cases at build time.
-- **SIGPIPE**: DuckoApp does not ignore SIGPIPE, so a send on a peer-reset socket would terminate it. Open DuckoXMPP TCP sockets through `connectTCPSocket` and call `disableSIGPIPE` on accepted sockets. Never call `signal(SIGPIPE, SIG_IGN)` in tests, since it masks that crash.
+- **SIGPIPE**: DuckoApp does not ignore SIGPIPE, so a send on a peer-reset socket would terminate it. NIO owns XMPP channel sockets and their SIGPIPE suppression. Open raw TCP/SOCKS5 sockets through `connectTCPSocket` and call `disableSIGPIPE` on accepted sockets. Never call `signal(SIGPIPE, SIG_IGN)` in tests, since it masks that crash.
 - **User-facing error text**: each layer adds only context it uniquely knows. DuckoXMPP error payloads and `displayText` carry bare, readable detail, including the phrases for its typed protocol conditions and failure reasons. That detail has no API names, no numeric status codes, and no repeated failure label. The DuckoCore `LocalizedError` extension adds the single summary label. DuckoUI and DuckoCLI show that text without an operation label like "Error:" or "Failed:" and signal error state visually instead. The CLI's human-readable formatters add only a single lowercase `error:` severity marker, and JSON signals severity through its `type` field. swift-argument-parser's own `Error: ` prefix on errors thrown out of a command is left to that library. When an event carries raw pieces that must be combined into one message (e.g. a stream error's condition and text), DuckoCore composes it once in a helper that GUI and CLI share, while JSON output keeps the raw structured fields.

@@ -543,16 +543,7 @@ struct JSONFormatter: CLIFormatter {
     }
 
     func formatTLSInfo(_ info: TLSInfo) -> String {
-        var dict: [String: String] = [
-            "type": "tls_info",
-            "tls_version": info.protocolVersion,
-            "cipher_suite": info.cipherSuite
-        ]
-        if let subject = info.certificateSubject { dict["subject"] = subject }
-        if let issuer = info.certificateIssuer { dict["issuer"] = issuer }
-        if let expiry = info.certificateExpiry { dict["expires"] = formatTimestamp(expiry) }
-        if let fingerprint = info.certificateSHA256 { dict["sha256"] = fingerprint }
-        return encode(dict)
+        encode(TLSInfoOutput(info: info, expires: info.certificateExpiry.map(formatTimestamp)))
     }
 
     func formatServerInfo(_ info: ServerInfo) -> String {
@@ -695,5 +686,28 @@ struct JSONFormatter: CLIFormatter {
     /// ISO 8601 without fractional seconds for cleaner JSON output.
     private func formatTimestamp(_ date: Date) -> String {
         date.formatted(Date.ISO8601FormatStyle())
+    }
+}
+
+private struct TLSInfoOutput: Encodable {
+    let info: TLSInfo
+    let expires: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case type
+        case tlsVersion = "tls_version"
+        case cipherSuite = "cipher_suite"
+        case subject, issuer, expires, sha256
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("tls_info", forKey: .type)
+        try container.encode(info.protocolVersion, forKey: .tlsVersion)
+        try container.encode(info.cipherSuite, forKey: .cipherSuite)
+        try container.encodeIfPresent(info.certificateSubject, forKey: .subject)
+        try container.encodeIfPresent(info.certificateIssuer, forKey: .issuer)
+        try container.encodeIfPresent(expires, forKey: .expires)
+        try container.encodeIfPresent(info.certificateSHA256, forKey: .sha256)
     }
 }

@@ -108,15 +108,10 @@ if [[ -f "$ROOT/Resources/Assets.car" ]]; then
   cp "$ROOT/Resources/Assets.car" "$APP/Contents/Resources/Assets.car"
 fi
 
-# SwiftPM resource bundles are emitted next to the built binary.
-shopt -s nullglob
-SWIFTPM_BUNDLES=("${BIN_DIR}/"*.bundle)
-shopt -u nullglob
-if [[ ${#SWIFTPM_BUNDLES[@]} -gt 0 ]]; then
-  for bundle in "${SWIFTPM_BUNDLES[@]}"; do
-    cp -R "$bundle" "$APP/Contents/Resources/"
-  done
-fi
+# Test builds share this directory; copy only production resource bundles.
+cp -R "$BIN_DIR/Ducko_DuckoUI.bundle" "$APP/Contents/Resources/"
+cp -R "$ROOT/Resources/ThirdPartyLicenses" "$APP/Contents/Resources/"
+cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE.txt"
 
 # Embed frameworks if any exist in the build folder.
 if compgen -G "${BIN_DIR}/"*.framework >/dev/null; then

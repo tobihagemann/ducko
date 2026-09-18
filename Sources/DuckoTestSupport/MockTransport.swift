@@ -19,6 +19,7 @@ public actor MockTransport: XMPPTransport {
     /// The most recent TLS server name (SNI) passed to `connectWithTLS`/`upgradeTLS`.
     public private(set) var tlsServerName: String?
 
+    private var disconnectGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
     private let connectError: (any Error)?
     private var nextConnectError: (any Error)?
     private var sendFailure: (any Error)?
@@ -121,9 +122,18 @@ public actor MockTransport: XMPPTransport {
         }
     }
 
-    public func disconnect() {
+    public func disconnect() async {
+        if let gate = disconnectGate {
+            disconnectGate = nil
+            await gate.entered.signal()
+            await gate.release.wait()
+        }
         isConnected = false
         receivedContinuation.finish()
+    }
+
+    public func installDisconnectGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
+        disconnectGate = (entered, release)
     }
 
     // MARK: - Test Helpers

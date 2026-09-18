@@ -2,14 +2,37 @@ import DuckoCore
 import SwiftUI
 
 struct ConnectionInfoView: View {
+    @Environment(\.dismiss) private var dismiss
     let tlsInfo: TLSInfo
 
     var body: some View {
+        VStack(spacing: 0) {
+            connectionDetails
+
+            Divider()
+
+            HStack {
+                Spacer()
+                Button("Done") {
+                    dismiss()
+                }
+                .keyboardShortcut(.defaultAction)
+                .accessibilityIdentifier("connection-info-done-button")
+            }
+            .padding()
+        }
+        .frame(minWidth: 450)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("connection-info-view")
+        .onExitCommand { dismiss() }
+    }
+
+    private var connectionDetails: some View {
         Form {
             Section("TLS Connection") {
                 LabeledContent("TLS Version", value: tlsInfo.protocolVersion)
                     .accessibilityIdentifier("tlsVersion")
-                LabeledContent("Cipher Suite", value: tlsInfo.cipherSuite)
+                LabeledContent("Cipher Suite", value: tlsInfo.cipherSuite ?? "Not available")
                     .accessibilityIdentifier("cipherSuite")
             }
 
@@ -37,6 +60,5 @@ struct ConnectionInfoView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(minWidth: 450)
     }
 }

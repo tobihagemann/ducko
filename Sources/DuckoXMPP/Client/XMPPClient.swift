@@ -29,8 +29,18 @@ public actor XMPPClient {
     @TaskLocal private static var isTearingDown = false
     private var readerTask: Task<Void, Never>?
     private var pendingIQs: [String: PendingIQ] = [:]
+    private var pendingIQToken: UInt64 = 0
     private var pendingStreamClose: PendingStreamClose?
-    private let idCounter = Atomic<UInt64>(0)
+    private final class IDGenerator: Sendable {
+        private let counter = Atomic<UInt64>(0)
+
+        func next() -> String {
+            let value = counter.wrappingAdd(1, ordering: .relaxed).oldValue &+ 1
+            return "ducko-\(value)"
+        }
+    }
+
+    private let idGenerator = IDGenerator()
     private let tlsInfoLock = OSAllocatedUnfairLock<TLSInfo?>(initialState: nil)
     private let connectedJIDLock = OSAllocatedUnfairLock<FullJID?>(initialState: nil)
     private let featuresLock = OSAllocatedUnfairLock<Set<String>>(initialState: [])
@@ -43,7 +53,9 @@ public actor XMPPClient {
     private struct PendingIQ {
         let continuation: CheckedContinuation<XMLElement?, any Error>
         let expectedFrom: BareJID?
+        let token: UInt64
         let timeoutTask: Task<Void, Never>
+        var sendTask: Task<Void, Never>?
     }
 
     private struct PendingStreamClose {
@@ -103,7 +115,7 @@ public actor XMPPClient {
         self.domain = canonicalDomain
         self.serverName = IDNA.toASCII(canonicalDomain)
         self.credentials = credentials
-        self.connection = XMPPConnection(transport: transport ?? POSIXTransport())
+        self.connection = XMPPConnection(transport: transport ?? makeDefaultXMPPTransport())
         self.requireTLS = requireTLS
         self.preferredResource = preferredResource
     }
@@ -145,8 +157,7 @@ public actor XMPPClient {
     // MARK: - ID Generation
 
     public nonisolated func generateID() -> String {
-        let value = idCounter.wrappingAdd(1, ordering: .relaxed).oldValue &+ 1
-        return "ducko-\(value)"
+        idGenerator.next()
     }
 
     // MARK: - Connect
@@ -176,6 +187,9 @@ public actor XMPPClient {
     }
 
     private func performConnect(establish: () async throws -> Void) async throws {
+        guard !disconnectInFlight else {
+            throw XMPPClientError.notConnected
+        }
         guard case .disconnected = state else {
             throw XMPPClientError.alreadyConnected
         }
@@ -199,12 +213,17 @@ public actor XMPPClient {
             let resumed = try await performHandshake(reader: reader)
             startReader(reader: reader)
             try await runPostHandshakeModules(resumed: resumed)
+            try checkActiveSession()
             // Emit `.streamResumed` after resume handlers; resumption skips roster fetch.
             if resumed, let fullJID = connectedJIDLock.withLock({ $0 }) {
                 eventContinuation.yield(.streamResumed(fullJID))
             }
         } catch {
             log.error("Handshake failed: \(error)")
+            if disconnectInFlight {
+                await disconnect()
+                throw error
+            }
             serverFeaturesLock.withLock { $0 = nil }
             state = .disconnected
             // Open the gate so any service that started awaiting after `.connected` (yielded mid-chain,
@@ -219,9 +238,11 @@ public actor XMPPClient {
     /// → roster → non-PEP modules → presence + caps (caps last) → PEP publisher, per RFC 6121 / XEP-0163 ordering
     /// invariants.
     private func runPostHandshakeModules(resumed: Bool) async throws {
+        try checkActiveSession()
         if resumed {
             for module in modules.values {
                 try await module.handleResume()
+                try checkActiveSession()
             }
             // Resume re-sends neither presence nor caps, so the gate is already satisfied for the resumed
             // session; resolve it so any PEP-reacting service awaiting it proceeds.
@@ -248,6 +269,7 @@ public actor XMPPClient {
         // SM no-ops if already inline-enabled or unsupported.
         if let smModule = modules[smKey] {
             try await smModule.handleConnect()
+            try checkActiveSession()
         }
         // Yield `.connected` after SM `<enabled>` round-trip but BEFORE roster. `.connected` → `.rosterLoaded` is
         // contractual: BookmarksService PEP fetch and TestHarness.setUp gate on it; reversing surfaces `.notConnected`
@@ -257,11 +279,13 @@ public actor XMPPClient {
         }
         if let rosterModule = modules[rosterKey] {
             try await rosterModule.handleConnect()
+            try checkActiveSession()
         }
         // Non-PEP modules retain their original pre-presence ordering.
         for (key, module) in modules
             where key != rosterKey && key != presenceKey && key != capsKey && key != smKey && key != omemoKey {
             try await module.handleConnect()
+            try checkActiveSession()
         }
         // XEP-0163 §3.3.2: the server gates PEP `+notify` delivery on having seen this resource's entity caps
         // via initial presence, so the caps-bearing presence (`CapsModule`) must reach the server BEFORE any
@@ -273,14 +297,24 @@ public actor XMPPClient {
         // the last caps-bearing presence).
         if let presenceModule = modules[presenceKey] {
             try await presenceModule.handleConnect()
+            try checkActiveSession()
         }
         if let capsModule = modules[capsKey] {
             try await capsModule.handleConnect()
+            try checkActiveSession()
         }
         // Caps is on the wire — release the gated PEP-reacting services, then run the PEP publisher module.
         settleInitialPresenceReadiness(open: true)
         if let omemoModule = modules[omemoKey] {
             try await omemoModule.handleConnect()
+            try checkActiveSession()
+        }
+    }
+
+    private func checkActiveSession() throws {
+        try Task.checkCancellation()
+        guard !disconnectInFlight, case .connected = state else {
+            throw XMPPClientError.notConnected
         }
     }
 
@@ -553,50 +587,56 @@ public actor XMPPClient {
     }
 
     /// Sends an IQ and awaits the matching result. Returns the result's child element or `nil`.
-    /// Throws `notConnected`, `XMPPStanzaError`, or `timeout`.
-    public func sendIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
+    /// Cancellation stops waiting for the reply; an accepted write may still complete.
+    public func sendIQ(_ request: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
         guard case .connected = state else {
             throw XMPPClientError.notConnected
         }
-        var iq = iq
+        var iq = request
         let stanzaID = iq.id ?? generateID()
         iq.id = stanzaID
-        let expectedFrom = iq.to?.bareJID
-
-        return try await withCheckedThrowingContinuation { continuation in
-            for interceptor in interceptors {
-                interceptor.processOutgoing(iq.element)
-            }
-
-            let timeoutTask = Task { [weak self] in
-                try? await Task.sleep(for: timeout)
-                guard !Task.isCancelled else { return }
-                await self?.expirePendingIQ(id: stanzaID)
-            }
-
-            pendingIQs[stanzaID] = PendingIQ(
-                continuation: continuation,
-                expectedFrom: expectedFrom,
-                timeoutTask: timeoutTask
-            )
-
-            Task { [connection] in
-                do {
-                    try await connection.send(XMPPStreamWriter.stanza(iq.element))
-                } catch {
-                    if let pending = self.pendingIQs.removeValue(forKey: stanzaID) {
-                        pending.timeoutTask.cancel()
-                        pending.continuation.resume(throwing: error)
+        guard pendingIQs[stanzaID] == nil else {
+            let error = XMPPClientError.unexpectedStreamState("A request with this identifier is already pending")
+            throw error
+        }
+        pendingIQToken &+= 1
+        let token = pendingIQToken
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                let timeoutTask = Task { [weak self] in
+                    try? await Task.sleep(for: timeout)
+                    guard !Task.isCancelled else { return }
+                    await self?.resolvePendingIQ(id: stanzaID, token: token, result: .failure(XMPPClientError.timeout))
+                }
+                pendingIQs[stanzaID] = PendingIQ(
+                    continuation: continuation, expectedFrom: iq.to?.bareJID,
+                    token: token,
+                    timeoutTask: timeoutTask
+                )
+                pendingIQs[stanzaID]?.sendTask = Task {
+                    do {
+                        try Task.checkCancellation()
+                        try await send(iq)
+                    } catch {
+                        resolvePendingIQ(id: stanzaID, token: token, result: .failure(error))
                     }
                 }
             }
+        } onCancel: {
+            Task { await self.resolvePendingIQ(id: stanzaID, token: token, result: .failure(CancellationError())) }
         }
     }
 
-    private func expirePendingIQ(id: String) {
-        if let pending = pendingIQs.removeValue(forKey: id) {
-            pending.continuation.resume(throwing: XMPPClientError.timeout)
-        }
+    private func resolvePendingIQ(id: String, token: UInt64, result: Result<XMPPIQ, any Error>, cancelSend: Bool = true) {
+        guard let pending = pendingIQs[id], pending.token == token else { return }
+        pendingIQs.removeValue(forKey: id)
+        pending.timeoutTask.cancel()
+        if cancelSend { pending.sendTask?.cancel() }
+        pending.continuation.resume(with: result.map(\.childElement))
     }
 
     // MARK: - Private: Stream Negotiation
@@ -987,15 +1027,16 @@ public actor XMPPClient {
         let iq = XMPPIQ(element: element)
         if let stanzaID = iq.id, let pending = pendingIQs[stanzaID],
            iqResponseMatchesExpectedFrom(iq, expectedFrom: pending.expectedFrom) {
-            pendingIQs.removeValue(forKey: stanzaID)
-            pending.timeoutTask.cancel()
+            let result: Result<XMPPIQ, any Error>
             if iq.isError {
-                let stanzaError = XMPPStanzaError.parse(from: iq.element.child(named: "error"))
+                let error = XMPPStanzaError.parse(from: iq.element.child(named: "error"))
                     ?? XMPPStanzaError(errorType: .cancel, condition: .undefinedCondition)
-                pending.continuation.resume(throwing: stanzaError)
+                result = .failure(error)
             } else {
-                pending.continuation.resume(returning: iq.childElement)
+                result = .success(iq)
             }
+            // A reply can precede the send task's completion, so let that task finish normally.
+            resolvePendingIQ(id: stanzaID, token: pending.token, result: result, cancelSend: false)
             return
         }
         eventContinuation.yield(.iqReceived(iq))
@@ -1072,11 +1113,9 @@ public actor XMPPClient {
         serverFeaturesLock.withLock { $0 = nil }
         tlsInfoLock.withLock { $0 = nil }
 
-        for pending in pendingIQs.values {
-            pending.timeoutTask.cancel()
-            pending.continuation.resume(throwing: XMPPClientError.notConnected)
+        for (id, pending) in pendingIQs {
+            resolvePendingIQ(id: id, token: pending.token, result: .failure(XMPPClientError.notConnected))
         }
-        pendingIQs.removeAll()
         if let pending = pendingStreamClose {
             pending.timeoutTask.cancel()
             pendingStreamClose = nil
@@ -1103,8 +1142,8 @@ public actor XMPPClient {
             emitEvent: { [eventContinuation] event in
                 eventContinuation.yield(event)
             },
-            generateID: { [self] in
-                generateID()
+            generateID: { [idGenerator] in
+                idGenerator.next()
             },
             connectedJID: { [connectedJIDLock] in
                 connectedJIDLock.withLock { $0 }

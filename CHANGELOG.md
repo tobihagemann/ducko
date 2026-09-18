@@ -10,12 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - Add a General setting to show or hide Ducko's menu bar icon
 
+### Changed
+
+- Show an unavailable cipher suite explicitly in connection details
+
 ### Removed
 
 - Remove the nonfunctional "Show Ducko in Dock" setting
 
 ### Fixed
 
+- Allow closing Connection Info with Done, Return, or Escape
 - Prevent a failed message-history write from crashing Ducko
 - Preserve account and conversation settings when first saving them
 - Preserve reply context in synced and archived messages

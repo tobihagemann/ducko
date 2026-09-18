@@ -19,7 +19,7 @@ public enum XMPPRegistrationClient {
         host: String? = nil,
         port: UInt16 = 5222
     ) async throws -> RegistrationModule.RegistrationForm {
-        try await retrieveForm(domain: domain, host: host, port: port, transport: POSIXTransport())
+        try await retrieveForm(domain: domain, host: host, port: port, transport: makeDefaultXMPPTransport())
     }
 
     static func retrieveForm(
@@ -52,7 +52,7 @@ public enum XMPPRegistrationClient {
         host: String? = nil,
         port: UInt16 = 5222
     ) async throws {
-        try await register(domain: domain, username: username, password: password, email: email, host: host, port: port, transport: POSIXTransport())
+        try await register(domain: domain, username: username, password: password, email: email, host: host, port: port, transport: makeDefaultXMPPTransport())
     }
 
     static func register(
@@ -126,6 +126,8 @@ public enum XMPPRegistrationClient {
     ) async throws {
         try await connection.send(XMPPStreamWriter.streamOpening(to: domain))
         let features = try await awaitFeatures(reader)
+
+        if await connection.isDirectTLS { return }
 
         // STARTTLS if available
         if features.child(named: "starttls", namespace: XMPPNamespaces.tls) != nil {

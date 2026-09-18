@@ -76,16 +76,43 @@ extension DuckoIntegrationTests.UILayer {
                     underIdentifier: "preferences-window"
                 )
 
-                // `Connection Info...` additionally needs non-nil `tlsInfo`,
-                // which can lag the connected state; tolerate that raciness so a
-                // slow TLS-info population doesn't flake the suite.
-                await withKnownIssue("Connection Info... may lag TLS-info population", isIntermittent: true) {
-                    let hasConnectionInfo = try await app.hasDescendantButton(
-                        label: "Connection Info...",
-                        underIdentifier: "preferences-window"
-                    )
-                    #expect(hasConnectionInfo)
-                }
+                try await app.waitForDescendantButton(
+                    label: "Connection Info...",
+                    underIdentifier: "preferences-window"
+                )
+                try await app.clickDescendantButton(
+                    label: "Connection Info...",
+                    underIdentifier: "preferences-window"
+                )
+                try await app.waitForElement(identifier: "cipherSuite", timeout: TestTimeout.uiElement)
+                let cipherUnavailable = try await app.containsDescendant(
+                    role: kAXStaticTextRole as String,
+                    withSubstring: "Not available",
+                    underIdentifier: "cipherSuite"
+                )
+                #expect(cipherUnavailable)
+                try await app.waitForElement(identifier: "tlsVersion", timeout: TestTimeout.uiElement)
+                try await app.waitForElement(identifier: "certFingerprint", timeout: TestTimeout.uiElement)
+                try await app.clickSheetButton(label: "Done")
+                try await app.waitForSheetDismissed()
+
+                try await app.clickDescendantButton(
+                    label: "Connection Info...",
+                    underIdentifier: "preferences-window"
+                )
+                try await app.waitForElement(identifier: "cipherSuite", timeout: TestTimeout.uiElement)
+                try await app.pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+                try await app.waitForSheetDismissed()
+
+                try await app.clickDescendantButton(
+                    label: "Connection Info...",
+                    underIdentifier: "preferences-window"
+                )
+                try await app.waitForElement(identifier: "cipherSuite", timeout: TestTimeout.uiElement)
+                try await app.activateWindow(named: "Contacts")
+                try await app.pickPopUpItem(title: "Offline", identifier: "status-picker")
+                try await app.waitForDescendantButton(label: "Connect", underIdentifier: "preferences-window")
+                try await app.waitForSheetDismissed()
             }
         }
     }

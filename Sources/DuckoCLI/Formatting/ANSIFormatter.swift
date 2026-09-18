@@ -412,7 +412,7 @@ struct ANSIFormatter: CLIFormatter {
     func formatTLSInfo(_ info: TLSInfo) -> String {
         var lines: [String] = []
         lines.append("\(Color.bold)TLS Version:\(Color.reset) \(info.protocolVersion)")
-        lines.append("\(Color.bold)Cipher Suite:\(Color.reset) \(info.cipherSuite)")
+        lines.append("\(Color.bold)Cipher Suite:\(Color.reset) \(info.cipherSuite ?? "Not available")")
         if let subject = info.certificateSubject {
             lines.append("\(Color.bold)Subject:\(Color.reset) \(subject)")
         }

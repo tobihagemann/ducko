@@ -7,7 +7,7 @@ description: "End-to-end UI testing for the Ducko macOS app using pre-built help
 
 Run the `/macos-ui-testing` skill first to load generic macOS UI automation patterns. This skill provides Ducko-specific helper scripts on top.
 
-Each script wraps a single osascript flow so it can be allowlisted in `settings.local.json` (see Permission Allowlisting at the end).
+The scripts can be allowlisted in `settings.local.json` (see Permission Allowlisting at the end).
 
 ## Window Architecture
 
@@ -127,6 +127,8 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `certSubject` | Certificate Subject label | Connection Info |
 | `certIssuer` | Certificate Issuer label | Connection Info |
 | `certExpiry` | Certificate Expiry label | Connection Info |
+| `connection-info-view` | TLS details sheet container | Connection Info |
+| `connection-info-done-button` | Done button; Return or Escape also dismisses | Connection Info |
 | `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
 | `message-list` | Scrollable message list container | Chat |
 | `message-bubble-{id}` | Individual message bubble (id is ChatMessage.id) | Chat |
@@ -258,7 +260,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-private-message.sh` | Send a MUC private message via the participant sidebar context menu | `NICKNAME` |
 | `ducko-room-topic.sh` | View or set the room topic | `[TEXT]` (optional; no args prints current topic) |
 | `ducko-channel-search.sh` | Search for channels in the Join Room dialog | `QUERY` |
-| `ducko-connection-info.sh` | Open Connection Info sheet from Preferences > Accounts (best-effort; needs a connected account and a `List(selection:)` that synthetic clicks may not trigger) | none |
+| `ducko-connection-info.sh` | Open Connection Info from Preferences > Accounts (best-effort), or close it with the shared PID-targeted Swift AX helper | `[open\|close]`; close requires `DUCKO_PID` |
 | `ducko-register.sh` | Register a new account via in-band registration | `SERVER USERNAME PASSWORD [EMAIL]` |
 | `ducko-change-password.sh` | Change account password via Preferences > Accounts (best-effort; needs a connected account and a `List(selection:)` that synthetic clicks may not trigger) | `NEW_PASSWORD` |
 | `ducko-toggle-preference.sh` | Toggle any preference checkbox by identifier | `IDENTIFIER` (e.g., chatStatesToggle, encryptByDefaultToggle, tofuToggle) |

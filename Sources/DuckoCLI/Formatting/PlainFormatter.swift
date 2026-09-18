@@ -374,7 +374,7 @@ struct PlainFormatter: CLIFormatter {
     func formatTLSInfo(_ info: TLSInfo) -> String {
         var lines: [String] = []
         lines.append("TLS Version: \(info.protocolVersion)")
-        lines.append("Cipher Suite: \(info.cipherSuite)")
+        lines.append("Cipher Suite: \(info.cipherSuite ?? "Not available")")
         if let subject = info.certificateSubject {
             lines.append("Subject: \(subject)")
         }

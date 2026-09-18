@@ -14,7 +14,9 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
-        .package(url: "https://github.com/apple/swift-log", from: "1.11.0")
+        .package(url: "https://github.com/apple/swift-log", from: "1.11.0"),
+        .package(url: "https://github.com/apple/swift-nio", from: "2.103.0"),
+        .package(url: "https://github.com/apple/swift-nio-ssl", from: "2.37.5")
     ],
     targets: [
         .systemLibrary(name: "CLibxml2", path: "Sources/CLibxml2", pkgConfig: "libxml-2.0"),
@@ -23,9 +25,13 @@ let package = Package(
         .target(name: "DuckoXMPP", dependencies: [
             "CLibxml2",
             "CDnssd",
+            .product(name: "NIOCore", package: "swift-nio"),
+            .product(name: "NIOPosix", package: "swift-nio"),
+            .product(name: "NIOTLS", package: "swift-nio"),
+            .product(name: "NIOSSL", package: "swift-nio-ssl"),
             .product(name: "Logging", package: "swift-log")
         ]),
-        .testTarget(name: "DuckoXMPPTests", dependencies: ["DuckoXMPP", "DuckoTestSupport"]),
+        .testTarget(name: "DuckoXMPPTests", dependencies: ["DuckoXMPP", "DuckoTestSupport"], resources: [.copy("Fixtures")]),
 
         .target(name: "DuckoCore", dependencies: [
             "DuckoXMPP",
