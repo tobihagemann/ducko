@@ -658,7 +658,7 @@ enum XMPPClientTests {
 
         @Test
         func `A second disconnect waits for a disconnect still closing the stream`() async throws {
-            let mock = MockTransport()
+            let mock = MockTransport(repliesToStreamClose: false)
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
@@ -702,7 +702,7 @@ enum XMPPClientTests {
     struct StreamCloseHandshake {
         @Test
         func `disconnect resolves on the server's stream-close reply, not the timeout`() async throws {
-            let mock = MockTransport()
+            let mock = MockTransport(repliesToStreamClose: false)
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
@@ -741,7 +741,7 @@ enum XMPPClientTests {
 
         @Test
         func `disconnect falls back to teardown when no stream-close reply arrives`() async throws {
-            let mock = MockTransport()
+            let mock = MockTransport(repliesToStreamClose: false)
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
@@ -770,7 +770,7 @@ enum XMPPClientTests {
 
         @Test
         func `stream-close reply arriving the instant the close is sent resolves without hanging`() async throws {
-            let mock = MockTransport()
+            let mock = MockTransport(repliesToStreamClose: false)
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
@@ -798,7 +798,7 @@ enum XMPPClientTests {
 
         @Test
         func `concurrent teardown during the stream-close wait completes the disconnect`() async throws {
-            let mock = MockTransport()
+            let mock = MockTransport(repliesToStreamClose: false)
             let client = XMPPClient(
                 domain: "example.com",
                 credentials: .init(username: "user", password: "pass"),
@@ -1516,7 +1516,7 @@ enum XMPPClientTests {
 
         @Test
         func `disconnect waits for a teardown already in progress`() async throws {
-            let mock = MockTransport()
+            let mock = MockTransport(repliesToStreamClose: false)
             let module = GatedDisconnectModule()
             let client = XMPPClient(
                 domain: "example.com",

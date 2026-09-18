@@ -35,12 +35,18 @@ public actor MockTransport: XMPPTransport {
     private var blockPredicate: (@Sendable (String) -> Bool)?
     private var blockedSends: [CheckedContinuation<Void, Never>] = []
     private var blockedReleased = false
+    private var autoReplies: [@Sendable (String) -> String?] = []
 
-    public init(connectError: (any Error)? = nil) {
+    /// A connected server answers the client's `</stream:stream>` with its own (RFC 6120 §4.4), so the mock does
+    /// too unless `repliesToStreamClose` is `false`.
+    public init(connectError: (any Error)? = nil, repliesToStreamClose: Bool = true) {
         let (stream, continuation) = AsyncStream.makeStream(of: [UInt8].self)
         self.receivedData = stream
         self.receivedContinuation = continuation
         self.connectError = connectError
+        if repliesToStreamClose {
+            autoReplies.append { $0.hasPrefix("</stream:stream>") ? "</stream:stream>" : nil }
+        }
     }
 
     public func connect(host: String, port: UInt16) async throws {
@@ -105,24 +111,27 @@ public actor MockTransport: XMPPTransport {
         guard isConnected else {
             throw XMPPClientError.notConnected
         }
-        if let failure = matchingSendFailure, String(decoding: bytes, as: UTF8.self).contains(failure.fragment) {
+        let stanza = String(decoding: bytes, as: UTF8.self)
+        if let failure = matchingSendFailure, stanza.contains(failure.fragment) {
             matchingSendFailure = nil
             throw failure.error
         }
         if let sendFailure {
             throw sendFailure
         }
-        if let blockPredicate, !blockedReleased, blockPredicate(String(decoding: bytes, as: UTF8.self)) {
+        if let blockPredicate, !blockedReleased, blockPredicate(stanza) {
             await withCheckedContinuation { blockedSends.append($0) }
         }
         sentBytes.append(bytes)
         if let waiter = sentWaiters.removeValue(forKey: sentBytes.count) {
             waiter.resume()
         }
-        if !predicateSentWaiters.isEmpty {
-            let stanza = String(decoding: bytes, as: UTF8.self)
-            for id in predicateSentWaiters.compactMap({ $0.value.predicate(stanza) ? $0.key : nil }) {
-                predicateSentWaiters.removeValue(forKey: id)?.continuation.resume(returning: stanza)
+        for id in predicateSentWaiters.compactMap({ $0.value.predicate(stanza) ? $0.key : nil }) {
+            predicateSentWaiters.removeValue(forKey: id)?.continuation.resume(returning: stanza)
+        }
+        for reply in autoReplies {
+            if let reply = reply(stanza) {
+                simulateReceive(reply)
             }
         }
     }
@@ -229,5 +238,11 @@ public actor MockTransport: XMPPTransport {
         for continuation in pending {
             continuation.resume()
         }
+    }
+
+    /// Feeds `reply`'s result for a sent stanza back as received, from inside `send`, so a scripted server reply
+    /// cannot land before the stanza it answers.
+    public func autoReply(_ reply: @escaping @Sendable (String) -> String?) {
+        autoReplies.append(reply)
     }
 }
