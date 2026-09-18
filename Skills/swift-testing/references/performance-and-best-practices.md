@@ -182,6 +182,13 @@ Add TODO context and remove once dependencies are isolated.
 - Deterministic fixtures and stable clocks/random sources.
 - Explicit known-issue wrappers for temporary failures.
 
+## 9) Measure before changing waits
+
+- Measure per-test wall time from the runner's own `passed after N seconds` lines before changing any wait; rank suites by that, not by grepping for `Task.sleep`. Swift Testing runs tests in parallel by default, so a suspicious duration includes sibling contention; confirm it on a serialized run (`swift test --no-parallel`).
+- When many tests cluster at the same round duration (0.5 s, 1 s, 1.5 s), suspect a timeout in the code under test that the test double never answers: a teardown handshake, a sync ack, a close reply. Test-side sleeps of a few hundred milliseconds rarely add up to the observed total.
+- Fix it at the double or the seam: make the double answer as a compliant peer would, or expose the timeout as a parameter the test shortens. Leave sleeps and timeouts that assert absence, expiry, or elapsed time in place.
+- Measure with nothing else building or testing on the machine; a concurrent run inflates bounded waits and turns timing-sensitive tests flaky.
+
 ## Quick do / don't
 
 - Do optimize for determinism first, then speed.

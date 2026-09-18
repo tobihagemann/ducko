@@ -440,6 +440,19 @@ printf '/status\n/roster\n/join chat@conference.example.com alice\n/members\n/le
 
 To exercise STARTTLS negotiation, stream features, or injected server data without a live server, follow [references/stub-server-smoke-testing.md](references/stub-server-smoke-testing.md).
 
+## Connection Smoke Testing
+
+To verify a change to connection or disconnection handling against the live test server, run the debug binary `.build/debug/DuckoCLI` in a throwaway profile, which keeps the run isolated from existing dev data (release builds ignore `DUCKO_PROFILE`). Prefix every command with the profile, since shell state does not carry between separate invocations. These steps write under `~/Library/Application Support/`, outside the repository, so run them unsandboxed.
+
+```
+DUCKO_PROFILE=smoke-connect ducko account add USER_JID --password PASSWORD_HERE --no-connect
+DUCKO_PROFILE=smoke-connect ducko presence available --output json   # one full connect and disconnect handshake
+DUCKO_PROFILE=smoke-connect ducko profile --output json              # a clean reconnect proves the close left no pending session
+DUCKO_PROFILE=smoke-connect ducko logs show                          # handshake lines for this profile
+DUCKO_PROFILE=smoke-connect ducko account delete USER_JID
+/bin/rm -rf "$HOME/Library/Application Support/Ducko-Dev-smoke-connect"
+```
+
 ## Examples
 
 ```bash
