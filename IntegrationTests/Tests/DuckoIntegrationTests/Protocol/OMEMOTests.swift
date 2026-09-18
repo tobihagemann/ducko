@@ -270,7 +270,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let alice = try #require(harness.accounts["alice"])
 
                 // OMEMOService.handleConnected persists the identity on a
-                // detached Task that outlives setUp's .rosterLoaded wait, so
+                // detached Task that outlives setUp's initial roster response wait, so
                 // wait until the store is populated.
                 try await alice.waitForCondition {
                     await harness.environment.omemoService.ownFingerprint(accountID: alice.accountID) != nil

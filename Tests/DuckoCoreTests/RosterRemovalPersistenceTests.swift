@@ -7,77 +7,61 @@ import Testing
 @MainActor
 struct RosterRemovalPersistenceTests {
     @Test(arguments: [false, true])
-    func `successful removal survives disconnect with a suspended roster push`(useContact: Bool) async throws {
-        let store = MockPersistenceStore()
-        let transport = MockTransport()
-        let module = RosterModule()
-        let accounts = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: MockXMPPClientFactory(transport: transport, modules: [module]))
-        let roster = RosterService(store: store)
-        roster.setAccountService(accounts)
-        accounts.onRequestedDisconnect = { roster.purgeAccount($0) }
-        let id = try await accounts.createAccount(jidString: "alice@example.com")
-        let (_, connection) = try await driveMockConnect(accounts, accountID: id, transport: transport)
-        let jid = try #require(BareJID.parse("bob@example.com"))
-        await roster.handleEvent(.rosterLoaded([RosterItem(jid: jid, subscription: .both)]), accountID: id)
-        let contact = try #require(roster.contact(jidString: jid.description, accountID: id))
+    func `successful removal waits for full saved readback behind a suspended push`(useContact: Bool) async throws {
+        let fixture = RosterCommandFixture()
+        try await fixture.connect()
+        let contact = try #require(fixture.roster.contact(jidString: "bob@example.com", accountID: fixture.accountID))
         let entered = AsyncSemaphore()
         let release = AsyncSemaphore()
-        await store.installFetchContactsGate(entered: entered, release: release)
-        let push = Task { await roster.handleEvent(.rosterItemChanged(RosterItem(jid: jid, subscription: .remove)), accountID: id) }
-        let arrived = try await boundedOutcome { await entered.wait() }
-        try #require(arrived != nil)
-        await store.clearFetchContactsGate()
-        await roster.handleEvent(.rosterVersionChanged("after-removal"), accountID: id)
-        module.setUp(ModuleContext(sendStanza: { _ in }, sendIQ: { _ in nil }, emitEvent: { _ in }, generateID: { "remove" }, connectedJID: { nil }, domain: "example.com"))
-        if useContact {
-            try await roster.removeContact(contact, accountID: id)
-        } else {
-            try await roster.removeContact(jidString: jid.description, accountID: id)
+        await fixture.store.installRosterApplyGate(entered: entered, release: release)
+        await fixture.transport.simulateReceive("<iq type='set' id='push'><query xmlns='jabber:iq:roster' ver='push'><item jid='bob@example.com' subscription='remove'/></query></iq>")
+        try #require(try await boundedOutcome { await entered.wait() } != nil)
+        var completed = false
+        let removal = Task {
+            let outcome = try await useContact
+                ? fixture.roster.removeContact(contact, accountID: fixture.accountID)
+                : fixture.roster.removeContact(jidString: contact.jid.description, accountID: fixture.accountID)
+            completed = true
+            return outcome
         }
-        await accounts.disconnect(accountID: id)
+        let mutation = try await fixture.nextIQ(type: "set")
+        await fixture.reply(to: mutation)
+        let readback = try await fixture.nextIQ(type: "get")
+        #expect(!readback.contains("ver="))
+        #expect(!completed)
+        await fixture.reply(to: readback, contents: "<query xmlns='jabber:iq:roster' ver='readback'/>")
+        #expect(!completed)
         await release.signal()
-        await push.value
-        _ = await connection.result
-        #expect(try await store.fetchAccounts().first?.rosterVersion == "after-removal")
-        let reloaded = RosterService(store: store)
-        try await reloaded.loadContacts(for: id)
-        #expect(reloaded.contact(jidString: jid.description, accountID: id) == nil)
-        #expect(roster.groups.isEmpty)
+        let outcome = try await removal.value
+        #expect(outcome.isComplete)
+        await fixture.close()
+        #expect(try await fixture.store.fetchAccounts().first?.rosterVersion == "readback")
+        #expect(try await fixture.store.fetchContacts(for: fixture.accountID).isEmpty)
+        #expect(fixture.roster.groups.isEmpty)
     }
 
     @Test(arguments: [false, true])
-    func `failed or disconnected removal leaves stored contacts intact`(disconnect: Bool) async throws {
-        let store = MockPersistenceStore()
-        let transport = MockTransport()
-        let module = RosterModule()
-        let accounts = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: MockXMPPClientFactory(transport: transport, modules: [module]))
-        let roster = RosterService(store: store)
-        roster.setAccountService(accounts)
-        accounts.onRequestedDisconnect = { roster.purgeAccount($0) }
-        let id = try await accounts.createAccount(jidString: "alice@example.com")
-        let (_, connection) = try await driveMockConnect(accounts, accountID: id, transport: transport)
-        let jid = try #require(BareJID.parse("bob@example.com"))
-        await roster.handleEvent(.rosterLoaded([RosterItem(jid: jid, subscription: .both)]), accountID: id)
-        module.setUp(ModuleContext(sendStanza: { _ in }, sendIQ: { _ in
-            if disconnect {
-                await accounts.disconnect(accountID: id)
-                return nil
-            }
-            throw RemovalFailure.rejected
-        }, emitEvent: { _ in }, generateID: { "remove" }, connectedJID: { nil }, domain: "example.com"))
+    func `rejection and missing acknowledgement leave stored contacts intact`(disconnect: Bool) async throws {
+        let fixture = RosterCommandFixture()
+        try await fixture.connect()
+        let removal = Task { try await fixture.roster.removeContact(jidString: "bob@example.com", accountID: fixture.accountID) }
+        let mutation = try await fixture.nextIQ(type: "set")
         if disconnect {
-            try await roster.removeContact(jidString: jid.description, accountID: id)
-            #expect(roster.groups.isEmpty)
+            await fixture.accounts.disconnect(accountID: fixture.accountID)
         } else {
-            await #expect(throws: RemovalFailure.rejected) {
-                try await roster.removeContact(jidString: jid.description, accountID: id)
-            }
-            #expect(roster.contact(jidString: jid.description, accountID: id) != nil)
+            await fixture.reply(to: mutation, contents: "<error type='cancel'><not-allowed xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error>", type: "error")
         }
-        #expect(try await store.fetchContacts(for: id).count == 1)
-        await accounts.disconnect(accountID: id)
-        _ = await connection.result
+        do {
+            _ = try await removal.value
+            Issue.record("Mutation without acknowledgement must throw")
+        } catch let error as RosterCommandError {
+            #expect(error.status == (disconnect ? .unconfirmed : .rejected))
+            if !disconnect {
+                #expect(error.detail == XMPPStanzaError(errorType: .cancel, condition: .notAllowed).displayText)
+                #expect(!error.localizedDescription.contains("Request failed:"))
+            }
+        }
+        #expect(try await fixture.store.fetchContacts(for: fixture.accountID).count == 1)
+        await fixture.close()
     }
-
-    private enum RemovalFailure: Error { case rejected }
 }

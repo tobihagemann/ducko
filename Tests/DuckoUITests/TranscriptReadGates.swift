@@ -142,6 +142,14 @@ struct GatedTranscriptPersistenceStore: PersistenceStore {
     let mock = MockPersistenceStore()
     let gates: TranscriptReadGates
 
+    func applyRosterMutation(_ mutation: RosterMutation) async throws -> [Contact] {
+        try await mock.applyRosterMutation(mutation)
+    }
+
+    func updateContactIfExists(_ id: UUID, accountID: UUID, update: ContactMetadataUpdate) async throws -> Bool {
+        try await mock.updateContactIfExists(id, accountID: accountID, update: update)
+    }
+
     func fetchAccounts() async throws -> [Account] {
         let result = try await mock.fetchAccounts()
         try await gates.pause(.accounts)

@@ -108,7 +108,7 @@ struct SwiftDataPersistenceStoreTests {
             #expect(cleared.host == nil)
             #expect(cleared.port == nil)
             #expect(cleared.resource == nil)
-            #expect(cleared.rosterVersion == nil)
+            #expect(cleared.rosterVersion == "v1")
             #expect(cleared.certificateFingerprint == nil)
             #expect(cleared.importedFrom == nil)
         }

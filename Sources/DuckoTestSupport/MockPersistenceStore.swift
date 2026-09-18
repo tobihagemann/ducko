@@ -3,6 +3,12 @@ import Foundation
 
 public actor MockPersistenceStore: PersistenceStore {
     public var accounts: [Account] = []
+    private var fetchAccountsError: Error?
+
+    public func setFetchAccountsError(_ error: Error?) {
+        fetchAccountsError = error
+    }
+
     public var contacts: [Contact] = []
     public var conversations: [Conversation] = []
     public var linkPreviews: [LinkPreview] = []
@@ -16,6 +22,29 @@ public actor MockPersistenceStore: PersistenceStore {
     private var fetchContactsGateRelease: AsyncSemaphore?
 
     private var conversationWriteGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
+    private var contactCaptureGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
+    private var contactWriteGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
+    private var rosterApplyGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
+    private var rosterApplyFailures = 0
+    public private(set) var rosterMutations: [RosterMutation] = []
+
+    public enum RosterFailure: Error { case injected, missingAccount }
+
+    public func installContactCaptureGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
+        contactCaptureGate = (entered, release)
+    }
+
+    public func installContactWriteGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
+        contactWriteGate = (entered, release)
+    }
+
+    public func installRosterApplyGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
+        rosterApplyGate = (entered, release)
+    }
+
+    public func failNextRosterApplications(_ count: Int = 1) {
+        rosterApplyFailures = count
+    }
 
     public init() {}
 
@@ -55,12 +84,15 @@ public actor MockPersistenceStore: PersistenceStore {
     // MARK: - Accounts
 
     public func fetchAccounts() async throws -> [Account] {
-        accounts
+        if let fetchAccountsError { throw fetchAccountsError }
+        return accounts
     }
 
     public func saveAccount(_ account: Account) async throws {
         if let index = accounts.firstIndex(where: { $0.id == account.id }) {
+            let version = accounts[index].rosterVersion
             accounts[index] = account
+            accounts[index].rosterVersion = version
         } else {
             accounts.append(account)
         }
@@ -77,7 +109,13 @@ public actor MockPersistenceStore: PersistenceStore {
             await entered.signal()
             await release.wait()
         }
-        return contacts.filter { $0.accountID == accountID }
+        let result = contacts.filter { $0.accountID == accountID }
+        if let gate = contactCaptureGate {
+            contactCaptureGate = nil
+            await gate.entered.signal()
+            await gate.release.wait()
+        }
+        return result
     }
 
     public func upsertContact(_ contact: Contact) async throws {
@@ -90,6 +128,56 @@ public actor MockPersistenceStore: PersistenceStore {
 
     public func deleteContact(_ id: UUID) async throws {
         contacts.removeAll { $0.id == id }
+    }
+
+    public func applyRosterMutation(_ mutation: RosterMutation) async throws -> [Contact] {
+        if let gate = rosterApplyGate {
+            rosterApplyGate = nil
+            await gate.entered.signal()
+            await gate.release.wait()
+        }
+        try Task.checkCancellation()
+        guard let accountIndex = accounts.firstIndex(where: { $0.id == mutation.accountID }) else {
+            throw RosterFailure.missingAccount
+        }
+        rosterMutations.append(mutation)
+        if rosterApplyFailures > 0 {
+            rosterApplyFailures -= 1
+            throw RosterFailure.injected
+        }
+        let items: [RosterMutation.Item]
+        switch mutation.contents {
+        case let .snapshot(snapshot):
+            items = snapshot
+            let retained = Set(snapshot.filter { !$0.isRemoval }.map(\.jid))
+            contacts.removeAll { $0.accountID == mutation.accountID && !retained.contains($0.jid) }
+        case let .delta(item): items = [item]
+        }
+        for item in items {
+            let index = contacts.firstIndex { $0.accountID == mutation.accountID && $0.jid == item.jid }
+            if item.isRemoval {
+                if let index { contacts.remove(at: index) }
+            } else if let index {
+                contacts[index] = item.merging(into: contacts[index], accountID: mutation.accountID)
+            } else {
+                contacts.append(item.merging(into: nil, accountID: mutation.accountID))
+            }
+        }
+        accounts[accountIndex].rosterVersion = mutation.version
+        return contacts.filter { $0.accountID == mutation.accountID }
+    }
+
+    @discardableResult
+    public func updateContactIfExists(_ id: UUID, accountID: UUID, update: ContactMetadataUpdate) async throws -> Bool {
+        if let gate = contactWriteGate {
+            contactWriteGate = nil
+            await gate.entered.signal()
+            await gate.release.wait()
+        }
+        try Task.checkCancellation()
+        guard let index = contacts.firstIndex(where: { $0.id == id && $0.accountID == accountID }) else { return false }
+        update.apply(to: &contacts[index])
+        return true
     }
 
     // MARK: - Conversations

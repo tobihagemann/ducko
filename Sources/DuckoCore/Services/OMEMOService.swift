@@ -157,7 +157,7 @@ public final class OMEMOService {
             break
         case .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .rosterUpdated,
              .presenceUpdated, .presenceSubscriptionRequest,
              .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,

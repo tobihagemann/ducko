@@ -10,6 +10,14 @@ import Testing
 /// mutator is a no-op. Throwing/in-memory stubs aren't shared from
 /// `DuckoCoreTests` because that target is not visible here.
 private struct EmptyPersistenceStore: PersistenceStore {
+    func applyRosterMutation(_: RosterMutation) async throws -> [Contact] {
+        []
+    }
+
+    func updateContactIfExists(_: UUID, accountID _: UUID, update _: ContactMetadataUpdate) async throws -> Bool {
+        false
+    }
+
     func fetchAccounts() async throws -> [Account] {
         []
     }

@@ -48,6 +48,14 @@ struct ContactListWindow: View {
                 SubscriptionRequestBanner()
 
                 RoomInviteBanner()
+
+                if let notice = state.rosterNotice {
+                    DismissibleBanner(message: notice, dismissalLabel: "Dismiss notice", dismissalShortcut: .cancelAction) {
+                        state.rosterNotice = nil
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("roster-notice")
+                }
             }
             // Pin the chrome to its natural height so a short window can never
             // compress it — otherwise the measured `ChromeHeightKey` shrinks,
@@ -60,7 +68,7 @@ struct ContactListWindow: View {
                 }
             }
 
-            ContactListView(searchText: state.searchText, preferences: state.preferences, chromeHeight: chromeHeight)
+            ContactListView(searchText: state.searchText, preferences: state.preferences, chromeHeight: chromeHeight, presentNotice: presentRosterNotice)
                 .frame(maxHeight: .infinity)
                 .layoutPriority(1)
         }
@@ -90,7 +98,7 @@ struct ContactListWindow: View {
             environment.presenceService.startIdleMonitoring()
         }
         .sheet(isPresented: $state.isShowingAddContact) {
-            AddContactSheet()
+            AddContactSheet(presentNotice: presentRosterNotice)
         }
         .sheet(isPresented: $state.isShowingJoinRoom) {
             RoomJoinDialog { jidString, accountID in
@@ -132,6 +140,11 @@ struct ContactListWindow: View {
                 Text("The TLS certificate for \(warning.accountJID) has changed.\n\nPrevious: \(warning.previousFingerprint)\nNew: \(warning.newFingerprint)")
             }
         }
+    }
+
+    private func presentRosterNotice(_ message: String, accountID: UUID) {
+        let account = environment.accountService.accounts.first { $0.id == accountID }
+        state.rosterNotice = "\(account?.jid.description ?? accountID.uuidString): \(message)"
     }
 }
 

@@ -12,6 +12,9 @@ public protocol PersistenceStore: Sendable {
     func fetchContacts(for accountID: UUID) async throws -> [Contact]
     func upsertContact(_ contact: Contact) async throws
     func deleteContact(_ id: UUID) async throws
+    func applyRosterMutation(_ mutation: RosterMutation) async throws -> [Contact]
+    @discardableResult
+    func updateContactIfExists(_ id: UUID, accountID: UUID, update: ContactMetadataUpdate) async throws -> Bool
 
     // MARK: - Conversations
 

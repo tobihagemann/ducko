@@ -41,7 +41,7 @@ enum EventRouterTests {
                 id: waiterID,
                 deliver: { event in
                     observer.deliveredEvents.append(event)
-                    if case .rosterLoaded = event {
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse {
                         observer.resolved = true
                         return true
                     }
@@ -57,7 +57,7 @@ enum EventRouterTests {
             #expect(observer.resolved == false)
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 1)
 
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
             await yieldUntil { observer.resolved }
             #expect(observer.deliveredEvents.count == 2)
             #expect(observer.cancelError == nil)
@@ -73,14 +73,14 @@ enum EventRouterTests {
 
             // Two events arrive while no waiter is active — both buffered.
             router.dispatch(.disconnected(.requested), accountID: accountID)
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
 
             router.register(
                 accountID: accountID,
                 id: waiterID,
                 deliver: { event in
                     observer.deliveredEvents.append(event)
-                    if case .rosterLoaded = event {
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse {
                         observer.resolved = true
                         return true
                     }
@@ -106,7 +106,7 @@ enum EventRouterTests {
             router.register(
                 accountID: accountID,
                 id: waiterID,
-                deliver: { _ in observer.deliveredEvents.append(.rosterLoaded([])); return false },
+                deliver: { _ in observer.deliveredEvents.append(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil))); return false },
                 cancel: { error in observer.cancelError = error },
                 timeout: .seconds(60)
             )
@@ -132,7 +132,7 @@ enum EventRouterTests {
             router.register(
                 accountID: accountID,
                 id: waiterID,
-                deliver: { _ in observer.deliveredEvents.append(.rosterLoaded([])); return true },
+                deliver: { _ in observer.deliveredEvents.append(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil))); return true },
                 cancel: { error in observer.cancelError = error },
                 timeout: .seconds(60)
             )
@@ -151,13 +151,12 @@ enum EventRouterTests {
             let idA = UUID()
             let idB = UUID()
 
-            // A consumes `.rosterLoaded`; B consumes `.disconnected`.
             router.register(
                 accountID: accountID,
                 id: idA,
                 deliver: { event in
                     observerA.deliveredEvents.append(event)
-                    if case .rosterLoaded = event {
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse {
                         observerA.resolved = true
                         return true
                     }
@@ -182,7 +181,7 @@ enum EventRouterTests {
             )
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 2)
 
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
             await yieldUntil { observerA.resolved }
             #expect(observerB.resolved == false)
             #expect(observerB.deliveredEvents.count == 1)
@@ -205,7 +204,7 @@ enum EventRouterTests {
                 id: UUID(),
                 deliver: { event in
                     observerA.deliveredEvents.append(event)
-                    if case .rosterLoaded = event {
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse {
                         observerA.resolved = true
                         return true
                     }
@@ -214,17 +213,17 @@ enum EventRouterTests {
                 cancel: { error in observerA.cancelError = error },
                 timeout: .seconds(60)
             )
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
             await yieldUntil { observerA.resolved }
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 0)
 
-            // Second wait for `.rosterLoaded` — must NOT see the consumed event.
+            // Second wait for initial roster response — must NOT see the consumed event.
             router.register(
                 accountID: accountID,
                 id: UUID(),
                 deliver: { event in
                     observerB.deliveredEvents.append(event)
-                    if case .rosterLoaded = event {
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse {
                         observerB.resolved = true
                         return true
                     }
@@ -238,7 +237,7 @@ enum EventRouterTests {
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 1)
 
             // Fresh dispatch resolves it.
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
             await yieldUntil { observerB.resolved }
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 0)
         }
@@ -318,7 +317,7 @@ enum EventRouterTests {
                 timeout: .seconds(60)
             )
 
-            router.dispatch(.rosterLoaded([]), accountID: accountA)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountA)
             await yieldUntil { observerA.deliveredEvents.count == 1 }
             #expect(observerB.deliveredEvents.isEmpty)
             #expect(router.pendingWaiterCount(forAccountID: accountB) == 1)
@@ -353,7 +352,7 @@ enum EventRouterTests {
             // Synchronous on MainActor: dispatch queues the deferred Task,
             // then cancelWaiter removes the waiter and resumes-throw — both
             // before any await yields the actor.
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
             router.cancelWaiter(accountID: accountID, id: waiterID, error: .streamClosed)
 
             await Task.yield()
@@ -377,20 +376,20 @@ enum EventRouterTests {
 
             let task = Task {
                 try await connected.waitForEvent(matching: { event in
-                    if case .rosterLoaded = event { return true }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse { return true }
                     return false
                 }, timeout: .seconds(10))
             }
             await yieldUntil { router.pendingWaiterCount(forAccountID: accountID) == 1 }
 
             router.dispatch(.disconnected(.requested), accountID: accountID)
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
 
             let event = try await task.value
-            if case .rosterLoaded = event {
+            if case let .rosterUpdated(update) = event, update.isInitialResponse {
                 // ok
             } else {
-                Issue.record("expected .rosterLoaded, got \(event)")
+                Issue.record("expected initial roster response, got \(event)")
             }
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 0)
         }
@@ -442,14 +441,14 @@ enum EventRouterTests {
 
             let task = Task {
                 try await connected.waitForEvent(extracting: { event -> Int? in
-                    if case let .rosterLoaded(items) = event { return items.count }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse, case let .snapshot(items) = update.contents { return items.count }
                     return nil
                 }, timeout: .seconds(10))
             }
             await yieldUntil { router.pendingWaiterCount(forAccountID: accountID) == 1 }
 
             router.dispatch(.disconnected(.requested), accountID: accountID)
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
 
             let count = try await task.value
             #expect(count == 0)
@@ -464,7 +463,7 @@ enum EventRouterTests {
 
             let task = Task {
                 try await connected.collectEvents(until: { event in
-                    if case .rosterLoaded = event { return true }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse { return true }
                     return false
                 }, timeout: .seconds(10))
             }
@@ -472,14 +471,14 @@ enum EventRouterTests {
 
             router.dispatch(.disconnected(.requested), accountID: accountID)
             router.dispatch(.disconnected(.requested), accountID: accountID)
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
 
             let collected = try await task.value
             #expect(collected.count == 3)
-            if case .rosterLoaded = collected.last {
+            if case let .rosterUpdated(update) = collected.last, update.isInitialResponse {
                 // ok
             } else {
-                Issue.record("expected terminator .rosterLoaded at end, got \(String(describing: collected.last))")
+                Issue.record("expected terminator initial roster response at end, got \(String(describing: collected.last))")
             }
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 0)
         }
@@ -498,7 +497,7 @@ enum EventRouterTests {
             }
             let collectTask = Task {
                 try await connected.collectEvents(until: { event in
-                    if case .rosterLoaded = event { return true }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse { return true }
                     return false
                 }, timeout: .seconds(10))
             }
@@ -510,7 +509,7 @@ enum EventRouterTests {
             // event. Pin that ordering before the second dispatch.
             await yieldUntil { router.pendingWaiterCount(forAccountID: accountID) == 1 }
 
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
 
             let waitEvent = try await waitTask.value
             if case .disconnected = waitEvent {
@@ -552,19 +551,19 @@ enum EventRouterTests {
             // Waiter B with a different predicate must resolve cleanly.
             let task = Task {
                 try await connected.waitForEvent(matching: { event in
-                    if case .rosterLoaded = event { return true }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse { return true }
                     return false
                 }, timeout: .seconds(10))
             }
             await yieldUntil { router.pendingWaiterCount(forAccountID: accountID) == 1 }
 
-            router.dispatch(.rosterLoaded([]), accountID: accountID)
+            router.dispatch(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: accountID)
 
             let event = try await task.value
-            if case .rosterLoaded = event {
+            if case let .rosterUpdated(update) = event, update.isInitialResponse {
                 // ok
             } else {
-                Issue.record("expected .rosterLoaded, got \(event)")
+                Issue.record("expected initial roster response, got \(event)")
             }
             #expect(router.pendingWaiterCount(forAccountID: accountID) == 0)
         }

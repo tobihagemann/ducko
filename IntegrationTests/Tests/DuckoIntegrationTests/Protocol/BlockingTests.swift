@@ -116,7 +116,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
         /// If `.blockListLoaded` placed bob in the block list, unblock him
         /// before the test mutates state so each test starts from a clean
         /// baseline. Gives BlockingModule.handleConnect a brief poll window
-        /// because `.blockListLoaded` may fire before setUp's `.rosterLoaded`
+        /// because `.blockListLoaded` may fire before setUp's initial roster response
         /// await registers, consuming the event without inspecting it.
         private static func ensureBobUnblocked(
             alice: ConnectedAccount, blocking: BlockingModule, bobJID: BareJID

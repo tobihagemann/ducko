@@ -19,7 +19,7 @@ let testBindResult = """
 """
 
 /// Simulates a connect handshake without TLS.
-func simulateNoTLSConnect(_ transport: MockTransport) async {
+func simulateNoTLSConnect(_ transport: MockTransport, postAuthFeatures: String = testFeaturesBind) async {
     await transport.waitForSent(count: 1) // stream opening sent
     await transport.simulateReceive(testServerStreamOpen)
     await transport.simulateReceive(testFeaturesNoTLS)
@@ -27,7 +27,7 @@ func simulateNoTLSConnect(_ transport: MockTransport) async {
     await transport.simulateReceive("<success xmlns='urn:ietf:params:xml:ns:xmpp-sasl'/>")
     await transport.waitForSent(count: 3) // post-auth stream opening sent
     await transport.simulateReceive(testServerStreamOpen)
-    await transport.simulateReceive(testFeaturesBind)
+    await transport.simulateReceive(postAuthFeatures)
     await transport.waitForSent(count: 4) // bind IQ sent
     await transport.simulateReceive(testBindResult)
 }
@@ -44,12 +44,13 @@ func driveMockConnect(
     accountID: UUID,
     password: String = "secret",
     transport: MockTransport,
-    awaitInitialPresence: Bool = false
+    awaitInitialPresence: Bool = false,
+    postAuthFeatures: String = testFeaturesBind
 ) async throws -> (client: XMPPClient, task: Task<Void, any Error>) {
     let task = Task { @MainActor in
         try await service.connect(accountID: accountID, password: password)
     }
-    await simulateNoTLSConnect(transport)
+    await simulateNoTLSConnect(transport, postAuthFeatures: postAuthFeatures)
     if awaitInitialPresence {
         // The handshake sends 4 stanzas through bind; the client then sends the initial available presence
         // (stanza 5) and entity caps (stanza 6), so a cumulative count of 6 means both have flushed.

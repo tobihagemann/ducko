@@ -13,11 +13,6 @@ private func makeStore() -> MockPersistenceStore {
     MockPersistenceStore()
 }
 
-@MainActor
-private func makeRosterService(store: MockPersistenceStore) -> RosterService {
-    RosterService(store: store)
-}
-
 private func makeRosterItem(
     jid: BareJID,
     name: String? = nil,
@@ -55,13 +50,14 @@ enum RosterServiceTests {
         @MainActor
         func `Roster loaded event persists contacts to store`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [
                 makeRosterItem(jid: contactJID1, name: "Alice"),
                 makeRosterItem(jid: contactJID2, name: "Bob")
             ]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts.count == 2)
@@ -71,13 +67,14 @@ enum RosterServiceTests {
         @MainActor
         func `Roster loaded builds correct groups`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [
                 makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"]),
                 makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Work"])
             ]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             #expect(service.groups.count == 2)
             #expect(service.groups[0].name == "Friends")
@@ -88,13 +85,14 @@ enum RosterServiceTests {
         @MainActor
         func `Contacts without groups go into Ungrouped`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [
                 makeRosterItem(jid: contactJID1, name: "Alice"),
                 makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"])
             ]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             #expect(service.groups.count == 2)
             #expect(service.groups[0].name == "Friends")
@@ -107,14 +105,15 @@ enum RosterServiceTests {
         @MainActor
         func `Existing contacts preserve localAlias on roster reload`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Pre-populate store with a contact that has a local alias
             let existing = makeContact(jid: contactJID1, name: "Alice", localAlias: "My Friend")
             try await store.upsertContact(existing)
 
             let items = [makeRosterItem(jid: contactJID1, name: "Alice Updated")]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts.count == 1)
@@ -126,7 +125,8 @@ enum RosterServiceTests {
         @MainActor
         func `Contacts removed from roster are deleted from store`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Pre-populate with two contacts
             try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
@@ -134,7 +134,7 @@ enum RosterServiceTests {
 
             // Roster reload only contains Alice
             let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts.count == 1)
@@ -147,10 +147,11 @@ enum RosterServiceTests {
         @MainActor
         func `New roster item creates contact`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let item = makeRosterItem(jid: contactJID1, name: "Alice")
-            await service.handleEvent(.rosterItemChanged(item), accountID: testAccountID)
+            await fixture.deliver(.delta(item), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts.count == 1)
@@ -162,15 +163,16 @@ enum RosterServiceTests {
         @MainActor
         func `Updated roster item updates contact fields`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Create initial contact
             let item1 = makeRosterItem(jid: contactJID1, name: "Alice")
-            await service.handleEvent(.rosterItemChanged(item1), accountID: testAccountID)
+            await fixture.deliver(.delta(item1), accountID: testAccountID)
 
             // Update name
             let item2 = makeRosterItem(jid: contactJID1, name: "Alice Smith")
-            await service.handleEvent(.rosterItemChanged(item2), accountID: testAccountID)
+            await fixture.deliver(.delta(item2), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts.count == 1)
@@ -181,13 +183,14 @@ enum RosterServiceTests {
         @MainActor
         func `Roster item with subscription=remove deletes contact`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Create initial contact
             try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
 
             let item = makeRosterItem(jid: contactJID1, subscription: .remove)
-            await service.handleEvent(.rosterItemChanged(item), accountID: testAccountID)
+            await fixture.deliver(.delta(item), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts.isEmpty)
@@ -197,14 +200,15 @@ enum RosterServiceTests {
         @MainActor
         func `Roster item change refreshes the cached groups`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // An add must publish into the stored `groups` cache, not just the store.
-            await service.handleEvent(.rosterItemChanged(makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"])), accountID: testAccountID)
+            await fixture.deliver(.delta(makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"])), accountID: testAccountID)
             #expect(service.groups.first?.contacts.first?.jid == contactJID1)
 
             // A subsequent remove must refresh the cache, leaving no contacts.
-            await service.handleEvent(.rosterItemChanged(makeRosterItem(jid: contactJID1, subscription: .remove)), accountID: testAccountID)
+            await fixture.deliver(.delta(makeRosterItem(jid: contactJID1, subscription: .remove)), accountID: testAccountID)
             #expect(service.groups.flatMap(\.contacts).isEmpty)
         }
     }
@@ -214,14 +218,15 @@ enum RosterServiceTests {
         @MainActor
         func `Groups sorted alphabetically, Ungrouped last`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [
                 makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Work"]),
                 makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"]),
                 makeRosterItem(jid: contactJID3, name: "Carol")
             ]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             #expect(service.groups.count == 3)
             #expect(service.groups[0].name == "Friends")
@@ -233,13 +238,14 @@ enum RosterServiceTests {
         @MainActor
         func `Contacts sorted by display name within groups`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [
                 makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"]),
                 makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"])
             ]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             #expect(service.groups.count == 1)
             #expect(service.groups[0].contacts[0].name == "Alice")
@@ -250,12 +256,13 @@ enum RosterServiceTests {
         @MainActor
         func `Contact in multiple groups appears in each`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [
                 makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends", "Work"])
             ]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             #expect(service.groups.count == 2)
             #expect(service.groups[0].contacts[0].jid == contactJID1)
@@ -268,9 +275,10 @@ enum RosterServiceTests {
         @MainActor
         func `addContact(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
-            await #expect(throws: RosterService.RosterServiceError.self) {
+            await #expect(throws: RosterCommandError.self) {
                 try await service.addContact(jidString: "alice@example.com", name: "Alice", groups: ["Friends"], accountID: testAccountID)
             }
         }
@@ -279,7 +287,8 @@ enum RosterServiceTests {
         @MainActor
         func `addContact(jidString:) throws invalidJID for empty string`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             await #expect(throws: RosterService.RosterServiceError.self) {
                 try await service.addContact(jidString: "", name: nil, groups: [], accountID: testAccountID)
@@ -290,13 +299,14 @@ enum RosterServiceTests {
         @MainActor
         func `removeContact(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Load a roster so groups are populated
             let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
-            await #expect(throws: RosterService.RosterServiceError.self) {
+            await #expect(throws: RosterCommandError.self) {
                 try await service.removeContact(jidString: contactJID1.description, accountID: testAccountID)
             }
         }
@@ -305,7 +315,8 @@ enum RosterServiceTests {
         @MainActor
         func `removeContact(jidString:) throws invalidJID for empty string`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Empty string fails BareJID.parse — should throw invalidJID
             await #expect(throws: RosterService.RosterServiceError.self) {
@@ -317,7 +328,8 @@ enum RosterServiceTests {
         @MainActor
         func `approveSubscription(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             await #expect(throws: RosterService.RosterServiceError.self) {
                 try await service.approveSubscription(jidString: "alice@example.com", accountID: testAccountID)
@@ -328,7 +340,8 @@ enum RosterServiceTests {
         @MainActor
         func `denySubscription(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             await #expect(throws: RosterService.RosterServiceError.self) {
                 try await service.denySubscription(jidString: "alice@example.com", accountID: testAccountID)
@@ -339,7 +352,8 @@ enum RosterServiceTests {
         @MainActor
         func `requestSubscription(jidString:) throws notConnected without account service`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             await #expect(throws: RosterService.RosterServiceError.self) {
                 try await service.requestSubscription(jidString: "alice@example.com", accountID: testAccountID)
@@ -350,7 +364,8 @@ enum RosterServiceTests {
         @MainActor
         func `requestSubscription(jidString:) throws invalidJID for empty string`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             await #expect(throws: RosterService.RosterServiceError.self) {
                 try await service.requestSubscription(jidString: "", accountID: testAccountID)
@@ -363,13 +378,14 @@ enum RosterServiceTests {
         @MainActor
         func `contact(jidString:accountID:) resolves the requested account when the JID is on two`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
             // Same bare JID present on both accounts with different roster names.
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice-A")]), accountID: accountA)
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice-B")]), accountID: accountB)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice-A")]), accountID: accountA)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice-B")]), accountID: accountB)
 
             #expect(service.contact(jidString: contactJID1.description, accountID: accountA)?.name == "Alice-A")
             #expect(service.contact(jidString: contactJID1.description, accountID: accountB)?.name == "Alice-B")
@@ -379,11 +395,12 @@ enum RosterServiceTests {
         @MainActor
         func `contact(jidString:accountID:) returns nil for a JID on a different account`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
 
             #expect(service.contact(jidString: contactJID1.description, accountID: accountB) == nil)
         }
@@ -394,16 +411,17 @@ enum RosterServiceTests {
         @MainActor
         func `accountIDs(forBareJID:) dedups a multi-group contact and counts each account once`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
             // Same contact in two groups under A must still count A exactly once.
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends", "Work"])]), accountID: accountA)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends", "Work"])]), accountID: accountA)
             #expect(service.accountIDs(forBareJID: contactJID1.description) == [accountA])
 
             // The same JID also on B makes it duplicated across two accounts.
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice-B")]), accountID: accountB)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice-B")]), accountID: accountB)
             #expect(service.accountIDs(forBareJID: contactJID1.description) == [accountA, accountB])
 
             // A JID on no account resolves to the empty set.
@@ -416,13 +434,14 @@ enum RosterServiceTests {
         @MainActor
         func `same group name across accounts merges into one section keyed by name`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
             // Both contacts are ungrouped, so each account contributes an "Ungrouped" group.
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
 
             let ungrouped = service.groups.filter { $0.name == ContactGroup.ungroupedName }
             #expect(ungrouped.count == 1)
@@ -439,12 +458,13 @@ enum RosterServiceTests {
         @MainActor
         func `onlineCounts for a merged group totals contacts across accounts`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
 
             let merged = try #require(service.groups.first { $0.name == ContactGroup.ungroupedName })
             let counts = ContactListSizing.onlineCounts(
@@ -461,13 +481,14 @@ enum RosterServiceTests {
         @MainActor
         func `merged sections sort alphabetically with Ungrouped last across accounts`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
             // Account A contributes "Work"; account B contributes "Friends" and an ungrouped contact.
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Work"])]), accountID: accountA)
-            await service.handleEvent(.rosterLoaded([
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Work"])]), accountID: accountA)
+            await fixture.deliver(.snapshot([
                 makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"]),
                 makeRosterItem(jid: contactJID3, name: "Carol")
             ]), accountID: accountB)
@@ -479,14 +500,15 @@ enum RosterServiceTests {
         @MainActor
         func `contacts interleave alphabetically across accounts within a merged group`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
             // Bob on A, Alice on B, both in "Friends" — the merged section must sort Alice before Bob,
             // not cluster per account in insertion order.
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"])]), accountID: accountA)
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"])]), accountID: accountB)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID2, name: "Bob", groups: ["Friends"])]), accountID: accountA)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice", groups: ["Friends"])]), accountID: accountB)
 
             let friends = try #require(service.groups.first { $0.name == "Friends" })
             #expect(friends.contacts.map(\.name) == ["Alice", "Bob"])
@@ -498,12 +520,13 @@ enum RosterServiceTests {
         @MainActor
         func `Disconnect event clears the cached groups for the account`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: testAccountID)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: testAccountID)
             #expect(!service.groups.isEmpty)
 
-            await service.handleEvent(.disconnected(.requested), accountID: testAccountID)
+            service.receiveRosterEvent(.disconnected(.requested), accountID: testAccountID)
             #expect(service.groups.isEmpty)
         }
 
@@ -511,16 +534,17 @@ enum RosterServiceTests {
         @MainActor
         func `Disconnect clears only the disconnected account's groups`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             let accountA = UUID()
             let accountB = UUID()
 
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
-            await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: accountA)
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID2, name: "Bob")]), accountID: accountB)
             #expect(service.groups.flatMap(\.contacts).count == 2)
 
             // Tearing down account A must leave account B's contacts in the merged cache.
-            await service.handleEvent(.disconnected(.requested), accountID: accountA)
+            service.receiveRosterEvent(.disconnected(.requested), accountID: accountA)
 
             let remaining = service.groups.flatMap(\.contacts)
             #expect(remaining.count == 1)
@@ -531,7 +555,8 @@ enum RosterServiceTests {
         @MainActor
         func `A roster load racing a purge does not repopulate the cleared groups`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Seed a contact so a completed load would publish a non-empty merge.
             try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
@@ -557,14 +582,15 @@ enum RosterServiceTests {
         @MainActor
         func `A roster-loaded event racing a purge neither repopulates groups nor mutates the store`() async {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let entered = AsyncSemaphore()
             let release = AsyncSemaphore()
-            await store.installFetchContactsGate(entered: entered, release: release)
+            await store.installRosterApplyGate(entered: entered, release: release)
 
             let load = Task { @MainActor in
-                await service.handleEvent(.rosterLoaded([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: testAccountID)
+                await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: testAccountID)
             }
 
             // Park the handler at its store read, then tear the account down.
@@ -583,16 +609,17 @@ enum RosterServiceTests {
         @MainActor
         func `A roster-item-changed event racing a purge neither repopulates groups nor adds the contact`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             // Pre-seed Alice (ungated) so we can prove the racing change neither publishes nor writes Bob.
             try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
 
             let entered = AsyncSemaphore()
             let release = AsyncSemaphore()
-            await store.installFetchContactsGate(entered: entered, release: release)
+            await store.installRosterApplyGate(entered: entered, release: release)
 
             let load = Task { @MainActor in
-                await service.handleEvent(.rosterItemChanged(makeRosterItem(jid: contactJID2, name: "Bob")), accountID: testAccountID)
+                await fixture.deliver(.delta(makeRosterItem(jid: contactJID2, name: "Bob")), accountID: testAccountID)
             }
 
             // Park at the first store read, tear the account down, then release. The pre-persistence guard
@@ -610,7 +637,8 @@ enum RosterServiceTests {
         @MainActor
         func `updateLastSeen racing a purge neither republishes groups nor writes lastSeen`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
             // Seed the contact updateLastSeen would touch (it only acts on an existing contact).
             try await store.upsertContact(makeContact(jid: contactJID1, name: "Alice"))
 
@@ -661,11 +689,12 @@ enum RosterServiceTests {
         @MainActor
         func `Rename updates localAlias in store and rebuilds groups`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             // Create initial contact via roster load
             let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             let contact = try #require(contacts.first)
@@ -682,10 +711,11 @@ enum RosterServiceTests {
         @MainActor
         func `updateLastSeen persists date for matching contact`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let date = Date()
             await service.updateLastSeen(jid: contactJID1, date: date, accountID: testAccountID)
@@ -698,10 +728,11 @@ enum RosterServiceTests {
         @MainActor
         func `updateLastSeen is no-op for unknown JID`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [makeRosterItem(jid: contactJID1, name: "Alice")]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let unknownJID = try #require(BareJID(localPart: "unknown", domainPart: "example.com"))
             await service.updateLastSeen(jid: unknownJID, date: Date(), accountID: testAccountID)
@@ -716,10 +747,11 @@ enum RosterServiceTests {
         @MainActor
         func `Roster item with ask=true produces contact with ask=subscribe`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [makeRosterItem(jid: contactJID1, name: "Alice", ask: true)]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts[0].ask == "subscribe")
@@ -729,10 +761,11 @@ enum RosterServiceTests {
         @MainActor
         func `Roster item with ask=false produces contact with nil ask`() async throws {
             let store = makeStore()
-            let service = makeRosterService(store: store)
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
 
             let items = [makeRosterItem(jid: contactJID1, name: "Alice", ask: false)]
-            await service.handleEvent(.rosterLoaded(items), accountID: testAccountID)
+            await fixture.deliver(.snapshot(items), accountID: testAccountID)
 
             let contacts = try await store.fetchContacts(for: testAccountID)
             #expect(contacts[0].ask == nil)

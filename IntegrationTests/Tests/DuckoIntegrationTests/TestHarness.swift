@@ -220,7 +220,7 @@ final class TestHarness {
         await harness.tearDown()
     }
 
-    /// Creates and connects every account in `labels`, waiting for `.rosterLoaded`
+    /// Creates and connects every account in `labels`, waiting for initial roster response
     /// before returning. Cleanup for each successful account is registered immediately.
     ///
     /// `loadOMEMOFixtures` gates the OMEMO identity fixture seed + capture path.
@@ -240,9 +240,7 @@ final class TestHarness {
         for (label, credential) in labels.sorted(by: { $0.key < $1.key }) {
             let accountID = try await environment.accountService.createAccount(jidString: credential.jid)
 
-            // Refresh in-memory cache so service handlers (RosterService, BookmarksService,
-            // AvatarService, OMEMOService, ChatService) can find the account when their
-            // events fire — without this, `.connected`/`.rosterLoaded` are silently dropped.
+            // Populate the account cache before feature services handle connection events.
             try await environment.accountService.loadAccounts()
 
             // Seed a previously-captured OMEMO identity, if one exists, before
@@ -273,7 +271,7 @@ final class TestHarness {
 
             _ = try await connected.waitForEvent(
                 matching: { event in
-                    if case .rosterLoaded = event { return true }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse { return true }
                     return false
                 },
                 timeout: TestTimeout.connect
@@ -526,7 +524,7 @@ final class TestHarness {
     /// rewritten. A malformed fixture is also overwritten and logged.
     ///
     /// `OMEMOService.handleConnected` persists identity, prekeys, and signed
-    /// prekey via a detached task that outlives `.rosterLoaded`, so this method
+    /// prekey via a detached task that outlives initial roster response, so this method
     /// polls `loadSignedPreKey` (the last of the three writes) before reading
     /// the store back. A timeout here logs a warning and returns — the next
     /// run regenerates.

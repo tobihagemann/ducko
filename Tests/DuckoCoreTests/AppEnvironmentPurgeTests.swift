@@ -27,7 +27,9 @@ enum AppEnvironmentPurgeTests {
 
             // Queue a roster-loaded fan-out task through the real dispatch closure, then disconnect before it
             // runs. `disconnect` has no client to await here, so its synchronous prefix cancels the task first.
-            env.accountService.onEvent?(.rosterLoaded([RosterItem(jid: peer, name: "Bob", subscription: .both, ask: false, groups: [])]), accountID)
+            let fixture = RosterServiceFixture(store: store, service: env.rosterService)
+            try await fixture.prepare(accountID: accountID)
+            env.accountService.onEvent?(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([RosterItem(jid: peer, name: "Bob", subscription: .both)]), version: nil)), accountID)
             await env.accountService.disconnect(accountID: accountID)
 
             // Let the cancelled task attempt to run; it must bail at its top-level `Task.isCancelled` check
@@ -102,8 +104,10 @@ extension AppEnvironmentPurgeTests {
         let peer = try #require(BareJID.parse("bob@example.com"))
         let entered = AsyncSemaphore()
         let release = AsyncSemaphore()
-        await store.installFetchContactsGate(entered: entered, release: release)
-        env.accountService.onEvent?(.rosterLoaded([RosterItem(jid: peer, name: "Bob", subscription: .both, ask: false, groups: [])]), id)
+        let fixture = RosterServiceFixture(store: store, service: env.rosterService)
+        try await fixture.prepare(accountID: id)
+        await store.installRosterApplyGate(entered: entered, release: release)
+        env.accountService.onEvent?(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([RosterItem(jid: peer, name: "Bob", subscription: .both)]), version: nil)), id)
         let arrival = try await boundedOutcome { await entered.wait() }
         guard arrival != nil else {
             await release.signal()

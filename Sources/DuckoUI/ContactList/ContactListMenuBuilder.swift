@@ -8,17 +8,19 @@ final class ContactListMenuBuilder {
     private let openWindow: OpenWindowAction?
     private let transcriptScope: TranscriptScope?
     private let presentSheet: (ContactListRowSheet) -> Void
+    private let presentNotice: (String, UUID) -> Void
     private weak var target: AnyObject?
     private let action: Selector
 
     init(
         openChat: OpenChatAction, openWindow: OpenWindowAction?, transcriptScope: TranscriptScope?,
-        presentSheet: @escaping (ContactListRowSheet) -> Void, target: AnyObject, action: Selector
+        presentSheet: @escaping (ContactListRowSheet) -> Void, presentNotice: @escaping (String, UUID) -> Void, target: AnyObject, action: Selector
     ) {
         self.openChat = openChat
         self.openWindow = openWindow
         self.transcriptScope = transcriptScope
         self.presentSheet = presentSheet
+        self.presentNotice = presentNotice
         self.target = target
         self.action = action
     }
@@ -71,8 +73,15 @@ final class ContactListMenuBuilder {
                 }
             }
         })
-        menu.addItem(item("Remove Contact") {
-            Task { try? await environment.rosterService.removeContact(contact, accountID: contact.accountID) }
+        menu.addItem(item("Remove Contact", identifier: "contact-context-remove") {
+            Task {
+                do {
+                    let outcome = try await environment.rosterService.removeContact(contact, accountID: contact.accountID)
+                    if !outcome.isComplete { self.presentNotice(outcome.message, contact.accountID) }
+                } catch {
+                    self.presentNotice("\(contact.jid): \(error.localizedDescription)", contact.accountID)
+                }
+            }
         })
         return menu
     }

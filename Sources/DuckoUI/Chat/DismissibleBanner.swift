@@ -3,6 +3,8 @@ import SwiftUI
 /// Orange warning banner with a message and dismiss button.
 struct DismissibleBanner: View {
     let message: String
+    var dismissalLabel = "Dismiss error"
+    var dismissalShortcut: KeyboardShortcut?
     let onDismiss: () -> Void
 
     var body: some View {
@@ -17,7 +19,8 @@ struct DismissibleBanner: View {
                 Image(systemName: "xmark.circle.fill")
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss error")
+            .accessibilityLabel(dismissalLabel)
+            .keyboardShortcut(dismissalShortcut)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

@@ -894,6 +894,23 @@ actor AppAccessor {
         try postKey(key, modifiers: modifiers)
     }
 
+    func runRosterNoticeScript(target: String) async throws -> Int32 {
+        guard let pid = process?.processIdentifier else { throw TestHarnessError.elementNotFound(identifier: "app") }
+        let script = Self.appBundleURL.deletingLastPathComponent().appending(path: "Skills/ducko-ui/scripts/ducko-dismiss-roster-notice.sh")
+        let command = Process()
+        command.executableURL = URL(fileURLWithPath: "/bin/bash")
+        command.arguments = [script.path, target]
+        command.environment = environment.merging(["DUCKO_PID": String(pid)]) { _, value in value }
+        try command.run()
+        let deadline = ContinuousClock.now + .seconds(10)
+        while command.isRunning, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        if command.isRunning { command.terminate() }
+        command.waitUntilExit()
+        return command.terminationStatus
+    }
+
     /// Selects an item by title in the currently-shown context menu (the
     /// right-click menu opened by `rightClick(identifier:)`). Polls for the
     /// menu to publish and to dismiss so a follow-up action does not race

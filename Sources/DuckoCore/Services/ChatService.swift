@@ -1133,7 +1133,8 @@ public final class ChatService {
         case let .messageRetracted(id, from): await handleMessageRetracted(originalID: id, from: from, accountID: accountID)
         case let .messageModerated(id, _, room, _): await handleMessageModerated(originalID: id, room: room, accountID: accountID)
         case let .messageError(id, from, error): await handleMessageError(messageID: id, errorText: error.displayText, from: from, accountID: accountID)
-        case .rosterLoaded:
+        case let .rosterUpdated(update):
+            guard update.isInitialResponse else { return }
             let taskID = UUID()
             pendingTasks[taskID] = Task { [weak self] in
                 defer { self?.pendingTasks[taskID] = nil }
@@ -1154,7 +1155,6 @@ public final class ChatService {
         case let .disconnected(reason): handleMUCDisconnect(reason: reason, accountID: accountID)
         case .connected, .streamResumed, .authenticationFailed,
              .presenceReceived, .iqReceived,
-             .rosterItemChanged, .rosterVersionChanged,
              .presenceSubscriptionRequest,
              .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .archivedMessagesLoaded,

@@ -45,7 +45,7 @@ struct FormatterEventContractTests {
 
     @Test func `ignored events stay silent in every formatter`() {
         let events: [XMPPEvent] = [
-            .rosterLoaded([]), .rosterVersionChanged("v1"),
+            .rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)),
             .chatStateChanged(from: peer, state: .composing),
             .pepItemsPublished(from: peer, node: "node", items: []),
             .pepItemsRetracted(from: peer, node: "node", itemIDs: ["id"]),

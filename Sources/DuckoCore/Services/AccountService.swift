@@ -35,6 +35,8 @@ public final class AccountService {
     private var isAppActive: Bool = true
     private weak var omemoService: OMEMOService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
+    var onRosterSessionStarted: ((UUID, UUID, XMPPClient) -> Void)?
+    var onRosterSessionEnded: ((UUID, UUID) -> Void)?
     /// Fired at the start of a user-initiated `disconnect(accountID:)`, before the per-account event task is
     /// cancelled. `AppEnvironment` first cancels that account's dispatch tasks, then purges its feature caches
     /// synchronously, so stale events cannot repopulate cleared state. Not fired on
@@ -134,6 +136,7 @@ public final class AccountService {
     /// Stream loss retains credentials and retry/resume policy in the same account record.
     private func detachConnectionResources(for accountID: UUID, terminal: Bool) -> AccountConnectionResources? {
         guard let detached = connectionResources[accountID] else { return nil }
+        onRosterSessionEnded?(accountID, detached.attemptID)
         detached.eventTask?.cancel()
         detached.reconnectTask?.cancel()
         if terminal {
@@ -487,13 +490,9 @@ public final class AccountService {
         connectionResources[accountID]?.attemptID = attemptID
         connectionResources[accountID]?.redirectCount = 0
 
-        let account: Account
-        if let existing = accounts.first(where: { $0.id == accountID }) {
-            account = existing
-        } else {
-            let all = try await store.fetchAccounts()
-            guard let fetched = all.first(where: { $0.id == accountID }) else { return }
-            account = fetched
+        let storedAccounts = try await store.fetchAccounts()
+        guard let account = storedAccounts.first(where: { $0.id == accountID }) else {
+            throw AccountServiceError.accountNotFound(accountID)
         }
 
         try Task.checkCancellation()
@@ -509,12 +508,14 @@ public final class AccountService {
         }
         connectionResources[accountID]?.client = client
         connectionResources[accountID]?.streamManagement = sm
+        onRosterSessionStarted?(accountID, attemptID, client)
 
         startEventConsumption(for: accountID, client: client)
 
         do {
             try await connect(client, account: account, resumeState: previousSMState)
         } catch {
+            onRosterSessionEnded?(accountID, attemptID)
             guard connectionResources[accountID]?.attemptID == attemptID else { throw error }
             // Restore SM state so the next retry can attempt resumption
             if let smState = sm.resumeState {
@@ -591,7 +592,7 @@ public final class AccountService {
         case let .serviceOutageReceived(info):
             outageInfos[accountID] = info
         case .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .rosterUpdated,
              .presenceUpdated, .presenceSubscriptionRequest,
              .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
@@ -701,20 +702,26 @@ public final class AccountService {
         connectionStates[accountID] = .connecting
         connectionResources[accountID]?.reconnectTask = Task { [weak self] in
             guard !Task.isCancelled, let self else { return }
-            guard let account = accounts.first(where: { $0.id == accountID }) else { return }
-            // Force TLS for redirects to prevent plaintext credential exposure via see-other-host injection
-            let (client, sm) = await buildClient(account: account, previousSMState: nil, requireTLSOverride: true)
-            guard !Task.isCancelled, connectionResources[accountID]?.attemptID == attemptID else {
-                await client.disconnect()
-                return
-            }
-            connectionResources[accountID]?.client = client
-            connectionResources[accountID]?.streamManagement = sm
-            startEventConsumption(for: accountID, client: client)
             do {
+                let stored = try await store.fetchAccounts()
+                guard !Task.isCancelled, connectionResources[accountID]?.attemptID == attemptID else { return }
+                guard let account = stored.first(where: { $0.id == accountID }) else {
+                    throw AccountServiceError.accountNotFound(accountID)
+                }
+                // Force TLS for redirects to prevent plaintext credential exposure via see-other-host injection.
+                let (client, sm) = await buildClient(account: account, previousSMState: nil, requireTLSOverride: true)
+                guard !Task.isCancelled, connectionResources[accountID]?.attemptID == attemptID else {
+                    await client.disconnect()
+                    return
+                }
+                connectionResources[accountID]?.client = client
+                connectionResources[accountID]?.streamManagement = sm
+                onRosterSessionStarted?(accountID, attemptID, client)
+                startEventConsumption(for: accountID, client: client)
                 try await client.connect(host: host, port: port ?? 5222)
             } catch {
-                guard connectionResources[accountID]?.attemptID == attemptID else { return }
+                onRosterSessionEnded?(accountID, attemptID)
+                guard !Task.isCancelled, connectionResources[accountID]?.attemptID == attemptID else { return }
                 connectionStates[accountID] = .error(error.localizedDescription)
             }
         }

@@ -892,3 +892,33 @@ enum AvatarServiceTests {
         }
     }
 }
+
+extension AvatarServiceTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    static func `delayed avatar response cannot restore a removed contact identity`(readd: Bool) async throws {
+        let connected = try await connectAvatarService()
+        let original = try await fetchPeerContact(connected)
+        let task = Task {
+            await connected.service.handleEvent(.vcardAvatarHashReceived(from: connected.peerJID, hash: "delayed-hash"), accountID: connected.accountID)
+        }
+        let requested = try await boundedOutcome {
+            _ = await connected.transport.waitForSent(matching: { $0.contains("vcard-temp") })
+        }
+        try #require(requested != nil)
+        try await connected.store.deleteContact(original.id)
+        if readd {
+            var replacement = Contact(id: UUID(), accountID: connected.accountID, jid: connected.peerJID, name: "Replacement", subscription: .none, groups: [], isBlocked: false, createdAt: Date())
+            replacement.avatarHash = "replacement-hash"
+            try await connected.store.upsertContact(replacement)
+        }
+        try await answerGet(connected.transport, sentIndex: 4, from: "peer@example.com", body: vcardBody(binval: AvatarPayloads.validPNGBase64))
+        await task.value
+        let contacts = try await connected.store.fetchContacts(for: connected.accountID)
+        #expect(contacts.count == (readd ? 1 : 0))
+        #expect(!contacts.contains { $0.id == original.id })
+        #expect(contacts.first?.avatarHash == (readd ? "replacement-hash" : nil))
+        #expect(contacts.first?.avatarData == nil)
+        await connected.accountService.disconnect(accountID: connected.accountID)
+    }
+}

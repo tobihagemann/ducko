@@ -9,6 +9,12 @@ enum PersistenceStoreError: Error {
 
 @ModelActor
 public actor SwiftDataPersistenceStore: PersistenceStore {
+    var beforeRosterSaveForTesting: (@Sendable () throws -> Void)?
+
+    func setBeforeRosterSaveForTesting(_ hook: (@Sendable () throws -> Void)?) {
+        beforeRosterSaveForTesting = hook
+    }
+
     // MARK: - Accounts
 
     public func fetchAccounts() throws -> [Account] {
@@ -33,6 +39,7 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
                 createdAt: account.createdAt
             )
             record.update(from: account)
+            record.rosterVersion = account.rosterVersion
             modelContext.insert(record)
         }
         try modelContext.save()
@@ -109,6 +116,67 @@ public actor SwiftDataPersistenceStore: PersistenceStore {
         if let record = try modelContext.fetch(descriptor).first {
             modelContext.delete(record)
             try modelContext.save()
+        }
+    }
+
+    public func applyRosterMutation(_ mutation: RosterMutation) throws -> [Contact] {
+        try Task.checkCancellation()
+        let accountID = mutation.accountID
+        var descriptor = FetchDescriptor<AccountRecord>(predicate: #Predicate { $0.id == accountID })
+        descriptor.fetchLimit = 1
+        guard let account = try modelContext.fetch(descriptor).first else {
+            throw PersistenceStoreError.parentNotFound("AccountRecord(\(accountID))")
+        }
+        do {
+            let records = try modelContext.fetch(FetchDescriptor<ContactRecord>(predicate: #Predicate { $0.account?.id == accountID }))
+            let items: [RosterMutation.Item]
+            switch mutation.contents {
+            case let .snapshot(snapshot):
+                items = snapshot
+                let retainedJIDs = Set(snapshot.filter { !$0.isRemoval }.map(\.jid.description))
+                for record in records where !retainedJIDs.contains(record.jid) {
+                    modelContext.delete(record)
+                }
+            case let .delta(item): items = [item]
+            }
+            for item in items {
+                let existing = records.first { $0.jid == item.jid.description }
+                if item.isRemoval {
+                    if let existing, !existing.isDeleted { modelContext.delete(existing) }
+                } else if let existing {
+                    existing.update(from: item.merging(into: existing.toDomain(), accountID: accountID))
+                } else {
+                    let contact = item.merging(into: nil, accountID: accountID)
+                    let record = ContactRecord(id: contact.id, jid: contact.jid.description, subscription: contact.subscription.rawValue, account: account, createdAt: contact.createdAt)
+                    record.update(from: contact)
+                    modelContext.insert(record)
+                }
+            }
+            account.rosterVersion = mutation.version
+            let contacts = try fetchContacts(for: accountID)
+            try beforeRosterSaveForTesting?()
+            try modelContext.save()
+            return contacts
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+    }
+
+    @discardableResult
+    public func updateContactIfExists(_ id: UUID, accountID: UUID, update: ContactMetadataUpdate) throws -> Bool {
+        try Task.checkCancellation()
+        var descriptor = FetchDescriptor<ContactRecord>(predicate: #Predicate { $0.id == id && $0.account?.id == accountID })
+        descriptor.fetchLimit = 1
+        guard let record = try modelContext.fetch(descriptor).first, var contact = record.toDomain() else { return false }
+        update.apply(to: &contact)
+        do {
+            record.update(from: contact)
+            try modelContext.save()
+            return true
+        } catch {
+            modelContext.rollback()
+            throw error
         }
     }
 

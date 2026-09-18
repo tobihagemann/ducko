@@ -110,6 +110,15 @@ struct ContactInfoView: View {
 
     @ViewBuilder
     private var actionsSection: some View {
+        if let notice = state.rosterNotice {
+            Section {
+                DismissibleBanner(message: notice, dismissalLabel: "Dismiss notice", dismissalShortcut: .cancelAction) {
+                    state.rosterNotice = nil
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("contact-info-roster-notice")
+            }
+        }
         if let contact = state.contact {
             Section {
                 Button(contact.isBlocked ? "Unblock" : "Block") {
@@ -121,6 +130,7 @@ struct ContactInfoView: View {
                     isConfirmingRemove = true
                 }
                 .accessibilityIdentifier("contact-info-remove")
+                .disabled(state.isRemoving)
             }
             .confirmationDialog(
                 "Remove \(state.displayName)?",

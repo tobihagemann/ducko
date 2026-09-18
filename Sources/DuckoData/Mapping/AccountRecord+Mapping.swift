@@ -30,7 +30,6 @@ extension AccountRecord {
         port = account.port
         resource = account.resource
         requireTLS = account.requireTLS
-        rosterVersion = account.rosterVersion
         certificateFingerprint = account.certificateFingerprint
         importedFrom = account.importedFrom
     }

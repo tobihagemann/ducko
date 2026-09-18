@@ -8,6 +8,8 @@ import SwiftUI
 public final class ContactListWindowState {
     let preferences = ContactListPreferences()
 
+    var rosterNotice: String?
+
     var searchText = ""
     var isSearching = false
 

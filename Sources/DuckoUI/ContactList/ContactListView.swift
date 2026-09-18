@@ -11,6 +11,7 @@ struct ContactListView: View {
     let searchText: String
     let preferences: ContactListPreferences
     let chromeHeight: CGFloat
+    let presentNotice: (String, UUID) -> Void
     @AppStorage(ContactListSizingDefaults.autoSizeVerticalKey, store: PreferencesDefaults.store)
     private var autoSizeVertical = true
     @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
@@ -70,7 +71,8 @@ struct ContactListView: View {
             autoSizeHorizontal: autoSizeHorizontal,
             maxWidthPreference: maxWidthPreference,
             hasConnectedAccount: hasConnectedAccount,
-            presentSheet: { activeSheet = $0 }
+            presentSheet: { activeSheet = $0 },
+            presentNotice: presentNotice
         )
         // The table-owned AppKit context menu routes sheet presentation back
         // here, where SwiftUI owns it.

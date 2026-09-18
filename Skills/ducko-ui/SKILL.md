@@ -52,6 +52,7 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `new-chat-account-picker` | Account picker in New Chat sheet (shown only when more than one account is enabled) | Contacts |
 | `start-chat-button` | Start Chat button in sheet | Contacts |
 | `add-contact-jid-field` | JID field in Add Contact sheet | Contacts |
+| `add-contact-error` | Rejected or unconfirmed contact-change error, kept in the sheet | Contacts |
 | `add-contact-button` | Add Contact button in sheet | Contacts |
 | `rename-contact-field` | Display-name field in the Rename Contact sheet | Contacts |
 | `rename-contact-button` | Save button in the Rename Contact sheet | Contacts |
@@ -182,6 +183,9 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `contact-info-request-presence` | "Request Presence" button | Contact Info |
 | `contact-info-block` | Block/Unblock button | Contact Info |
 | `contact-info-remove` | Remove Contact button | Contact Info |
+| `roster-notice` | Persistent contact-change notice, with a “Dismiss notice” button and Escape shortcut | Contacts |
+| `contact-info-roster-notice` | Persistent removal notice, with a “Dismiss notice” button and Escape shortcut | Contact Info |
+| `contact-context-remove` | Remove Contact context-menu item | Contacts |
 
 ## Context Menu Features
 
@@ -266,6 +270,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-toggle-preference.sh` | Toggle any preference checkbox by identifier | `IDENTIFIER` (e.g., chatStatesToggle, encryptByDefaultToggle, tofuToggle) |
 | `ducko-menu-bar.sh` | Toggle menu bar icon visibility in General preferences | none |
 | `ducko-edit-profile.sh` | Edit profile fields and optionally save | `[--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]` |
+| `ducko-dismiss-roster-notice.sh` | Dismiss a persistent roster outcome notice using the Swift AX helper; set `DUCKO_PID` with multiple instances | `[contacts\|info]` |
 | `ducko-remove-contact.sh` | Remove a contact via context menu | `JID` |
 | `ducko-contact-info.sh` | Open the Contact Info window via context menu, optionally block/remove | `JID [block\|remove]` |
 | `ducko-chat-tabs.sh` | List, select, or close bottom chat tabs (close is best-effort; the hover-revealed close button is merged into the chip's combined element) | `<list\|select\|close> [JID]` |

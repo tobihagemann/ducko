@@ -170,19 +170,17 @@ extension DuckoCLI {
             func run() async throws {
                 let formatter = global.resolvedFormat.makeFormatter()
 
-                try await ConnectedOperation.run(formatter: formatter, account: account) { env, _ in
-                    try await waitForRosterLoaded(environment: env)
-
-                    // Wait for initial presence stanzas
-                    try await Task.sleep(for: .seconds(1.5))
-
-                    let (groups, presences) = await MainActor.run {
-                        (env.rosterService.groups, env.presenceService.contactPresences)
-                    }
-
-                    guard !groups.isEmpty else {
-                        print("No contacts in roster.")
+                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                    let contacts = try await env.rosterService.synchronizeRoster(accountID: selectedAccount.id)
+                    guard !contacts.isEmpty else {
+                        print(formatter.formatEmptyRoster(accountID: selectedAccount.id))
                         return
+                    }
+                    let groups = ContactGroup.grouping(contacts)
+                    let presences = await MainActor.run {
+                        Dictionary(uniqueKeysWithValues: contacts.compactMap { contact in
+                            env.presenceService.presence(for: contact.jid, accountID: selectedAccount.id).map { (contact.jid, $0) }
+                        })
                     }
 
                     printRoster(groups: groups, presences: presences, formatter: formatter)
@@ -216,11 +214,11 @@ extension DuckoCLI {
                     throw CLIError.invalidJID(jid)
                 }
 
-                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
-                    let groups = group.map { [$0] } ?? []
-                    try await env.rosterService.addContact(jid: bareJID, name: name, groups: groups, accountID: selectedAccount.id)
-
-                    print("Added \(jid) to roster.")
+                try await RosterCommandOutput.run(formatter: formatter) {
+                    try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                        let groups = group.map { [$0] } ?? []
+                        return try await env.rosterService.addContact(jid: bareJID, name: name, groups: groups, accountID: selectedAccount.id)
+                    }
                 }
             }
         }
@@ -245,12 +243,10 @@ extension DuckoCLI {
                     throw CLIError.invalidJID(jid)
                 }
 
-                try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
-                    try await waitForRosterLoaded(environment: env)
-
-                    try await env.rosterService.removeContact(jidString: bareJID.description, accountID: selectedAccount.id)
-
-                    print("Removed \(jid) from roster.")
+                try await RosterCommandOutput.run(formatter: formatter) {
+                    try await ConnectedOperation.run(formatter: formatter, account: account) { env, selectedAccount in
+                        try await env.rosterService.removeContact(jidString: bareJID.description, accountID: selectedAccount.id)
+                    }
                 }
             }
         }
@@ -1454,7 +1450,7 @@ private func dispatchREPLCommand(
     case .status: await handleStatusCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
     case .who: await handleWhoCommand(formatter: formatter, environment: environment)
     case .add: await handleAddCommand(input, formatter: formatter, environment: environment, accountID: accountID)
-    case .remove: await handleJIDCommand(input, prefix: "/remove ", successMessage: "Removed {jid} from roster.", formatter: formatter) { try await environment.rosterService.removeContact(jidString: $0, accountID: accountID) }
+    case .remove: await handleRemoveCommand(input, formatter: formatter, environment: environment, accountID: accountID)
     case .history: await handleHistoryCommand(input, formatter: formatter, environment: environment, accountID: accountID, accountJID: accountJID)
     case .profile: await handleProfileREPLCommand(context: context)
     case .reply: await handleReplyREPLCommand(input, context: context)
@@ -2141,8 +2137,18 @@ private func handleAddCommand(
     let name: String? = parts.count > 1 ? String(parts[1]) : nil
 
     do {
-        try await environment.rosterService.addContact(jid: bareJID, name: name, groups: [], accountID: accountID)
-        print("Added \(jidString) to roster.")
+        let outcome = try await environment.rosterService.addContact(jid: bareJID, name: name, groups: [], accountID: accountID)
+        print(formatter.formatRosterCommand(outcome))
+    } catch {
+        print(formatter.formatError(error))
+    }
+}
+
+private func handleRemoveCommand(_ input: String, formatter: any CLIFormatter, environment: AppEnvironment, accountID: UUID) async {
+    let jid = input.dropFirst("/remove ".count).trimmingCharacters(in: .whitespaces)
+    do {
+        let outcome = try await environment.rosterService.removeContact(jidString: jid, accountID: accountID)
+        print(formatter.formatRosterCommand(outcome))
     } catch {
         print(formatter.formatError(error))
     }
@@ -2541,18 +2547,6 @@ private func validateHostPort(host: String?, port: UInt16?) throws {
     if port != nil, host == nil {
         throw ValidationError("--port requires --host")
     }
-}
-
-private func waitForRosterLoaded(environment: AppEnvironment) async throws {
-    let deadline = ContinuousClock.now + .seconds(15)
-    while ContinuousClock.now < deadline {
-        let groups = await MainActor.run { environment.rosterService.groups }
-        if !groups.isEmpty {
-            return
-        }
-        try await Task.sleep(for: .milliseconds(200))
-    }
-    // Empty roster — timeout expires gracefully.
 }
 
 private func handleDirectedPresenceREPLCommand(_ input: String, context: REPLContext) async {

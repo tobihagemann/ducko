@@ -34,6 +34,7 @@ public final class AppEnvironment {
         omemoStore: (any OMEMOStore)? = nil,
         linkPreviewFetcher: any LinkPreviewFetcher = NoOpLinkPreviewFetcher(),
         downloadsDirectory: URL = .downloadsDirectory,
+        clientFactory: any XMPPClientFactory = DefaultXMPPClientFactory(),
         onExternalEvent: (@Sendable (XMPPEvent, UUID) -> Void)? = nil
     ) {
         let resolvedCredentialStore = credentialStore ?? CredentialStoreFactory.makeDefault()
@@ -42,7 +43,7 @@ public final class AppEnvironment {
         let chatService = ChatService(store: store, transcripts: transcripts, filterPipeline: pipeline)
         let presenceService = PresenceService()
         let rosterService = RosterService(store: store)
-        let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore)
+        let accountService = AccountService(store: store, credentialStore: resolvedCredentialStore, clientFactory: clientFactory)
         let bookmarksService = BookmarksService()
         bookmarksService.autoJoinEnabled = true
         let avatarService = AvatarService(store: store)
@@ -89,6 +90,12 @@ public final class AppEnvironment {
         omemoService.setAccountService(accountService)
         omemoService.setChatService(chatService)
         accountService.setOMEMOService(omemoService)
+        accountService.onRosterSessionStarted = { [weak rosterService] accountID, sessionID, client in
+            rosterService?.beginSession(accountID: accountID, sessionID: sessionID, client: client)
+        }
+        accountService.onRosterSessionEnded = { [weak rosterService] accountID, sessionID in
+            rosterService?.endSession(accountID: accountID, sessionID: sessionID)
+        }
         accountService.onRequestedDisconnect = { [weak self] accountID in
             guard let self else { return }
             cancelDispatchTasks(for: accountID)
@@ -107,6 +114,7 @@ public final class AppEnvironment {
     private func wireEventDispatch() {
         accountService.onEvent = { [weak self] event, accountID in
             guard let self else { return }
+            rosterService.receiveRosterEvent(event, accountID: accountID)
             let taskID = UUID()
             dispatchTasksByAccount[accountID, default: [:]][taskID] = Task { @MainActor [weak self] in
                 defer { self?.dispatchTasksByAccount[accountID]?[taskID] = nil }
@@ -145,6 +153,7 @@ public final class AppEnvironment {
         let tasks = takePendingTasks()
             + chatService.takePendingTasks()
             + fileTransferService.takePendingTasks()
+            + rosterService.takePendingTasks()
         for task in tasks {
             task.cancel()
         }

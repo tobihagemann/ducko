@@ -137,6 +137,31 @@ struct AccountConnectionResourceTests {
         _ = await connection.result
     }
 
+    @Test
+    func `redirect account read failure leaves a terminal error`() async throws {
+        let transport = MockTransport()
+        let store = MockPersistenceStore()
+        let factory = AccountConnectionFactoryProbe(transports: [transport])
+        let service = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: factory)
+        let id = try await service.createAccount(jidString: "alice@example.com")
+        let (_, connection) = try await driveMockConnect(service, accountID: id, transport: transport)
+        await store.setFetchAccountsError(AccountConnectionFactoryProbe.Failure.connect)
+        await transport.simulateReceive("<error><see-other-host xmlns='urn:ietf:params:xml:ns:xmpp-streams'>redirect.example.com:5223</see-other-host></error>")
+        let settled = try await boundedOutcome { @MainActor in
+            while true {
+                if case .error = service.connectionStates[id] { return }
+                try Task.checkCancellation()
+                await Task.yield()
+            }
+        }
+        try #require(settled != nil)
+        try settled?.get()
+        #expect(service.client(for: id) == nil)
+        #expect(await factory.requestCount == 1)
+        await service.disconnect(accountID: id)
+        _ = await connection.result
+    }
+
     private func suspendAtStreamManagement(_ transport: MockTransport, requiresTLS: Bool) async throws {
         try await exchange(transport, matching: "<stream:stream", response: testServerStreamOpen + testFeaturesNoTLS)
         if requiresTLS {

@@ -284,7 +284,7 @@ public final class FileTransferService {
             break
         case .connected, .streamResumed, .disconnected, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .rosterUpdated,
              .presenceUpdated, .presenceSubscriptionRequest,
              .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,

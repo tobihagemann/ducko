@@ -32,6 +32,14 @@ struct PlainFormatter: CLIFormatter {
         return line
     }
 
+    func formatEmptyRoster(accountID: UUID) -> String {
+        "No contacts in roster."
+    }
+
+    func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String {
+        outcome.message
+    }
+
     func formatAccount(_ account: Account) -> String {
         "\(account.jid) (\(account.id))"
     }
@@ -100,7 +108,7 @@ struct PlainFormatter: CLIFormatter {
         case let .oobIQOfferReceived(offer): formatOOBOffer(offer: offer)
         case let .serviceOutageReceived(info): formatOutageEvent(info)
         case .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .rosterUpdated,
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,

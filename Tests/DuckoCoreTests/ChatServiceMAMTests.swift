@@ -144,8 +144,8 @@ enum ChatServiceMAMTests {
             let transcripts = makeTranscripts()
             let service = makeChatService(store: store, transcripts: transcripts)
 
-            // Fire .rosterLoaded — syncRecentHistory exits early (no client), no crash
-            await service.handleEvent(.rosterLoaded([]), accountID: testAccountID)
+            // Fire initial roster response — syncRecentHistory exits early (no client), no crash
+            await service.handleEvent(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: testAccountID)
 
             // Give the fire-and-forget Task time to complete
             try await Task.sleep(for: .milliseconds(50))
@@ -452,7 +452,7 @@ enum ChatServiceMAMTests {
     }
 
     struct SyncResurrectionGuard {
-        /// Holds a MAM sync (spawned via `.rosterLoaded`) suspended mid-round-trip so
+        /// Holds a MAM sync (spawned via `initial roster response`) suspended mid-round-trip so
         /// `beforeRelease` can mutate state — e.g. destroy the conversation — before the
         /// archive and `<fin>` land and the transcript appends run.
         @MainActor
@@ -460,7 +460,7 @@ enum ChatServiceMAMTests {
             harness: GroupMAMHarness,
             beforeRelease: (GroupMAMHarness) async throws -> Void
         ) async throws {
-            await harness.chatService.handleEvent(.rosterLoaded([]), accountID: harness.accountID)
+            await harness.chatService.handleEvent(.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: nil)), accountID: harness.accountID)
 
             // Wait for the in-flight MAM query directly rather than coupling to the handshake stanza count.
             let mamIQ = try #require(await harness.transport.waitForSent(matching: { $0.contains("urn:xmpp:mam:2") }))
@@ -561,5 +561,43 @@ extension ChatServiceMAMTests {
         #expect(persisted.attachments.first?.url == "https://example.com/image.png")
         #expect(persisted.attachments.first?.mimeType == "image/png")
         #expect(await fetcher.invocationCount == 0)
+    }
+}
+
+extension ChatServiceMAMTests {
+    @Test
+    @MainActor
+    static func `initial history sync survives roster save failure and ignores readbacks`() async throws {
+        let harness = try await makeGroupMAMHarness()
+        let roster = RosterService(store: harness.store)
+        let client = try #require(harness.accountService.connectedClient(for: harness.accountID))
+        roster.beginSession(accountID: harness.accountID, sessionID: UUID(), client: client)
+        await harness.store.failNextRosterApplications()
+        let initial = XMPPEvent.rosterUpdated(RosterUpdate(receipt: 1, origin: .initial, contents: .snapshot([]), version: "failed"))
+        let application = roster.receiveRosterEvent(initial, accountID: harness.accountID)
+        await harness.chatService.handleEvent(initial, accountID: harness.accountID)
+        let queryTask = Task { await harness.transport.waitForSent(matching: { $0.contains("urn:xmpp:mam:2") }) }
+        try #require(try await boundedOutcome { _ = await queryTask.value } != nil)
+        let query = try #require(await queryTask.value)
+        let queryID = try #require(extractIQID(from: query))
+        let tasks = harness.chatService.takePendingTasks()
+        #expect(tasks.count == 1)
+        await application?.value
+        #expect(try await harness.store.fetchAccounts().first?.rosterVersion == nil)
+        await harness.transport.simulateReceive("<iq type='result' id='\(queryID)' from='\(roomJID)'><fin xmlns='urn:xmpp:mam:2' complete='true'/></iq>")
+        for task in tasks {
+            await task.value
+        }
+        await harness.transport.clearSentBytes()
+        for id in ["command", "recovery", "resume"] {
+            await harness.chatService.handleEvent(.rosterUpdated(RosterUpdate(receipt: 2, origin: .readback(id), contents: .snapshot([]), version: id)), accountID: harness.accountID)
+        }
+        #expect(harness.chatService.takePendingTasks().isEmpty)
+        #expect(await harness.transport.sentBytes.isEmpty)
+        roster.purgeAccount(harness.accountID)
+        for task in roster.takePendingTasks() {
+            await task.value
+        }
+        await harness.accountService.disconnect(accountID: harness.accountID)
     }
 }

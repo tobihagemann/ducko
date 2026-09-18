@@ -100,7 +100,7 @@ extension DuckoIntegrationTests {
                 )
 
                 _ = try await account.waitForEvent(matching: { event in
-                    if case .rosterLoaded = event { return true }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse { return true }
                     return false
                 }, timeout: TestTimeout.connect)
 

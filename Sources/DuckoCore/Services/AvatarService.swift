@@ -103,7 +103,7 @@ public final class AvatarService {
             clearAvatarState(for: accountID)
         case .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .rosterUpdated,
              .presenceUpdated, .presenceSubscriptionRequest,
              .presenceSubscriptionApproved, .presenceSubscriptionRevoked,
              .messageCarbonReceived, .messageCarbonSent,
@@ -280,7 +280,8 @@ public final class AvatarService {
         let metadata = item.payload
 
         guard let info = metadata.child(named: "info") else {
-            await clearContactAvatar(jid: from, accountID: accountID, rosterGeneration: rosterGeneration)
+            guard let contact = await findContact(jid: from, accountID: accountID) else { return }
+            await clearContactAvatar(contact, accountID: accountID, rosterGeneration: rosterGeneration)
             return
         }
 
@@ -306,7 +307,7 @@ public final class AvatarService {
 
         guard let hash else {
             if contact.avatarHash != nil {
-                await clearContactAvatar(jid: from, accountID: accountID, rosterGeneration: rosterGeneration)
+                await clearContactAvatar(contact, accountID: accountID, rosterGeneration: rosterGeneration)
             }
             return
         }
@@ -360,20 +361,18 @@ public final class AvatarService {
     /// `data` is a no-op.
     private func storeContactAvatar(_ data: Data?, hash: String?, for contact: Contact, accountID: UUID, rosterGeneration: UInt64?) async {
         guard rosterGenerationUnchanged(rosterGeneration, accountID: accountID) else { return }
-        var updated = contact
+        let update: ContactMetadataUpdate
         let shouldReload: Bool
         if let data {
-            updated.avatarData = data
-            updated.avatarHash = hash ?? sha1Hex(Array(data))
+            update = .avatar(hash: hash ?? sha1Hex(Array(data)), data: data)
             shouldReload = true
         } else if let hash {
-            updated.avatarData = nil
-            updated.avatarHash = hash
+            update = .avatar(hash: hash, data: nil)
             shouldReload = contact.avatarData != nil
         } else {
             return
         }
-        try? await store.upsertContact(updated)
+        try? await store.updateContactIfExists(contact.id, accountID: accountID, update: update)
         guard shouldReload else { return }
         try? await rosterService?.loadContacts(for: accountID, ifGenerationUnchangedSince: rosterGeneration ?? 0)
     }
@@ -430,13 +429,10 @@ public final class AvatarService {
         }
     }
 
-    private func clearContactAvatar(jid: BareJID, accountID: UUID, rosterGeneration: UInt64?) async {
-        guard var contact = await findContact(jid: jid, accountID: accountID) else { return }
-        contact.avatarData = nil
-        contact.avatarHash = nil
+    private func clearContactAvatar(_ contact: Contact, accountID: UUID, rosterGeneration: UInt64?) async {
         // A disconnect/purge during the fetch tore the account down; don't write its contact or republish.
         guard rosterGenerationUnchanged(rosterGeneration, accountID: accountID) else { return }
-        try? await store.upsertContact(contact)
+        try? await store.updateContactIfExists(contact.id, accountID: accountID, update: .avatar(hash: nil, data: nil))
         try? await rosterService?.loadContacts(for: accountID, ifGenerationUnchangedSince: rosterGeneration ?? 0)
     }
 

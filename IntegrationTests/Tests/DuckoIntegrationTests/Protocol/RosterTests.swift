@@ -11,10 +11,8 @@ extension DuckoIntegrationTests.ProtocolLayer {
 
                 let alice = try #require(harness.accounts["alice"])
 
-                // setUp already asserted .rosterLoaded arrived. Additionally verify the
-                // service processed the load by calling loadContacts, which populates
-                // groupsByAccount for the account — this should not throw.
-                try await harness.environment.rosterService.loadContacts(for: alice.accountID)
+                let snapshot = try await harness.environment.rosterService.synchronizeRoster(accountID: alice.accountID)
+                #expect(snapshot.allSatisfy { $0.accountID == alice.accountID })
             }
         }
 
@@ -34,7 +32,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 // Add contact and wait for roster push.
                 try await roster.addContact(jid: tempJID, name: "Test")
                 _ = try await alice.waitForEvent { event in
-                    if case let .rosterItemChanged(item) = event,
+                    if case let .rosterUpdated(update) = event, case let .delta(item) = update.contents,
                        item.jid == tempJID, item.subscription != .remove {
                         return true
                     }
@@ -44,7 +42,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 // Remove contact and wait for removal push.
                 try await roster.removeContact(jid: tempJID)
                 _ = try await alice.waitForEvent { event in
-                    if case let .rosterItemChanged(item) = event,
+                    if case let .rosterUpdated(update) = event, case let .delta(item) = update.contents,
                        item.jid == tempJID, item.subscription == .remove {
                         return true
                     }
@@ -206,33 +204,26 @@ extension DuckoIntegrationTests.ProtocolLayer {
                     )
                 }
 
-                // Add contact via service (also fires subscribe).
-                try await harness.environment.rosterService.addContact(
+                let added = try await harness.environment.rosterService.addContact(
                     jid: tempJID,
                     name: nil,
                     groups: [],
                     accountID: alice.accountID
                 )
 
-                // Poll until the contact appears in service state.
-                try await alice.waitForCondition({ @MainActor in
-                    harness.environment.rosterService.groups
-                        .flatMap(\.contacts)
-                        .contains { $0.jid == tempJID && $0.accountID == alice.accountID }
-                }, timeout: TestTimeout.event)
+                #expect(added.isComplete)
+                #expect(added.subscriptionStatus == .sent)
+                #expect(harness.environment.rosterService.contact(jidString: tempJID.description, accountID: alice.accountID) != nil)
+                #expect(try await harness.environment.store.fetchContacts(for: alice.accountID).contains { $0.jid == tempJID })
 
-                // Remove contact via service.
-                try await harness.environment.rosterService.removeContact(
+                let removed = try await harness.environment.rosterService.removeContact(
                     jidString: tempJID.description,
                     accountID: alice.accountID
                 )
 
-                // Poll until the contact disappears from service state.
-                try await alice.waitForCondition({ @MainActor in
-                    !harness.environment.rosterService.groups
-                        .flatMap(\.contacts)
-                        .contains { $0.jid == tempJID && $0.accountID == alice.accountID }
-                }, timeout: TestTimeout.event)
+                #expect(removed.isComplete)
+                #expect(harness.environment.rosterService.contact(jidString: tempJID.description, accountID: alice.accountID) == nil)
+                #expect(try await !harness.environment.store.fetchContacts(for: alice.accountID).contains { $0.jid == tempJID })
             }
         }
 
@@ -263,12 +254,13 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 harness.addCleanup { try? await aliceRoster.removeContact(jid: daveBareJID) }
 
                 // Alice adds Dave via service (which also subscribes).
-                try await harness.environment.rosterService.addContact(
+                let addOutcome = try await harness.environment.rosterService.addContact(
                     jid: daveBareJID,
                     name: nil,
                     groups: [],
                     accountID: alice.accountID
                 )
+                #expect(addOutcome.isComplete)
 
                 // Dave waits for the subscription request.
                 _ = try await dave.waitForEvent { event in
@@ -318,12 +310,13 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 harness.addCleanup { try? await aliceRoster.removeContact(jid: daveBareJID) }
 
                 // Alice adds Dave via service (which also subscribes).
-                try await harness.environment.rosterService.addContact(
+                let addOutcome = try await harness.environment.rosterService.addContact(
                     jid: daveBareJID,
                     name: nil,
                     groups: [],
                     accountID: alice.accountID
                 )
+                #expect(addOutcome.isComplete)
 
                 // Dave waits for the subscription request.
                 _ = try await dave.waitForEvent { event in

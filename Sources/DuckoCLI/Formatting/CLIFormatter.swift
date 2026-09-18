@@ -4,6 +4,8 @@ import Foundation
 
 protocol CLIFormatter: Sendable {
     func formatMessage(_ message: ChatMessage, accountJID: BareJID?) -> String
+    func formatEmptyRoster(accountID: UUID) -> String
+    func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String
     func formatAccount(_ account: Account) -> String
     func formatPresence(jid: BareJID, status: String, message: String?) -> String
     func formatContactWithPresence(_ contact: Contact, presence: PresenceService.PresenceStatus?) -> String

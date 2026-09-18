@@ -155,7 +155,7 @@ ducko account delete alice@example.com
 
 ### `roster list`
 
-List contacts grouped by roster group, with presence indicators. Waits for the initial presence sweep before displaying.
+List an authoritative, locally saved snapshot for the selected account, grouped with current presence indicators. Waits up to 15 seconds for the identified full roster response to be saved. An empty snapshot completes successfully; JSON emits a `roster_empty` record.
 
 ```
 ducko roster list
@@ -167,7 +167,13 @@ Plain output shows `[+]` available, `[~]` away/xa, `[-]` dnd, `[ ]` offline. ANS
 
 ### `roster add <jid> [--name <name>] [--group <group>]`
 
-Add a contact to the roster (roster set + subscribe).
+Add a contact to the roster and send a presence subscription request. Full completion requires server acknowledgement and a saved full roster readback. A sent presence request does not mean the peer approved it.
+
+Add/remove follow-up is bounded to five seconds from acknowledgement. Exit 0 means full completion. Exit 3 means the server confirmed the change but local synchronization or subscription transmission is incomplete, or the current roster differs from the request.
+
+Inspect or synchronize the roster before another mutation. Do not automatically retry a confirmed change. Rejection and unconfirmed remote outcomes remain distinct errors.
+
+JSON includes operation, account, JID, remote/local status, and subscription status. The REPL prints the same result and stays open.
 
 ```
 ducko roster add alice@example.com

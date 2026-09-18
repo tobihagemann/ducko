@@ -12,7 +12,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let alice = try #require(harness.accounts["alice"])
                 let client = try #require(harness.environment.accountService.client(for: alice.accountID))
 
-                // setUp awaits .rosterLoaded, which proves SASL + resource bind succeeded.
+                // setUp awaits initial roster response, which proves SASL + resource bind succeeded.
                 // Additionally verify TLS was negotiated.
                 #expect(client.tlsInfo != nil)
 

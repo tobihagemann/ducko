@@ -695,6 +695,7 @@ enum XMPPClientTests {
             #expect(throws: (any Error).self) { try result.get() }
             let isConnected = await mock.isConnected
             #expect(!isConnected)
+            #expect(await mock.connectedHost == nil)
         }
     }
 

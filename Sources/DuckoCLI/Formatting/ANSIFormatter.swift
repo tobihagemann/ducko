@@ -47,6 +47,14 @@ struct ANSIFormatter: CLIFormatter {
         return line
     }
 
+    func formatEmptyRoster(accountID: UUID) -> String {
+        "No contacts in roster."
+    }
+
+    func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String {
+        "\(outcome.isComplete ? Color.green : Color.yellow)\(outcome.message)\(Color.reset)"
+    }
+
     func formatAccount(_ account: Account) -> String {
         "\(Color.bold)\(account.jid)\(Color.reset) \(Color.dim)(\(account.id))\(Color.reset)"
     }
@@ -129,7 +137,7 @@ struct ANSIFormatter: CLIFormatter {
         case .omemoEncryptedMessageReceived, .omemoSessionAdvanced: nil
         case let .serviceOutageReceived(info): formatOutageEvent(info)
         case .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .rosterUpdated,
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,

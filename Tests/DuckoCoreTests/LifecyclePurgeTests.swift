@@ -22,8 +22,9 @@ enum LifecyclePurgeTests {
         /// purge should clear (roster, presence, bookmarks, avatar, profile), asserting each is populated.
         @MainActor
         private func makeSeededEnvironment() async throws -> (env: AppEnvironment, accountID: UUID) {
+            let store = MockPersistenceStore()
             let env = AppEnvironment(
-                store: MockPersistenceStore(),
+                store: store,
                 transcripts: MockTranscriptStore(),
                 credentialStore: NullCredentialStore()
             )
@@ -34,8 +35,9 @@ enum LifecyclePurgeTests {
             let room = try #require(BareJID.parse("room@conference.example.com"))
             let inviter = try #require(BareJID.parse("inviter@example.com"))
 
-            await env.rosterService.handleEvent(
-                .rosterLoaded([RosterItem(jid: peerJID, name: "Bob", subscription: .both, ask: false, groups: [])]),
+            let fixture = RosterServiceFixture(store: store, service: env.rosterService)
+            await fixture.deliver(
+                .snapshot([RosterItem(jid: peerJID, name: "Bob", subscription: .both, ask: false, groups: [])]),
                 accountID: accountID
             )
             await env.presenceService.handleEvent(

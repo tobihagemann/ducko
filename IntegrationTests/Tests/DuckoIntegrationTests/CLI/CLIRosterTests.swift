@@ -4,6 +4,19 @@ import Testing
 
 extension DuckoIntegrationTests.CLILayer {
     struct CLIRosterTests {
+        private func assertCompleted(_ stdout: String, operation: String, jid: String) throws {
+            let objects = try stdout.split(separator: "\n").map { line in
+                try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: String])
+            }
+            let results = objects.filter { $0["type"] == "roster_command" }
+            #expect(results.count == 1)
+            #expect(results.first?["operation"] == operation)
+            #expect(results.first?["jid"] == jid)
+            #expect(results.first?["remote_status"] == "confirmed")
+            #expect(results.first?["local_status"] == "synchronized")
+            #expect(results.first?["result"] == "complete")
+        }
+
         @Test
         @MainActor func `roster list reports current contacts`() async throws {
             try await CLIProcess.withProcess { cli in
@@ -41,8 +54,9 @@ extension DuckoIntegrationTests.CLILayer {
                     _ = try? await cli.run(["roster", "remove", dave.jid])
                 }
 
-                let rosterAdd = try await cli.run(["roster", "add", dave.jid])
+                let rosterAdd = try await cli.run(["roster", "add", dave.jid, "--output", "json"])
                 #expect(rosterAdd.exitCode == 0)
+                try assertCompleted(rosterAdd.stdout, operation: "add", jid: dave.jid)
 
                 let listed = try await cli.run(["roster", "list", "--output", "plain"])
                 #expect(listed.exitCode == 0)
@@ -65,11 +79,13 @@ extension DuckoIntegrationTests.CLILayer {
                     _ = try? await cli.run(["roster", "remove", dave.jid])
                 }
 
-                let rosterAdd = try await cli.run(["roster", "add", dave.jid])
+                let rosterAdd = try await cli.run(["roster", "add", dave.jid, "--output", "json"])
                 #expect(rosterAdd.exitCode == 0)
+                try assertCompleted(rosterAdd.stdout, operation: "add", jid: dave.jid)
 
-                let rosterRemove = try await cli.run(["roster", "remove", dave.jid])
+                let rosterRemove = try await cli.run(["roster", "remove", dave.jid, "--output", "json"])
                 #expect(rosterRemove.exitCode == 0)
+                try assertCompleted(rosterRemove.stdout, operation: "remove", jid: dave.jid)
 
                 let listed = try await cli.run(["roster", "list", "--output", "plain"])
                 #expect(listed.exitCode == 0)

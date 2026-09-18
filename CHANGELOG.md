@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Report confirmed contact changes separately from incomplete local synchronization or subscription requests
 - Show an unavailable cipher suite explicitly in connection details
 
 ### Removed
@@ -25,7 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Preserve account and conversation settings when first saving them
 - Preserve reply context in synced and archived messages
 - Keep conversation history aligned with the latest conversation, date and search selection
-- Keep removed contacts from reappearing after a quick disconnect
+- Keep contact changes and the saved roster version consistent across disconnects, reconnections, and local save failures
 - Prevent a connection attempt from restoring an account after it has been disconnected
 - Keep delayed room-join updates from restoring participants after leaving
 - Close pending direct file-transfer connections when cancelling or going offline

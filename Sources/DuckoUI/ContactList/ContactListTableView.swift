@@ -16,6 +16,7 @@ struct ContactListTableInputs {
     var openWindow: OpenWindowAction?
     var transcriptScope: TranscriptScope?
     var presentSheet: (ContactListRowSheet) -> Void = { _ in }
+    var presentNotice: (String, UUID) -> Void = { _, _ in }
     var preferences: ContactListPreferences?
     var incomingRows: [ContactListRow] = []
     var chromeHeight: CGFloat = 0
@@ -44,6 +45,7 @@ struct ContactListTableView: NSViewRepresentable {
     let maxWidthPreference: Double
     let hasConnectedAccount: Bool
     let presentSheet: (ContactListRowSheet) -> Void
+    let presentNotice: (String, UUID) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -62,6 +64,7 @@ struct ContactListTableView: NSViewRepresentable {
             openWindow: openWindow,
             transcriptScope: transcriptScope,
             presentSheet: presentSheet,
+            presentNotice: presentNotice,
             preferences: preferences,
             incomingRows: rows,
             chromeHeight: chromeHeight,
@@ -452,7 +455,7 @@ struct ContactListTableView: NSViewRepresentable {
             guard rows.indices.contains(index), let environment = inputs.environment else { return nil }
             return ContactListMenuBuilder(
                 openChat: inputs.openChat, openWindow: inputs.openWindow, transcriptScope: inputs.transcriptScope,
-                presentSheet: inputs.presentSheet, target: self, action: #selector(performMenuItem(_:))
+                presentSheet: inputs.presentSheet, presentNotice: inputs.presentNotice, target: self, action: #selector(performMenuItem(_:))
             )
             .menu(for: rows[index], environment: environment)
         }

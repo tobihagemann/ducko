@@ -53,7 +53,9 @@ public actor XMPPClient {
     private struct PendingIQ {
         let continuation: CheckedContinuation<XMLElement?, any Error>
         let expectedFrom: BareJID?
+        let rosterReply: Bool
         let token: UInt64
+        let onTerminal: ModuleContext.IQTerminalHandler?
         let timeoutTask: Task<Void, Never>
         var sendTask: Task<Void, Never>?
     }
@@ -271,7 +273,7 @@ public actor XMPPClient {
             try await smModule.handleConnect()
             try checkActiveSession()
         }
-        // Yield `.connected` after SM `<enabled>` round-trip but BEFORE roster. `.connected` → `.rosterLoaded` is
+        // Yield `.connected` after SM `<enabled>` round-trip but BEFORE roster. `.connected` → initial roster response is
         // contractual: BookmarksService PEP fetch and TestHarness.setUp gate on it; reversing surfaces `.notConnected`
         // in `connectedClient(for:)` callers.
         if let fullJID = connectedJIDLock.withLock({ $0 }) {
@@ -588,8 +590,20 @@ public actor XMPPClient {
 
     /// Sends an IQ and awaits the matching result. Returns the result's child element or `nil`.
     /// Cancellation stops waiting for the reply; an accepted write may still complete.
-    public func sendIQ(_ request: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
+    public func sendIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
+        try await sendIQ(iq, timeout: timeout, rosterReply: false, onTerminal: nil)
+    }
+
+    func sendRosterIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30), onTerminal: @escaping ModuleContext.IQTerminalHandler) async throws -> XMLElement? {
+        try await sendIQ(iq, timeout: timeout, rosterReply: true, onTerminal: onTerminal)
+    }
+
+    private func sendIQ(
+        _ request: XMPPIQ, timeout: Duration, rosterReply: Bool,
+        onTerminal: ModuleContext.IQTerminalHandler?
+    ) async throws -> XMLElement? {
         guard case .connected = state else {
+            onTerminal?(.failure(XMPPClientError.notConnected))
             throw XMPPClientError.notConnected
         }
         var iq = request
@@ -597,6 +611,7 @@ public actor XMPPClient {
         iq.id = stanzaID
         guard pendingIQs[stanzaID] == nil else {
             let error = XMPPClientError.unexpectedStreamState("A request with this identifier is already pending")
+            onTerminal?(.failure(error))
             throw error
         }
         pendingIQToken &+= 1
@@ -604,6 +619,7 @@ public actor XMPPClient {
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 guard !Task.isCancelled else {
+                    onTerminal?(.failure(CancellationError()))
                     continuation.resume(throwing: CancellationError())
                     return
                 }
@@ -614,7 +630,7 @@ public actor XMPPClient {
                 }
                 pendingIQs[stanzaID] = PendingIQ(
                     continuation: continuation, expectedFrom: iq.to?.bareJID,
-                    token: token,
+                    rosterReply: rosterReply, token: token, onTerminal: onTerminal,
                     timeoutTask: timeoutTask
                 )
                 pendingIQs[stanzaID]?.sendTask = Task {
@@ -636,6 +652,7 @@ public actor XMPPClient {
         pendingIQs.removeValue(forKey: id)
         pending.timeoutTask.cancel()
         if cancelSend { pending.sendTask?.cancel() }
+        pending.onTerminal?(result)
         pending.continuation.resume(with: result.map(\.childElement))
     }
 
@@ -1026,7 +1043,7 @@ public actor XMPPClient {
     private func dispatchIQ(_ element: XMLElement) {
         let iq = XMPPIQ(element: element)
         if let stanzaID = iq.id, let pending = pendingIQs[stanzaID],
-           iqResponseMatchesExpectedFrom(iq, expectedFrom: pending.expectedFrom) {
+           pending.rosterReply ? rosterReplyMatches(iq) : iqResponseMatchesExpectedFrom(iq, expectedFrom: pending.expectedFrom) {
             let result: Result<XMPPIQ, any Error>
             if iq.isError {
                 let error = XMPPStanzaError.parse(from: iq.element.child(named: "error"))
@@ -1045,6 +1062,14 @@ public actor XMPPClient {
         if !handled, iq.isGet || iq.isSet {
             replyServiceUnavailable(for: iq)
         }
+    }
+
+    private func rosterReplyMatches(_ iq: XMPPIQ) -> Bool {
+        guard iq.isResult || iq.isError else { return false }
+        guard let rawFrom = iq.element.attribute("from") else { return true }
+        guard let from = JID.parse(rawFrom), case let .bare(bare) = from else { return false }
+        if bare == connectedJIDLock.withLock({ $0?.bareJID }) { return true }
+        return iq.isError && bare.localPart == nil && bare.domainPart == domain
     }
 
     /// Matches when `expectedFrom` is nil or equals the stanza's `from`. RFC 6120 §8.1.2.1 carve-out (server
@@ -1157,6 +1182,13 @@ public actor XMPPClient {
             },
             serverStreamFeatures: { [serverFeaturesLock] in
                 serverFeaturesLock.withLock { $0 }
+            },
+            sendRosterIQ: { [weak self] iq, terminal in
+                guard let self else {
+                    terminal(.failure(XMPPClientError.notConnected))
+                    throw XMPPClientError.notConnected
+                }
+                return try await sendRosterIQ(iq, onTerminal: terminal)
             }
         )
     }

@@ -113,7 +113,7 @@ extension DuckoIntegrationTests.ProtocolLayer {
                 let alice = try #require(harness.accounts["alice"])
                 harness.environment.bookmarksService.autoJoinEnabled = true
 
-                // setUp waits for .rosterLoaded which fires after .connected,
+                // setUp waits for initial roster response which fires after .connected,
                 // so BookmarksService.handleEvent(.connected) has already run
                 // with autoJoinEnabled=false and produced no auto-join. This
                 // explicit reload is what drives the join in phase 2.

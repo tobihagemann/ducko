@@ -57,7 +57,7 @@ enum RosterModuleTests {
 
             let eventsTask = Task {
                 try await collectEvents(from: client) { event in
-                    if case .rosterLoaded = event { return true }
+                    if case let .rosterUpdated(update) = event, update.isInitialResponse { return true }
                     return false
                 }
             }
@@ -67,8 +67,8 @@ enum RosterModuleTests {
             try await connectTask.value
 
             let events = try await eventsTask.value
-            guard case let .rosterLoaded(items) = events.last else {
-                throw XMPPClientError.unexpectedStreamState("Expected rosterLoaded event")
+            guard case let .rosterUpdated(update) = events.last, case let .snapshot(items) = update.contents else {
+                throw XMPPClientError.unexpectedStreamState("Expected initial roster response")
             }
             #expect(items.count == 2)
 
@@ -92,7 +92,7 @@ enum RosterModuleTests {
 
             let eventsTask = Task {
                 try await collectEvents(from: client) { event in
-                    if case .rosterItemChanged = event { return true }
+                    if case let .rosterUpdated(update) = event, case .delta = update.contents { return true }
                     return false
                 }
             }
@@ -102,8 +102,8 @@ enum RosterModuleTests {
             )
 
             let events = try await eventsTask.value
-            guard case let .rosterItemChanged(item) = events.last else {
-                throw XMPPClientError.unexpectedStreamState("Expected rosterItemChanged event")
+            guard case let .rosterUpdated(update) = events.last, case let .delta(item) = update.contents else {
+                throw XMPPClientError.unexpectedStreamState("Expected roster delta")
             }
             #expect(item.jid.description == "new@example.com")
             #expect(item.name == "New")
@@ -120,7 +120,7 @@ enum RosterModuleTests {
 
             let eventsTask = Task {
                 try await collectEvents(from: client) { event in
-                    if case .rosterItemChanged = event { return true }
+                    if case let .rosterUpdated(update) = event, case .delta = update.contents { return true }
                     return false
                 }
             }
@@ -130,8 +130,8 @@ enum RosterModuleTests {
             )
 
             let events = try await eventsTask.value
-            guard case let .rosterItemChanged(item) = events.last else {
-                throw XMPPClientError.unexpectedStreamState("Expected rosterItemChanged event")
+            guard case let .rosterUpdated(update) = events.last, case let .delta(item) = update.contents else {
+                throw XMPPClientError.unexpectedStreamState("Expected roster delta")
             }
             #expect(item.subscription == .remove)
 
@@ -145,7 +145,7 @@ enum RosterModuleTests {
 
             let eventsTask = Task {
                 try await collectEvents(from: client, timeout: .seconds(1)) { event in
-                    if case .rosterItemChanged = event { return true }
+                    if case let .rosterUpdated(update) = event, case .delta = update.contents { return true }
                     return false
                 }
             }

@@ -22,6 +22,7 @@ public actor MockTransport: XMPPTransport {
     private var disconnectGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
     private let connectError: (any Error)?
     private var nextConnectError: (any Error)?
+    private var matchingSendFailure: (fragment: String, error: any Error)?
     private var sendFailure: (any Error)?
     private var sentWaiters: [Int: CheckedContinuation<Void, Never>] = [:]
     private struct PredicateSentWaiter {
@@ -103,6 +104,10 @@ public actor MockTransport: XMPPTransport {
     public func send(_ bytes: [UInt8]) async throws {
         guard isConnected else {
             throw XMPPClientError.notConnected
+        }
+        if let failure = matchingSendFailure, String(decoding: bytes, as: UTF8.self).contains(failure.fragment) {
+            matchingSendFailure = nil
+            throw failure.error
         }
         if let sendFailure {
             throw sendFailure
@@ -189,6 +194,10 @@ public actor MockTransport: XMPPTransport {
     /// Simulates the remote end closing the connection.
     public func simulateDisconnect() {
         receivedContinuation.finish()
+    }
+
+    public func failNextSend(matching fragment: String, error: any Error) {
+        matchingSendFailure = (fragment, error)
     }
 
     public func simulateSendFailure(_ error: (any Error)?) {

@@ -44,6 +44,20 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
+    func formatEmptyRoster(accountID: UUID) -> String {
+        encode(["type": "roster_empty", "account": accountID.uuidString])
+    }
+
+    func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String {
+        encode([
+            "type": "roster_command", "operation": outcome.operation.rawValue,
+            "account": outcome.accountID.uuidString, "jid": outcome.jid,
+            "remote_status": "confirmed", "local_status": outcome.localStatus.rawValue,
+            "subscription_status": outcome.subscriptionStatus.rawValue,
+            "result": outcome.isComplete ? "complete" : "partial", "message": outcome.message
+        ])
+    }
+
     func formatAccount(_ account: Account) -> String {
         encode([
             "type": "account",
@@ -93,7 +107,15 @@ struct JSONFormatter: CLIFormatter {
     }
 
     func formatError(_ error: any Error) -> String {
-        encode([
+        if let error = error as? RosterCommandError {
+            return encode([
+                "type": "error", "operation": error.operation.rawValue,
+                "account": error.accountID.uuidString, "jid": error.jid,
+                "remote_status": error.status.rawValue, "local_status": "notStarted",
+                "subscription_status": "notRequested", "message": error.localizedDescription
+            ])
+        }
+        return encode([
             "type": "error",
             "message": error.localizedDescription
         ])
@@ -134,7 +156,7 @@ struct JSONFormatter: CLIFormatter {
         case let .oobIQOfferReceived(offer): formatOOBIQOfferEvent(offer, account: account)
         case let .serviceOutageReceived(info): formatOutageEvent(info, account: account)
         case .presenceReceived, .iqReceived,
-             .rosterLoaded, .rosterItemChanged, .rosterVersionChanged,
+             .rosterUpdated,
              .presenceUpdated,
              .archivedMessagesLoaded,
              .chatStateChanged, .chatMarkerReceived,

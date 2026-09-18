@@ -7,6 +7,8 @@ struct AddContactSheet: View {
     @State private var jidString = ""
     @State private var displayName = ""
     @State private var group = ""
+    let presentNotice: (String, UUID) -> Void
+    @State private var isSubmitting = false
     @State private var errorMessage: String?
 
     private var account: Account? {
@@ -35,6 +37,9 @@ struct AddContactSheet: View {
                 Text(errorMessage)
                     .foregroundStyle(.red)
                     .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 300, alignment: .leading)
+                    .accessibilityIdentifier("add-contact-error")
             }
 
             HStack {
@@ -48,7 +53,7 @@ struct AddContactSheet: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(jidString.isEmpty)
+                .disabled(jidString.isEmpty || isSubmitting)
                 .accessibilityIdentifier("add-contact-button")
             }
         }
@@ -63,20 +68,24 @@ struct AddContactSheet: View {
             errorMessage = "Invalid JID: \(trimmed)"
             return
         }
+        guard !isSubmitting else { return }
         errorMessage = nil
 
         let name = displayName.isEmpty ? nil : displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let groups = group.isEmpty ? [] : [group.trimmingCharacters(in: .whitespacesAndNewlines)]
 
         guard let accountID = account?.id else { return }
+        isSubmitting = true
         Task {
+            defer { isSubmitting = false }
             do {
-                try await environment.rosterService.addContact(
+                let outcome = try await environment.rosterService.addContact(
                     jidString: trimmed,
                     name: name,
                     groups: groups,
                     accountID: accountID
                 )
+                if !outcome.isComplete { presentNotice(outcome.message, accountID) }
                 dismiss()
             } catch {
                 errorMessage = error.localizedDescription

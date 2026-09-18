@@ -12,6 +12,8 @@ public final class ContactInfoWindowState {
     var isLoadingProfile = false
     var profileError: String?
     var nickname = ""
+    var rosterNotice: String?
+    var isRemoving = false
 
     private let environment: AppEnvironment
 
@@ -96,8 +98,17 @@ public final class ContactInfoWindowState {
     }
 
     func remove() async {
-        guard let contact else { return }
-        try? await environment.rosterService.removeContact(contact, accountID: ref.accountID)
+        guard let contact, !isRemoving else { return }
+        isRemoving = true
+        defer { isRemoving = false }
+        let account = environment.accountService.accounts.first { $0.id == ref.accountID }
+        let accountLabel = account?.jid.description ?? ref.accountID.uuidString
+        do {
+            let outcome = try await environment.rosterService.removeContact(contact, accountID: ref.accountID)
+            rosterNotice = outcome.isComplete ? nil : "\(accountLabel): \(outcome.message)"
+        } catch {
+            rosterNotice = "\(accountLabel): \(ref.jid): \(error.localizedDescription)"
+        }
         refreshContact()
     }
 }
