@@ -549,7 +549,8 @@ public actor XMPPClient {
     /// `.streamClosed` event arrives (see `handleEvent`) or `timeout` elapses. Best-effort and non-throwing:
     /// returns `true` if the server replied, `false` on timeout. The waiter slot is registered *before* the close
     /// is sent so a reply can never arrive before the slot exists; the send is then awaited so a short timeout can
-    /// never let the caller tear down the transport before the close write reaches it.
+    /// never let the caller tear down the transport before the close write reaches it. A close the transport refuses
+    /// has no reply to wait for, so a failed write ends the wait at once.
     private func awaitStreamClose(timeout: Duration) async -> Bool {
         var sendTask: Task<Void, Never>?
         let serverReplied = await withCheckedContinuation { continuation in
@@ -561,8 +562,11 @@ public actor XMPPClient {
 
             pendingStreamClose = PendingStreamClose(continuation: continuation, timeoutTask: timeoutTask)
 
-            sendTask = Task { [connection] in
-                await connection.sendStreamClose()
+            sendTask = Task { [weak self, connection] in
+                let sent = await connection.sendStreamClose()
+                if !sent {
+                    await self?.expireStreamClose()
+                }
             }
         }
         await sendTask?.value
@@ -572,6 +576,7 @@ public actor XMPPClient {
     private func expireStreamClose() {
         if let pending = pendingStreamClose {
             pendingStreamClose = nil
+            pending.timeoutTask.cancel()
             pending.continuation.resume(returning: false)
         }
     }

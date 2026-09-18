@@ -31,6 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Prevent a connection attempt from restoring an account after it has been disconnected
 - Keep delayed room-join updates from restoring participants after leaving
 - Close pending direct file-transfer connections when cancelling or going offline
+- Finish signing out without a half-second wait when the connection has already dropped
 
 ## [0.1.0] - 2026-09-16
 
