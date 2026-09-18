@@ -245,4 +245,13 @@ public actor MockTransport: XMPPTransport {
     public func autoReply(_ reply: @escaping @Sendable (String) -> String?) {
         autoReplies.append(reply)
     }
+
+    /// Answers each stream-management `<r/>` with an `<a/>` carrying `sm`'s outgoing counter as it stands when the
+    /// request is sent, which is what a server that processed every stanza would report.
+    public func ackSyncRequests(from sm: StreamManagementModule) {
+        autoReply { stanza in
+            guard stanza.hasPrefix("<r "), let counter = sm.resumeState?.outgoingCounter else { return nil }
+            return "<a xmlns='urn:xmpp:sm:3' h='\(counter)'/>"
+        }
+    }
 }

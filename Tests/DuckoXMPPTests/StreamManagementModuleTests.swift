@@ -32,15 +32,8 @@ private func makeConnectedClient(mock: MockTransport) async throws -> (XMPPClien
 /// cleanup; tests that pin the disconnect ordering drive the handshake
 /// manually instead.
 private func disconnectAndAck(_ client: XMPPClient, sm: StreamManagementModule, mock: MockTransport) async {
-    let wasEnabled = sm.isEnabled
-    let baseline = sm.resumeState?.outgoingCounter ?? 0
-    let snapshotCount = await mock.sentBytes.count
-    let task = Task { await client.disconnect(streamCloseTimeout: .milliseconds(20)) }
-    if wasEnabled {
-        await mock.waitForSent(count: snapshotCount + 2)
-        await mock.simulateReceive("<a xmlns='urn:xmpp:sm:3' h='\(baseline &+ 1)'/>")
-    }
-    await task.value
+    await mock.ackSyncRequests(from: sm)
+    await client.disconnect(streamCloseTimeout: .milliseconds(20))
 }
 
 /// Simulates the connect flow up to post-auth features, then expects a `<resume>` element
@@ -753,8 +746,8 @@ enum StreamManagementModuleTests {
 
             // Wait for unavailable + `<r/>`, then simulate the server closing
             // its end of the stream BEFORE feeding `<a/>` — mirrors the
-            // production race where the TCP socket dies during the 1.5 s
-            // sync-ack window.
+            // production race where the TCP socket dies during the sync-ack
+            // window.
             await mock.waitForSent(count: snapshotCount + 2)
             await mock.simulateReceive("</stream:stream>")
 

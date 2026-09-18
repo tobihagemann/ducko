@@ -134,7 +134,9 @@ private final class RosterResumptionFixture {
     }
 
     func close() async {
-        await second.simulateReceive("<a xmlns='urn:xmpp:sm:3' h='\((factory.currentSMState())?.outgoingCounter ?? 0)'/>")
+        if let sm = await factory.current {
+            await second.ackSyncRequests(from: sm)
+        }
         await accounts.disconnect(accountID: id)
         for task in roster.takePendingTasks() {
             await task.value
@@ -242,9 +244,5 @@ private actor RosterResumeFactory: XMPPClientFactory {
             defer { group.cancelAll() }
             return try #require(await group.next())
         }
-    }
-
-    func currentSMState() -> SMResumeState? {
-        current?.resumeState
     }
 }
