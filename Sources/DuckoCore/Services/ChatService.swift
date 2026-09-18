@@ -1,3 +1,5 @@
+// Split candidate.
+// swiftlint:disable file_length
 import DuckoXMPP
 import Foundation
 import Logging
@@ -5,7 +7,7 @@ import Logging
 private let log = Logger(label: "im.ducko.core.chat")
 
 @MainActor @Observable
-public final class ChatService {
+public final class ChatService { // swiftlint:disable:this type_body_length
     public private(set) var openConversations: [Conversation] = []
     /// Per-account conversation cache. `openConversations` is the rebuilt union of every slot,
     /// so a fetch/refresh on one account never drops another account's conversations. Stays the

@@ -1,3 +1,5 @@
+// Split candidate.
+// swiftlint:disable file_length
 import AppKit
 import ApplicationServices
 import Carbon.HIToolbox
@@ -16,7 +18,7 @@ private let log = Logger(label: "im.ducko.integrationtests.ui")
 /// actor boundary; each call walks the AX tree from the application root and
 /// reacquires its element, which also avoids stale handles after a SwiftUI
 /// view refresh.
-actor AppAccessor {
+actor AppAccessor { // swiftlint:disable:this type_body_length
     /// Boot marker the launch helper waits for.
     enum LaunchTarget {
         /// Fresh `DUCKO_PROFILE` — the welcome screen renders the

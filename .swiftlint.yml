@@ -19,17 +19,24 @@ excluded:
 
 disabled_rules:
   - closure_parameter_position
-  - file_length
   - line_length
   - optional_data_string_conversion
   - todo
-  - type_body_length
 
 opt_in_rules:
   - redundant_sendable
 
 cyclomatic_complexity:
   ignores_case_statements: true
+
+# Length ratchet; AGENTS.md carries the authoring rule. file_length skips comment-only lines so
+# that it counts the same lines type_body_length does.
+file_length:
+  warning: 1000
+  ignore_comment_only_lines: true
+
+type_body_length:
+  warning: 800
 
 identifier_name:
   min_length: 1

@@ -9,7 +9,7 @@ private let log = Logger(label: "im.ducko.xmpp.client")
 /// Drives: TCP → STARTTLS → SASL → resource binding → session establishment.
 /// Incoming stanzas are routed to registered ``XMPPModule``s. Domain-level events
 /// are exposed via ``events``.
-public actor XMPPClient {
+public actor XMPPClient { // swiftlint:disable:this type_body_length
     private let connection: XMPPConnection
     /// U-label canonical form, used for stream headers and JID construction.
     private let domain: String

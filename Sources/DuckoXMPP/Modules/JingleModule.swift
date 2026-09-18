@@ -1,3 +1,5 @@
+// Split candidate.
+// swiftlint:disable file_length
 import Logging
 import struct os.OSAllocatedUnfairLock
 
@@ -41,7 +43,7 @@ public struct JingleTiming: Sendable {
 /// Removing a session under the state lock is a session's terminal commit, and only the path that removes it reports the
 /// outcome. A successful end is committed by the task that owns the transfer (the receive's claim or a running send); peer
 /// stanzas and wait limits only record it and wake that owner.
-public final class JingleModule: XMPPModule, Sendable {
+public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:this type_body_length
     // MARK: - Types
 
     /// Errors from the Jingle module.

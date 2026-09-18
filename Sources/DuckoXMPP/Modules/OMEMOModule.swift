@@ -1,3 +1,5 @@
+// Split candidate.
+// swiftlint:disable file_length
 import CryptoKit
 import Logging
 import struct os.OSAllocatedUnfairLock
@@ -13,7 +15,7 @@ package let omemoFallbackBody = "This message is OMEMO encrypted"
 /// Manages device lists, bundles, session establishment (X3DH), and
 /// per-message encryption/decryption (Double Ratchet + AES-256-CBC).
 /// Uses PEPModule for all PubSub operations.
-public final class OMEMOModule: XMPPModule, Sendable {
+public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this type_body_length
     // MARK: - State
 
     private struct SessionEntry {

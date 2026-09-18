@@ -1,10 +1,12 @@
+// Split candidate.
+// swiftlint:disable file_length
 import DuckoTestSupport
 import DuckoXMPP
 import Foundation
 import Testing
 @testable import DuckoCore
 
-enum FileTransferServiceTests {
+enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
     private static let testAccountID = UUID()
 
     private static func makeConversation(type: Conversation.ConversationType = .chat) -> Conversation {

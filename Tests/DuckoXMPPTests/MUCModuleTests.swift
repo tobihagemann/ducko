@@ -1,3 +1,5 @@
+// Split candidate.
+// swiftlint:disable file_length
 import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
@@ -23,7 +25,7 @@ private let testRoomJID = BareJID(localPart: "room", domainPart: "conference.exa
 
 // MARK: - Tests
 
-enum MUCModuleTests {
+enum MUCModuleTests { // swiftlint:disable:this type_body_length
     struct JoinFlow {
         @Test
         func `Self-presence with status 110 emits roomJoined`() async throws {

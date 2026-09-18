@@ -113,7 +113,7 @@ private func sessionTerminateXML(
 
 // MARK: - Tests
 
-enum JingleModuleTests {
+enum JingleModuleTests { // swiftlint:disable:this type_body_length
     struct SessionInitiateHandling {
         @Test
         func `Emits jingleFileTransferReceived on session-initiate`() async throws {

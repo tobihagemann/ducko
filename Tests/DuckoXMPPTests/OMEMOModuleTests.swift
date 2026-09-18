@@ -1,9 +1,11 @@
+// Split candidate.
+// swiftlint:disable file_length
 import CryptoKit
 import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
 
-enum OMEMOModuleTests {
+enum OMEMOModuleTests { // swiftlint:disable:this type_body_length
     // MARK: - Features
 
     struct Features {

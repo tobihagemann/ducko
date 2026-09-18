@@ -1,3 +1,5 @@
+// Split candidate.
+// swiftlint:disable file_length
 import DuckoTestSupport
 import os
 import Testing
@@ -55,7 +57,7 @@ private func simulateSessionConnectFlow(_ mock: MockTransport) async {
 
 // MARK: - Tests
 
-enum XMPPClientTests {
+enum XMPPClientTests { // swiftlint:disable:this type_body_length
     struct ConnectFlow {
         @Test
         func `Full connect with STARTTLS and PLAIN auth`() async throws {
