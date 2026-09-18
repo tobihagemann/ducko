@@ -49,7 +49,7 @@ Dispatch a dry run and wait for it to pass before tagging when the signing or pa
 git diff --stat <last-tag>..HEAD -- Package.swift Resources/Entitlements.plist Scripts/package_app.sh Scripts/create_dmg.sh Scripts/release.sh .github/workflows/release.yml
 ```
 
-**Skip** the dry run when that diff is empty. It is the only check that signs, notarizes, and staples the real universal build, since CI's release smoke test stubs those tools:
+**Skip** the dry run when that diff is empty. It is the only check that signs, notarizes, and staples the real arm64 build, since CI's release smoke test stubs those tools:
 
 ```bash
 gh workflow run release.yml --ref main -f version=X.Y.Z -f dry_run=true

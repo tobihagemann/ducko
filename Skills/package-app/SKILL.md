@@ -11,7 +11,7 @@ Run `Scripts/package_app.sh` to build and assemble `Ducko.app` at the project ro
 ./Scripts/package_app.sh [debug|release]
 ```
 
-Default is `release`. The first argument selects the Swift build configuration.
+Both Ducko executables are built for Apple Silicon (arm64) only. Default is `release`. The first argument selects the Swift build configuration.
 
 The script requires disabling the Claude Code sandbox (`dangerouslyDisableSandbox: true`) because `swift build` uses `sandbox-exec` internally.
 

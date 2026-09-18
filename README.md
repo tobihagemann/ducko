@@ -20,6 +20,8 @@ Ducko carries forward the spirit of Adium: personality-driven, deeply customizab
 
 ## Getting Started
 
+Requires macOS 26 or later on a Mac with Apple Silicon.
+
 ```sh
 swift build               # Build all modules
 swift run DuckoApp        # Run the GUI
@@ -87,7 +89,7 @@ DuckoCLI  →  depends on DuckoCore, DuckoData, DuckoXMPP  (+ swift-argument-par
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Platform | macOS only | Focus. Adium was Mac-only and beloved for it. |
+| Platform | macOS 26+, Apple Silicon | Focus. Adium was Mac-only and beloved for it. |
 | Language | Swift 6.2 | Latest concurrency features, strict sendability |
 | Protocol | XMPP only (v1) | Start focused, expand later |
 | Build system | SwiftPM | No Xcode project. Clean, reproducible builds. |

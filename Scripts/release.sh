@@ -4,6 +4,11 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 source "$ROOT/version.env"
 
+if [[ "${ARCHES:-arm64}" != "arm64" ]]; then
+  echo "ERROR: Ducko supports Apple Silicon only (arm64)." >&2
+  exit 1
+fi
+
 export MARKETING_VERSION=${MARKETING_VERSION:-$(git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")}
 APP_BUNDLE="$ROOT/${APP_NAME}.app"
 ZIP_NAME="${APP_NAME}-${MARKETING_VERSION}.zip"
@@ -25,7 +30,6 @@ chmod 700 "$SCRATCH_DIR"
 ASC_KEY_FILE="$SCRATCH_DIR/app-store-connect-key.p8"
 (umask 077 && echo "$APP_STORE_CONNECT_API_KEY_P8" | sed 's/\\n/\n/g' > "$ASC_KEY_FILE")
 
-ARCHES_VALUE=${ARCHES:-"arm64 x86_64"}
 DITTO_BIN=${DITTO_BIN:-/usr/bin/ditto}
 PACKAGE_APP_SCRIPT=${PACKAGE_APP_SCRIPT:-$ROOT/Scripts/package_app.sh}
 CREATE_DMG_SCRIPT=${CREATE_DMG_SCRIPT:-$ROOT/Scripts/create_dmg.sh}
@@ -50,7 +54,7 @@ notarize_and_staple() {
   find "$bundle" -name '._*' -delete
 }
 
-APP_IDENTITY="$APP_IDENTITY" ARCHES="${ARCHES_VALUE}" \
+APP_IDENTITY="$APP_IDENTITY" \
   "$PACKAGE_APP_SCRIPT" release
 
 notarize_and_staple "$APP_BUNDLE" "$SCRATCH_DIR/${APP_NAME}Notarize.zip"

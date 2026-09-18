@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
+- Require Apple Silicon for the app and bundled CLI
 - Report confirmed contact changes separately from incomplete local synchronization or subscription requests
 - Show an unavailable cipher suite explicitly in connection details
 

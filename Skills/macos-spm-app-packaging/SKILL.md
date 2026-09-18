@@ -98,7 +98,7 @@ spctl --assess --type execute --verbose HelloApp.app
 
 ## Notes
 - Keep entitlements and signing configuration explicit; edit the template scripts instead of reimplementing.
-- Universal (`arm64 x86_64`) release builds compile an x86_64 slice that Apple-silicon machines and runners never build by default, and some SDK typedefs differ per architecture (e.g. `SSLCipherSuite` is `UInt16` on arm64 but `UInt32` on x86_64). Run `swift build -c release --arch x86_64` in CI so these compile errors surface before release.
+- Ducko ships arm64 only; its CI packages the release configuration. The general-purpose templates retain their multi-architecture options for other projects.
 - Remove Sparkle steps if you do not use Sparkle for updates.
 - Sparkle relies on the bundle build number (`CFBundleVersion`), so `BUILD_NUMBER` in `version.env` must increase for each update.
 - For menu bar apps, set `MENU_BAR_APP=1` when packaging to emit `LSUIElement` in Info.plist.

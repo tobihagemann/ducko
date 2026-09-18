@@ -4,7 +4,7 @@ A native macOS XMPP client — spiritual successor to Adium.
 
 ## Tech Stack
 
-- Swift 6.2, macOS 26+, SwiftPM (no Xcode project)
+- Swift 6.2, macOS 26+ on Apple Silicon (arm64), SwiftPM (no Xcode project)
 - SwiftUI, SwiftData (metadata only), Sparkle
 - Custom XMPP implementation (no libpurple, no XMPPFramework)
 - All types use Swift strict concurrency (`Sendable`, actors, structured concurrency)
@@ -97,6 +97,8 @@ DUCKO_TEST_REGISTRATION=1 swift test --package-path IntegrationTests --filter CL
 `TestHarness` runs a bootstrap probe before the first test executes and auto-runs the OMEMO reset when any account's PEP devicelist crosses `autoResetDevicelistThreshold` (32 entries). The env-gated suite remains useful for non-OMEMO drift (roster subscription baselines, the dave-empty invariant) since the auto-reset only touches the OMEMO devicelist path.
 
 ## Packaging
+
+Ducko packages the app and embedded CLI for arm64 only. Upstream Sparkle binaries retain their supplied architecture slices.
 
 `version.env` is the single source of truth for app metadata (`APP_NAME`, `BUNDLE_ID`, `EXEC_NAME`, `CLI_NAME`). All scripts source it.
 

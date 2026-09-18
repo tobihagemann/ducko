@@ -165,6 +165,7 @@ reset_env() {
   export APP_STORE_CONNECT_API_KEY_P8='-----BEGIN PRIVATE KEY-----\nSMOKE\n-----END PRIVATE KEY-----'
   export APP_STORE_CONNECT_KEY_ID="SMOKEKEYID"
   export APP_STORE_CONNECT_ISSUER_ID="00000000-0000-0000-0000-000000000000"
+  unset ARCHES
   unset MARKETING_VERSION
   unset SMOKE_GIT_DESCRIBE
   unset SMOKE_PACKAGE_APP_EXIT
@@ -223,6 +224,16 @@ case_default_release() {
   # Terminal window: dmg:app has no trailing marker, so slice to EOF.
   assert_subsequence "dmg:app order" "$(slice_log '--- dmg:app ---')" \
     "codesign" "notarytool submit" "stapler staple"
+}
+
+case_unsupported_architecture() {
+  echo "== unsupported release architecture =="
+  reset_env
+  export ARCHES="arm64 x86_64"
+  run_release
+  assert_status 1 "$LAST_RC"
+  assert_stderr "Apple Silicon only"
+  assert_not_logged "package_app"
 }
 
 case_missing_app_identity() {
@@ -311,6 +322,7 @@ preexistence_guard
 GUARD_PASSED=1
 
 case_default_release
+case_unsupported_architecture
 case_missing_app_identity
 case_missing_asc_var
 case_version_override_wins

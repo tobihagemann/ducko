@@ -87,7 +87,6 @@ jobs:
           APP_STORE_CONNECT_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          ARCHES: "arm64 x86_64"
         run: ./Scripts/release.sh
 
       - name: Compute checksums
@@ -118,9 +117,20 @@ jobs:
           # so earlier releases stay in the feed.
           "$SPARKLE_BIN/generate_appcast" \
             --ed-key-file "$KEY_FILE" \
+            --maximum-versions 0 \
             --download-url-prefix "https://github.com/tobihagemann/ducko/releases/download/${MARKETING_VERSION}/" \
             -o appcast.xml \
             "$RELEASE_DIR"
+          # Sparkle infers hardware requirements from the packaged Mach-O.
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+          ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle"}
+          items = ET.parse("appcast.xml").findall("channel/item")
+          current = [item for item in items if item.findtext("sparkle:shortVersionString", namespaces=ns) == os.environ["MARKETING_VERSION"]]
+          assert len(current) == 1, "Expected one new release item"
+          assert current[0].findtext("sparkle:hardwareRequirements", namespaces=ns) == "arm64", "Missing Apple Silicon update requirement"
+          PY
           rm -rf "$RELEASE_DIR"
 
           rm -f "$KEY_FILE"

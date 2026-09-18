@@ -17,20 +17,13 @@ MACOS_MIN_VERSION=${MACOS_MIN_VERSION:-26.0}
 SIGNING_MODE=${SIGNING_MODE:-}
 APP_IDENTITY=${APP_IDENTITY:-}
 
-ARCH_LIST=( ${ARCHES:-} )
-if [[ ${#ARCH_LIST[@]} -eq 0 ]]; then
-  HOST_ARCH=$(uname -m)
-  ARCH_LIST=("$HOST_ARCH")
+if [[ "${ARCHES:-arm64}" != "arm64" ]]; then
+  echo "ERROR: Ducko supports Apple Silicon only (arm64)." >&2
+  exit 1
 fi
 
-# One invocation builds every arch into a single (universal when several) binary. Swift 6.4's
-# default build system writes all arches to one products folder, so resolve it instead of guessing.
-ARCH_FLAGS=()
-for ARCH in "${ARCH_LIST[@]}"; do
-  ARCH_FLAGS+=(--arch "$ARCH")
-done
-swift build -c "$CONF" "${ARCH_FLAGS[@]}"
-BIN_DIR=$(swift build -c "$CONF" "${ARCH_FLAGS[@]}" --show-bin-path)
+swift build -c "$CONF" --arch arm64
+BIN_DIR=$(swift build -c "$CONF" --arch arm64 --show-bin-path)
 
 APP="$ROOT/${APP_NAME}.app"
 rm -rf "$APP"
@@ -65,23 +58,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 verify_binary_arches() {
-  local binary="$1"; shift
-  local expected=("$@")
+  local binary="$1"
   local actual
   actual=$(lipo -archs "$binary")
-  local actual_count expected_count
-  actual_count=$(wc -w <<<"$actual" | tr -d ' ')
-  expected_count=${#expected[@]}
-  if [[ "$actual_count" -ne "$expected_count" ]]; then
-    echo "ERROR: $binary arch mismatch (expected: ${expected[*]}, actual: ${actual})" >&2
+  if [[ "$actual" != "arm64" ]]; then
+    echo "ERROR: $binary arch mismatch (expected: arm64, actual: ${actual})" >&2
     exit 1
   fi
-  for arch in "${expected[@]}"; do
-    if [[ "$actual" != *"$arch"* ]]; then
-      echo "ERROR: $binary missing arch $arch (have: ${actual})" >&2
-      exit 1
-    fi
-  done
 }
 
 install_binary() {
@@ -94,7 +77,7 @@ install_binary() {
   fi
   cp "$src" "$dest"
   chmod +x "$dest"
-  verify_binary_arches "$dest" "${ARCH_LIST[@]}"
+  verify_binary_arches "$dest"
 }
 
 # Install main app binary.
