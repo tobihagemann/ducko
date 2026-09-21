@@ -22,6 +22,7 @@ struct IncomingFileTransferBanner: View {
             }
             .padding(.vertical, 4)
             .background(theme.current.accentColor.resolved(for: colorScheme).opacity(0.1))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("file-transfer-banner")
         }
     }

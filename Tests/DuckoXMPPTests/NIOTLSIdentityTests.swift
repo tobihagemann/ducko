@@ -1,8 +1,15 @@
 import Foundation
+import Security
 import Testing
 @testable import DuckoXMPP
 
 struct NIOTLSIdentityTests {
+    @Test
+    func `issuer attributes read from most to least specific`() {
+        let attributes: [[String: Any]] = ["US", "Let's Encrypt", "R11"].map { [kSecPropertyKeyValue as String: $0] }
+        #expect(readableDistinguishedName(attributes) == "R11, Let's Encrypt, US")
+    }
+
     @Test(arguments: ["direct", "wronghost"])
     func `server identity and displayed certificate match the requested XMPP host`(mode: String) async throws {
         let peer = try TransportTestPeer(mode: mode)
@@ -16,7 +23,7 @@ struct NIOTLSIdentityTests {
                     #expect(info.certificateSubject == "localhost")
                     #expect(info.certificateSHA256?.lowercased().replacingOccurrences(of: ":", with: "") == peer.fingerprint)
                     #expect(info.certificateExpiry == peer.expiry)
-                    #expect(info.certificateIssuer?.contains("Ducko local TLS test root") == true)
+                    #expect(info.certificateIssuer == "Ducko local TLS test root")
                     try await transport.send(XMPPStreamWriter.streamOpening(to: "localhost"))
                     var iterator = transport.receivedData.makeAsyncIterator()
                     _ = try #require(await iterator.next())

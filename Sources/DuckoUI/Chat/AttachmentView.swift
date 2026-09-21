@@ -34,6 +34,7 @@ struct AttachmentView: View {
         .sheet(isPresented: $showSheet) {
             ImagePreviewSheet(attachment: attachment)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("attachment-view")
     }
 

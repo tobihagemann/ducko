@@ -2,19 +2,20 @@ import AppKit
 import DuckoCore
 import SwiftUI
 
+struct AdiumImportCache {
+    let accounts: [AdiumAccount]
+    let logSources: [AdiumServiceAccount]
+    let keychainPasswords: [String: String]
+}
+
 struct AdiumOnboardingImportView: View {
     @Environment(AppEnvironment.self) private var environment
     @Binding var importInProgress: Bool
-    @Binding var cachedAccounts: [AdiumAccount]?
-    @Binding var cachedLogSources: [AdiumServiceAccount]?
-    @Binding var cachedKeychainPasswords: [String: String]?
+    @Binding var cache: AdiumImportCache?
 
     @State private var step: ImportStep = .loading
-    @State private var accounts: [AdiumAccount] = []
-    @State private var logSources: [AdiumServiceAccount] = []
     @State private var selectedAccountIDs: Set<String> = []
     @State private var passwords: [String: String] = [:]
-    @State private var keychainPasswords: [String: String] = [:]
     @State private var progress: AdiumImportService.ImportProgress?
     @State private var accountResults: [AccountResult] = []
     @State private var importResult: AdiumImportService.ImportProgress?
@@ -222,17 +223,23 @@ struct AdiumOnboardingImportView: View {
         return !logSources.isEmpty || !succeededAccountIDs.isEmpty
     }
 
+    private var accounts: [AdiumAccount] {
+        cache?.accounts ?? []
+    }
+
+    private var logSources: [AdiumServiceAccount] {
+        cache?.logSources ?? []
+    }
+
+    private var keychainPasswords: [String: String] {
+        cache?.keychainPasswords ?? [:]
+    }
+
     // MARK: - Actions
 
     private func discover() async {
-        if let cached = cachedAccounts {
-            accounts = cached
-            logSources = cachedLogSources ?? []
-            keychainPasswords = cachedKeychainPasswords ?? [:]
-            for (id, pw) in keychainPasswords {
-                passwords[id] = pw
-            }
-            selectedAccountIDs = Set(keychainPasswords.keys)
+        if let cache {
+            prefill(cache.keychainPasswords)
         } else {
             discoverAt(AdiumAccountDiscovery.defaultUserURL)
         }
@@ -251,27 +258,28 @@ struct AdiumOnboardingImportView: View {
     }
 
     private func discoverAt(_ userDirectoryURL: URL) {
-        accounts = AdiumAccountDiscovery.discoverAccounts(at: userDirectoryURL)
+        let accounts = AdiumAccountDiscovery.discoverAccounts(at: userDirectoryURL)
 
-        keychainPasswords = [:]
+        var keychainPasswords: [String: String] = [:]
         for account in accounts {
             if let pw = AdiumKeychainReader.password(for: account) {
                 keychainPasswords[account.id] = pw
-                passwords[account.id] = pw
             }
         }
-        selectedAccountIDs = Set(keychainPasswords.keys)
 
         let logsURL = userDirectoryURL.appendingPathComponent("Logs")
-        do {
-            logSources = try AdiumLogDiscovery.discoverSources(at: logsURL)
-        } catch {
-            logSources = []
-        }
+        let logSources = (try? AdiumLogDiscovery.discoverSources(at: logsURL)) ?? []
 
-        cachedAccounts = accounts
-        cachedLogSources = logSources
-        cachedKeychainPasswords = keychainPasswords
+        cache = AdiumImportCache(accounts: accounts, logSources: logSources, keychainPasswords: keychainPasswords)
+        prefill(keychainPasswords)
+    }
+
+    /// Fills in and selects every account whose password Adium's keychain supplied.
+    private func prefill(_ keychainPasswords: [String: String]) {
+        for (id, pw) in keychainPasswords {
+            passwords[id] = pw
+        }
+        selectedAccountIDs = Set(keychainPasswords.keys)
     }
 
     private func performImport() async {

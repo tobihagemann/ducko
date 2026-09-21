@@ -167,14 +167,12 @@ public final class RosterModule: XMPPModule, Sendable {
 
     private func replyToRosterPush(_ iq: XMPPIQ, context: ModuleContext, malformed: Bool) {
         guard let stanzaID = iq.id else { return }
+        let reply: XMPPIQ = if malformed {
+            .errorReply(id: stanzaID, to: iq.from, payload: iq.childElement, type: .modify, condition: .badRequest)
+        } else {
+            XMPPIQ(type: .result, to: iq.from, id: stanzaID)
+        }
         Task {
-            var reply = XMPPIQ(type: malformed ? .error : .result, to: iq.from, id: stanzaID)
-            if malformed {
-                if let child = iq.childElement { reply.element.addChild(child) }
-                var error = XMLElement(name: "error", attributes: ["type": "modify"])
-                error.addChild(XMLElement(name: "bad-request", namespace: XMPPNamespaces.stanzas))
-                reply.element.addChild(error)
-            }
             try? await context.sendStanza(reply)
         }
     }

@@ -7,9 +7,11 @@ source "$ROOT_DIR/version.env"
 
 EXEC_NAME=${EXEC_NAME:-DuckoApp}
 APP_BUNDLE="${ROOT_DIR}/${APP_NAME}.app"
-APP_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${EXEC_NAME}"
-DEBUG_PROCESS_PATTERN="${ROOT_DIR}/.build/debug/${EXEC_NAME}"
-RELEASE_PROCESS_PATTERN="${ROOT_DIR}/.build/release/${EXEC_NAME}"
+# Anchored to this checkout's executables so neither an installed production app, which shares EXEC_NAME, nor a
+# compiler or linker writing into .build is matched.
+APP_PROCESS_PATTERN="^${APP_BUNDLE}/Contents/MacOS/${EXEC_NAME}( |$)"
+# `swift run` launches the build product by its path relative to the checkout.
+BUILD_PROCESS_PATTERN="^(${ROOT_DIR}/|\./)?\.build/[^ ]*/${EXEC_NAME}( |$)"
 RUN_TESTS=0
 CONF="debug"
 
@@ -36,9 +38,7 @@ fi
 
 log "==> Killing existing ${APP_NAME} instances"
 pkill -f "${APP_PROCESS_PATTERN}" 2>/dev/null || true
-pkill -f "${DEBUG_PROCESS_PATTERN}" 2>/dev/null || true
-pkill -f "${RELEASE_PROCESS_PATTERN}" 2>/dev/null || true
-pkill -x "${EXEC_NAME}" 2>/dev/null || true
+pkill -f "${BUILD_PROCESS_PATTERN}" 2>/dev/null || true
 
 if [[ "${RUN_TESTS}" == "1" ]]; then
   log "==> swift test"
@@ -53,7 +53,13 @@ log "==> package app (${CONF})"
 SIGNING_MODE=adhoc "${ROOT_DIR}/Scripts/package_app.sh" "${CONF}"
 
 log "==> launch app"
-if ! open "${APP_BUNDLE}"; then
+# `open` does not pass the caller's environment to the app, so forward the profile explicitly. The `+` expansion
+# below keeps an empty array from tripping `set -u` in bash 3.2.
+OPEN_ARGS=()
+if [[ -n "${DUCKO_PROFILE:-}" ]]; then
+  OPEN_ARGS+=(--env "DUCKO_PROFILE=${DUCKO_PROFILE}")
+fi
+if ! open ${OPEN_ARGS[@]+"${OPEN_ARGS[@]}"} "${APP_BUNDLE}"; then
   log "WARN: open failed; launching binary directly."
   "${APP_BUNDLE}/Contents/MacOS/${EXEC_NAME}" >/dev/null 2>&1 &
   disown

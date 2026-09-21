@@ -82,10 +82,10 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `transfer-progress` | Progress indicator for an active file transfer | Chat |
 | `file-drop-overlay` | Drag-and-drop overlay | Chat |
 | `attachment-view` | Attachment in message bubble | Chat |
-| `attachment-preview-button` | File attachment card that opens the system Quick Look panel. Disabled for remote files. The bubble combines its children, so only the merged `message-bubble-{id}` resolves, not this identifier. | Chat |
-| `attachment-reveal-button` | Reveal-in-Finder button on a saved file attachment, shown on hover (merged into the bubble) | Chat |
-| `attachment-open-button` | Open button on a remote (HTTP) file attachment (merged into the bubble) | Chat |
-| `attachment-load-image` | Placeholder for a remote image. Tapping it loads the image inline (merged into the bubble). | Chat |
+| `attachment-preview-button` | File attachment card that opens the system Quick Look panel. Disabled for remote files. | Chat |
+| `attachment-reveal-button` | Reveal-in-Finder button on a saved file attachment, shown on hover | Chat |
+| `attachment-open-button` | Open button on a remote (HTTP) file attachment | Chat |
+| `attachment-load-image` | Placeholder for a remote image. Tapping it loads the image inline. | Chat |
 | `image-preview` | Full-size image preview sheet | Chat |
 | `link-preview` | Link preview card in message bubble | Chat |
 | `room-settings-menu-item` | "Room Settings..." context menu item | Contacts |
@@ -158,9 +158,9 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `verify-button-{deviceID}` | Verify device button | Device Fingerprints |
 | `encryptByDefaultToggle` | Encrypt by default preference toggle | Preferences (Chat) |
 | `tofuToggle` | Trust on first use preference toggle | Preferences (Chat) |
-| `file-transfer-banner` | Incoming file offer banner, one row per offer. It masks the Accept/Decline buttons' own identifiers, so find those buttons by title inside it. | Chat |
-| `accept-file-transfer-button` | Accept button on an incoming file offer (masked by the banner's identifier) | Chat |
-| `decline-file-transfer-button` | Decline button on an incoming file offer (masked by the banner's identifier) | Chat |
+| `file-transfer-banner` | Incoming file offer banner, one row per offer | Chat |
+| `accept-file-transfer-button` | Accept button on an incoming file offer | Chat |
+| `decline-file-transfer-button` | Decline button on an incoming file offer | Chat |
 | `cancel-account-button` | Cancel Account button | Account Detail |
 | `check-registration-button` | Check Registration button | Account Detail |
 | `registration-form-sheet` | Registration form sheet | Registration |
@@ -280,7 +280,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-room-config-save.sh` | Save room config in Room Settings sheet | `ROOM_JID` |
 | `ducko-room-settings-tab.sh` | Switch to a tab in the Room Settings sheet | `<General\|Members>` |
 | `ducko-add-affiliation.sh` | Add a JID to a room's affiliation list | `ROOM_JID JID` |
-| `ducko-stop.sh` | Kill DuckoApp process | none |
+| `ducko-stop.sh` | Kill the DuckoApp processes this checkout built, leaving an installed app running | none |
 | `ducko-window-id.sh` | Print window ID of DuckoApp (used by other scripts) | none |
 
 ## Workflow
@@ -861,4 +861,6 @@ To allow these scripts in `settings.local.json` without prompts:
 - The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Pass runtime values as arguments to `osascript -` and read them with `on run argv`. Keep them out of the generated AppleScript source.
 - Credentials are arguments, never hardcoded.
-- When the user drives the GUI on a profile, pause these scripts: `ducko-launch.sh`, `ducko-stop.sh` and `ducko-connect.sh` kill every running DuckoApp regardless of profile. Run CLI or integration tests meanwhile on other `DUCKO_PROFILE`s and accounts, so their offers and messages stay out of the user's window. Hand the GUI over by running `swift build` and launching `DUCKO_PROFILE=<name> .build/debug/DuckoApp` (a packaged bundle can be stale).
+- When the user drives the GUI on a profile, pause these scripts: `ducko-launch.sh`, `ducko-stop.sh` and `ducko-connect.sh` kill every DuckoApp this checkout built, regardless of profile. Run CLI or integration tests meanwhile on other `DUCKO_PROFILE`s and accounts, so their offers and messages stay out of the user's window. Hand the GUI over by running `swift build` and launching `DUCKO_PROFILE=<name> .build/debug/DuckoApp` (a packaged bundle can be stale).
+- The installed production app's executable is also named `DuckoApp`, and `swift run` launches the build product by a path relative to the checkout (`.build/out/Products/Debug/DuckoApp`). Anchor any process match for the dev app to this checkout's paths and accept the relative form, as `ducko-stop.sh` does.
+- While the production app runs, System Events `process "DuckoApp"` can resolve to it, so the helper scripts, which target the app by that name, can act on production. Drive the dev instance through PID-targeted AX (`AXUIElementCreateApplication(pid)`, as `ducko-dismiss.swift` does). AX actions need no focus: `AXShowMenu` on a `contact-row-*` followed by pressing its "Start Chat" menu item opens a chat, and `AXPress` works on `status-picker` and on segmented-picker radios. Prefer these to synthesized mouse clicks, which land on whatever window is frontmost.

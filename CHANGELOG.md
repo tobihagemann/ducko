@@ -16,6 +16,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Show usage for an unknown affiliation in the CLI's `/affiliations` instead of listing members
 - Prevent the CLI from crashing when in-band registration asks for a password without a terminal
 - Save avatars from `avatar get` with the file extension matching their image type
+- Show the certificate issuer in Connection Info as readable names instead of raw certificate data
+- Let VoiceOver reach the buttons on file attachments, link previews, and incoming file offers individually
 
 ## [0.2.0] - 2026-09-21
 

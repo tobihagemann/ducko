@@ -1,14 +1,9 @@
+import DuckoTestSupport
 import Foundation
 import Testing
 @testable import DuckoCore
 
 struct LogExporterTests {
-    private func makeTemporaryDirectory() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        return dir
-    }
-
     @Test
     func `recentLines returns no-file message when log directory is empty`() throws {
         let result = try LogExporter.recentLines(count: 10)
@@ -30,25 +25,22 @@ struct LogExporterTests {
             try "test log entry\n".write(to: testFile, atomically: true, encoding: .utf8)
         }
 
-        let dest = try makeTemporaryDirectory()
-        defer { try? fm.removeItem(at: dest) }
+        try withTemporaryDirectory { dest in
+            let copied = try LogExporter.export(to: dest)
+            #expect(!copied.isEmpty)
 
-        let copied = try LogExporter.export(to: dest)
-        #expect(!copied.isEmpty)
-
-        for file in copied {
-            #expect(fm.fileExists(atPath: file.path))
+            for file in copied {
+                #expect(fm.fileExists(atPath: file.path))
+            }
         }
     }
 
     @Test
     func `export creates destination directory if needed`() throws {
-        let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathComponent("nested")
-        defer { try? FileManager.default.removeItem(at: dest) }
-
-        _ = try LogExporter.export(to: dest)
-        #expect(FileManager.default.fileExists(atPath: dest.path))
+        try withTemporaryDirectory { dir in
+            let dest = dir.appendingPathComponent("nested")
+            _ = try LogExporter.export(to: dest)
+            #expect(FileManager.default.fileExists(atPath: dest.path))
+        }
     }
 }

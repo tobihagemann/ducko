@@ -86,21 +86,13 @@ public final class OOBModule: XMPPModule, Sendable {
     private func refuseDuplicate(id: String, from: JID, query: XMLElement, context: ModuleContext) {
         Task {
             do {
-                try await context.sendStanza(Self.errorIQ(id: id, to: from, query: query, condition: "conflict", type: "cancel"))
+                try await context.sendStanza(
+                    XMPPIQ.errorReply(id: id, to: from, payload: query, type: .cancel, condition: .conflict)
+                )
             } catch {
                 log.warning("Failed to refuse an OOB IQ offer: \(error)")
             }
         }
-    }
-
-    private static func errorIQ(id: String, to: JID, query: XMLElement, condition: String, type: String) -> XMPPIQ {
-        var errorIQ = XMPPIQ(type: .error, id: id)
-        errorIQ.to = to
-        errorIQ.element.addChild(query)
-        var error = XMLElement(name: "error", attributes: ["type": type])
-        error.addChild(XMLElement(name: condition, namespace: XMPPNamespaces.stanzas))
-        errorIQ.element.addChild(error)
-        return errorIQ
     }
 
     // MARK: - Public API
@@ -122,7 +114,9 @@ public final class OOBModule: XMPPModule, Sendable {
         guard let taken = takeOffer(offerID) else { return }
         let (context, pending) = taken
 
-        let errorIQ = Self.errorIQ(id: pending.iqID, to: pending.from, query: pending.originalQuery, condition: "not-acceptable", type: "modify")
+        let errorIQ = XMPPIQ.errorReply(
+            id: pending.iqID, to: pending.from, payload: pending.originalQuery, type: .modify, condition: .notAcceptable
+        )
         try await send(errorIQ, offerID: offerID, keepOnFailure: true, context: context)
         log.info("Rejected OOB IQ offer \(offerID)")
     }

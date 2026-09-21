@@ -36,6 +36,40 @@ public struct XMPPIQ: XMPPStanza {
         return nil
     }
 
+    // MARK: - Error Reply
+
+    /// Builds an error reply to `request`, or `nil` when the request carries no id to answer.
+    public static func errorReply(
+        for request: XMPPIQ,
+        type: XMPPStanzaError.ErrorType,
+        condition: XMPPStanzaError.Condition,
+        applicationCondition: XMLElement? = nil
+    ) -> XMPPIQ? {
+        guard let id = request.id else { return nil }
+        return errorReply(
+            id: id, to: request.from, payload: request.childElement,
+            type: type, condition: condition, applicationCondition: applicationCondition
+        )
+    }
+
+    /// Builds an error reply that echoes the request's payload (RFC 6120 §8.3.1).
+    public static func errorReply(
+        id: String,
+        to: JID?,
+        payload: XMLElement?,
+        type: XMPPStanzaError.ErrorType,
+        condition: XMPPStanzaError.Condition,
+        applicationCondition: XMLElement? = nil
+    ) -> XMPPIQ {
+        var reply = XMPPIQ(type: .error, to: to, id: id)
+        if let payload { reply.element.addChild(payload) }
+        var error = XMLElement(name: "error", attributes: ["type": type.rawValue])
+        error.addChild(XMLElement(name: condition.rawValue, namespace: XMPPNamespaces.stanzas))
+        if let applicationCondition { error.addChild(applicationCondition) }
+        reply.element.addChild(error)
+        return reply
+    }
+
     // MARK: - Convenience
 
     public var isGet: Bool {

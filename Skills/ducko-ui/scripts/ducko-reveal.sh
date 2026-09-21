@@ -3,42 +3,58 @@
 # Only messages carrying a file this app saved offer the item; a link a contact sent does not.
 # Usage: ducko-reveal.sh [TEXT]
 #   No args:   reveals the last message's saved files
-#   TEXT:      reveals the first message whose label contains TEXT (e.g. the file name)
+#   TEXT:      reveals the first message showing TEXT (e.g. the file name)
 #
-# A file-only message has no static text: its name lives only in the merged
-# `message-bubble-{id}` label, which SwiftUI exposes as an attributed description
-# that AppleScript cannot read (it reports "button"). Peekaboo reads it, so the
-# bubble is located there and then right-clicked by its identifier.
+# A bubble carrying an attachment exposes its file card as a child element, so the file name is that child's label,
+# not the bubble's. Peekaboo lists elements flat, so a matching element is mapped to the smallest bubble enclosing it,
+# and that bubble is then right-clicked by its identifier.
 set -euo pipefail
 
 TEXT="${1:-}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
 
-# Picks a `message-bubble-*` element whose label contains the search text. Peekaboo
-# does not list elements in on-screen order (buttons come before other roles), so
-# bubbles are ordered by their vertical position: a search takes the topmost match,
-# and no search text takes the bottom-most bubble, which is the newest message.
+# Peekaboo does not list elements in on-screen order (buttons come before other roles), so bubbles are ordered by their
+# vertical position: a search takes the topmost match, and no search text takes the bottom-most bubble, which is the
+# newest message.
 BUBBLE_PICKER='
 import json, sys
 text = sys.argv[1]
-matches = []
+bubbles = []
+hits = []
 def walk(node):
     if isinstance(node, dict):
         ident = str(node.get("identifier") or "")
         label = str(node.get("description") or node.get("label") or "")
-        if ident.startswith("message-bubble") and text in label:
-            y = (node.get("bounds") or {}).get("y", 0)
-            matches.append((y, ident))
+        bounds = node.get("bounds")
+        if isinstance(bounds, dict):
+            x, y = bounds.get("x", 0), bounds.get("y", 0)
+            width, height = bounds.get("width", 0), bounds.get("height", 0)
+            if ident.startswith("message-bubble"):
+                bubbles.append((y, height, x, width, ident))
+            if text and text in label:
+                hits.append((x + width / 2, y + height / 2))
         for value in node.values():
             walk(value)
     elif isinstance(node, list):
         for value in node:
             walk(value)
 walk(json.load(sys.stdin))
+if not text:
+    if bubbles:
+        print(max(bubbles)[4])
+    sys.exit()
+matches = []
+for center_x, center_y in hits:
+    enclosing = [
+        bubble for bubble in bubbles
+        if bubble[0] <= center_y <= bubble[0] + bubble[1] and bubble[2] <= center_x <= bubble[2] + bubble[3]
+    ]
+    if enclosing:
+        smallest = min(enclosing, key=lambda bubble: bubble[1])
+        matches.append((smallest[0], smallest[4]))
 if matches:
-    matches.sort()
-    print(matches[0][1] if text else matches[-1][1])
+    print(min(matches)[1])
 '
 
 WID=$("$SCRIPT_DIR/ducko-window-id.sh")

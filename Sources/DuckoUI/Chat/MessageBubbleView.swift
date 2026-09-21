@@ -23,6 +23,10 @@ struct MessageBubbleView: View {
         return windowState.contact?.displayName ?? message.fromJID
     }
 
+    private var linkPreview: LinkPreview? {
+        theme.current.showLinkPreviews ? windowState.linkPreview(for: message) : nil
+    }
+
     private var showAvatar: Bool {
         theme.current.showAvatars && !message.isOutgoing && theme.current.avatarPosition == .leading
     }
@@ -37,6 +41,7 @@ struct MessageBubbleView: View {
     }
 
     var body: some View {
+        let linkPreview = linkPreview
         HStack(alignment: .bottom) {
             if message.isOutgoing { Spacer(minLength: 60) }
 
@@ -63,15 +68,16 @@ struct MessageBubbleView: View {
                     }
                 },
                 footer: {
-                    if theme.current.showLinkPreviews, let preview = windowState.linkPreview(for: message) {
-                        LinkPreviewCard(preview: preview)
+                    if let linkPreview {
+                        LinkPreviewCard(preview: linkPreview)
                     }
                 }
             )
 
             if !message.isOutgoing { Spacer(minLength: 60) }
         }
-        .accessibilityElement(children: .combine)
+        // Attachments and link previews carry their own buttons, which a combined element would hide from assistive tech.
+        .accessibilityElement(children: message.attachments.isEmpty && linkPreview == nil ? .combine : .contain)
         .accessibilityIdentifier("message-bubble-\(message.id)")
         .contextMenu {
             MessageContextMenu(message: message, windowState: windowState)

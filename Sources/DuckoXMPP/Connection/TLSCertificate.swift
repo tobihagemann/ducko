@@ -106,9 +106,6 @@ private func hashFromTrailingByte(_ byte: UInt8?, sha256: UInt8, sha384: UInt8, 
     }
 }
 
-/// OID for the certificate issuer field in `SecCertificateCopyValues`.
-private let certIssuerOID = "2.16.840.1.113741.2.1.1.1.5"
-
 struct CertInfo {
     let subject: String?
     let issuer: String?
@@ -127,14 +124,23 @@ func extractCertificateInfo(_ cert: SecCertificate) -> CertInfo? {
     // Extract issuer and expiry from certificate values
     var issuer: String?
     let expiry = SecCertificateCopyNotValidAfterDate(cert) as Date?
-    if let values = SecCertificateCopyValues(cert, nil, nil) as? [String: Any] {
-        if let issuerEntry = values[certIssuerOID] as? [String: Any],
+    let issuerKey = kSecOIDX509V1IssuerName as String
+    if let values = SecCertificateCopyValues(cert, [issuerKey] as CFArray, nil) as? [String: Any] {
+        if let issuerEntry = values[issuerKey] as? [String: Any],
            let issuerValue = issuerEntry[kSecPropertyKeyValue as String] {
-            issuer = issuerValue as? String ?? String(describing: issuerValue)
+            issuer = readableDistinguishedName(issuerValue)
         }
     }
 
     return CertInfo(subject: subject, issuer: issuer, expiry: expiry, sha256: fingerprint)
+}
+
+/// Renders a `SecCertificateCopyValues` name as its attribute values, most specific first (e.g. "R11, Let's Encrypt, US").
+/// The attribute dictionaries arrive in certificate order, which runs from least to most specific.
+func readableDistinguishedName(_ value: Any) -> String? {
+    guard let attributes = value as? [[String: Any]] else { return nil }
+    let values = attributes.reversed().compactMap { $0[kSecPropertyKeyValue as String] as? String }
+    return values.isEmpty ? nil : values.joined(separator: ", ")
 }
 
 func certificateChannelBinding(_ cert: SecCertificate) -> [UInt8] {

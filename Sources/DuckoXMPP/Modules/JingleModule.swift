@@ -317,13 +317,13 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
         if action == .sessionInitiate {
             guard !hasResources else {
                 log.debug("Rejecting session-initiate for a live sid: \(sid)")
-                replyError(to: iq, type: "cancel", condition: "conflict", jingleCondition: "tie-break", context: context)
+                replyError(to: iq, type: .cancel, condition: .conflict, jingleCondition: "tie-break", context: context)
                 return
             }
         } else {
             guard let session, iq.from == .full(session.peer) else {
                 log.debug("Rejecting \(actionStr) for an unknown session, sid: \(sid)")
-                replyError(to: iq, type: "cancel", condition: "item-not-found", jingleCondition: "unknown-session", context: context)
+                replyError(to: iq, type: .cancel, condition: .itemNotFound, jingleCondition: "unknown-session", context: context)
                 return
             }
         }
@@ -379,24 +379,17 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
 
     /// Replies to `iq` with an error holding a stanza `condition` and, for Jingle errors, a `jingleCondition`.
     private func replyError(
-        to iq: XMPPIQ, type: String, condition: String, jingleCondition: String? = nil, context: ModuleContext
+        to iq: XMPPIQ,
+        type: XMPPStanzaError.ErrorType,
+        condition: XMPPStanzaError.Condition,
+        jingleCondition: String? = nil,
+        context: ModuleContext
     ) {
-        guard let stanzaID = iq.id else { return }
+        let applicationCondition = jingleCondition.map { XMLElement(name: $0, namespace: XMPPNamespaces.jingleErrors) }
+        guard let errorIQ = XMPPIQ.errorReply(
+            for: iq, type: type, condition: condition, applicationCondition: applicationCondition
+        ) else { return }
         Task {
-            var errorIQ = XMPPIQ(type: .error, id: stanzaID)
-            if let from = iq.from {
-                errorIQ.to = from
-            }
-            // RFC 6120 §8.3.1: Echo the original payload
-            if let originalChild = iq.childElement {
-                errorIQ.element.addChild(originalChild)
-            }
-            var error = XMLElement(name: "error", attributes: ["type": type])
-            error.addChild(XMLElement(name: condition, namespace: XMPPNamespaces.stanzas))
-            if let jingleCondition {
-                error.addChild(XMLElement(name: jingleCondition, namespace: XMPPNamespaces.jingleErrors))
-            }
-            errorIQ.element.addChild(error)
             do {
                 try await context.sendStanza(errorIQ)
             } catch {
@@ -406,7 +399,7 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
     }
 
     private func replyOutOfOrder(to iq: XMPPIQ, context: ModuleContext) {
-        replyError(to: iq, type: "cancel", condition: "unexpected-request", jingleCondition: "out-of-order", context: context)
+        replyError(to: iq, type: .cancel, condition: .unexpectedRequest, jingleCondition: "out-of-order", context: context)
     }
 
     // MARK: - Action Handlers
@@ -1115,7 +1108,7 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
 
     private func replyIBBItemNotFound(to iq: XMPPIQ, ibbSID: String, context: ModuleContext) {
         log.debug("Rejecting IBB stanza for an unknown stream, ibb-sid: \(ibbSID)")
-        replyError(to: iq, type: "cancel", condition: "item-not-found", context: context)
+        replyError(to: iq, type: .cancel, condition: .itemNotFound, context: context)
     }
 
     /// Closes a bytestream whose data cannot be trusted and fails the transfer with it, so the sender stops sending
@@ -1216,15 +1209,15 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
         case .unknownStream:
             replyIBBItemNotFound(to: iq, ibbSID: ibbSID, context: context)
         case let .notAccepted(sid):
-            replyError(to: iq, type: "cancel", condition: "unexpected-request", context: context)
+            replyError(to: iq, type: .cancel, condition: .unexpectedRequest, context: context)
             // The session goes with the refusal. Left alive, its offer would still be acceptable, and accepting it would
             // wait on a stream this side has already told the sender to stop.
             abandonTransport(sid: sid, reason: .cancel, terminateReason: .cancel, context: context)
         case let .reusedSequence(sid):
-            replyError(to: iq, type: "cancel", condition: "unexpected-request", context: context)
+            replyError(to: iq, type: .cancel, condition: .unexpectedRequest, context: context)
             failIBBStream(sid: sid, context: context)
         case let .badRequest(sid):
-            replyError(to: iq, type: "cancel", condition: "bad-request", context: context)
+            replyError(to: iq, type: .cancel, condition: .badRequest, context: context)
             failIBBStream(sid: sid, context: context)
         case let .brokenStream(sid):
             acknowledgeIQ(iq, context: context)

@@ -1070,16 +1070,8 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
     }
 
     private func replyServiceUnavailable(for iq: XMPPIQ) {
-        guard let stanzaID = iq.id else { return }
+        guard let errorIQ = XMPPIQ.errorReply(for: iq, type: .cancel, condition: .serviceUnavailable) else { return }
         Task {
-            var errorIQ = XMPPIQ(type: .error, id: stanzaID)
-            if let from = iq.from { errorIQ.to = from }
-            // RFC 6120 §8.3.1: Echo the original payload
-            if let originalChild = iq.childElement { errorIQ.element.addChild(originalChild) }
-            var error = XMLElement(name: "error", attributes: ["type": "cancel"])
-            let condition = XMLElement(name: "service-unavailable", namespace: XMPPNamespaces.stanzas)
-            error.addChild(condition)
-            errorIQ.element.addChild(error)
             try? await self.send(errorIQ)
         }
     }
