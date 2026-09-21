@@ -24,17 +24,12 @@ enum ServiceOutageModuleTests {
             let serverFeatures = features
 
             let receivedInfo = OSAllocatedUnfairLock<ServiceOutageInfo?>(initialState: nil)
-            let context = ModuleContext(
-                sendStanza: { _ in },
-                sendIQ: { _ in nil },
+            let context = makeStubModuleContext(
                 emitEvent: { event in
                     if case let .serviceOutageReceived(info) = event {
                         receivedInfo.withLock { $0 = info }
                     }
                 },
-                generateID: { "test-1" },
-                connectedJID: { FullJID.parse("user@example.com/res") },
-                domain: "example.com",
                 serverStreamFeatures: { serverFeatures }
             )
             module.setUp(context)
@@ -59,17 +54,12 @@ enum ServiceOutageModuleTests {
             let serverFeatures = features
 
             let receivedInfo = OSAllocatedUnfairLock<ServiceOutageInfo?>(initialState: nil)
-            let context = ModuleContext(
-                sendStanza: { _ in },
-                sendIQ: { _ in nil },
+            let context = makeStubModuleContext(
                 emitEvent: { event in
                     if case let .serviceOutageReceived(info) = event {
                         receivedInfo.withLock { $0 = info }
                     }
                 },
-                generateID: { "test-1" },
-                connectedJID: { FullJID.parse("user@example.com/res") },
-                domain: "example.com",
                 serverStreamFeatures: { serverFeatures }
             )
             module.setUp(context)
@@ -90,17 +80,12 @@ enum ServiceOutageModuleTests {
             let serverFeatures = features
 
             let eventEmitted = OSAllocatedUnfairLock(initialState: false)
-            let context = ModuleContext(
-                sendStanza: { _ in },
-                sendIQ: { _ in nil },
+            let context = makeStubModuleContext(
                 emitEvent: { event in
                     if case .serviceOutageReceived = event {
                         eventEmitted.withLock { $0 = true }
                     }
                 },
-                generateID: { "test-1" },
-                connectedJID: { FullJID.parse("user@example.com/res") },
-                domain: "example.com",
                 serverStreamFeatures: { serverFeatures }
             )
             module.setUp(context)
@@ -124,17 +109,12 @@ enum ServiceOutageModuleTests {
             let serverFeatures = features
 
             let receivedInfo = OSAllocatedUnfairLock<ServiceOutageInfo?>(initialState: nil)
-            let context = ModuleContext(
-                sendStanza: { _ in },
-                sendIQ: { _ in nil },
+            let context = makeStubModuleContext(
                 emitEvent: { event in
                     if case let .serviceOutageReceived(info) = event {
                         receivedInfo.withLock { $0 = info }
                     }
                 },
-                generateID: { "test-1" },
-                connectedJID: { FullJID.parse("user@example.com/res") },
-                domain: "example.com",
                 serverStreamFeatures: { serverFeatures }
             )
             module.setUp(context)

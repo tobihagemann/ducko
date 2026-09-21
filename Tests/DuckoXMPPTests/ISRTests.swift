@@ -2,19 +2,6 @@ import DuckoTestSupport
 import Testing
 @testable import DuckoXMPP
 
-// MARK: - Helpers
-
-private func makeTestModuleContext() -> ModuleContext {
-    ModuleContext(
-        sendStanza: { _ in },
-        sendIQ: { _ in nil },
-        emitEvent: { _ in },
-        generateID: { "test-1" },
-        connectedJID: { FullJID.parse("user@example.com/res") },
-        domain: "example.com"
-    )
-}
-
 // MARK: - Tests
 
 enum ISRTests {
@@ -22,7 +9,7 @@ enum ISRTests {
         @Test
         func `SM enabled response stores ISR token`() {
             let sm = StreamManagementModule()
-            sm.setUp(makeTestModuleContext())
+            sm.setUp(makeStubModuleContext())
 
             var enabled = XMLElement(
                 name: "enabled",
@@ -49,7 +36,7 @@ enum ISRTests {
         @Test
         func `SM enabled without ISR has no token`() {
             let sm = StreamManagementModule()
-            sm.setUp(makeTestModuleContext())
+            sm.setUp(makeStubModuleContext())
 
             let enabled = XMLElement(
                 name: "enabled",
@@ -78,7 +65,7 @@ enum ISRTests {
         @Test
         func `resetResumption clears ISR token`() {
             let sm = StreamManagementModule()
-            sm.setUp(makeTestModuleContext())
+            sm.setUp(makeStubModuleContext())
 
             var enabled = XMLElement(
                 name: "enabled",
@@ -106,7 +93,7 @@ enum ISRTests {
         @Test
         func `ISR token survives state snapshot and restore`() {
             let sm = StreamManagementModule()
-            sm.setUp(makeTestModuleContext())
+            sm.setUp(makeStubModuleContext())
 
             var enabled = XMLElement(
                 name: "enabled",

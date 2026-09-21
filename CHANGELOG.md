@@ -32,6 +32,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Keep delayed room-join updates from restoring participants after leaving
 - Close pending direct file-transfer connections when cancelling or going offline
 - Finish signing out without a half-second wait when the connection has already dropped
+- Prevent a failed OMEMO device list read from removing your other devices from encryption, and add this device once the list can be read again
+
+### Security
+
+- Accept replies to requests only from the address they were sent to, or from your own server, so another sender cannot answer them in its place
 
 ## [0.1.0] - 2026-09-16
 

@@ -150,13 +150,7 @@ enum CSIModuleTests {
             let csiFeatures = features
 
             let sendCount = OSAllocatedUnfairLock(initialState: 0)
-            let context = ModuleContext(
-                sendStanza: { _ in },
-                sendIQ: { _ in nil },
-                emitEvent: { _ in },
-                generateID: { "test-1" },
-                connectedJID: { FullJID.parse("user@example.com/res") },
-                domain: "example.com",
+            let context = makeStubModuleContext(
                 sendElement: { _ in sendCount.withLock { $0 += 1 } },
                 serverStreamFeatures: { csiFeatures }
             )

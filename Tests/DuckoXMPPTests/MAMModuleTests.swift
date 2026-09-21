@@ -110,7 +110,7 @@ enum MAMModuleTests {
             #expect(mam.iq.contains("to=\"room@conference.example.com\""))
             #expect(mam.iq.contains("<max>20</max>"))
 
-            // Response must include from='room JID' to match sendIQ's expectedFrom
+            // Response must come from the room JID the request addressed
             await mock.simulateReceive(
                 "<iq type='result' id='\(mam.iqID)' from='room@conference.example.com'><fin xmlns='urn:xmpp:mam:2' complete='true'><set xmlns='http://jabber.org/protocol/rsm'><count>0</count></set></fin></iq>"
             )

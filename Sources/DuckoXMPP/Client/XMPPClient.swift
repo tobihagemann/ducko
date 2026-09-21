@@ -52,8 +52,7 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
 
     private struct PendingIQ {
         let continuation: CheckedContinuation<XMLElement?, any Error>
-        let expectedFrom: BareJID?
-        let rosterReply: Bool
+        let requestTo: JID?
         let token: UInt64
         let onTerminal: ModuleContext.IQTerminalHandler?
         let timeoutTask: Task<Void, Never>
@@ -594,18 +593,12 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
     }
 
     /// Sends an IQ and awaits the matching result. Returns the result's child element or `nil`.
-    /// Cancellation stops waiting for the reply; an accepted write may still complete.
-    public func sendIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30)) async throws -> XMLElement? {
-        try await sendIQ(iq, timeout: timeout, rosterReply: false, onTerminal: nil)
-    }
-
-    func sendRosterIQ(_ iq: XMPPIQ, timeout: Duration = .seconds(30), onTerminal: @escaping ModuleContext.IQTerminalHandler) async throws -> XMLElement? {
-        try await sendIQ(iq, timeout: timeout, rosterReply: true, onTerminal: onTerminal)
-    }
-
-    private func sendIQ(
-        _ request: XMPPIQ, timeout: Duration, rosterReply: Bool,
-        onTerminal: ModuleContext.IQTerminalHandler?
+    /// Cancellation stops waiting for the reply, though an accepted write may still complete.
+    /// `onTerminal` runs exactly once with the request's outcome, before the caller resumes. For an accepted reply it
+    /// also runs before the next inbound stanza is dispatched.
+    public func sendIQ(
+        _ request: XMPPIQ, timeout: Duration = .seconds(30),
+        onTerminal: ModuleContext.IQTerminalHandler? = nil
     ) async throws -> XMLElement? {
         guard case .connected = state else {
             onTerminal?(.failure(XMPPClientError.notConnected))
@@ -634,9 +627,8 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
                     await self?.resolvePendingIQ(id: stanzaID, token: token, result: .failure(XMPPClientError.timeout))
                 }
                 pendingIQs[stanzaID] = PendingIQ(
-                    continuation: continuation, expectedFrom: iq.to?.bareJID,
-                    rosterReply: rosterReply, token: token, onTerminal: onTerminal,
-                    timeoutTask: timeoutTask
+                    continuation: continuation, requestTo: iq.to, token: token,
+                    onTerminal: onTerminal, timeoutTask: timeoutTask
                 )
                 pendingIQs[stanzaID]?.sendTask = Task {
                     do {
@@ -1047,19 +1039,27 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
 
     private func dispatchIQ(_ element: XMLElement) {
         let iq = XMPPIQ(element: element)
-        if let stanzaID = iq.id, let pending = pendingIQs[stanzaID],
-           pending.rosterReply ? rosterReplyMatches(iq) : iqResponseMatchesExpectedFrom(iq, expectedFrom: pending.expectedFrom) {
-            let result: Result<XMPPIQ, any Error>
-            if iq.isError {
-                let error = XMPPStanzaError.parse(from: iq.element.child(named: "error"))
-                    ?? XMPPStanzaError(errorType: .cancel, condition: .undefinedCondition)
-                result = .failure(error)
-            } else {
-                result = .success(iq)
+        if let stanzaID = iq.id, let pending = pendingIQs[stanzaID] {
+            if IQReplyPolicy.accepts(reply: iq, requestTo: pending.requestTo, ownJID: connectedJIDLock.withLock { $0 }) {
+                let result: Result<XMPPIQ, any Error>
+                if iq.isError {
+                    let error = XMPPStanzaError.parse(from: iq.element.child(named: "error"))
+                        ?? XMPPStanzaError(errorType: .cancel, condition: .undefinedCondition)
+                    result = .failure(error)
+                } else {
+                    result = .success(iq)
+                }
+                // A reply can precede the send task's completion, so let that task finish normally.
+                resolvePendingIQ(id: stanzaID, token: pending.token, result: result, cancelSend: false)
+                return
             }
-            // A reply can precede the send task's completion, so let that task finish normally.
-            resolvePendingIQ(id: stanzaID, token: pending.token, result: result, cancelSend: false)
-            return
+            // A same-ID get/set is a request (e.g. our own disco query reflected to this resource), not a rejected reply.
+            if iq.isResult || iq.isError {
+                let type = iq.type ?? "absent"
+                let from = iq.element.attribute("from") ?? "absent"
+                let requestTo = pending.requestTo?.description ?? "absent"
+                log.debug("Ignoring IQ \(stanzaID) as a reply: type \(type) from \(from) for a request to \(requestTo)")
+            }
         }
         eventContinuation.yield(.iqReceived(iq))
         let handled = modules.values.contains { (try? $0.handleIQ(iq)) == true }
@@ -1067,27 +1067,6 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
         if !handled, iq.isGet || iq.isSet {
             replyServiceUnavailable(for: iq)
         }
-    }
-
-    private func rosterReplyMatches(_ iq: XMPPIQ) -> Bool {
-        guard iq.isResult || iq.isError else { return false }
-        guard let rawFrom = iq.element.attribute("from") else { return true }
-        guard let from = JID.parse(rawFrom), case let .bare(bare) = from else { return false }
-        if bare == connectedJIDLock.withLock({ $0?.bareJID }) { return true }
-        return iq.isError && bare.localPart == nil && bare.domainPart == domain
-    }
-
-    /// Matches when `expectedFrom` is nil or equals the stanza's `from`. RFC 6120 §8.1.2.1 carve-out (server
-    /// omits/substitutes `from` on stanzas generated on the client's behalf — e.g. Prosody `mod_pep` for same-server
-    /// PEP IQs) only applies same-server, so absent/own-bare `from` matches only when `expectedFrom` is the connected client's bare JID.
-    private func iqResponseMatchesExpectedFrom(_ iq: XMPPIQ, expectedFrom: BareJID?) -> Bool {
-        guard let expectedFrom else { return true }
-        if let from = iq.from?.bareJID, from == expectedFrom { return true }
-        let ownBare = connectedJIDLock.withLock { $0?.bareJID }
-        if let from = iq.from?.bareJID {
-            return from == ownBare && expectedFrom == ownBare
-        }
-        return expectedFrom == ownBare
     }
 
     private func replyServiceUnavailable(for iq: XMPPIQ) {
@@ -1166,8 +1145,12 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
             sendStanza: { [weak self] stanza in
                 try await self?.send(stanza)
             },
-            sendIQ: { [weak self] iq in
-                try await self?.sendIQ(iq)
+            sendIQ: { [weak self] iq, terminal in
+                guard let self else {
+                    terminal?(.failure(XMPPClientError.notConnected))
+                    throw XMPPClientError.notConnected
+                }
+                return try await sendIQ(iq, onTerminal: terminal)
             },
             emitEvent: { [eventContinuation] event in
                 eventContinuation.yield(event)
@@ -1187,13 +1170,6 @@ public actor XMPPClient { // swiftlint:disable:this type_body_length
             },
             serverStreamFeatures: { [serverFeaturesLock] in
                 serverFeaturesLock.withLock { $0 }
-            },
-            sendRosterIQ: { [weak self] iq, terminal in
-                guard let self else {
-                    terminal(.failure(XMPPClientError.notConnected))
-                    throw XMPPClientError.notConnected
-                }
-                return try await sendRosterIQ(iq, onTerminal: terminal)
             }
         )
     }

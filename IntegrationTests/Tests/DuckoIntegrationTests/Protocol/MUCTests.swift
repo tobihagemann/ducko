@@ -78,6 +78,46 @@ extension DuckoIntegrationTests.ProtocolLayer {
             }
         }
 
+        /// The self-ping the MUC rejoin check relies on is answered from the exact occupant JID: a result while
+        /// joined, an error once left. `PingModule` answers the ping when the service reflects it to the client.
+        @Test @MainActor func `Occupant self-ping is answered from the occupant JID`() async throws {
+            try await TestHarness.withHarness { harness in
+                try await harness.setUp(accounts: ["alice": TestCredentials.alice])
+
+                let roomJID = try await harness.createEphemeralRoom(using: "alice")
+                let alice = try #require(harness.accounts["alice"])
+                let probeMUC = MUCModule()
+                let probe = try await harness.buildStandaloneClient(
+                    for: TestCredentials.bob, resource: "probe", modules: [probeMUC, PingModule()]
+                )
+                let occupantJID = try #require(FullJID(bareJID: roomJID, resourcePart: "probe"))
+                func selfPing() async throws -> DuckoXMPP.XMLElement? {
+                    var ping = XMPPIQ(type: .get, to: .full(occupantJID), id: probe.generateID())
+                    ping.element.addChild(DuckoXMPP.XMLElement(name: "ping", namespace: XMPPNamespaces.ping))
+                    return try await probe.sendIQ(ping, timeout: TestTimeout.event)
+                }
+
+                harness.addCleanup { try? await probeMUC.leaveRoom(roomJID) }
+                try await probeMUC.joinRoom(roomJID, nickname: "probe")
+                _ = try await alice.waitForEvent { event in
+                    if case let .roomOccupantJoined(room, occupant) = event, room == roomJID, occupant.nickname == "probe" {
+                        return true
+                    }
+                    return false
+                }
+                _ = try await selfPing()
+
+                try await probeMUC.leaveRoom(roomJID)
+                _ = try await alice.waitForEvent { event in
+                    if case let .roomOccupantLeft(room, occupant, _) = event, room == roomJID, occupant.nickname == "probe" {
+                        return true
+                    }
+                    return false
+                }
+                await #expect(throws: XMPPStanzaError.self) { try await selfPing() }
+            }
+        }
+
         @Test @MainActor func `Alice sends a groupchat message`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: [

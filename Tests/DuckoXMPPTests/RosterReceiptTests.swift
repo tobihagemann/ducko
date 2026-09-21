@@ -23,14 +23,13 @@ struct RosterReceiptTests {
         let (events, continuation) = AsyncStream.makeStream(of: RosterUpdate.self)
         module.setUp(ModuleContext(
             sendStanza: { try await client.send($0) },
-            sendIQ: { try await client.sendIQ($0) },
-            emitEvent: { if case let .rosterUpdated(update) = $0 { continuation.yield(update) } },
-            generateID: { "initial" }, connectedJID: { FullJID.parse("user@example.com/ducko") }, domain: "example.com",
-            sendRosterIQ: { iq, terminal in
-                let result = try await client.sendRosterIQ(iq, onTerminal: terminal)
+            sendIQ: { iq, terminal in
+                let result = try await client.sendIQ(iq, onTerminal: terminal)
                 await gate.wait()
                 return result
-            }
+            },
+            emitEvent: { if case let .rosterUpdated(update) = $0 { continuation.yield(update) } },
+            generateID: { "initial" }, connectedJID: { FullJID.parse("user@example.com/ducko") }, domain: "example.com"
         ))
         let query = Task { try await module.handleConnect() }
         await transport.waitForSent(count: 1)
@@ -57,7 +56,7 @@ struct RosterReceiptTests {
         var iq = XMPPIQ(type: type, id: "strict")
         iq.element.addChild(XMLElement(name: "query", namespace: XMPPNamespaces.roster))
         let request = iq
-        let operation = Task { try await client.sendRosterIQ(request) { result in
+        let operation = Task { try await client.sendIQ(request) { result in
             if case let .success(reply) = result { replies.withLock { $0.append(reply) } }
         } }
         await transport.waitForSent(count: 1)
@@ -82,7 +81,7 @@ struct RosterReceiptTests {
         let transport = MockTransport()
         let client = try await connected(transport)
         let count = OSAllocatedUnfairLock(initialState: 0)
-        let operation = Task { try await client.sendRosterIQ(XMPPIQ(type: .set, id: "valid")) { _ in count.withLock { $0 += 1 } } }
+        let operation = Task { try await client.sendIQ(XMPPIQ(type: .set, id: "valid")) { _ in count.withLock { $0 += 1 } } }
         await transport.waitForSent(count: 1)
         await transport.simulateReceive("<iq type='result' id='valid'\(sender)/>")
         _ = try await operation.value
@@ -95,7 +94,7 @@ struct RosterReceiptTests {
         let transport = MockTransport()
         let client = try await connected(transport)
         let count = OSAllocatedUnfairLock(initialState: 0)
-        let operation = Task { try await client.sendRosterIQ(XMPPIQ(type: .get, id: "error")) { _ in count.withLock { $0 += 1 } } }
+        let operation = Task { try await client.sendIQ(XMPPIQ(type: .get, id: "error")) { _ in count.withLock { $0 += 1 } } }
         await transport.waitForSent(count: 1)
         await transport.simulateReceive("<iq type='error' id='error' from='example.com'><error type='cancel'><service-unavailable xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error></iq>")
         await #expect(throws: XMPPStanzaError.self) { _ = try await operation.value }
@@ -131,12 +130,12 @@ extension RosterReceiptTests {
         await client.register(module)
         let events = OSAllocatedUnfairLock<[RosterUpdate]>(initialState: [])
         module.setUp(ModuleContext(
-            sendStanza: { try await client.send($0) }, sendIQ: { try await client.sendIQ($0) },
+            sendStanza: { try await client.send($0) },
+            sendIQ: { iq, terminal in
+                try await client.sendIQ(iq, timeout: failure == "timeout" ? .zero : .seconds(2), onTerminal: terminal)
+            },
             emitEvent: { if case let .rosterUpdated(update) = $0 { events.withLock { $0.append(update) } } },
-            generateID: { "initial-failure" }, connectedJID: { FullJID.parse("user@example.com/ducko") }, domain: "example.com",
-            sendRosterIQ: { iq, terminal in
-                try await client.sendRosterIQ(iq, timeout: failure == "timeout" ? .zero : .seconds(2), onTerminal: terminal)
-            }
+            generateID: { "initial-failure" }, connectedJID: { FullJID.parse("user@example.com/ducko") }, domain: "example.com"
         ))
         if failure == "send-failure" { await transport.simulateSendFailure(XMPPClientError.notConnected) }
         let query = Task { try await module.handleConnect() }

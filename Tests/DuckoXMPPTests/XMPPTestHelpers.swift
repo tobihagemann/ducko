@@ -81,6 +81,27 @@ func disconnectFast(_ client: XMPPClient) async {
     await client.disconnect(streamCloseTimeout: .milliseconds(20), syncAckTimeout: .milliseconds(20))
 }
 
+// MARK: - Stub Module Context
+
+/// A `ModuleContext` with inert dependencies for driving a module without a client; pass only the ones a test observes.
+func makeStubModuleContext(
+    sendIQ: @escaping ModuleContext.IQSender = { _, _ in nil },
+    emitEvent: @Sendable @escaping (XMPPEvent) -> Void = { _ in },
+    sendElement: @Sendable @escaping (XMLElement) async throws -> Void = { _ in },
+    serverStreamFeatures: @Sendable @escaping () -> XMLElement? = { nil }
+) -> ModuleContext {
+    ModuleContext(
+        sendStanza: { _ in },
+        sendIQ: sendIQ,
+        emitEvent: emitEvent,
+        generateID: { "test-1" },
+        connectedJID: { FullJID.parse("user@example.com/res") },
+        domain: "example.com",
+        sendElement: sendElement,
+        serverStreamFeatures: serverStreamFeatures
+    )
+}
+
 // MARK: - STARTTLS Failure
 
 /// Expects `operation` to fail STARTTLS with `reason` before `mock` upgrades to TLS.
@@ -431,7 +452,7 @@ final class JingleInitiatorHarness: Sendable {
                     throw XMPPClientError.sendFailed("The connection was closed")
                 }
             },
-            sendIQ: { iq in
+            sendIQ: { iq, _ in
                 recorded.withLock { $0.iqs.append(iq.element) }
                 return try await answerIQ(iq.element)
             },

@@ -1,13 +1,10 @@
 /// Dependency injection for modules to communicate back to the client.
 public struct ModuleContext: Sendable {
     public typealias IQTerminalHandler = @Sendable (Result<XMPPIQ, any Error>) -> Void
-    public typealias RosterIQSender = @Sendable (XMPPIQ, @escaping IQTerminalHandler) async throws -> XMLElement?
+    public typealias IQSender = @Sendable (XMPPIQ, IQTerminalHandler?) async throws -> XMLElement?
     /// Sends a stanza over the connection.
     public let sendStanza: @Sendable (any XMPPStanza) async throws -> Void
-    /// Sends an IQ and awaits the matching result response. Returns `nil` for result IQs with no child.
-    /// Throws ``XMPPStanzaError`` for IQ errors.
-    public let sendIQ: @Sendable (XMPPIQ) async throws -> XMLElement?
-    public let sendRosterIQ: RosterIQSender
+    private let sendIQImpl: IQSender
     /// Emits a domain event to the client's event stream.
     public let emitEvent: @Sendable (XMPPEvent) -> Void
     /// Generates a unique stanza ID.
@@ -26,30 +23,17 @@ public struct ModuleContext: Sendable {
 
     public init(
         sendStanza: @Sendable @escaping (any XMPPStanza) async throws -> Void,
-        sendIQ: @Sendable @escaping (XMPPIQ) async throws -> XMLElement?,
+        sendIQ: @escaping IQSender,
         emitEvent: @Sendable @escaping (XMPPEvent) -> Void,
         generateID: @Sendable @escaping () -> String,
         connectedJID: @Sendable @escaping () -> FullJID?,
         domain: String,
         availableFeatures: @Sendable @escaping () -> Set<String> = { [] },
         sendElement: @Sendable @escaping (XMLElement) async throws -> Void = { _ in },
-        serverStreamFeatures: @Sendable @escaping () -> XMLElement? = { nil },
-        sendRosterIQ: RosterIQSender? = nil
+        serverStreamFeatures: @Sendable @escaping () -> XMLElement? = { nil }
     ) {
         self.sendStanza = sendStanza
-        self.sendIQ = sendIQ
-        self.sendRosterIQ = sendRosterIQ ?? { iq, terminal in
-            do {
-                let child = try await sendIQ(iq)
-                var reply = XMPPIQ(type: .result, id: iq.id)
-                if let child { reply.element.addChild(child) }
-                terminal(.success(reply))
-                return child
-            } catch {
-                terminal(.failure(error))
-                throw error
-            }
-        }
+        self.sendIQImpl = sendIQ
         self.emitEvent = emitEvent
         self.generateID = generateID
         self.connectedJID = connectedJID
@@ -57,5 +41,12 @@ public struct ModuleContext: Sendable {
         self.availableFeatures = availableFeatures
         self.sendElement = sendElement
         self.serverStreamFeatures = serverStreamFeatures
+    }
+
+    /// Sends an IQ and awaits the matching result response. Returns `nil` for result IQs with no child.
+    /// Throws ``XMPPStanzaError`` for IQ errors. `onTerminal` runs exactly once with the outcome, before the caller
+    /// resumes. The `sendIQ` closure passed to `init` must uphold this.
+    public func sendIQ(_ iq: XMPPIQ, onTerminal: IQTerminalHandler? = nil) async throws -> XMLElement? {
+        try await sendIQImpl(iq, onTerminal)
     }
 }

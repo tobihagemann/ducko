@@ -55,7 +55,7 @@ public final class RosterModule: XMPPModule, Sendable {
         iq.element.addChild(query)
 
         do {
-            _ = try await context.sendRosterIQ(iq) { [self] result in
+            _ = try await context.sendIQ(iq) { [self] result in
                 do {
                     let reply = try result.get()
                     let contents = try Self.queryContents(reply, permitsCachedBaseline: supportsVersioning)
@@ -81,7 +81,7 @@ public final class RosterModule: XMPPModule, Sendable {
         var iq = XMPPIQ(type: .get, id: id)
         iq.element.addChild(XMLElement(name: "query", namespace: XMPPNamespaces.roster))
         let outcome = OSAllocatedUnfairLock<Result<UInt64, any Error>?>(initialState: nil)
-        _ = try await context.sendRosterIQ(iq) { [self] result in
+        _ = try await context.sendIQ(iq) { [self] result in
             let receipt = Result {
                 let reply = try result.get()
                 let contents = try Self.queryContents(reply, permitsCachedBaseline: false)
@@ -215,7 +215,7 @@ public final class RosterModule: XMPPModule, Sendable {
 
     private func sendMutation(_ iq: XMPPIQ, context: ModuleContext) async throws -> ContinuousClock.Instant {
         let acknowledgement = OSAllocatedUnfairLock<ContinuousClock.Instant?>(initialState: nil)
-        _ = try await context.sendRosterIQ(iq) { result in
+        _ = try await context.sendIQ(iq) { result in
             if case .success = result { acknowledgement.withLock { $0 = .now } }
         }
         guard let instant = acknowledgement.withLock({ $0 }) else {

@@ -1468,11 +1468,9 @@ enum OMEMOModuleTests { // swiftlint:disable:this type_body_length
             await mock.waitForSent(count: 2)
             let ownBytes = await mock.sentBytes[1]
             let ownID = try #require(extractIQID(from: ownBytes))
-            // The IQ's `to` was the connected client's own JID
-            // ("user@example.com"); the response's `from` must match for
-            // `sendIQ` to correlate. Wrong `from` would route to the
-            // pendingIQ's expectedFrom-mismatch path (silent drop) and
-            // sendIQ would hang for 30s before throwing timeout.
+            // The request addressed the own bare JID ("user@example.com"), so the
+            // reply needs a `from` that `IQReplyPolicy` accepts for it. Any other
+            // `from` leaves sendIQ waiting out its 30-second timeout.
             let ownJID = try #require(BareJID(localPart: "user", domainPart: "example.com"))
             await mock.simulateReceive(makeItemNotFoundIQ(iqID: ownID, fromJID: ownJID))
 

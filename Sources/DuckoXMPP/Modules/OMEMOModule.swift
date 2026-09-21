@@ -37,10 +37,12 @@ public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this
         var emergencyRetractGuard: (any EmergencyRetractGuarding)?
         var emergencyRetractConfirmation: EmergencyRetractConfirmation?
         var orphanDeviceRecordPurger: (any OrphanDeviceRecordPurging)?
+        var registrationRetryTask: Task<Void, Never>?
     }
 
     private let state: OSAllocatedUnfairLock<State>
     private let pepModule: PEPModule
+    private let registrationRetryDelays: [Duration]
 
     /// PEP node name prefix for OMEMO bundle nodes (XEP-0384). A device's
     /// bundle is published at `bundleNodePrefix + "<deviceID>"`.
@@ -50,8 +52,13 @@ public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this
         [XMPPNamespaces.omemo, XMPPNamespaces.eme]
     }
 
-    public init(pepModule: PEPModule) {
+    public convenience init(pepModule: PEPModule) {
+        self.init(pepModule: pepModule, registrationRetryDelays: [.seconds(10), .seconds(60), .seconds(300)])
+    }
+
+    init(pepModule: PEPModule, registrationRetryDelays: [Duration]) {
         self.pepModule = pepModule
+        self.registrationRetryDelays = registrationRetryDelays
         self.state = OSAllocatedUnfairLock(initialState: State())
     }
 
@@ -63,6 +70,7 @@ public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this
 
     public func handleConnect() async throws {
         let identity: OwnIdentity
+        let ownListKnown: Bool
         do {
             if let pending = state.withLock({ $0.pendingIdentity }) {
                 identity = try restoreIdentity(from: pending)
@@ -74,13 +82,18 @@ public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this
                 identity = try generateOwnIdentity()
                 state.withLock { $0.ownIdentity = identity }
             }
-            try await ensureOwnDeviceInList(identity.deviceID)
+            ownListKnown = try await ensureOwnDeviceInList(identity.deviceID)
             try await publishOwnBundle(identity)
         } catch {
             throw OMEMOModuleError.translatingCryptoFailure(error)
         }
         let deviceID = identity.deviceID.value
         log.info("OMEMO setup complete, device ID: \(deviceID)")
+        // Pruning against a guessed list would clear the seen-device records of every sibling device.
+        guard ownListKnown else {
+            retryOwnDeviceRegistration(identity.deviceID)
+            return
+        }
 
         // Best-effort defense-in-depth pass against PEP entries whose bundles
         // are missing — never aborts the connect chain.
@@ -96,6 +109,11 @@ public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this
     }
 
     public func handleDisconnect() async {
+        let registrationRetryTask = state.withLock { state in
+            defer { state.registrationRetryTask = nil }
+            return state.registrationRetryTask
+        }
+        registrationRetryTask?.cancel()
         state.withLock {
             $0.ownIdentity = nil
             $0.deviceLists.removeAll()
@@ -497,14 +515,20 @@ public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this
 
     // MARK: - Device List Management
 
+    /// Returns `false` when the server's list could not be read. Nothing is then published or cached, since publishing
+    /// over an unread list would drop the other devices from it.
     private func ensureOwnDeviceInList(
         _ deviceID: OMEMODeviceID
-    ) async throws {
+    ) async throws -> Bool {
         var devices: [UInt32]
         do {
             devices = try await fetchDeviceListFromPEP(nil)
-        } catch {
+        } catch let error as XMPPStanzaError where error.condition == .itemNotFound {
             devices = []
+        } catch {
+            log.warning("OMEMO own device list fetch failed; leaving the device list unchanged")
+            log.debug("OMEMO own device list fetch failed: \(error)")
+            return false
         }
         if !devices.contains(deviceID.value) {
             devices.append(deviceID.value)
@@ -516,6 +540,25 @@ public final class OMEMOModule: XMPPModule, Sendable { // swiftlint:disable:this
                 $0.deviceLists[ownJID] = finalDevices
             }
         }
+        return true
+    }
+
+    /// Retries adding this device to the server's list after the connect-time read failed, so a transient failure
+    /// does not leave the device unadvertised for the whole session.
+    private func retryOwnDeviceRegistration(_ deviceID: OMEMODeviceID) {
+        let delays = registrationRetryDelays
+        let task = Task { [weak self] in
+            for delay in delays {
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self else { return }
+                if await (try? ensureOwnDeviceInList(deviceID)) == true { return }
+            }
+        }
+        let previous = state.withLock { state in
+            defer { state.registrationRetryTask = task }
+            return state.registrationRetryTask
+        }
+        previous?.cancel()
     }
 
     private func fetchDeviceListFromPEP(

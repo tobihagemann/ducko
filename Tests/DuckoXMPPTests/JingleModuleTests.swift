@@ -832,14 +832,7 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
 
     struct IBBTransportFailure {
         private static func makeContext(failingWith error: any Error) -> ModuleContext {
-            ModuleContext(
-                sendStanza: { _ in },
-                sendIQ: { _ in throw error },
-                emitEvent: { _ in },
-                generateID: { "test-1" },
-                connectedJID: { FullJID.parse("user@example.com/res") },
-                domain: "example.com"
-            )
+            makeStubModuleContext(sendIQ: { _, _ in throw error })
         }
 
         @Test
@@ -876,23 +869,12 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
     }
 
     struct SOCKS5TransportFailure {
-        private static func makeContext() -> ModuleContext {
-            ModuleContext(
-                sendStanza: { _ in },
-                sendIQ: { _ in nil },
-                emitEvent: { _ in },
-                generateID: { "test-1" },
-                connectedJID: { FullJID.parse("user@example.com/res") },
-                domain: "example.com"
-            )
-        }
-
         @Test
         func `SOCKS5 send failure surfaces as a readable transport failure`() async {
             let module = JingleModule()
             await #expect(throws: JingleModule.JingleError.transportFailed("The connection is not open")) {
                 try await module.sendSOCKS5Data(
-                    sid: "sid-123", data: [1, 2, 3], connection: SOCKS5Connection(), context: Self.makeContext()
+                    sid: "sid-123", data: [1, 2, 3], connection: SOCKS5Connection(), context: makeStubModuleContext()
                 )
             }
         }
@@ -902,7 +884,7 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
             let module = JingleModule()
             await #expect(throws: JingleModule.JingleError.transportFailed("The connection is not open")) {
                 _ = try await module.receiveSOCKS5Data(
-                    sid: "sid-123", expectedSize: 3, connection: SOCKS5Connection(), context: Self.makeContext()
+                    sid: "sid-123", expectedSize: 3, connection: SOCKS5Connection(), context: makeStubModuleContext()
                 )
             }
         }
