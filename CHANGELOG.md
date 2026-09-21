@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-21
+
 ### Added
 
 - Add a General setting to show or hide Ducko's menu bar icon
@@ -96,7 +98,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Initial release.
 
-[Unreleased]: https://github.com/tobihagemann/ducko/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/tobihagemann/ducko/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/tobihagemann/ducko/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/tobihagemann/ducko/compare/0.0.2...0.1.0
 [0.0.2]: https://github.com/tobihagemann/ducko/compare/0.0.1...0.0.2
 [0.0.1]: https://github.com/tobihagemann/ducko/releases/tag/0.0.1
