@@ -141,11 +141,10 @@ func handleKickREPLCommand(_ arguments: String, context: REPLContext, currentRoo
 
 func handleAffiliationsREPLCommand(_ arguments: String, context: REPLContext, currentRoom: String?) async {
     guard let roomJID = requireCurrentRoom(currentRoom, context: context) else { return }
-    let affiliation: RoomAffiliation = switch arguments {
-    case "admin": .admin
-    case "owner": .owner
-    case "outcast": .outcast
-    default: .member
+    let affiliation = arguments.isEmpty ? RoomAffiliation.member : RoomAffiliation(rawValue: arguments)
+    guard let affiliation, affiliation != RoomAffiliation.none else {
+        print("Usage: /affiliations [member|admin|owner|outcast]")
+        return
     }
     do {
         let items = try await context.environment.chatService.getAffiliationList(

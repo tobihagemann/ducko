@@ -25,7 +25,7 @@ extension DuckoCLI {
                 try await ConnectedOperation.run(formatter: formatter, account: accountOption.account) { env, selectedAccount in
                     let contacts = try await env.rosterService.synchronizeRoster(accountID: selectedAccount.id)
                     guard !contacts.isEmpty else {
-                        print(formatter.formatEmptyRoster(accountID: selectedAccount.id))
+                        print(formatter.formatEmptyResult(.roster(accountID: selectedAccount.id)))
                         return
                     }
                     let groups = ContactGroup.grouping(contacts)

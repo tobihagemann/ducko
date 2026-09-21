@@ -24,7 +24,7 @@ extension DuckoCLI {
             @Argument(help: "The JID to fetch the avatar from")
             var jid: String
 
-            @Option(name: .long, help: "File path to save the avatar (default: <jid>.png)")
+            @Option(name: .long, help: "File path to save the avatar (default: <jid>.<ext> from the avatar type)")
             var save: String?
 
             func run() async throws {
@@ -40,7 +40,7 @@ extension DuckoCLI {
                         return
                     }
 
-                    let ext = avatar.mimeType.contains("png") ? "png" : "jpg"
+                    let ext = UTType(mimeType: avatar.mimeType)?.preferredFilenameExtension ?? "png"
                     let filePath = save ?? "\(jid).\(ext)"
                     try avatar.data.write(to: URL(fileURLWithPath: filePath))
 

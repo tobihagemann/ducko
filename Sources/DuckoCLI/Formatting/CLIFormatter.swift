@@ -4,7 +4,7 @@ import Foundation
 
 protocol CLIFormatter: Sendable {
     func formatMessage(_ message: ChatMessage, accountJID: BareJID?) -> String
-    func formatEmptyRoster(accountID: UUID) -> String
+    func formatEmptyResult(_ result: CLIEmptyResult) -> String
     func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String
     func formatAccount(_ account: Account) -> String
     func formatPresence(jid: BareJID, status: String, message: String?) -> String
@@ -25,12 +25,49 @@ protocol CLIFormatter: Sendable {
     func formatServerInfo(_ info: ServerInfo) -> String
     func formatRegistrationForm(_ form: RegistrationFormInfo) -> String
     func formatSearchedChannel(_ channel: SearchedChannel) -> String
+    func formatOMEMOFingerprint(_ fingerprint: String) -> String
+    func formatOMEMODevice(_ device: OMEMODeviceInfo) -> String
+    func formatOMEMOTrustChange(jid: String, deviceID: UInt32, trustLevel: OMEMOTrustLevel) -> String
+}
+
+enum CLIEmptyResult {
+    case accounts
+    case roster(accountID: UUID)
+    case bookmarks(accountID: UUID)
+    case rooms
+    case roomParticipants(room: String)
+    case channels
+    case messages
+    case omemoIdentity(accountID: UUID)
+    case omemoDevices(jid: String, accountID: UUID)
+
+    var message: String {
+        switch self {
+        case .accounts: "No accounts configured."
+        case .roster: "No contacts in roster."
+        case .bookmarks: "No bookmarks."
+        case .rooms: "No rooms found."
+        case .roomParticipants: "No participants in room."
+        case .channels: "No channels found."
+        case .messages: "No messages found."
+        case .omemoIdentity: "No OMEMO identity found."
+        case let .omemoDevices(jid, _): "No known OMEMO devices for \(jid)."
+        }
+    }
 }
 
 func jingleProgressState(bytesTransferred: Int64, totalBytes: Int64) -> (progress: Double, state: String) {
     let progress = Double(bytesTransferred) / Double(totalBytes)
     let state = progress < 1.0 ? "transferring" : "finishing"
     return (progress, state)
+}
+
+func omemoFingerprintText(_ device: OMEMODeviceInfo) -> String {
+    device.fingerprint.isEmpty ? "(no fingerprint)" : OMEMODeviceInfo.formatFingerprint(device.fingerprint)
+}
+
+func omemoTrustChangeText(jid: String, deviceID: UInt32, trustLevel: OMEMOTrustLevel) -> String {
+    "\(trustLevel.rawValue.capitalized) device \(deviceID) for \(jid)."
 }
 
 func formatByteCount(_ bytes: Int64) -> String {

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Exit the CLI's `omemo trust` with an error when the device is unknown
+
+### Fixed
+
+- Keep CLI JSON output parseable for empty lists, OMEMO commands, and an invalid JID in `/avatar`
+- Show usage for an unknown affiliation in the CLI's `/affiliations` instead of listing members
+- Prevent the CLI from crashing when in-band registration asks for a password without a terminal
+- Save avatars from `avatar get` with the file extension matching their image type
+
 ## [0.2.0] - 2026-09-21
 
 ### Added

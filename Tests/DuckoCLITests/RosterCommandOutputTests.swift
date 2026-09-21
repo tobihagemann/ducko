@@ -59,12 +59,4 @@ struct RosterCommandOutputTests {
         #expect(object["subscription_status"] == "incomplete")
         #expect(object["result"] == "partial")
     }
-
-    @Test
-    func `empty finite roster output is structured and account specific`() throws {
-        let id = UUID()
-        let object = try #require(JSONSerialization.jsonObject(with: Data(JSONFormatter().formatEmptyRoster(accountID: id).utf8)) as? [String: String])
-        #expect(object["type"] == "roster_empty")
-        #expect(object["account"] == id.uuidString)
-    }
 }

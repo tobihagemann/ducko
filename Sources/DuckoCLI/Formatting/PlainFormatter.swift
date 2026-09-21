@@ -32,8 +32,8 @@ struct PlainFormatter: CLIFormatter {
         return line
     }
 
-    func formatEmptyRoster(accountID: UUID) -> String {
-        "No contacts in roster."
+    func formatEmptyResult(_ result: CLIEmptyResult) -> String {
+        result.message
     }
 
     func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String {
@@ -451,6 +451,18 @@ struct PlainFormatter: CLIFormatter {
             line += isOpen ? " [open]" : " [closed]"
         }
         return line
+    }
+
+    func formatOMEMOFingerprint(_ fingerprint: String) -> String {
+        OMEMODeviceInfo.formatFingerprint(fingerprint)
+    }
+
+    func formatOMEMODevice(_ device: OMEMODeviceInfo) -> String {
+        "  \(device.deviceID)  \(omemoFingerprintText(device))  [\(device.trustLevel.rawValue)]"
+    }
+
+    func formatOMEMOTrustChange(jid: String, deviceID: UInt32, trustLevel: OMEMOTrustLevel) -> String {
+        omemoTrustChangeText(jid: jid, deviceID: deviceID, trustLevel: trustLevel)
     }
 
     func formatProfile(_ profile: ProfileInfo) -> String {

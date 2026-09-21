@@ -22,7 +22,7 @@ func printRoomMembers(jidString: String, accountID: UUID, environment: AppEnviro
     let groups = await MainActor.run { environment.chatService.participantGroups(forRoomJIDString: jidString, accountID: accountID) }
 
     guard !groups.isEmpty else {
-        print("No participants in room.")
+        print(formatter.formatEmptyResult(.roomParticipants(room: jidString)))
         return
     }
 
@@ -45,7 +45,7 @@ func resolveMUCService(_ explicit: String?, environment: AppEnvironment, account
 
 func printDiscoveredRooms(_ rooms: [DiscoveredRoom], formatter: any CLIFormatter) {
     guard !rooms.isEmpty else {
-        print("No rooms found.")
+        print(formatter.formatEmptyResult(.rooms))
         return
     }
 

@@ -65,7 +65,8 @@ private func submitLegacyRegistration(form: RegistrationFormInfo, jid: String?, 
         username = readLine()?.trimmingCharacters(in: .whitespaces) ?? ""
     }
     if form.hasPassword {
-        password = String(cString: getpass("Password: "))
+        guard let enteredPassword = CredentialHelper.getPassword() else { throw CLIError.noPassword }
+        password = enteredPassword
     }
     if form.hasEmail {
         print("Email: ", terminator: "")
@@ -111,7 +112,7 @@ func handleAvatarREPLCommand(_ arguments: String, context: REPLContext) async {
     }
 
     guard let jid = BareJID.parse(arguments) else {
-        print("Invalid JID: \(arguments)")
+        print(context.formatter.formatError(CLIError.invalidJID(arguments)))
         return
     }
 

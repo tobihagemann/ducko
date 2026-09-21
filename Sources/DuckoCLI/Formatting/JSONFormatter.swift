@@ -44,8 +44,27 @@ struct JSONFormatter: CLIFormatter {
         return encode(dict)
     }
 
-    func formatEmptyRoster(accountID: UUID) -> String {
-        encode(["type": "roster_empty", "account": accountID.uuidString])
+    func formatEmptyResult(_ result: CLIEmptyResult) -> String {
+        switch result {
+        case .accounts:
+            encode(["type": "accounts_empty"])
+        case let .roster(accountID):
+            encode(["type": "roster_empty", "account": accountID.uuidString])
+        case let .bookmarks(accountID):
+            encode(["type": "bookmarks_empty", "account": accountID.uuidString])
+        case .rooms:
+            encode(["type": "rooms_empty"])
+        case let .roomParticipants(room):
+            encode(["type": "room_participants_empty", "room": room])
+        case .channels:
+            encode(["type": "searched_channels_empty"])
+        case .messages:
+            encode(["type": "messages_empty"])
+        case let .omemoIdentity(accountID):
+            encode(["type": "omemo_identity_empty", "account": accountID.uuidString])
+        case let .omemoDevices(jid, accountID):
+            encode(["type": "omemo_devices_empty", "account": accountID.uuidString, "jid": jid])
+        }
     }
 
     func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String {
@@ -611,6 +630,30 @@ struct JSONFormatter: CLIFormatter {
         if let isOpen = channel.isOpen { dict["is_open"] = isOpen ? "true" : "false" }
         if let description = channel.description { dict["description"] = description }
         return encode(dict)
+    }
+
+    func formatOMEMOFingerprint(_ fingerprint: String) -> String {
+        encode(["type": "omemo_fingerprint", "fingerprint": fingerprint])
+    }
+
+    func formatOMEMODevice(_ device: OMEMODeviceInfo) -> String {
+        var dict: [String: String] = [
+            "type": "omemo_device",
+            "jid": device.peerJID,
+            "deviceID": "\(device.deviceID)",
+            "trust": device.trustLevel.rawValue
+        ]
+        if !device.fingerprint.isEmpty { dict["fingerprint"] = device.fingerprint }
+        return encode(dict)
+    }
+
+    func formatOMEMOTrustChange(jid: String, deviceID: UInt32, trustLevel: OMEMOTrustLevel) -> String {
+        encode([
+            "type": "omemo_trust",
+            "jid": jid,
+            "deviceID": "\(deviceID)",
+            "trust": trustLevel.rawValue
+        ])
     }
 
     func formatProfile(_ profile: ProfileInfo) -> String {

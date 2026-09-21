@@ -47,8 +47,8 @@ struct ANSIFormatter: CLIFormatter {
         return line
     }
 
-    func formatEmptyRoster(accountID: UUID) -> String {
-        "No contacts in roster."
+    func formatEmptyResult(_ result: CLIEmptyResult) -> String {
+        result.message
     }
 
     func formatRosterCommand(_ outcome: RosterCommandOutcome) -> String {
@@ -491,6 +491,20 @@ struct ANSIFormatter: CLIFormatter {
             line += " \(badge)"
         }
         return line
+    }
+
+    func formatOMEMOFingerprint(_ fingerprint: String) -> String {
+        "\(Color.bold)\(OMEMODeviceInfo.formatFingerprint(fingerprint))\(Color.reset)"
+    }
+
+    func formatOMEMODevice(_ device: OMEMODeviceInfo) -> String {
+        let color = device.trustLevel.isTrustedForEncryption ? Color.green : Color.yellow
+        return "  \(Color.bold)\(device.deviceID)\(Color.reset)  \(omemoFingerprintText(device))  \(color)[\(device.trustLevel.rawValue)]\(Color.reset)"
+    }
+
+    func formatOMEMOTrustChange(jid: String, deviceID: UInt32, trustLevel: OMEMOTrustLevel) -> String {
+        let color = trustLevel.isTrustedForEncryption ? Color.green : Color.yellow
+        return "\(color)\(omemoTrustChangeText(jid: jid, deviceID: deviceID, trustLevel: trustLevel))\(Color.reset)"
     }
 
     func formatProfile(_ profile: ProfileInfo) -> String {

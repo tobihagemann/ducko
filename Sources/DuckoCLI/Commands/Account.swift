@@ -30,7 +30,7 @@ extension DuckoCLI {
                 let accounts = await MainActor.run { env.accountService.accounts }
 
                 guard !accounts.isEmpty else {
-                    print("No accounts configured.")
+                    print(formatter.formatEmptyResult(.accounts))
                     return
                 }
 

@@ -36,7 +36,7 @@ extension DuckoCLI {
                             print(formatter.formatSearchedChannel(channel))
                         }
                         if channels.isEmpty {
-                            print("No channels found.")
+                            print(formatter.formatEmptyResult(.channels))
                         }
                     } else {
                         let serviceJID = try await resolveMUCService(service, environment: env, accountID: selectedAccount.id)

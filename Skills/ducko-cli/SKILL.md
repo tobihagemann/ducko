@@ -238,7 +238,7 @@ ducko bookmarks remove chat@conference.example.com
 
 ### `avatar get <jid> [--save <path>]`
 
-Fetch and save a contact's avatar. Tries PEP (XEP-0084) first, falls back to vCard (XEP-0054). Saves to `<jid>.png` by default.
+Fetch and save a contact's avatar. Tries PEP (XEP-0084) first, falls back to vCard (XEP-0054). By default it saves to `<jid>.<ext>`, with the extension taken from the avatar's MIME type (`png` if the type is unknown).
 
 ```
 ducko avatar get alice@example.com
@@ -344,7 +344,7 @@ ducko omemo devices alice@example.com --output json
 
 ### `omemo trust <jid> <device-id>`
 
-Trust an OMEMO device. Marks the device as trusted for future encrypted sessions.
+Trust an OMEMO device. Marks the device as trusted for future encrypted sessions. An unknown device ID exits 1 and prints the error on stderr.
 
 ```
 ducko omemo trust alice@example.com 12345
@@ -412,6 +412,8 @@ Same as plain with color codes (green incoming, cyan outgoing, red errors, dim t
 ```
 
 Optional keys: `"delivered":"true"`, `"edited":"true"`, `"encrypted":"true"`, `"error":"..."`. Keys are sorted alphabetically.
+
+Empty lists emit one `<kind>_empty` record instead of text: `accounts_empty`, `roster_empty`, `bookmarks_empty`, `rooms_empty`, `room_participants_empty`, `searched_channels_empty`, `messages_empty`, `omemo_identity_empty` or `omemo_devices_empty`. Account-scoped records carry `"account"`. `omemo_devices_empty` adds `"jid"`, and `room_participants_empty` carries `"room"`. OMEMO commands emit `omemo_fingerprint`, `omemo_device` (`jid`, `deviceID`, `trust`, and `fingerprint` when known) and `omemo_trust` records.
 
 ## Throwaway Profiles
 

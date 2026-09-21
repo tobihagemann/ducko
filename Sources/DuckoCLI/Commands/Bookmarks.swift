@@ -27,7 +27,7 @@ extension DuckoCLI {
                     let bookmarks = await MainActor.run { env.bookmarksService.bookmarks }
 
                     guard !bookmarks.isEmpty else {
-                        print("No bookmarks.")
+                        print(formatter.formatEmptyResult(.bookmarks(accountID: selectedAccount.id)))
                         return
                     }
 

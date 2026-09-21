@@ -49,7 +49,7 @@ private func resolveConversation(
 
 func printHistory(_ messages: [ChatMessage], formatter: any CLIFormatter, accountJID: BareJID? = nil) {
     guard !messages.isEmpty else {
-        print("No messages found.")
+        print(formatter.formatEmptyResult(.messages))
         return
     }
     for message in messages {

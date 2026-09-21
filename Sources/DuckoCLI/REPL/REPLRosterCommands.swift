@@ -9,7 +9,7 @@ func handleRosterCommand(context: REPLContext) async {
     }
 
     guard !groups.isEmpty else {
-        print("No contacts in roster.")
+        print(context.formatter.formatEmptyResult(.roster(accountID: context.accountID)))
         return
     }
 

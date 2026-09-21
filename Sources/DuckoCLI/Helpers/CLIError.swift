@@ -18,6 +18,7 @@ enum CLIError: Error, LocalizedError {
     case invalidTransferMethod(String)
     case noIncomingOffers
     case malformedQuotedArgument(String)
+    case omemoDeviceNotFound(deviceID: UInt32, jid: String)
 
     var errorDescription: String? {
         switch self {
@@ -55,6 +56,8 @@ enum CLIError: Error, LocalizedError {
             "No incoming file transfer offers."
         case let .malformedQuotedArgument(detail):
             "Invalid nickname argument: \(detail). Quote nicknames containing spaces, e.g. \"Alice Smith\"."
+        case let .omemoDeviceNotFound(deviceID, jid):
+            "Device \(deviceID) not found for \(jid)."
         }
     }
 }

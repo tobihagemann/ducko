@@ -24,9 +24,9 @@ extension DuckoCLI {
                 try await ConnectedOperation.run(formatter: formatter, account: accountOption.account) { env, selectedAccount in
                     let fingerprint = await env.omemoService.ownFingerprint(accountID: selectedAccount.id)
                     if let fingerprint {
-                        print(OMEMODeviceInfo.formatFingerprint(fingerprint))
+                        print(formatter.formatOMEMOFingerprint(fingerprint))
                     } else {
-                        print("No OMEMO identity found.")
+                        print(formatter.formatEmptyResult(.omemoIdentity(accountID: selectedAccount.id)))
                     }
                 }
             }
@@ -49,13 +49,13 @@ extension DuckoCLI {
 
                 try await ConnectedOperation.run(formatter: formatter, account: accountOption.account) { env, selectedAccount in
                     let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
-                    if devices.isEmpty {
-                        print("No known OMEMO devices for \(jid).")
-                    } else {
-                        for device in devices {
-                            let fp = device.fingerprint.isEmpty ? "(no fingerprint)" : OMEMODeviceInfo.formatFingerprint(device.fingerprint)
-                            print("  \(device.deviceID)  \(fp)  [\(device.trustLevel.rawValue)]")
-                        }
+                    guard !devices.isEmpty else {
+                        print(formatter.formatEmptyResult(.omemoDevices(jid: jid, accountID: selectedAccount.id)))
+                        return
+                    }
+
+                    for device in devices {
+                        print(formatter.formatOMEMODevice(device))
                     }
                 }
             }
@@ -82,15 +82,14 @@ extension DuckoCLI {
                 try await ConnectedOperation.run(formatter: formatter, account: accountOption.account) { env, selectedAccount in
                     let devices = await env.omemoService.deviceInfoList(for: jid, accountID: selectedAccount.id)
                     guard let device = devices.first(where: { $0.deviceID == deviceID }) else {
-                        print("Device \(deviceID) not found for \(jid).")
-                        return
+                        throw CLIError.omemoDeviceNotFound(deviceID: deviceID, jid: jid)
                     }
 
                     try await env.omemoService.trustDevice(
                         accountID: selectedAccount.id, peerJID: jid,
                         deviceID: deviceID, fingerprint: device.fingerprint
                     )
-                    print("Trusted device \(deviceID) for \(jid).")
+                    print(formatter.formatOMEMOTrustChange(jid: jid, deviceID: deviceID, trustLevel: .trusted))
                 }
             }
         }
@@ -117,7 +116,7 @@ extension DuckoCLI {
                     try await env.omemoService.untrustDevice(
                         accountID: selectedAccount.id, peerJID: jid, deviceID: deviceID
                     )
-                    print("Untrusted device \(deviceID) for \(jid).")
+                    print(formatter.formatOMEMOTrustChange(jid: jid, deviceID: deviceID, trustLevel: .untrusted))
                 }
             }
         }
