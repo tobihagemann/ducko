@@ -67,6 +67,8 @@ For layer-based filtering with `swift test`, use nested suite names that the reg
 swift test --filter IntegrationTests.APILayer
 ```
 
+Specifiers join nested suites with `/` (`DuckoIntegrationTests.DuckoIntegrationTests/ProtocolLayer/MUCTests/<test>()`), so the `.` in a filter like the one above only matches as a regex wildcard. The regex is also unanchored, so a bare suite name matches every suite that contains it. `--filter MUCTests` runs `UIMUCTests` too, which can fail with `appBundleNotDebug` when the repo-root `Ducko.app` is a release build. Anchor on the separator (`/MUCTests`) or the parent suite (`ProtocolLayer/MUCTests`) to run only the suite named. A literal `\.MUCTests` matches nothing.
+
 
 ## Async teardown: scoped closure, not `defer { Task { ... } }`
 

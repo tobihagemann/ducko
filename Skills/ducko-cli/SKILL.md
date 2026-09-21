@@ -422,7 +422,10 @@ Clean up afterwards:
 ```bash
 rm -rf "$HOME/Library/Application Support/Ducko-Dev-<unique>"
 defaults delete im.ducko.dev.<unique>
+rm -f "$HOME/Library/Preferences/im.ducko.dev.<unique>.plist"
 ```
+
+`defaults delete` leaves the domain's plist behind empty, hence the final `rm`.
 
 ## Live Smoke Testing
 
