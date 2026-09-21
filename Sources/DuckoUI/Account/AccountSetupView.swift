@@ -11,13 +11,8 @@ struct AccountSetupView: View {
     @State private var serverDomain = ""
     @State private var username = ""
     @State private var email = ""
-    // Read only through their `$` bindings. Because the macOS 27 SDK's `@State` macro makes `$name`
-    // a separate peer declaration, Periphery doesn't count those reads as uses of the property.
-    // periphery:ignore
     @State private var adiumAccounts: [AdiumAccount]?
-    // periphery:ignore
     @State private var adiumLogSources: [AdiumServiceAccount]?
-    // periphery:ignore
     @State private var adiumKeychainPasswords: [String: String]?
     @State private var isConnecting = false
     @State private var errorMessage: String?
