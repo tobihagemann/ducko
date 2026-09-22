@@ -317,13 +317,13 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
         if action == .sessionInitiate {
             guard !hasResources else {
                 log.debug("Rejecting session-initiate for a live sid: \(sid)")
-                replyError(to: iq, type: .cancel, condition: .conflict, jingleCondition: "tie-break", context: context)
+                replyError(to: iq, type: .cancel, condition: .conflict, jingleCondition: .tieBreak, context: context)
                 return
             }
         } else {
             guard let session, iq.from == .full(session.peer) else {
                 log.debug("Rejecting \(actionStr) for an unknown session, sid: \(sid)")
-                replyError(to: iq, type: .cancel, condition: .itemNotFound, jingleCondition: "unknown-session", context: context)
+                replyError(to: iq, type: .cancel, condition: .itemNotFound, jingleCondition: .unknownSession, context: context)
                 return
             }
         }
@@ -363,12 +363,8 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
     }
 
     private func acknowledgeIQ(_ iq: XMPPIQ, context: ModuleContext) {
-        guard let stanzaID = iq.id else { return }
+        guard let result = XMPPIQ.resultReply(for: iq) else { return }
         Task {
-            var result = XMPPIQ(type: .result, id: stanzaID)
-            if let from = iq.from {
-                result.to = from
-            }
             do {
                 try await context.sendStanza(result)
             } catch {
@@ -382,12 +378,11 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
         to iq: XMPPIQ,
         type: XMPPStanzaError.ErrorType,
         condition: XMPPStanzaError.Condition,
-        jingleCondition: String? = nil,
+        jingleCondition: JingleErrorCondition? = nil,
         context: ModuleContext
     ) {
-        let applicationCondition = jingleCondition.map { XMLElement(name: $0, namespace: XMPPNamespaces.jingleErrors) }
         guard let errorIQ = XMPPIQ.errorReply(
-            for: iq, type: type, condition: condition, applicationCondition: applicationCondition
+            for: iq, type: type, condition: condition, applicationCondition: jingleCondition?.element
         ) else { return }
         Task {
             do {
@@ -399,7 +394,7 @@ public final class JingleModule: XMPPModule, Sendable { // swiftlint:disable:thi
     }
 
     private func replyOutOfOrder(to iq: XMPPIQ, context: ModuleContext) {
-        replyError(to: iq, type: .cancel, condition: .unexpectedRequest, jingleCondition: "out-of-order", context: context)
+        replyError(to: iq, type: .cancel, condition: .unexpectedRequest, jingleCondition: .outOfOrder, context: context)
     }
 
     // MARK: - Action Handlers

@@ -522,45 +522,45 @@ extension ChatServiceMAMTests {
     @Test(arguments: [false, true])
     @MainActor
     static func `archive ingestion persists reply and attachments without live filter side effects`(outgoing: Bool) async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let transcripts = FileTranscriptStore(baseDirectory: directory)
-        let fetcher = CountingLinkPreviewFetcher()
-        let preview = LinkPreviewService(fetcher: fetcher, store: MockPersistenceStore())
-        let harness = try await makeGroupMAMHarness(
-            filters: [StylingFilter(), EmojiFilter(), LinkDetectionFilter(), LinkPreviewFilter(previewService: preview)],
-            transcriptStore: transcripts
-        )
-        let body = "*reply* :) https://example.com/image.png"
-        let imported: [ChatMessage]
-        do {
-            imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
-                [groupArchive(queryID: queryID, archiveID: "archive-id", GroupArchiveSpec(
-                    fromNick: outgoing ? "alice" : "bob", serverID: "trusted-id", stanzaID: "incoming-id", body: body,
-                    metadataXML: "<reply xmlns='urn:xmpp:reply:0' id='original-id'/>"
-                        + "<stanza-id xmlns='urn:xmpp:sid:0' by='attacker@example.com' id='forged-id'/>"
-                        + "<x xmlns='jabber:x:oob'><url>https://example.com/image.png</url><desc>image</desc></x>"
-                ))]
+        try await withTemporaryDirectory { directory in
+            let transcripts = FileTranscriptStore(baseDirectory: directory)
+            let fetcher = CountingLinkPreviewFetcher()
+            let preview = LinkPreviewService(fetcher: fetcher, store: MockPersistenceStore())
+            let harness = try await makeGroupMAMHarness(
+                filters: [StylingFilter(), EmojiFilter(), LinkDetectionFilter(), LinkPreviewFilter(previewService: preview)],
+                transcriptStore: transcripts
+            )
+            let body = "*reply* :) https://example.com/image.png"
+            let imported: [ChatMessage]
+            do {
+                imported = try await ingestArchives(harness: harness, finCount: 1) { queryID in
+                    [groupArchive(queryID: queryID, archiveID: "archive-id", GroupArchiveSpec(
+                        fromNick: outgoing ? "alice" : "bob", serverID: "trusted-id", stanzaID: "incoming-id", body: body,
+                        metadataXML: "<reply xmlns='urn:xmpp:reply:0' id='original-id'/>"
+                            + "<stanza-id xmlns='urn:xmpp:sid:0' by='attacker@example.com' id='forged-id'/>"
+                            + "<x xmlns='jabber:x:oob'><url>https://example.com/image.png</url><desc>image</desc></x>"
+                    ))]
+                }
+            } catch {
+                await harness.accountService.disconnect(accountID: harness.accountID)
+                throw error
             }
-        } catch {
             await harness.accountService.disconnect(accountID: harness.accountID)
-            throw error
+            let reloaded = FileTranscriptStore(baseDirectory: directory)
+            let persisted = try #require(try await reloaded.fetchMessages(for: harness.conversation.id, before: nil, limit: 10).first)
+            #expect(imported.map(\.id) == [persisted.id])
+            #expect(persisted.replyToID == "original-id")
+            #expect(persisted.stanzaID == "incoming-id")
+            #expect(persisted.serverID == "trusted-id")
+            #expect(persisted.isOutgoing == outgoing)
+            #expect(persisted.body == body)
+            #expect(persisted.htmlBody?.contains("<strong>reply</strong>") == true)
+            let expectedTimestamp = try Date.ISO8601FormatStyle().parse("2026-02-28T10:00:00Z")
+            #expect(persisted.timestamp == expectedTimestamp)
+            #expect(persisted.attachments.first?.url == "https://example.com/image.png")
+            #expect(persisted.attachments.first?.mimeType == "image/png")
+            #expect(await fetcher.invocationCount == 0)
         }
-        await harness.accountService.disconnect(accountID: harness.accountID)
-        let reloaded = FileTranscriptStore(baseDirectory: directory)
-        let persisted = try #require(try await reloaded.fetchMessages(for: harness.conversation.id, before: nil, limit: 10).first)
-        #expect(imported.map(\.id) == [persisted.id])
-        #expect(persisted.replyToID == "original-id")
-        #expect(persisted.stanzaID == "incoming-id")
-        #expect(persisted.serverID == "trusted-id")
-        #expect(persisted.isOutgoing == outgoing)
-        #expect(persisted.body == body)
-        #expect(persisted.htmlBody?.contains("<strong>reply</strong>") == true)
-        let expectedTimestamp = try Date.ISO8601FormatStyle().parse("2026-02-28T10:00:00Z")
-        #expect(persisted.timestamp == expectedTimestamp)
-        #expect(persisted.attachments.first?.url == "https://example.com/image.png")
-        #expect(persisted.attachments.first?.mimeType == "image/png")
-        #expect(await fetcher.invocationCount == 0)
     }
 }
 

@@ -19,6 +19,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Show the certificate issuer in Connection Info as readable names instead of raw certificate data
 - Let VoiceOver reach the buttons on file attachments, link previews, and incoming file offers individually
 
+### Security
+
+- Accept block list updates only from your own server, ignoring ones sent by another client of your account or with a malformed sender
+
 ## [0.2.0] - 2026-09-21
 
 ### Added

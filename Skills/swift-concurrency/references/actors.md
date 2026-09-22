@@ -341,6 +341,8 @@ extension Collection where Element: Sendable {
 }
 ```
 
+When the body never reads `isolation`, as here, declare the function `nonisolated(nonsending)` instead (Swift 6.2). It runs on the caller's actor without the parameter. Unused-code scanners such as Periphery flag an `isolation` parameter the body never reads.
+
 ### Task closures and isolation inheritance
 
 When spawning unstructured `Task` closures that need to work with non-Sendable types, capture the isolation parameter to inherit the caller's isolation context:

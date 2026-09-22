@@ -10,41 +10,41 @@ enum InboundMetadataOrigin {
 
 @MainActor
 func verifyPersistedInboundMetadata(origin: InboundMetadataOrigin, hasReply: Bool) async throws {
-    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    defer { try? FileManager.default.removeItem(at: directory) }
-    let store = MockPersistenceStore()
-    let transcripts = FileTranscriptStore(baseDirectory: directory)
-    let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
-    let accountID = try await environment.accountService.createAccount(jidString: "alice@example.com")
-    let stanza = try metadataStanza(origin: origin, hasReply: hasReply)
-    let event: XMPPEvent = switch origin {
-    case .live: .messageReceived(stanza)
-    case .carbonReceived: .messageCarbonReceived(ForwardedMessage(message: stanza, timestamp: "2026-02-28T10:00:00Z"))
-    case .carbonSent: .messageCarbonSent(ForwardedMessage(message: stanza, timestamp: "2026-02-28T10:00:00Z"))
-    case .room: .roomMessageReceived(stanza)
-    case .privateRoom: .mucPrivateMessageReceived(stanza)
+    try await withTemporaryDirectory { directory in
+        let store = MockPersistenceStore()
+        let transcripts = FileTranscriptStore(baseDirectory: directory)
+        let environment = AppEnvironment(store: store, transcripts: transcripts, credentialStore: NullCredentialStore())
+        let accountID = try await environment.accountService.createAccount(jidString: "alice@example.com")
+        let stanza = try metadataStanza(origin: origin, hasReply: hasReply)
+        let event: XMPPEvent = switch origin {
+        case .live: .messageReceived(stanza)
+        case .carbonReceived: .messageCarbonReceived(ForwardedMessage(message: stanza, timestamp: "2026-02-28T10:00:00Z"))
+        case .carbonSent: .messageCarbonSent(ForwardedMessage(message: stanza, timestamp: "2026-02-28T10:00:00Z"))
+        case .room: .roomMessageReceived(stanza)
+        case .privateRoom: .mucPrivateMessageReceived(stanza)
+        }
+        await environment.chatService.handleEvent(event, accountID: accountID)
+        let conversation = try #require(try await store.fetchConversations(for: accountID).first)
+        // A newly opened store decodes the actual JSONL produced by ingestion.
+        let reloaded = FileTranscriptStore(baseDirectory: directory)
+        let message = try #require(try await reloaded.fetchMessages(for: conversation.id, before: nil, limit: 10).first)
+        #expect(message.stanzaID == "incoming-id")
+        #expect(message.replyToID == (hasReply ? "original-id" : nil))
+        #expect(message.attachments.count == 1)
+        #expect(message.attachments.first?.url == "https://example.com/image.png")
+        #expect(message.attachments.first?.mimeType == "image/png")
+        #expect(message.attachments.first?.oobDescription == "image description")
+        #expect(message.attachments.first?.origin == .remote)
+        switch origin {
+        case .live, .carbonReceived, .carbonSent: #expect(message.serverID == "trusted-id")
+        case .room: #expect(message.serverID == "room-id")
+        case .privateRoom:
+            #expect(message.serverID == nil)
+            #expect(conversation.occupantNickname == "Bob")
+        }
+        #expect(message.isOutgoing == (origin == .carbonSent))
+        await environment.shutdown(within: .seconds(2))
     }
-    await environment.chatService.handleEvent(event, accountID: accountID)
-    let conversation = try #require(try await store.fetchConversations(for: accountID).first)
-    // A newly opened store decodes the actual JSONL produced by ingestion.
-    let reloaded = FileTranscriptStore(baseDirectory: directory)
-    let message = try #require(try await reloaded.fetchMessages(for: conversation.id, before: nil, limit: 10).first)
-    #expect(message.stanzaID == "incoming-id")
-    #expect(message.replyToID == (hasReply ? "original-id" : nil))
-    #expect(message.attachments.count == 1)
-    #expect(message.attachments.first?.url == "https://example.com/image.png")
-    #expect(message.attachments.first?.mimeType == "image/png")
-    #expect(message.attachments.first?.oobDescription == "image description")
-    #expect(message.attachments.first?.origin == .remote)
-    switch origin {
-    case .live, .carbonReceived, .carbonSent: #expect(message.serverID == "trusted-id")
-    case .room: #expect(message.serverID == "room-id")
-    case .privateRoom:
-        #expect(message.serverID == nil)
-        #expect(conversation.occupantNickname == "Bob")
-    }
-    #expect(message.isOutgoing == (origin == .carbonSent))
-    await environment.shutdown(within: .seconds(2))
 }
 
 private func metadataStanza(origin: InboundMetadataOrigin, hasReply: Bool) throws -> XMPPMessage {

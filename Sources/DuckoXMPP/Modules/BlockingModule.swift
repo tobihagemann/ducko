@@ -74,13 +74,9 @@ public final class BlockingModule: XMPPModule, Sendable {
         let context = state.withLock { $0.context }
         guard let context else { return true }
 
-        // XEP-0191 §3.4/3.6: Push must come from own bare JID or have no 'from'.
-        if let from = iq.from {
-            guard let connectedJID = context.connectedJID(),
-                  from.bareJID == connectedJID.bareJID else {
-                log.warning("Rejected blocking push from foreign JID: \(from)")
-                return true
-            }
+        guard iq.isFromOwnAccount(context.connectedJID()?.bareJID) else {
+            log.warning("Rejected blocking push from an unexpected sender")
+            return true
         }
 
         processBlockingPush(child: child, isBlock: isBlock, context: context)
@@ -130,12 +126,8 @@ public final class BlockingModule: XMPPModule, Sendable {
     }
 
     private func acknowledgePush(iq: XMPPIQ, context: ModuleContext) {
-        guard let stanzaID = iq.id else { return }
+        guard let result = XMPPIQ.resultReply(for: iq) else { return }
         Task {
-            var result = XMPPIQ(type: .result, id: stanzaID)
-            if let from = iq.from {
-                result.to = .bare(from.bareJID)
-            }
             do {
                 try await context.sendStanza(result)
             } catch {

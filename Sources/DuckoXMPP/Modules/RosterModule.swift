@@ -143,10 +143,7 @@ public final class RosterModule: XMPPModule, Sendable {
     public func handleIQ(_ iq: XMPPIQ) throws -> Bool {
         guard iq.isSet, let query = iq.childElement, query.namespace == XMPPNamespaces.roster else { return false }
         guard let context = state.withLock({ $0.context }) else { return true }
-        if let rawFrom = iq.element.attribute("from") {
-            guard let from = JID.parse(rawFrom), case let .bare(bare) = from,
-                  bare == context.connectedJID()?.bareJID else { return true }
-        }
+        guard iq.isFromOwnAccount(context.connectedJID()?.bareJID) else { return true }
         let children = query.children.compactMap { node -> XMLElement? in
             guard case let .element(child) = node else { return nil }
             return child
@@ -166,12 +163,12 @@ public final class RosterModule: XMPPModule, Sendable {
     }
 
     private func replyToRosterPush(_ iq: XMPPIQ, context: ModuleContext, malformed: Bool) {
-        guard let stanzaID = iq.id else { return }
-        let reply: XMPPIQ = if malformed {
-            .errorReply(id: stanzaID, to: iq.from, payload: iq.childElement, type: .modify, condition: .badRequest)
+        let reply: XMPPIQ? = if malformed {
+            .errorReply(for: iq, type: .modify, condition: .badRequest)
         } else {
-            XMPPIQ(type: .result, to: iq.from, id: stanzaID)
+            .resultReply(for: iq)
         }
+        guard let reply else { return }
         Task {
             try? await context.sendStanza(reply)
         }

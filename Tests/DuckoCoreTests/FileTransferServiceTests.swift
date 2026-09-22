@@ -101,18 +101,19 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
             let conversation = makeConversation()
 
             // Create a real temp file
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-\(UUID()).txt")
-            try "hello".write(to: tempURL, atomically: true, encoding: .utf8)
-            defer { try? FileManager.default.removeItem(at: tempURL) }
+            try await withTemporaryDirectory { directory in
+                let tempURL = directory.appendingPathComponent("test.txt")
+                try "hello".write(to: tempURL, atomically: true, encoding: .utf8)
 
-            do {
-                try await service.sendFile(url: tempURL, in: conversation, accountID: testAccountID)
-                Issue.record("Expected noClient error")
-            } catch let error as FileTransferService.FileTransferError {
-                if case .noClient = error {
-                    // Expected
-                } else {
-                    Issue.record("Expected noClient, got \(error)")
+                do {
+                    try await service.sendFile(url: tempURL, in: conversation, accountID: testAccountID)
+                    Issue.record("Expected noClient error")
+                } catch let error as FileTransferService.FileTransferError {
+                    if case .noClient = error {
+                        // Expected
+                    } else {
+                        Issue.record("Expected noClient, got \(error)")
+                    }
                 }
             }
         }
@@ -126,20 +127,21 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
 
             let conversation = makeConversation()
 
-            let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("test-\(UUID()).txt")
-            try "test content".write(to: tempURL, atomically: true, encoding: .utf8)
-            defer { try? FileManager.default.removeItem(at: tempURL) }
+            try await withTemporaryDirectory { directory in
+                let tempURL = directory.appendingPathComponent("test.txt")
+                try "test content".write(to: tempURL, atomically: true, encoding: .utf8)
 
-            // Will fail at noClient, but transfer should still be tracked
-            _ = try? await service.sendFile(url: tempURL, in: conversation, accountID: testAccountID)
+                // Will fail at noClient, but transfer should still be tracked
+                _ = try? await service.sendFile(url: tempURL, in: conversation, accountID: testAccountID)
 
-            #expect(service.activeTransfers.count == 1)
-            let transfer = service.activeTransfers[0]
-            #expect(transfer.fileName == tempURL.lastPathComponent)
-            if case .failed = transfer.state {
-                // Expected — failed due to no client
-            } else {
-                Issue.record("Expected failed state, got \(transfer.state)")
+                #expect(service.activeTransfers.count == 1)
+                let transfer = service.activeTransfers[0]
+                #expect(transfer.fileName == tempURL.lastPathComponent)
+                if case .failed = transfer.state {
+                    // Expected — failed due to no client
+                } else {
+                    Issue.record("Expected failed state, got \(transfer.state)")
+                }
             }
         }
     }
@@ -372,21 +374,17 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
     }
 
     struct DownloadFraming {
-        private static func downloadsFolder() -> URL {
-            FileManager.default.temporaryDirectory.appendingPathComponent("framing-downloads-\(UUID())", isDirectory: true)
-        }
-
         private static func downloadFailure(_ response: LoopbackHTTPServer.Response) async throws -> String? {
             let server = try #require(LoopbackHTTPServer(responses: [response]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            do {
-                _ = try await FileTransferService.downloadRemoteFile(from: server.url(), named: "file.bin", into: directory)
-                return nil
-            } catch {
-                #expect((try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.isEmpty ?? true)
-                return error.localizedDescription
+            return try await withTemporaryDirectory { directory async throws -> String? in
+                do {
+                    _ = try await FileTransferService.downloadRemoteFile(from: server.url(), named: "file.bin", into: directory)
+                    return nil
+                } catch {
+                    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+                    return error.localizedDescription
+                }
             }
         }
 
@@ -436,54 +434,53 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
             let body = (0 ..< (2 * 64 * 1024 + 7)).map { UInt8(truncatingIfNeeded: $0 * 31 + 7) }
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 200, body: body)]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
+            try await withTemporaryDirectory { directory in
+                let download = try await FileTransferService.downloadRemoteFile(from: server.url(), named: "large.bin", into: directory)
 
-            let download = try await FileTransferService.downloadRemoteFile(from: server.url(), named: "large.bin", into: directory)
-
-            #expect(download.byteCount == Int64(body.count))
-            #expect(try Data(contentsOf: download.fileURL) == Data(body))
+                #expect(download.byteCount == Int64(body.count))
+                #expect(try Data(contentsOf: download.fileURL) == Data(body))
+            }
         }
 
         @Test
         func `A body of its declared length is kept, asked for without an encoding`() async throws {
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 200, body: [1, 2, 3])]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
+            try await withTemporaryDirectory { directory in
+                let download = try await FileTransferService.downloadRemoteFile(from: server.url(), named: "file.bin", into: directory)
 
-            let download = try await FileTransferService.downloadRemoteFile(from: server.url(), named: "file.bin", into: directory)
-
-            #expect(download.byteCount == 3)
-            #expect(try Data(contentsOf: download.fileURL) == Data([1, 2, 3]))
-            #expect(server.requests.first?.lowercased().contains("accept-encoding: identity") == true)
+                #expect(download.byteCount == 3)
+                #expect(try Data(contentsOf: download.fileURL) == Data([1, 2, 3]))
+                #expect(server.requests.first?.lowercased().contains("accept-encoding: identity") == true)
+            }
         }
     }
 
     struct ReceivedFiles {
         @Test
         func `A saved file takes the next free name and is quarantined`() async throws {
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("jingle-downloads-\(UUID())", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let first = try await FileTransferService.saveReceivedFile([1, 2, 3], named: "notes.txt", in: directory)
-            let second = try await FileTransferService.saveReceivedFile([4], named: "notes.txt", in: directory)
+            try await withTemporaryDirectory { directory in
+                let folder = directory.appending(path: "Downloads")
+                let first = try await FileTransferService.saveReceivedFile([1, 2, 3], named: "notes.txt", in: folder)
+                let second = try await FileTransferService.saveReceivedFile([4], named: "notes.txt", in: folder)
 
-            #expect(first.lastPathComponent == "notes.txt")
-            #expect(second.lastPathComponent == "notes 2.txt")
-            #expect(try Data(contentsOf: first) == Data([1, 2, 3]))
-            #expect(try Data(contentsOf: second) == Data([4]))
-            #expect(try second.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties != nil)
+                #expect(first.lastPathComponent == "notes.txt")
+                #expect(second.lastPathComponent == "notes 2.txt")
+                #expect(try Data(contentsOf: first) == Data([1, 2, 3]))
+                #expect(try Data(contentsOf: second) == Data([4]))
+                #expect(try second.resourceValues(forKeys: [.quarantinePropertiesKey]).quarantineProperties != nil)
+            }
         }
 
         @Test
         func `A name with no extension is numbered without a trailing dot`() async throws {
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("jingle-downloads-\(UUID())", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let first = try await FileTransferService.saveReceivedFile([1], named: "README", in: directory)
-            let second = try await FileTransferService.saveReceivedFile([2], named: "README", in: directory)
+            try await withTemporaryDirectory { directory in
+                let first = try await FileTransferService.saveReceivedFile([1], named: "README", in: directory)
+                let second = try await FileTransferService.saveReceivedFile([2], named: "README", in: directory)
 
-            #expect(first.lastPathComponent == "README")
-            #expect(second.lastPathComponent == "README 2")
+                #expect(first.lastPathComponent == "README")
+                #expect(second.lastPathComponent == "README 2")
+            }
         }
 
         /// The name reaches this writer from a peer, and `appending(path:)` honours separators, so containment rests on
@@ -497,13 +494,12 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
             ("", "unnamed")
         ])
         func `A peer's name cannot place the file outside its directory`(name: String, expected: String) async throws {
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("jingle-downloads-\(UUID())", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: directory) }
+            try await withTemporaryDirectory { directory in
+                let saved = try await FileTransferService.saveReceivedFile([1], named: name, in: directory)
 
-            let saved = try await FileTransferService.saveReceivedFile([1], named: name, in: directory)
-
-            #expect(saved.lastPathComponent == expected)
-            #expect(saved.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL)
+                #expect(saved.lastPathComponent == expected)
+                #expect(saved.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL)
+            }
         }
     }
 
@@ -830,36 +826,32 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
             }
         }
 
-        private static func downloadsFolder() -> URL {
-            FileManager.default.temporaryDirectory.appendingPathComponent("oob-downloads-\(UUID())", isDirectory: true)
-        }
-
         @Test
         func `An accepted OOB offer is downloaded, saved and recorded before it is answered`() async throws {
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 200, body: [1, 2, 3])]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-ok", url: server.url()))
-            let offerID = try await Self.waitForOffer(harness, wireID: "oob-ok")
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-ok", url: server.url()))
+                let offerID = try await Self.waitForOffer(harness, wireID: "oob-ok")
 
-            try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
+                try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
 
-            let row = harness.service.activeTransfers.first { $0.sid == "oob-ok" }
-            guard case let .received(fileURL)? = row?.state else {
-                Issue.record("Expected a received row, got \(String(describing: row?.state))")
+                let row = harness.service.activeTransfers.first { $0.sid == "oob-ok" }
+                guard case let .received(fileURL)? = row?.state else {
+                    Issue.record("Expected a received row, got \(String(describing: row?.state))")
+                    await Self.tearDown(harness)
+                    return
+                }
+                #expect(try Data(contentsOf: fileURL) == Data([1, 2, 3]))
+                #expect(fileURL.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL)
+                let conversation = try #require(try await harness.store.fetchConversations(for: harness.accountID).first)
+                let message = try #require(await harness.chatService.loadMessages(for: conversation.id).first)
+                #expect(message.attachments.first?.origin == .locallySaved)
+                #expect(!harness.service.viewIncomingOffers.contains { $0.offerID == offerID })
+                #expect(await Self.answeredOffer(harness, id: "oob-ok"))
                 await Self.tearDown(harness)
-                return
             }
-            #expect(try Data(contentsOf: fileURL) == Data([1, 2, 3]))
-            #expect(fileURL.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL)
-            let conversation = try #require(try await harness.store.fetchConversations(for: harness.accountID).first)
-            let message = try #require(await harness.chatService.loadMessages(for: conversation.id).first)
-            #expect(message.attachments.first?.origin == .locallySaved)
-            #expect(!harness.service.viewIncomingOffers.contains { $0.offerID == offerID })
-            #expect(await Self.answeredOffer(harness, id: "oob-ok"))
-            await Self.tearDown(harness)
         }
 
         // A download that fails leaves the offer where the user can accept it again, answers nothing, and lets that retry
@@ -868,32 +860,32 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
         func `A refused OOB download keeps the offer, answers nothing, and a retry succeeds`() async throws {
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 404, body: Array("gone".utf8)), .init(status: 200, body: [7, 8])]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-retry", url: server.url()))
-            let offerID = try await Self.waitForOffer(harness, wireID: "oob-retry")
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-retry", url: server.url()))
+                let offerID = try await Self.waitForOffer(harness, wireID: "oob-retry")
 
-            await #expect(throws: FileTransferService.FileTransferError.self) {
+                await #expect(throws: FileTransferService.FileTransferError.self) {
+                    try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
+                }
+                #expect(harness.service.viewIncomingOffers.contains { $0.offerID == offerID })
+                #expect(await !Self.answeredOffer(harness, id: "oob-retry"))
+                #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+                guard case .awaitingAcceptance? = harness.service.activeTransfers.first(where: { $0.sid == "oob-retry" })?.state else {
+                    Issue.record("Expected the row to wait again after the refused download")
+                    await Self.tearDown(harness)
+                    return
+                }
+
                 try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
-            }
-            #expect(harness.service.viewIncomingOffers.contains { $0.offerID == offerID })
-            #expect(await !Self.answeredOffer(harness, id: "oob-retry"))
-            #expect((try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.isEmpty ?? true)
-            guard case .awaitingAcceptance? = harness.service.activeTransfers.first(where: { $0.sid == "oob-retry" })?.state else {
-                Issue.record("Expected the row to wait again after the refused download")
+                guard case let .received(fileURL)? = harness.service.activeTransfers.first(where: { $0.sid == "oob-retry" })?.state else {
+                    Issue.record("Expected the retried download to be received")
+                    await Self.tearDown(harness)
+                    return
+                }
+                #expect(try Data(contentsOf: fileURL) == Data([7, 8]))
                 await Self.tearDown(harness)
-                return
             }
-
-            try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
-            guard case let .received(fileURL)? = harness.service.activeTransfers.first(where: { $0.sid == "oob-retry" })?.state else {
-                Issue.record("Expected the retried download to be received")
-                await Self.tearDown(harness)
-                return
-            }
-            #expect(try Data(contentsOf: fileURL) == Data([7, 8]))
-            await Self.tearDown(harness)
         }
 
         /// A 206 answers a range this side never asked for, and its body is only part of the resource.
@@ -901,17 +893,17 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
         func `A partial response is not kept as the file`() async throws {
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 206, body: [1, 2])]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-partial", url: server.url()))
-            let offerID = try await Self.waitForOffer(harness, wireID: "oob-partial")
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-partial", url: server.url()))
+                let offerID = try await Self.waitForOffer(harness, wireID: "oob-partial")
 
-            await #expect(throws: FileTransferService.FileTransferError.self) {
-                try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
+                await #expect(throws: FileTransferService.FileTransferError.self) {
+                    try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
+                }
+                #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).isEmpty)
+                await Self.tearDown(harness)
             }
-            #expect((try? FileManager.default.contentsOfDirectory(atPath: directory.path))?.isEmpty ?? true)
-            await Self.tearDown(harness)
         }
 
         /// While a download runs the offer is claimed, so neither a decline nor a second accept can act on it.
@@ -920,30 +912,30 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 200, body: [4, 5, 6])]))
             defer { server.stop() }
             server.hold()
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-busy", url: server.url()))
-            let offerID = try await Self.waitForOffer(harness, wireID: "oob-busy")
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-busy", url: server.url()))
+                let offerID = try await Self.waitForOffer(harness, wireID: "oob-busy")
 
-            let service = harness.service
-            let accountID = harness.accountID
-            let accept = Task { try await service.acceptIncomingTransfer(offerID, accountID: accountID) }
-            try await Self.poll { !service.viewIncomingOffers.contains { $0.offerID == offerID } }
-            #expect(!service.viewIncomingOffers.contains { $0.offerID == offerID })
+                let service = harness.service
+                let accountID = harness.accountID
+                let accept = Task { try await service.acceptIncomingTransfer(offerID, accountID: accountID) }
+                try await Self.poll { !service.viewIncomingOffers.contains { $0.offerID == offerID } }
+                #expect(!service.viewIncomingOffers.contains { $0.offerID == offerID })
 
-            await #expect(throws: (any Error).self) { try await service.declineIncomingTransfer(offerID, accountID: accountID) }
-            await #expect(throws: (any Error).self) { try await service.acceptIncomingTransfer(offerID, accountID: accountID) }
+                await #expect(throws: (any Error).self) { try await service.declineIncomingTransfer(offerID, accountID: accountID) }
+                await #expect(throws: (any Error).self) { try await service.acceptIncomingTransfer(offerID, accountID: accountID) }
 
-            server.release()
-            try await accept.value
-            guard case .received? = service.activeTransfers.first(where: { $0.sid == "oob-busy" })?.state else {
-                Issue.record("Expected the one download to be received")
+                server.release()
+                try await accept.value
+                guard case .received? = service.activeTransfers.first(where: { $0.sid == "oob-busy" })?.state else {
+                    Issue.record("Expected the one download to be received")
+                    await Self.tearDown(harness)
+                    return
+                }
+                #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 1)
                 await Self.tearDown(harness)
-                return
             }
-            #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).count == 1)
-            await Self.tearDown(harness)
         }
 
         /// A session-accept that fails to go out leaves the session acceptable, so the offer returns to the banner.
@@ -971,36 +963,37 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
         @Test
         func `A sent transfer keeps the decline after its transport wait fails`() async throws {
             let harness = try await Self.connect()
-            let fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("jingle-\(UUID()).txt")
-            try "abc".write(to: fileURL, atomically: true, encoding: .utf8)
-            defer { try? FileManager.default.removeItem(at: fileURL) }
-            let service = harness.service
-            let accountID = harness.accountID
-            let sendTask = Task {
-                try await service.sendFile(url: fileURL, in: makeConversation(), accountID: accountID, method: .jingle, peerJID: Self.peerJID)
+            try await withTemporaryDirectory { directory in
+                let fileURL = directory.appendingPathComponent("jingle.txt")
+                try "abc".write(to: fileURL, atomically: true, encoding: .utf8)
+                let service = harness.service
+                let accountID = harness.accountID
+                let sendTask = Task {
+                    try await service.sendFile(url: fileURL, in: makeConversation(), accountID: accountID, method: .jingle, peerJID: Self.peerJID)
+                }
+
+                // Proxy discovery queries the server before the session-initiate goes out; answer with no items.
+                let discoItems = try #require(await harness.transport.waitForSent(matching: { $0.contains("disco#items") }))
+                let discoID = try #require(discoItems.firstMatch(of: /id=["']([^"']+)["']/)?.output.1)
+                await harness.transport.simulateReceive(
+                    "<iq type='result' id='\(discoID)' from='example.com'><query xmlns='http://jabber.org/protocol/disco#items'/></iq>"
+                )
+                let initiate = try #require(await harness.transport.waitForSent { $0.contains("session-initiate") })
+                #expect(initiate.contains("algo=\"sha-256\""))
+                #expect(initiate.contains(JingleFileDescription.sha256Hash(of: Array("abc".utf8))))
+                // The offer's session exists once the peer acknowledged it.
+                let initiateID = try #require(initiate.firstMatch(of: /\sid=["']([^"']+)["']/)?.output.1)
+                await harness.transport.simulateReceive("<iq type='result' id='\(initiateID)' from='\(Self.peerJID)'/>")
+                try await Self.poll { harness.service.activeTransfers.contains { $0.method == .jingle } }
+                let sid = try #require(harness.service.activeTransfers.first { $0.method == .jingle }?.sid)
+
+                await Self.deliverDecline(harness, sid: sid)
+                let outcome = try await boundedOutcome { _ = try? await sendTask.value }
+                #expect(outcome != nil)
+
+                #expect(failureReason(harness.service, sid: sid) == "The peer declined the transfer")
+                await Self.tearDown(harness)
             }
-
-            // Proxy discovery queries the server before the session-initiate goes out; answer with no items.
-            let discoItems = try #require(await harness.transport.waitForSent(matching: { $0.contains("disco#items") }))
-            let discoID = try #require(discoItems.firstMatch(of: /id=["']([^"']+)["']/)?.output.1)
-            await harness.transport.simulateReceive(
-                "<iq type='result' id='\(discoID)' from='example.com'><query xmlns='http://jabber.org/protocol/disco#items'/></iq>"
-            )
-            let initiate = try #require(await harness.transport.waitForSent { $0.contains("session-initiate") })
-            #expect(initiate.contains("algo=\"sha-256\""))
-            #expect(initiate.contains(JingleFileDescription.sha256Hash(of: Array("abc".utf8))))
-            // The offer's session exists once the peer acknowledged it.
-            let initiateID = try #require(initiate.firstMatch(of: /\sid=["']([^"']+)["']/)?.output.1)
-            await harness.transport.simulateReceive("<iq type='result' id='\(initiateID)' from='\(Self.peerJID)'/>")
-            try await Self.poll { harness.service.activeTransfers.contains { $0.method == .jingle } }
-            let sid = try #require(harness.service.activeTransfers.first { $0.method == .jingle }?.sid)
-
-            await Self.deliverDecline(harness, sid: sid)
-            let outcome = try await boundedOutcome { _ = try? await sendTask.value }
-            #expect(outcome != nil)
-
-            #expect(failureReason(harness.service, sid: sid) == "The peer declined the transfer")
-            await Self.tearDown(harness)
         }
 
         @Test
@@ -1080,45 +1073,45 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
 
         @Test
         func `An accepted transfer saves the file and adds it to the sender's conversation`() async throws {
-            let directory = FileManager.default.temporaryDirectory.appendingPathComponent("jingle-downloads-\(UUID())", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            await harness.transport.simulateReceive(Self.sessionInitiateXML(sid: "save-sid"))
-            let offerID = try await Self.waitForOffer(harness, wireID: "save-sid")
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                await harness.transport.simulateReceive(Self.sessionInitiateXML(sid: "save-sid"))
+                let offerID = try await Self.waitForOffer(harness, wireID: "save-sid")
 
-            try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
-            await harness.transport.simulateReceive(Self.transportReplaceXML(sid: "save-sid", ibbSID: "ibb-save"))
-            await harness.transport.simulateReceive(
-                "<iq type='set' id='data-0' from='\(Self.peerJID)'><data xmlns='http://jabber.org/protocol/ibb' sid='ibb-save' seq='0'>AQID</data></iq>"
-            )
-            await harness.transport.simulateReceive(
-                "<iq type='set' id='close-0' from='\(Self.peerJID)'><close xmlns='http://jabber.org/protocol/ibb' sid='ibb-save'/></iq>"
-            )
-            try await Self.poll { Self.savedFileURL(harness.service, sid: "save-sid") != nil }
+                try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
+                await harness.transport.simulateReceive(Self.transportReplaceXML(sid: "save-sid", ibbSID: "ibb-save"))
+                await harness.transport.simulateReceive(
+                    "<iq type='set' id='data-0' from='\(Self.peerJID)'><data xmlns='http://jabber.org/protocol/ibb' sid='ibb-save' seq='0'>AQID</data></iq>"
+                )
+                await harness.transport.simulateReceive(
+                    "<iq type='set' id='close-0' from='\(Self.peerJID)'><close xmlns='http://jabber.org/protocol/ibb' sid='ibb-save'/></iq>"
+                )
+                try await Self.poll { Self.savedFileURL(harness.service, sid: "save-sid") != nil }
 
-            let fileURL = try #require(Self.savedFileURL(harness.service, sid: "save-sid"))
-            #expect(fileURL.lastPathComponent == "test.txt")
-            #expect(try Data(contentsOf: fileURL) == Data([1, 2, 3]))
-            let conversation = try #require(try await harness.store.fetchConversations(for: harness.accountID).first)
-            #expect(conversation.jid.description == "bob@example.com")
-            let message = try #require(await harness.chatService.loadMessages(for: conversation.id).first)
-            #expect(!message.isOutgoing)
-            #expect(message.attachments.first?.url == fileURL.absoluteString)
-            // Recorded as this app's own file, which is what gives it Quick Look and Reveal in Finder.
-            #expect(message.attachments.first?.origin == .locallySaved)
-            #expect(message.attachments.first?.localFileURL == fileURL)
+                let fileURL = try #require(Self.savedFileURL(harness.service, sid: "save-sid"))
+                #expect(fileURL.lastPathComponent == "test.txt")
+                #expect(try Data(contentsOf: fileURL) == Data([1, 2, 3]))
+                let conversation = try #require(try await harness.store.fetchConversations(for: harness.accountID).first)
+                #expect(conversation.jid.description == "bob@example.com")
+                let message = try #require(await harness.chatService.loadMessages(for: conversation.id).first)
+                #expect(!message.isOutgoing)
+                #expect(message.attachments.first?.url == fileURL.absoluteString)
+                // Recorded as this app's own file, which is what gives it Quick Look and Reveal in Finder.
+                #expect(message.attachments.first?.origin == .locallySaved)
+                #expect(message.attachments.first?.localFileURL == fileURL)
 
-            // The transport's own completion is dispatched independently of the save, which awaits both a disk write
-            // and a transcript append, so it can land after it. Replayed here in that order: the row has to keep the
-            // file it saved, or the UI is left with a bare completion and nothing for Quick Look and Reveal to open.
-            harness.service.handleJingleEvent(
-                .jingleFileTransferCompleted(sid: "save-sid", transport: .ibb), accountID: harness.accountID
-            )
-            harness.service.handleJingleEvent(
-                .jingleFileTransferProgress(sid: "save-sid", bytesTransferred: 1, totalBytes: 3), accountID: harness.accountID
-            )
-            #expect(Self.savedFileURL(harness.service, sid: "save-sid") == fileURL)
-            await Self.tearDown(harness)
+                // The transport's own completion is dispatched independently of the save, which awaits both a disk write
+                // and a transcript append, so it can land after it. Replayed here in that order: the row has to keep the
+                // file it saved, or the UI is left with a bare completion and nothing for Quick Look and Reveal to open.
+                harness.service.handleJingleEvent(
+                    .jingleFileTransferCompleted(sid: "save-sid", transport: .ibb), accountID: harness.accountID
+                )
+                harness.service.handleJingleEvent(
+                    .jingleFileTransferProgress(sid: "save-sid", bytesTransferred: 1, totalBytes: 3), accountID: harness.accountID
+                )
+                #expect(Self.savedFileURL(harness.service, sid: "save-sid") == fileURL)
+                await Self.tearDown(harness)
+            }
         }
 
         private static func oobOfferXML(id: String, url: URL, from sender: String) -> String {
@@ -1135,26 +1128,26 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
         func `Accepting a Jingle offer leaves a link offer under the same id untouched`() async throws {
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 200, body: [1])]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "same-id", url: server.url()))
-            let linkOfferID = try await Self.waitForOffer(harness, wireID: "same-id")
-            await harness.transport.simulateReceive(Self.sessionInitiateXML(sid: "same-id"))
-            try await Self.poll { !harness.service.incomingOffers.isEmpty }
-            let fileOfferID = try #require(harness.service.incomingOffers.first?.offer.offerID)
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "same-id", url: server.url()))
+                let linkOfferID = try await Self.waitForOffer(harness, wireID: "same-id")
+                await harness.transport.simulateReceive(Self.sessionInitiateXML(sid: "same-id"))
+                try await Self.poll { !harness.service.incomingOffers.isEmpty }
+                let fileOfferID = try #require(harness.service.incomingOffers.first?.offer.offerID)
 
-            try await harness.service.acceptIncomingTransfer(fileOfferID, accountID: harness.accountID)
-            _ = Self.takeTransferTask(harness.service)
+                try await harness.service.acceptIncomingTransfer(fileOfferID, accountID: harness.accountID)
+                _ = Self.takeTransferTask(harness.service)
 
-            #expect(server.requests.isEmpty)
-            #expect(harness.service.viewIncomingOffers.map(\.offerID) == [linkOfferID])
-            guard case .connectingTransport? = harness.service.activeTransfers.first(where: { $0.method == .jingle })?.state else {
-                Issue.record("Expected the Jingle offer's transfer to start")
+                #expect(server.requests.isEmpty)
+                #expect(harness.service.viewIncomingOffers.map(\.offerID) == [linkOfferID])
+                guard case .connectingTransport? = harness.service.activeTransfers.first(where: { $0.method == .jingle })?.state else {
+                    Issue.record("Expected the Jingle offer's transfer to start")
+                    await Self.tearDown(harness)
+                    return
+                }
                 await Self.tearDown(harness)
-                return
             }
-            await Self.tearDown(harness)
         }
 
         /// Two senders' links under one stanza id are two offers: taking one leaves the other waiting, and the answer goes
@@ -1163,28 +1156,28 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
         func `Accepting one of two links under the same stanza id leaves the other waiting`() async throws {
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 200, body: [9])]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            let other = "carol@example.com/res"
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "shared-id", url: server.url()))
-            let first = try await Self.waitForOffer(harness, wireID: "shared-id", from: Self.peerJID)
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "shared-id", url: server.url(), from: other))
-            let second = try await Self.waitForOffer(harness, wireID: "shared-id", from: other)
-            await harness.transport.clearSentBytes()
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                let other = "carol@example.com/res"
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "shared-id", url: server.url()))
+                let first = try await Self.waitForOffer(harness, wireID: "shared-id", from: Self.peerJID)
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "shared-id", url: server.url(), from: other))
+                let second = try await Self.waitForOffer(harness, wireID: "shared-id", from: other)
+                await harness.transport.clearSentBytes()
 
-            try await harness.service.acceptIncomingTransfer(first, accountID: harness.accountID)
+                try await harness.service.acceptIncomingTransfer(first, accountID: harness.accountID)
 
-            #expect(harness.service.viewIncomingOffers.map(\.offerID) == [second])
-            let waitingRows = harness.service.activeTransfers.filter { row in
-                if case .awaitingAcceptance = row.state { return true }
-                return false
+                #expect(harness.service.viewIncomingOffers.map(\.offerID) == [second])
+                let waitingRows = harness.service.activeTransfers.filter { row in
+                    if case .awaitingAcceptance = row.state { return true }
+                    return false
+                }
+                #expect(waitingRows.count == 1)
+                let answers = await Self.sentStanzas(harness).filter { $0.contains("type=\"result\"") }
+                #expect(answers.count == 1)
+                #expect(answers.first?.contains("to=\"\(Self.peerJID)\"") == true)
+                await Self.tearDown(harness)
             }
-            #expect(waitingRows.count == 1)
-            let answers = await Self.sentStanzas(harness).filter { $0.contains("type=\"result\"") }
-            #expect(answers.count == 1)
-            #expect(answers.first?.contains("to=\"\(Self.peerJID)\"") == true)
-            await Self.tearDown(harness)
         }
 
         /// Decline acts on an offer. Once the offer was accepted the transfer is under way, and declining the id it had
@@ -1282,25 +1275,25 @@ enum FileTransferServiceTests { // swiftlint:disable:this type_body_length
         func `A link whose acknowledgement fails to send is still received`() async throws {
             let server = try #require(LoopbackHTTPServer(responses: [.init(status: 200, body: [5, 6])]))
             defer { server.stop() }
-            let directory = Self.downloadsFolder()
-            defer { try? FileManager.default.removeItem(at: directory) }
-            let harness = try await Self.connect(downloadsDirectory: directory)
-            await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-ack", url: server.url()))
-            let offerID = try await Self.waitForOffer(harness, wireID: "oob-ack")
+            try await withTemporaryDirectory { directory in
+                let harness = try await Self.connect(downloadsDirectory: directory)
+                await harness.transport.simulateReceive(Self.oobOfferXML(id: "oob-ack", url: server.url()))
+                let offerID = try await Self.waitForOffer(harness, wireID: "oob-ack")
 
-            await harness.transport.clearSentBytes()
-            await harness.transport.simulateSendFailure(XMPPClientError.notConnected)
-            try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
-            await harness.transport.simulateSendFailure(nil)
+                await harness.transport.clearSentBytes()
+                await harness.transport.simulateSendFailure(XMPPClientError.notConnected)
+                try await harness.service.acceptIncomingTransfer(offerID, accountID: harness.accountID)
+                await harness.transport.simulateSendFailure(nil)
 
-            guard case let .received(fileURL)? = harness.service.activeTransfers.first(where: { $0.sid == "oob-ack" })?.state else {
-                Issue.record("Expected the downloaded link to be received")
+                guard case let .received(fileURL)? = harness.service.activeTransfers.first(where: { $0.sid == "oob-ack" })?.state else {
+                    Issue.record("Expected the downloaded link to be received")
+                    await Self.tearDown(harness)
+                    return
+                }
+                #expect(try Data(contentsOf: fileURL) == Data([5, 6]))
+                #expect(await !Self.answeredOffer(harness, id: "oob-ack"))
                 await Self.tearDown(harness)
-                return
             }
-            #expect(try Data(contentsOf: fileURL) == Data([5, 6]))
-            #expect(await !Self.answeredOffer(harness, id: "oob-ack"))
-            await Self.tearDown(harness)
         }
 
         private static func savedFileURL(_ service: FileTransferService, sid: String) -> URL? {

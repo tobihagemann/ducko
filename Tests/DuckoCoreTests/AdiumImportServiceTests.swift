@@ -74,33 +74,31 @@ enum AdiumImportServiceTests {
             """
 
             // Create a temporary file to import
-            let tmpDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("adium-test-\(UUID().uuidString)")
-            let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
-            let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
-            let chatlogDir = contactDir.appendingPathComponent("buddy@exnet.me (2016-01-12T00.31.17+0100).chatlog")
-            try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
-            let xmlFile = chatlogDir.appendingPathComponent("buddy@exnet.me (2016-01-12T00.31.17+0100).xml")
-            try xml.write(to: xmlFile, atomically: true, encoding: .utf8)
+            try await withTemporaryDirectory { tmpDir in
+                let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
+                let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
+                let chatlogDir = contactDir.appendingPathComponent("buddy@exnet.me (2016-01-12T00.31.17+0100).chatlog")
+                try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
+                let xmlFile = chatlogDir.appendingPathComponent("buddy@exnet.me (2016-01-12T00.31.17+0100).xml")
+                try xml.write(to: xmlFile, atomically: true, encoding: .utf8)
 
-            defer { try? FileManager.default.removeItem(at: tmpDir) }
+                let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
+                #expect(sources.count == 1)
 
-            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
-            #expect(sources.count == 1)
+                // First import
+                let result1 = try await service.importLogs(from: sources) { _ in }
+                #expect(result1.importedMessages == 2)
+                #expect(result1.skippedDuplicates == 0)
 
-            // First import
-            let result1 = try await service.importLogs(from: sources) { _ in }
-            #expect(result1.importedMessages == 2)
-            #expect(result1.skippedDuplicates == 0)
+                // Second import (idempotent)
+                let result2 = try await service.importLogs(from: sources) { _ in }
+                #expect(result2.importedMessages == 0)
+                #expect(result2.skippedDuplicates == 2)
 
-            // Second import (idempotent)
-            let result2 = try await service.importLogs(from: sources) { _ in }
-            #expect(result2.importedMessages == 0)
-            #expect(result2.skippedDuplicates == 2)
-
-            // Verify total messages in transcript store
-            let allMessages = await transcripts.messages
-            #expect(allMessages.count == 2)
+                // Verify total messages in transcript store
+                let allMessages = await transcripts.messages
+                #expect(allMessages.count == 2)
+            }
         }
     }
 
@@ -118,29 +116,27 @@ enum AdiumImportServiceTests {
             </chat>
             """
 
-            let tmpDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("adium-test-\(UUID().uuidString)")
-            let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
-            let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
-            let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
-            try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
-            try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+            try await withTemporaryDirectory { tmpDir in
+                let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
+                let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
+                let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
+                try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
+                try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
 
-            defer { try? FileManager.default.removeItem(at: tmpDir) }
+                let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
+                _ = try await service.importLogs(from: sources) { _ in }
 
-            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
-            _ = try await service.importLogs(from: sources) { _ in }
+                let accounts = await store.accounts
+                #expect(accounts.isEmpty)
 
-            let accounts = await store.accounts
-            #expect(accounts.isEmpty)
+                let conversations = await store.conversations
+                #expect(conversations.count == 1)
 
-            let conversations = await store.conversations
-            #expect(conversations.count == 1)
-
-            let conversation = try #require(conversations.first)
-            #expect(conversation.accountID == nil)
-            #expect(conversation.importSourceJID == "saibot@exnet.me")
-            #expect(conversation.jid.description == "buddy@exnet.me")
+                let conversation = try #require(conversations.first)
+                #expect(conversation.accountID == nil)
+                #expect(conversation.importSourceJID == "saibot@exnet.me")
+                #expect(conversation.jid.description == "buddy@exnet.me")
+            }
         }
 
         @Test
@@ -162,36 +158,33 @@ enum AdiumImportServiceTests {
             </chat>
             """
 
-            let tmpDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("adium-test-\(UUID().uuidString)")
+            try await withTemporaryDirectory { tmpDir in
+                // Two different source accounts chatting with the same contact
+                let serviceDir1 = tmpDir.appendingPathComponent("Jabber.alice@jabber.org")
+                let contactDir1 = serviceDir1.appendingPathComponent("buddy@jabber.org")
+                let chatlogDir1 = contactDir1.appendingPathComponent("test.chatlog")
+                try FileManager.default.createDirectory(at: chatlogDir1, withIntermediateDirectories: true)
+                try xml1.write(to: chatlogDir1.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
 
-            // Two different source accounts chatting with the same contact
-            let serviceDir1 = tmpDir.appendingPathComponent("Jabber.alice@jabber.org")
-            let contactDir1 = serviceDir1.appendingPathComponent("buddy@jabber.org")
-            let chatlogDir1 = contactDir1.appendingPathComponent("test.chatlog")
-            try FileManager.default.createDirectory(at: chatlogDir1, withIntermediateDirectories: true)
-            try xml1.write(to: chatlogDir1.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+                let serviceDir2 = tmpDir.appendingPathComponent("Jabber.bob@jabber.org")
+                let contactDir2 = serviceDir2.appendingPathComponent("buddy@jabber.org")
+                let chatlogDir2 = contactDir2.appendingPathComponent("test.chatlog")
+                try FileManager.default.createDirectory(at: chatlogDir2, withIntermediateDirectories: true)
+                try xml2.write(to: chatlogDir2.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
 
-            let serviceDir2 = tmpDir.appendingPathComponent("Jabber.bob@jabber.org")
-            let contactDir2 = serviceDir2.appendingPathComponent("buddy@jabber.org")
-            let chatlogDir2 = contactDir2.appendingPathComponent("test.chatlog")
-            try FileManager.default.createDirectory(at: chatlogDir2, withIntermediateDirectories: true)
-            try xml2.write(to: chatlogDir2.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+                let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
+                _ = try await service.importLogs(from: sources) { _ in }
 
-            defer { try? FileManager.default.removeItem(at: tmpDir) }
+                let conversations = await store.conversations
+                #expect(conversations.count == 2)
 
-            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
-            _ = try await service.importLogs(from: sources) { _ in }
+                let sourceJIDs = Set(conversations.compactMap(\.importSourceJID))
+                #expect(sourceJIDs == ["alice@jabber.org", "bob@jabber.org"])
 
-            let conversations = await store.conversations
-            #expect(conversations.count == 2)
-
-            let sourceJIDs = Set(conversations.compactMap(\.importSourceJID))
-            #expect(sourceJIDs == ["alice@jabber.org", "bob@jabber.org"])
-
-            // Both conversations share the same contact JID but are distinct
-            let contactJIDs = Set(conversations.map(\.jid.description))
-            #expect(contactJIDs == ["buddy@jabber.org"])
+                // Both conversations share the same contact JID but are distinct
+                let contactJIDs = Set(conversations.map(\.jid.description))
+                #expect(contactJIDs == ["buddy@jabber.org"])
+            }
         }
 
         @Test
@@ -217,25 +210,23 @@ enum AdiumImportServiceTests {
             </chat>
             """
 
-            let tmpDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("adium-test-\(UUID().uuidString)")
-            let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
-            let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
-            let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
-            try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
-            try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+            try await withTemporaryDirectory { tmpDir in
+                let serviceDir = tmpDir.appendingPathComponent("Jabber.saibot@exnet.me")
+                let contactDir = serviceDir.appendingPathComponent("buddy@exnet.me")
+                let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
+                try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
+                try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
 
-            defer { try? FileManager.default.removeItem(at: tmpDir) }
+                let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
+                _ = try await service.importLogs(from: sources) { _ in }
 
-            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
-            _ = try await service.importLogs(from: sources) { _ in }
+                let conversations = await store.conversations
+                #expect(conversations.count == 1)
 
-            let conversations = await store.conversations
-            #expect(conversations.count == 1)
-
-            let conversation = try #require(conversations.first)
-            #expect(conversation.accountID == account.id)
-            #expect(conversation.importSourceJID == nil)
+                let conversation = try #require(conversations.first)
+                #expect(conversation.accountID == account.id)
+                #expect(conversation.importSourceJID == nil)
+            }
         }
     }
 
@@ -253,27 +244,25 @@ enum AdiumImportServiceTests {
             </chat>
             """
 
-            let tmpDir = FileManager.default.temporaryDirectory
-                .appendingPathComponent("adium-test-\(UUID().uuidString)")
-            let serviceDir = tmpDir.appendingPathComponent("Jabber.user@example.com")
-            let contactDir = serviceDir.appendingPathComponent("buddy@example.com")
-            let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
-            try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
-            try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
+            try await withTemporaryDirectory { tmpDir in
+                let serviceDir = tmpDir.appendingPathComponent("Jabber.user@example.com")
+                let contactDir = serviceDir.appendingPathComponent("buddy@example.com")
+                let chatlogDir = contactDir.appendingPathComponent("test.chatlog")
+                try FileManager.default.createDirectory(at: chatlogDir, withIntermediateDirectories: true)
+                try xml.write(to: chatlogDir.appendingPathComponent("test.xml"), atomically: true, encoding: .utf8)
 
-            defer { try? FileManager.default.removeItem(at: tmpDir) }
+                let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
+                let progressCount = OSAllocatedUnfairLock(initialState: 0)
+                let result = try await service.importLogs(from: sources) { _ in
+                    progressCount.withLock { $0 += 1 }
+                }
 
-            let sources = try AdiumLogDiscovery.discoverSources(at: tmpDir)
-            let progressCount = OSAllocatedUnfairLock(initialState: 0)
-            let result = try await service.importLogs(from: sources) { _ in
-                progressCount.withLock { $0 += 1 }
+                // Final progress callback always fires
+                let count = progressCount.withLock { $0 }
+                #expect(count > 0)
+                #expect(result.totalFiles == 1)
+                #expect(result.completedFiles == 1)
             }
-
-            // Final progress callback always fires
-            let count = progressCount.withLock { $0 }
-            #expect(count > 0)
-            #expect(result.totalFiles == 1)
-            #expect(result.completedFiles == 1)
         }
     }
 }

@@ -102,8 +102,7 @@ public final class OOBModule: XMPPModule, Sendable {
         guard let taken = takeOffer(offerID) else { return }
         let (context, pending) = taken
 
-        var result = XMPPIQ(type: .result, id: pending.iqID)
-        result.to = pending.from
+        let result = XMPPIQ(type: .result, to: pending.from, id: pending.iqID)
         // Nothing retries an acknowledgement, so an offer whose acknowledgement failed is not kept for one.
         try await send(result, offerID: offerID, keepOnFailure: false, context: context)
         log.info("Accepted OOB IQ offer \(offerID)")

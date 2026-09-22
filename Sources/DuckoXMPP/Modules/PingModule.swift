@@ -83,12 +83,8 @@ public final class PingModule: XMPPModule, Sendable {
         let context = state.withLock { $0.context }
         guard let context else { return true }
 
-        if let stanzaID = iq.id {
+        if let result = XMPPIQ.resultReply(for: iq) {
             Task {
-                var result = XMPPIQ(type: .result, id: stanzaID)
-                if let from = iq.from {
-                    result.to = from
-                }
                 do {
                     try await context.sendStanza(result)
                 } catch {

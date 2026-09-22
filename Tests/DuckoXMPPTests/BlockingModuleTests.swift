@@ -181,17 +181,54 @@ enum BlockingModuleTests {
         }
 
         @Test
-        func `Block push from foreign JID is rejected`() async throws {
+        func `Block push from own bare JID is accepted`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: BlockingModule.self))
 
-            await mock.simulateReceive(
-                "<iq type='set' from='evil@attacker.com' id='push-3'><block xmlns='urn:xmpp:blocking'><item jid='injected@evil.com'/></block></iq>"
-            )
-            try? await Task.sleep(for: .milliseconds(100))
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .contactBlocked = event { return true }
+                    return false
+                }
+            }
 
-            #expect(module.blockedJIDs.isEmpty)
+            await mock.simulateReceive(
+                "<iq type='set' from='user@example.com' id='push-3'><block xmlns='urn:xmpp:blocking'><item jid='spammer@example.com'/></block></iq>"
+            )
+
+            _ = try await eventsTask.value
+            #expect(module.blockedJIDs.map(\.description) == ["spammer@example.com"])
+
+            await disconnectFast(client)
+        }
+
+        @Test(arguments: ["evil@attacker.com", "user@example.com/other", "@example.com"])
+        func `Block push from any sender but own bare JID is rejected`(sender: String) async throws {
+            let mock = MockTransport()
+            let client = try await makeConnectedClient(mock: mock)
+            let module = try #require(await client.module(ofType: BlockingModule.self))
+
+            let eventsTask = Task {
+                try await collectEvents(from: client) { event in
+                    if case .contactBlocked = event { return true }
+                    return false
+                }
+            }
+
+            await mock.simulateReceive(
+                "<iq type='set' from='\(sender)' id='push-3'><block xmlns='urn:xmpp:blocking'><item jid='injected@evil.com'/></block></iq>"
+            )
+            await mock.simulateReceive(
+                "<iq type='set' id='push-4'><block xmlns='urn:xmpp:blocking'><item jid='spammer@example.com'/></block></iq>"
+            )
+
+            let events = try await eventsTask.value
+            guard case let .contactBlocked(jid) = events.last else {
+                throw XMPPClientError.unexpectedStreamState("Expected contactBlocked event")
+            }
+            #expect(jid.description == "spammer@example.com")
+            #expect(module.blockedJIDs == [jid])
 
             await disconnectFast(client)
         }

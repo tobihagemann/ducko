@@ -36,7 +36,13 @@ public struct XMPPIQ: XMPPStanza {
         return nil
     }
 
-    // MARK: - Error Reply
+    // MARK: - Replies
+
+    /// Builds an empty result reply to `request`, or `nil` when the request carries no id to answer.
+    public static func resultReply(for request: XMPPIQ) -> XMPPIQ? {
+        guard let id = request.id else { return nil }
+        return XMPPIQ(type: .result, to: request.from, id: id)
+    }
 
     /// Builds an error reply to `request`, or `nil` when the request carries no id to answer.
     public static func errorReply(
@@ -68,6 +74,16 @@ public struct XMPPIQ: XMPPStanza {
         if let applicationCondition { error.addChild(applicationCondition) }
         reply.element.addChild(error)
         return reply
+    }
+
+    // MARK: - Sender
+
+    /// Whether the IQ comes from the account itself: no `from`, or exactly the own bare JID (RFC 6121 §2.1.6).
+    /// Reads the raw attribute, so an unparseable `from` is rejected instead of passing as absent.
+    func isFromOwnAccount(_ ownJID: BareJID?) -> Bool {
+        guard let rawFrom = element.attribute("from") else { return true }
+        guard let ownJID, let from = JID.parse(rawFrom), case let .bare(bare) = from else { return false }
+        return bare == ownJID
     }
 
     // MARK: - Convenience

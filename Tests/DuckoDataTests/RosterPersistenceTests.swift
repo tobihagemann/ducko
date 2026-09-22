@@ -1,3 +1,4 @@
+import DuckoTestSupport
 import Foundation
 import Testing
 @testable import DuckoCore
@@ -9,35 +10,35 @@ struct RosterPersistenceTests {
 
     @Test
     func `failed roster save rolls back contents and version before another save and reopen`() async throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let container = try ModelContainerFactory.makeContainer(at: directory)
-        let store = SwiftDataPersistenceStore(modelContainer: container)
-        let account = try Account(id: UUID(), jid: #require(BareJID.parse("alice@example.com")), isEnabled: true, connectOnLaunch: false, rosterVersion: "before", createdAt: Date())
-        try await store.saveAccount(account)
-        let jid = try #require(BareJID.parse("bob@example.com"))
-        let original = Contact(id: UUID(), accountID: account.id, jid: jid, name: "Bob", localAlias: "My friend", subscription: .both, groups: ["Friends"], isBlocked: true, createdAt: Date())
-        try await store.upsertContact(original)
-        await store.setBeforeRosterSaveForTesting { throw Failure.beforeSave }
+        try await withTemporaryDirectory { directory in
+            let container = try ModelContainerFactory.makeContainer(at: directory)
+            let store = SwiftDataPersistenceStore(modelContainer: container)
+            let account = try Account(id: UUID(), jid: #require(BareJID.parse("alice@example.com")), isEnabled: true, connectOnLaunch: false, rosterVersion: "before", createdAt: Date())
+            try await store.saveAccount(account)
+            let jid = try #require(BareJID.parse("bob@example.com"))
+            let original = Contact(id: UUID(), accountID: account.id, jid: jid, name: "Bob", localAlias: "My friend", subscription: .both, groups: ["Friends"], isBlocked: true, createdAt: Date())
+            try await store.upsertContact(original)
+            await store.setBeforeRosterSaveForTesting { throw Failure.beforeSave }
 
-        await #expect(throws: Failure.beforeSave) {
-            _ = try await store.applyRosterMutation(RosterMutation(accountID: account.id, contents: .snapshot([]), version: "failed"))
+            await #expect(throws: Failure.beforeSave) {
+                _ = try await store.applyRosterMutation(RosterMutation(accountID: account.id, contents: .snapshot([]), version: "failed"))
+            }
+            #expect(try await store.fetchAccounts().first?.rosterVersion == "before")
+            #expect(try await store.fetchContacts(for: account.id).first?.id == original.id)
+
+            await store.setBeforeRosterSaveForTesting(nil)
+            var settings = account
+            settings.displayName = "After rollback"
+            settings.rosterVersion = "stale-settings-value"
+            try await store.saveAccount(settings)
+            let reopened = try SwiftDataPersistenceStore(modelContainer: ModelContainerFactory.makeContainer(at: directory))
+            #expect(try await reopened.fetchAccounts().first?.rosterVersion == "before")
+            #expect(try await reopened.fetchAccounts().first?.displayName == "After rollback")
+            let contacts = try await reopened.fetchContacts(for: account.id)
+            #expect(contacts.count == 1)
+            #expect(contacts.first?.id == original.id)
+            #expect(contacts.first?.localAlias == "My friend")
         }
-        #expect(try await store.fetchAccounts().first?.rosterVersion == "before")
-        #expect(try await store.fetchContacts(for: account.id).first?.id == original.id)
-
-        await store.setBeforeRosterSaveForTesting(nil)
-        var settings = account
-        settings.displayName = "After rollback"
-        settings.rosterVersion = "stale-settings-value"
-        try await store.saveAccount(settings)
-        let reopened = try SwiftDataPersistenceStore(modelContainer: ModelContainerFactory.makeContainer(at: directory))
-        #expect(try await reopened.fetchAccounts().first?.rosterVersion == "before")
-        #expect(try await reopened.fetchAccounts().first?.displayName == "After rollback")
-        let contacts = try await reopened.fetchContacts(for: account.id)
-        #expect(contacts.count == 1)
-        #expect(contacts.first?.id == original.id)
-        #expect(contacts.first?.localAlias == "My friend")
     }
 
     @Test

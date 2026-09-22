@@ -82,6 +82,7 @@ enum AppDelegateTests {
         func `performShutdown returns within disconnectDeadline + slack on an empty environment`() async {
             let tempDir = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: tempDir) }
             let environment = AppEnvironment(
                 store: EmptyPersistenceStore(),
                 transcripts: FileTranscriptStore(baseDirectory: tempDir),

@@ -87,7 +87,7 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
 
     private func handleDiscoInfoGet(_ iq: XMPPIQ) {
         guard let context = state.withLock({ $0.context }),
-              let stanzaID = iq.id else { return }
+              let result = XMPPIQ.resultReply(for: iq) else { return }
 
         // XEP-0115 §6.2 / XEP-0390 §4.2: echo the queried `node` so caps
         // verifiers (Prosody mod_caps etc.) that strict-match on it accept
@@ -95,9 +95,7 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
         let requestedNode = iq.childElement?.attribute("node")
 
         Task {
-            var result = XMPPIQ(type: .result, id: stanzaID)
-            if let from = iq.from { result.to = from }
-
+            var result = result
             var query = XMLElement(name: "query", namespace: XMPPNamespaces.discoInfo)
             if let requestedNode { query.setAttribute("node", value: requestedNode) }
 
@@ -129,12 +127,10 @@ public final class ServiceDiscoveryModule: XMPPModule, Sendable {
 
     private func handleDiscoItemsGet(_ iq: XMPPIQ) {
         guard let context = state.withLock({ $0.context }),
-              let stanzaID = iq.id else { return }
+              let result = XMPPIQ.resultReply(for: iq) else { return }
 
         Task {
-            var result = XMPPIQ(type: .result, id: stanzaID)
-            if let from = iq.from { result.to = from }
-
+            var result = result
             let query = XMLElement(name: "query", namespace: XMPPNamespaces.discoItems)
             result.element.addChild(query)
             do {

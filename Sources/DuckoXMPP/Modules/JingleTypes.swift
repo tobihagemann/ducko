@@ -16,6 +16,17 @@ enum JingleAction: String {
     case contentRemove = "content-remove"
 }
 
+/// Jingle-specific error condition per XEP-0166 §10.
+enum JingleErrorCondition: String {
+    case outOfOrder = "out-of-order"
+    case tieBreak = "tie-break"
+    case unknownSession = "unknown-session"
+
+    var element: XMLElement {
+        XMLElement(name: rawValue, namespace: XMPPNamespaces.jingleErrors)
+    }
+}
+
 /// Reason for terminating a Jingle session per XEP-0166 §7.4.
 public enum JingleTerminateReason: String, Sendable {
     case success
