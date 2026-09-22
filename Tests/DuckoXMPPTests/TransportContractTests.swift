@@ -392,19 +392,17 @@ enum TransportContractTests {
             try await withTransport(handshakeTimeout: .seconds(30)) { transport in
                 let (listenFD, port) = try listeningLoopbackSocket()
 
-                // A zero linger timeout makes close send RST instead of FIN.
-                let server = blockingTransportPeer {
-                    let clientFD = accept(listenFD, nil, nil)
-                    guard clientFD >= 0 else { return }
-                    disableSIGPIPE(clientFD)
-                    var lingerOption = linger(l_onoff: 1, l_linger: 0)
-                    _ = setsockopt(clientFD, SOL_SOCKET, SO_LINGER, &lingerOption, socklen_t(MemoryLayout<linger>.size))
-                    close(clientFD)
-                }
+                let server = blockingTransportPeer { accept(listenFD, nil, nil) }
 
                 try await transport.connect(host: "127.0.0.1", port: port)
-                await server.value
+                let serverFD = await server.value
                 close(listenFD)
+                try #require(serverFD >= 0)
+                // Resetting only after connect returns keeps the reset from failing connect itself.
+                // A zero linger timeout makes close send RST instead of FIN.
+                var lingerOption = linger(l_onoff: 1, l_linger: 0)
+                _ = setsockopt(serverFD, SOL_SOCKET, SO_LINGER, &lingerOption, socklen_t(MemoryLayout<linger>.size))
+                close(serverFD)
                 // The receive loop ends once it observes the reset, so the send below deterministically hits it.
                 for await _ in transport.receivedData {}
 

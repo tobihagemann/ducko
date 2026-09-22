@@ -73,7 +73,10 @@ git push origin X.Y.Z
 ```bash
 git pull origin main    # pick up the appcast commit CI pushed
 gh release view X.Y.Z   # verify the Release and its assets
+gh run list --commit "$(git rev-parse X.Y.Z^{commit})"   # every workflow on the tagged commit
 ```
+
+`ci.yml` runs on the tagged commit from its push to `main`, separately from `release.yml`, so a passing release run does not cover it. Report the release as done only once both have passed, waiting on an unfinished run with `gh run watch <run-id> --exit-status`. When the CI run failed, name the failure and fix it on `main`.
 
 ## Notes
 
