@@ -105,6 +105,7 @@ public final class AppEnvironment {
             bookmarksService.purgeAccount(accountID)
             avatarService.purgeAccount(accountID)
             profileService.purgeAccount(accountID)
+            fileTransferService.purgeAccount(accountID)
         }
     }
 

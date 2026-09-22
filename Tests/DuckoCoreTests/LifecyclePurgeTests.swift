@@ -19,7 +19,7 @@ enum LifecyclePurgeTests {
         }
 
         /// Builds a real `AppEnvironment`, creates one account, and seeds every per-account cache the lifecycle
-        /// purge should clear (roster, presence, bookmarks, avatar, profile), asserting each is populated.
+        /// purge should clear (roster, presence, bookmarks, avatar, profile, file offers), asserting each is populated.
         @MainActor
         private func makeSeededEnvironment() async throws -> (env: AppEnvironment, accountID: UUID) {
             let store = MockPersistenceStore()
@@ -31,7 +31,8 @@ enum LifecyclePurgeTests {
 
             let accountID = try await env.accountService.createAccount(jidString: "alice@example.com")
             let peerJID = try #require(BareJID(localPart: "bob", domainPart: "example.com"))
-            let peerFrom = try JID.full(#require(FullJID(bareJID: peerJID, resourcePart: "res")))
+            let peerFull = try #require(FullJID(bareJID: peerJID, resourcePart: "res"))
+            let peerFrom = JID.full(peerFull)
             let room = try #require(BareJID.parse("room@conference.example.com"))
             let inviter = try #require(BareJID.parse("inviter@example.com"))
 
@@ -51,6 +52,14 @@ enum LifecyclePurgeTests {
             env.bookmarksService.setBookmarksForTesting([RoomBookmark(jidString: "room@conference.example.com")], accountID: accountID)
             env.avatarService.setOwnAvatarHashForTesting("hash", accountID: accountID)
             env.profileService.setOwnProfileForTesting(ProfileInfo(fullName: "Alice"), accountID: accountID)
+            env.fileTransferService.handleJingleEvent(
+                .jingleFileTransferReceived(JingleFileOffer(offerID: "file-offer", sid: "file-sid", from: peerFull, fileName: "f.bin", fileSize: 1)),
+                accountID: accountID
+            )
+            env.fileTransferService.handleJingleEvent(
+                .oobIQOfferReceived(OOBIQOffer(offerID: "link-offer", id: "link-id", from: peerFrom, url: "https://example.com/f.bin", desc: nil)),
+                accountID: accountID
+            )
 
             #expect(!env.rosterService.groups.isEmpty)
             #expect(!env.presenceService.contactPresences.isEmpty)
@@ -59,6 +68,7 @@ enum LifecyclePurgeTests {
             #expect(!env.bookmarksService.bookmarks.isEmpty)
             #expect(env.avatarService.ownAvatarHash(for: accountID) != nil)
             #expect(env.profileService.ownProfile(for: accountID) != nil)
+            #expect(env.fileTransferService.viewIncomingOffers.count == 2)
 
             return (env, accountID)
         }
@@ -72,6 +82,7 @@ enum LifecyclePurgeTests {
             #expect(env.bookmarksService.bookmarks.isEmpty)
             #expect(env.avatarService.ownAvatarHash(for: accountID) == nil)
             #expect(env.profileService.ownProfile(for: accountID) == nil)
+            #expect(env.fileTransferService.viewIncomingOffers.isEmpty)
         }
 
         @Test

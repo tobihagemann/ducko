@@ -416,7 +416,10 @@ extension JingleTiming {
         checksumWait: .milliseconds(300),
         unclaimedReceiveExpiry: .milliseconds(300),
         senderConfirmationWait: .milliseconds(300),
-        proxyConnectWait: .milliseconds(300)
+        proxyConnectWait: .milliseconds(300),
+        transportReadyWait: .milliseconds(300),
+        sendStallWait: .milliseconds(300),
+        receiveStallWait: .milliseconds(300)
     )
 }
 
@@ -571,6 +574,17 @@ final class JingleInitiatorHarness: Sendable {
         return connection
     }
 
+    /// Delivers the peer's candidate-used nominating this side's direct candidate for session `sid`.
+    func nominateDirectCandidate(sid: String) throws {
+        try receive(action: JingleAction.transportInfo.rawValue, sid: sid, payload: [Self.candidateUsed(offeredCandidate(type: "direct", sid: sid))])
+    }
+
+    /// A transport-info content carrying the peer's candidate-used for one of this side's offered `candidate`s.
+    static func candidateUsed(_ candidate: XMLElement) throws -> XMLElement {
+        let cid = try #require(candidate.attribute("cid"))
+        return socks5Info(XMLElement(name: "candidate-used", attributes: ["cid": cid]))
+    }
+
     /// A transport-info content carrying one SOCKS5 child, like `<candidate-error/>` or `<candidate-used cid='…'/>`.
     static func socks5Info(_ child: XMLElement) -> XMLElement {
         var transport = XMLElement(name: "transport", namespace: XMPPNamespaces.jingleS5B)
@@ -621,6 +635,25 @@ final class JingleInitiatorHarness: Sendable {
 
     func sentStanzaCount(matching predicate: @escaping @Sendable (XMLElement) -> Bool) -> Int {
         recorded.withLock { $0.stanzas.count(where: predicate) }
+    }
+
+    /// Expects the IQ `id` to get a reply of `type` and no other. A later IQ for session `sid` marks the point by which
+    /// a second reply would have been sent.
+    @discardableResult
+    func expectSingleReply(to id: String, type: String, sid: String) async throws -> XMLElement? {
+        let reply = try await sentStanza(matching: Self.isReply(to: id, type: type))
+        #expect(reply != nil)
+        try receive(action: JingleAction.sessionInfo.rawValue, sid: sid, id: "sentinel")
+        #expect(try await sentStanza { $0.name == "iq" && $0.attribute("id") == "sentinel" } != nil)
+        #expect(sentStanzaCount { $0.attribute("id") == id } == 1)
+        return reply
+    }
+
+    /// Expects the IQ `id` to get one out-of-order error and nothing else.
+    func expectSingleOutOfOrderError(to id: String, sid: String) async throws {
+        let error = try #require(try await expectSingleReply(to: id, type: "error", sid: sid))
+        #expect(error.child(named: "error")?.child(named: "unexpected-request", namespace: XMPPNamespaces.stanzas) != nil)
+        #expect(error.child(named: "error")?.child(named: "out-of-order", namespace: XMPPNamespaces.jingleErrors) != nil)
     }
 
     func eventCount(matching predicate: @escaping @Sendable (XMPPEvent) -> Bool) -> Int {

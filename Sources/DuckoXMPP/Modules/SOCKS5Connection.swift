@@ -164,21 +164,23 @@ actor SOCKS5Connection {
         log.info("SOCKS5 connected to \(host):\(port)")
     }
 
-    /// Sends data over the established SOCKS5 connection.
-    func send(_ data: [UInt8]) async throws {
+    /// Sends data over the established SOCKS5 connection. Given `stallTimeout`, it fails once the peer has taken no bytes
+    /// for that long.
+    func send(_ data: [UInt8], stallTimeout: Duration? = nil) async throws {
         let fdCopy = try beginOperation()
         let result = await Task.detached {
-            try Self.sendAll(fd: fdCopy, data: data)
+            try Self.sendAll(fd: fdCopy, data: data, stallTimeout: stallTimeout)
         }.result
         endOperation()
         try result.get()
     }
 
-    /// Receives exactly `count` bytes from the connection.
-    func receive(_ count: Int) async throws -> [UInt8] {
+    /// Receives exactly `count` bytes from the connection. Given `stallTimeout`, it fails once the peer has sent no bytes
+    /// for that long.
+    func receive(_ count: Int, stallTimeout: Duration? = nil) async throws -> [UInt8] {
         let fdCopy = try beginOperation()
         let result = await Task.detached {
-            try Self.recvAll(fd: fdCopy, count: count)
+            try Self.recvAll(fd: fdCopy, count: count, stallTimeout: stallTimeout)
         }.result
         endOperation()
         return try result.get()
@@ -291,17 +293,28 @@ actor SOCKS5Connection {
         }
     }
 
-    static func sendAll(fd: Int32, data: [UInt8]) throws {
+    /// Writes all of `data`. Given `stallTimeout`, the socket is non-blocking for the write, which waits for buffer space
+    /// no longer than that, so a peer that stops reading fails the send instead of holding it forever. A blocking socket
+    /// would not do: macOS `send` ignores `MSG_DONTWAIT`, and room for part of a write still blocks on the rest.
+    static func sendAll(fd: Int32, data: [UInt8], stallTimeout: Duration? = nil) throws {
+        let flags = fcntl(fd, F_GETFL)
+        if stallTimeout != nil {
+            _ = fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        }
+        defer {
+            if stallTimeout != nil { _ = fcntl(fd, F_SETFL, flags) }
+        }
         try data.withUnsafeBufferPointer { buf in
             var totalSent = 0
             while totalSent < data.count {
-                let sent = Darwin.send(
-                    fd,
-                    buf.baseAddress! + totalSent,
-                    data.count - totalSent,
-                    0
-                )
+                let sent = Darwin.send(fd, buf.baseAddress! + totalSent, data.count - totalSent, 0)
                 if sent < 0 {
+                    if errno == EAGAIN || errno == EWOULDBLOCK, let stallTimeout {
+                        try awaitProgress(fd: fd, events: Int16(POLLOUT), stallTimeout: stallTimeout) {
+                            .sendFailed($0 ?? "The peer stopped receiving the file")
+                        }
+                        continue
+                    }
                     if errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR {
                         continue
                     }
@@ -315,11 +328,18 @@ actor SOCKS5Connection {
         }
     }
 
-    static func recvAll(fd: Int32, count: Int) throws -> [UInt8] {
+    /// Reads exactly `count` bytes. Given `stallTimeout`, each read first waits for data no longer than that, so a peer
+    /// that stops sending fails the receive instead of holding it forever.
+    static func recvAll(fd: Int32, count: Int, stallTimeout: Duration? = nil) throws -> [UInt8] {
         var buffer = [UInt8](repeating: 0, count: count)
         var totalRead = 0
         try buffer.withUnsafeMutableBytes { buf in
             while totalRead < count {
+                if let stallTimeout {
+                    try awaitProgress(fd: fd, events: Int16(POLLIN), stallTimeout: stallTimeout) {
+                        .receiveFailed($0 ?? "The peer stopped sending the file")
+                    }
+                }
                 let result = recv(
                     fd,
                     buf.baseAddress! + totalRead,
@@ -339,5 +359,21 @@ actor SOCKS5Connection {
             }
         }
         return buffer
+    }
+
+    /// Waits until `fd` reports `events`, failing with `failure(nil)` once `stallTimeout` passes without that, or with
+    /// `failure(reason)` when the wait itself fails.
+    private static func awaitProgress(
+        fd: Int32, events: Int16, stallTimeout: Duration, failure: (String?) -> SOCKS5Error
+    ) throws {
+        do throws(SocketWaitError) {
+            try waitForSocket(fd, events: events, until: .now + stallTimeout)
+        } catch {
+            switch error {
+            case .timedOut: throw failure(nil)
+            case let .failed(code): throw failure(posixErrorText(code))
+            case .woken, .closed: throw failure("The connection was closed")
+            }
+        }
     }
 }

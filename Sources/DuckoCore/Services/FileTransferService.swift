@@ -164,6 +164,10 @@ public final class FileTransferService {
     /// Jingle rows whose session ended, reported by its completion or failure event or by a finished send, so a later
     /// session under the same sid is not mistaken for theirs.
     private var endedSessionRows: Set<UUID> = []
+    /// Offer-generation counter, bumped each time an account's waiting offers are dropped. A path that puts an offer back
+    /// after an await captures it first and re-checks it via `offerGenerationUnchanged`, so an offer dropped meanwhile stays
+    /// dropped.
+    private var offerGeneration: [UUID: UInt64] = [:]
     private func pendingOOBOffer(offerID: String, accountID: UUID) -> PendingOOBOffer? {
         incomingOOBOffers.first { $0.offer.offerID == offerID && $0.accountID == accountID }
     }
@@ -213,6 +217,25 @@ public final class FileTransferService {
 
     func setChatService(_ service: ChatService) {
         chatService = service
+    }
+
+    // MARK: - Lifecycle
+
+    /// Drops an account's waiting offers, which died with the connection that carried them, and fails each row still
+    /// waiting on the user. Rows of transfers already under way keep their own outcome. Runs on `.disconnected` and on
+    /// the lifecycle teardowns that bypass it.
+    func purgeAccount(_ accountID: UUID) {
+        offerGeneration[accountID, default: 0] &+= 1
+        incomingOffers.removeAll { $0.accountID == accountID }
+        incomingOOBOffers.removeAll { $0.accountID == accountID }
+        for index in activeTransfers.indices where activeTransfers[index].accountID == accountID {
+            guard case .awaitingAcceptance = activeTransfers[index].state else { continue }
+            setTransferState(.failed(JingleTransferFailureReason.disconnected.displayText), at: index)
+        }
+    }
+
+    private func offerGenerationUnchanged(_ captured: UInt64, for accountID: UUID) -> Bool {
+        offerGeneration[accountID, default: 0] == captured
     }
 
     // MARK: - Shutdown
@@ -280,9 +303,11 @@ public final class FileTransferService {
             finishSession(sid: sid, accountID: accountID, state: .failed(reason.displayText))
         case let .oobIQOfferReceived(offer):
             trackIncomingOOBOffer(offer, accountID: accountID)
+        case .disconnected:
+            purgeAccount(accountID)
         case .jingleChecksumReceived:
             break
-        case .connected, .streamResumed, .disconnected, .authenticationFailed,
+        case .connected, .streamResumed, .authenticationFailed,
              .messageReceived, .presenceReceived, .iqReceived,
              .rosterUpdated,
              .presenceUpdated, .presenceSubscriptionRequest,
@@ -377,14 +402,23 @@ public final class FileTransferService {
             sid: offer.sid
         ))
 
+        let generation = offerGeneration[accountID, default: 0]
         do {
             try await jingleModule.acceptFileTransfer(sid: offer.sid, offerID: offerID)
         } catch {
             // A session-accept that did not go out leaves the session acceptable again, so the offer returns to the banner
-            // for another try — unless the session ended meanwhile and its row already records why.
+            // for another try. It stays out when the session ended meanwhile and its row already records why, or when the
+            // account's offers were dropped meanwhile.
             if !endedSessionRows.contains(rowID) {
-                activeTransfers.removeAll { $0.id == rowID }
-                incomingOffers.append(pending)
+                if offerGenerationUnchanged(generation, for: accountID) {
+                    activeTransfers.removeAll { $0.id == rowID }
+                    incomingOffers.append(pending)
+                } else {
+                    // The disconnect meanwhile took the session with it, and a requested one reports no failure. The row
+                    // is closed off here, so a later session reusing the sid gets its own.
+                    updateTransferState(id: rowID, state: .failed(JingleTransferFailureReason.disconnected.displayText))
+                    endedSessionRows.insert(rowID)
+                }
             }
             throw error
         }
@@ -393,7 +427,8 @@ public final class FileTransferService {
 
     /// Accepts a link a peer offered: the file is downloaded and saved as an accepted Jingle transfer is, and the offer
     /// is answered only once it is on disk (XEP-0066 §2). The offer leaves the banner for the length of the download, so
-    /// a second accept or a decline cannot act on it meanwhile, and a download that fails puts it back for another try.
+    /// a second accept or a decline cannot act on it meanwhile. A download that fails puts it back for another try,
+    /// unless the account's offers were dropped meanwhile.
     private func acceptOOBOffer(_ pending: PendingOOBOffer) async throws {
         let offerID = pending.offer.offerID
         let accountID = pending.accountID
@@ -408,12 +443,18 @@ public final class FileTransferService {
         removeOOBOffer(offerID: offerID)
         updateTransferState(id: pending.rowID, state: .transferring(progress: 0))
 
+        let generation = offerGeneration[accountID, default: 0]
         let download: (fileURL: URL, byteCount: Int64)
         do {
             download = try await Self.downloadRemoteFile(from: url, named: pending.displayFileName, into: downloadsDirectory)
         } catch {
-            updateTransferState(id: pending.rowID, state: .awaitingAcceptance)
-            incomingOOBOffers.append(pending)
+            if offerGenerationUnchanged(generation, for: accountID) {
+                updateTransferState(id: pending.rowID, state: .awaitingAcceptance)
+                incomingOOBOffers.append(pending)
+            } else {
+                // The disconnect meanwhile left nothing to retry against, so the download's own failure is final.
+                updateTransferState(id: pending.rowID, state: .failed(error.localizedDescription))
+            }
             throw error
         }
         await recordReceivedFile(
@@ -494,10 +535,14 @@ public final class FileTransferService {
                 throw FileTransferError.offerNotFound
             }
             removeOOBOffer(offerID: offerID)
+            let generation = offerGeneration[accountID, default: 0]
             do {
                 try await oobModule.rejectOffer(offerID: offerID)
             } catch {
-                incomingOOBOffers.append(pending)
+                // An offer dropped meanwhile already had its row failed with the disconnect.
+                if offerGenerationUnchanged(generation, for: accountID) {
+                    incomingOOBOffers.append(pending)
+                }
                 throw error
             }
             updateTransferState(id: pending.rowID, state: .failed("You declined the transfer"))

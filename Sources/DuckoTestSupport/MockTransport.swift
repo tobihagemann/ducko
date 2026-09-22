@@ -33,7 +33,8 @@ public actor MockTransport: XMPPTransport {
     private var nextPredicateSentWaiterID = 0
     private var predicateSentWaiters: [Int: PredicateSentWaiter] = [:]
     private var blockPredicate: (@Sendable (String) -> Bool)?
-    private var blockedSends: [CheckedContinuation<Void, Never>] = []
+    private var blockedSends: [CheckedContinuation<Void, any Error>] = []
+    private var blockedSendWaiters: [CheckedContinuation<Void, Never>] = []
     private var blockedReleased = false
     private var autoReplies: [@Sendable (String) -> String?] = []
 
@@ -120,7 +121,14 @@ public actor MockTransport: XMPPTransport {
             throw sendFailure
         }
         if let blockPredicate, !blockedReleased, blockPredicate(stanza) {
-            await withCheckedContinuation { blockedSends.append($0) }
+            try await withCheckedThrowingContinuation { continuation in
+                blockedSends.append(continuation)
+                let waiters = blockedSendWaiters
+                blockedSendWaiters.removeAll()
+                for waiter in waiters {
+                    waiter.resume()
+                }
+            }
         }
         sentBytes.append(bytes)
         if let waiter = sentWaiters.removeValue(forKey: sentBytes.count) {
@@ -232,11 +240,26 @@ public actor MockTransport: XMPPTransport {
     }
 
     public func releaseBlockedSends() {
+        resumeBlockedSends(with: .success(()))
+    }
+
+    /// Like `releaseBlockedSends()`, but each held send throws `error` instead of going out.
+    public func failBlockedSends(with error: any Error) {
+        resumeBlockedSends(with: .failure(error))
+    }
+
+    /// Suspends until `blockSends(where:)` holds a send, so a test acts on it only once it is actually in flight.
+    public func waitForBlockedSend() async {
+        guard blockedSends.isEmpty else { return }
+        await withCheckedContinuation { blockedSendWaiters.append($0) }
+    }
+
+    private func resumeBlockedSends(with result: Result<Void, any Error>) {
         blockedReleased = true
         let pending = blockedSends
         blockedSends.removeAll()
         for continuation in pending {
-            continuation.resume()
+            continuation.resume(with: result)
         }
     }
 

@@ -175,9 +175,10 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
     }
 
     struct AbandonedTransport {
-        /// Delivers an offer and the peer's transport-reject, returning once the rejection's failure was reported.
-        private static func receiveRejectedOffer(client: XMPPClient, mock: MockTransport) async throws {
-            let rejected = Task {
+        /// Delivers an offer and the peer's removal of its only content, returning once the abandoned transfer's failure
+        /// was reported.
+        private static func receiveAbandonedOffer(client: XMPPClient, mock: MockTransport) async throws {
+            let abandoned = Task {
                 try await collectEvents(from: client) { event in
                     if case .jingleFileTransferFailed = event { return true }
                     return false
@@ -185,16 +186,16 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
             }
             await mock.simulateReceive(sessionInitiateXML())
             await mock.simulateReceive(
-                "<iq type='set' id='tr-reject-1' from='peer@example.com/res'><jingle xmlns='urn:xmpp:jingle:1' action='transport-reject' sid='sid-123'/></iq>"
+                "<iq type='set' id='content-remove-1' from='peer@example.com/res'><jingle xmlns='urn:xmpp:jingle:1' action='content-remove' sid='sid-123'><content creator='initiator' name='a-file-offer'/></jingle></iq>"
             )
-            _ = try await rejected.value
+            _ = try await abandoned.value
         }
 
         @Test
         func `A terminate for an abandoned transport reports no second failure`() async throws {
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
-            try await Self.receiveRejectedOffer(client: client, mock: mock)
+            try await Self.receiveAbandonedOffer(client: client, mock: mock)
 
             // The offer that follows the terminate marks the point by which a failure would have been reported.
             let eventsTask = Task {
@@ -216,7 +217,7 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
             let mock = MockTransport()
             let client = try await makeConnectedClient(mock: mock)
             let module = try #require(await client.module(ofType: JingleModule.self))
-            try await Self.receiveRejectedOffer(client: client, mock: mock)
+            try await Self.receiveAbandonedOffer(client: client, mock: mock)
 
             // The offer that follows the transport-replace marks the point by which the replace was handled.
             let handled = Task {
@@ -919,17 +920,7 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
 
             let content = XMLElement(name: "content", attributes: ["creator": "initiator", "name": "file-1"])
             try harness.receive(action: action, sid: "sid-1", payload: [content], id: "content-iq")
-            try await Self.expectSingleOutOfOrderError(harness, id: "content-iq")
-        }
-
-        static func expectSingleOutOfOrderError(_ harness: JingleInitiatorHarness, id: String) async throws {
-            let error = try #require(try await harness.sentStanza(matching: JingleInitiatorHarness.isReply(to: id, type: "error")))
-            #expect(error.child(named: "error")?.child(named: "unexpected-request", namespace: XMPPNamespaces.stanzas) != nil)
-            #expect(error.child(named: "error")?.child(named: "out-of-order", namespace: XMPPNamespaces.jingleErrors) != nil)
-            // A later acknowledged IQ marks the point by which a second reply would have been sent.
-            try harness.receive(action: "session-info", sid: "sid-1", id: "sentinel")
-            #expect(try await harness.sentStanza(matching: JingleInitiatorHarness.isReply(to: "sentinel", type: "result")) != nil)
-            #expect(harness.sentStanzaCount { $0.attribute("id") == id } == 1)
+            try await harness.expectSingleOutOfOrderError(to: "content-iq", sid: "sid-1")
         }
     }
 
@@ -941,7 +932,7 @@ enum JingleModuleTests { // swiftlint:disable:this type_body_length
 
             let content = XMLElement(name: "content", attributes: ["creator": "initiator", "name": "file-1"])
             try harness.receive(action: "content-remove", sid: "sid-1", payload: [content], id: "remove-iq")
-            try await ContentRejectHandling.expectSingleOutOfOrderError(harness, id: "remove-iq")
+            try await harness.expectSingleOutOfOrderError(to: "remove-iq", sid: "sid-1")
             #expect(harness.eventCount { if case .jingleFileTransferFailed = $0 { true } else { false } } == 0)
         }
 
