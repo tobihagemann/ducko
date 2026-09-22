@@ -1,10 +1,10 @@
 import Foundation
 
 /// Captured result of a `Skills/ducko-ui/scripts/*.sh` invocation. The scripts
-/// report failures (usage text, "not running") on stderr, so stdout is drained
-/// to avoid a full-pipe deadlock but not retained.
+/// report failures (usage text, "not running") on stderr.
 struct ScriptResult {
     let exitCode: Int32
+    let stdout: String
     let stderr: String
 }
 
@@ -47,14 +47,15 @@ enum ScriptRunner {
         process.standardError = stderrPipe
 
         try process.run()
-        // The scripts emit only short usage lines or osacompile diagnostics, so
-        // a sequential drain cannot fill the pipe buffer and deadlock the child.
-        _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+        // Both streams stay far below the pipe buffer, so a sequential drain
+        // cannot deadlock the child.
+        let stdoutData = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
         let stderrData = stderrPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
         return ScriptResult(
             exitCode: process.terminationStatus,
+            stdout: String(decoding: stdoutData, as: UTF8.self),
             stderr: String(decoding: stderrData, as: UTF8.self)
         )
     }

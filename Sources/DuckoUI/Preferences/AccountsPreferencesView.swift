@@ -13,13 +13,14 @@ struct AccountsPreferencesView: View {
     }
 
     var body: some View {
-        HSplitView {
+        HStack(spacing: 0) {
             accountList
-                .frame(minWidth: 180, maxWidth: 220)
+                .frame(width: 220)
 
             accountDetail
                 .frame(maxWidth: .infinity)
         }
+        .frame(height: 460)
         .task {
             try? await environment.accountService.loadAccounts()
         }
@@ -44,7 +45,7 @@ struct AccountsPreferencesView: View {
     // MARK: - Account List
 
     private var accountList: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             List(accounts, selection: $selectedAccountID) { account in
                 HStack {
                     connectionIndicator(for: account.id)
@@ -58,8 +59,7 @@ struct AccountsPreferencesView: View {
                     }
                 }
             }
-
-            Divider()
+            .listStyle(.bordered)
 
             HStack(spacing: 0) {
                 Button {
@@ -82,8 +82,9 @@ struct AccountsPreferencesView: View {
 
                 Spacer()
             }
-            .padding(6)
+            .padding(.top, 6)
         }
+        .padding([.leading, .vertical])
     }
 
     // MARK: - Account Detail
@@ -205,31 +206,8 @@ private struct AccountDetailView: View {
                         onEdit()
                     }
 
-                    let info = isConnected ? environment.accountService.tlsInfo(for: account.id) : nil
-                    if info != nil {
-                        Button("Connection Info...") {
-                            isShowingConnectionInfo = true
-                        }
-                    }
-
                     if isConnected {
-                        Button("Server Info...") {
-                            isShowingServerInfo = true
-                        }
-
-                        Button("Change Password...") {
-                            isShowingChangePassword = true
-                        }
-
-                        Button("Check Registration...") {
-                            isShowingRegistrationForm = true
-                        }
-                        .accessibilityIdentifier("check-registration-button")
-
-                        Button("Unregister Account...", role: .destructive) {
-                            isCancelAccountConfirmPresented = true
-                        }
-                        .accessibilityIdentifier("cancel-account-button")
+                        actionsMenu
                     }
 
                     Spacer()
@@ -276,6 +254,38 @@ private struct AccountDetailView: View {
                 Text(cancelAccountError)
             }
         }
+    }
+
+    private var actionsMenu: some View {
+        Menu("Actions") {
+            if environment.accountService.tlsInfo(for: account.id) != nil {
+                Button("Connection Info...") {
+                    isShowingConnectionInfo = true
+                }
+            }
+
+            Button("Server Info...") {
+                isShowingServerInfo = true
+            }
+
+            Divider()
+
+            Button("Change Password...") {
+                isShowingChangePassword = true
+            }
+
+            Button("Check Registration...") {
+                isShowingRegistrationForm = true
+            }
+
+            Divider()
+
+            Button("Unregister Account...", role: .destructive) {
+                isCancelAccountConfirmPresented = true
+            }
+        }
+        .fixedSize()
+        .accessibilityIdentifier("account-actions-menu")
     }
 
     private var connectionLabel: String {

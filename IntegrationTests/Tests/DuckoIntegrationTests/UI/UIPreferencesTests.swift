@@ -49,10 +49,10 @@ extension DuckoIntegrationTests.UILayer {
             if: AppAccessor.appBundleExists && AppAccessor.isAccessibilityTrusted && CLIProcess.binaryExists,
             "Ducko.app missing, AX trust not granted, or DuckoCLI binary missing"
         ))
-        @MainActor func `accounts detail pane shows connection info and change password`() async throws {
+        @MainActor func `accounts detail pane opens each Actions menu sheet`() async throws {
             try await UISeededApp.withSeededApp { app in
                 // Gate on a connected account before opening prefs so the detail
-                // pane's `isConnected`-gated buttons render. Wait on Bob (a
+                // pane's `isConnected`-gated Actions menu renders. Wait on Bob (a
                 // roster contact with a `contact-row-` element) rather than Alice:
                 // Alice is the seeded self account and has no roster row of her
                 // own, so `waitForContactRow(.alice)` would time out.
@@ -66,24 +66,28 @@ extension DuckoIntegrationTests.UILayer {
                 let alice = TestCredentials.alice
                 try await app.selectListRow(containingSubstring: alice.jid, underIdentifier: "preferences-window")
 
-                // `Change Password...` is gated only on `isConnected`, so it is
-                // the hard assertion. Match the exact published labels (literal
-                // ASCII `...`) via the description-aware lookup — a plain
-                // `containsDescendant` reads title/value only and would
-                // false-negative on these description-only `Button("…")` labels.
-                try await app.waitForDescendantButton(
-                    label: "Change Password...",
-                    underIdentifier: "preferences-window"
-                )
+                // The Actions pull-down renders only while connected.
+                try await app.waitForElement(identifier: "account-actions-menu", timeout: TestTimeout.uiElement)
+                try await app.pressMenuItem(title: "Change Password...", identifier: "account-actions-menu")
+                try await app.waitForElement(identifier: "new-password-field", timeout: TestTimeout.uiElement)
+                try await app.pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+                try await app.waitForSheetDismissed()
 
-                try await app.waitForDescendantButton(
-                    label: "Connection Info...",
-                    underIdentifier: "preferences-window"
-                )
-                try await app.clickDescendantButton(
-                    label: "Connection Info...",
-                    underIdentifier: "preferences-window"
-                )
+                // Server Info and Check Registration both fetch on appear, so their
+                // sheet containers mount while the request is still in flight. Wait
+                // on an element only the settled states render. What the server
+                // answers is not asserted — every settled state is a pass.
+                try await app.pressMenuItem(title: "Server Info...", identifier: "account-actions-menu")
+                try await app.waitForElement(identifier: "server-info-content", timeout: TestTimeout.uiElement)
+                try await app.pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+                try await app.waitForSheetDismissed()
+
+                try await app.pressMenuItem(title: "Check Registration...", identifier: "account-actions-menu")
+                try await app.waitForElement(identifier: "registration-form-content", timeout: TestTimeout.uiElement)
+                try await app.pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+                try await app.waitForSheetDismissed()
+
+                try await app.pressMenuItem(title: "Connection Info...", identifier: "account-actions-menu")
                 try await app.waitForElement(identifier: "cipherSuite", timeout: TestTimeout.uiElement)
                 let cipherUnavailable = try await app.containsDescendant(
                     role: kAXStaticTextRole as String,
@@ -96,23 +100,18 @@ extension DuckoIntegrationTests.UILayer {
                 try await app.clickSheetButton(label: "Done")
                 try await app.waitForSheetDismissed()
 
-                try await app.clickDescendantButton(
-                    label: "Connection Info...",
-                    underIdentifier: "preferences-window"
-                )
+                try await app.pressMenuItem(title: "Connection Info...", identifier: "account-actions-menu")
                 try await app.waitForElement(identifier: "cipherSuite", timeout: TestTimeout.uiElement)
                 try await app.pressKey(CGKeyCode(kVK_Escape), modifiers: [])
                 try await app.waitForSheetDismissed()
 
-                try await app.clickDescendantButton(
-                    label: "Connection Info...",
-                    underIdentifier: "preferences-window"
-                )
+                try await app.pressMenuItem(title: "Connection Info...", identifier: "account-actions-menu")
                 try await app.waitForElement(identifier: "cipherSuite", timeout: TestTimeout.uiElement)
                 try await app.activateWindow(named: "Contacts")
                 try await app.pickPopUpItem(title: "Offline", identifier: "status-picker")
                 try await app.waitForDescendantButton(label: "Connect", underIdentifier: "preferences-window")
                 try await app.waitForSheetDismissed()
+                try await app.waitForAbsence(identifier: "account-actions-menu")
             }
         }
     }

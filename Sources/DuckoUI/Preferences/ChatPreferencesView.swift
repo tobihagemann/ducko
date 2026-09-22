@@ -26,5 +26,6 @@ struct ChatPreferencesView: View {
             }
         }
         .formStyle(.grouped)
+        .frame(height: 300)
     }
 }

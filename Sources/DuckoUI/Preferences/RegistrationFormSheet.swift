@@ -23,14 +23,11 @@ struct RegistrationFormSheet: View {
             if isLoading {
                 ProgressView("Loading registration form...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage, formInfo == nil {
-                ContentUnavailableView(
-                    "Failed to load registration form",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage)
-                )
-            } else if let formInfo {
-                formContent(formInfo)
+            } else {
+                loadedContent
+                    // Only the settled states carry this, so automation can tell
+                    // a loaded sheet from one still waiting on the server.
+                    .accessibilityIdentifier("registration-form-content")
             }
 
             HStack {
@@ -57,7 +54,21 @@ struct RegistrationFormSheet: View {
         .task {
             await loadForm()
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("registration-form-sheet")
+    }
+
+    @ViewBuilder
+    private var loadedContent: some View {
+        if let errorMessage, formInfo == nil {
+            ContentUnavailableView(
+                "Failed to load registration form",
+                systemImage: "exclamationmark.triangle",
+                description: Text(errorMessage)
+            )
+        } else if let formInfo {
+            formContent(formInfo)
+        }
     }
 
     private func formContent(_ info: RegistrationFormInfo) -> some View {

@@ -47,6 +47,47 @@ struct ScriptValidationTests {
         ])
         #expect(result.exitCode == 0, "osacompile failed: \(result.stderr)")
     }
+
+    @Test(arguments: [("", true), ("continue", false)])
+    func `ducko_as_click_context_menu_item returns only in its default mode`(_ mode: String, _ expectsReturn: Bool) throws {
+        // `ducko-change-password.sh` keeps filling the sheet after the click, so
+        // an `ok` return emitted in continue mode would end the script early
+        // while reporting success.
+        let emitted = try emitContextMenuSnippet(mode: mode)
+        #expect(emitted.contains("click menuItem"))
+        #expect(emitted.contains("return \"ok\"") == expectsReturn)
+    }
+
+    @Test func `ducko_as_click_context_menu_item falls back to AXPress`() throws {
+        // A `Menu` hosted in a grouped `Form` advertises no AXShowMenu and
+        // returns success without opening the menu, so losing this branch would
+        // leave the Actions pull-down shut and every item lookup failing.
+        let emitted = try emitContextMenuSnippet(mode: "")
+        #expect(emitted.contains("if \"AXShowMenu\" is in (name of actions of targetElem)"))
+        #expect(emitted.contains("perform action \"AXPress\" of targetElem"))
+    }
+
+    @Test func `ducko_as_click_context_menu_item reports a missing item`() throws {
+        let emitted = try emitContextMenuSnippet(mode: "")
+        #expect(emitted.contains("return \"ERROR: Reply menu item not found\""))
+        #expect(emitted.contains("if frontmost then key code 53"))
+    }
+
+    @Test func `ducko-change-password keeps filling the sheet after the menu click`() throws {
+        let captured = try ScriptRunner.capture("ducko-change-password.sh", arguments: ["pw"])
+        #expect(captured.source.contains("keystroke newPw"))
+        #expect(captured.source.components(separatedBy: "return \"ok\"").count - 1 == 1)
+    }
+
+    private func emitContextMenuSnippet(mode: String) throws -> String {
+        let helpers = ScriptRunner.scriptsDirectory.appendingPathComponent("ducko-helpers.sh").path
+        let result = try ScriptRunner.bash([
+            "-c",
+            "source \"$1\"; ducko_as_click_context_menu_item Reply targetElem targetWin \"\" \"$2\"",
+            "bash", helpers, mode
+        ])
+        return result.stdout
+    }
 }
 
 private extension ScriptValidationTests {
@@ -99,5 +140,6 @@ private let handlerScriptCases: [HandlerScriptCase] = [
     HandlerScriptCase(script: "ducko-room-settings-tab.sh", arguments: ["Members"], appleScriptArguments: ["-", "Members"]),
     HandlerScriptCase(script: "ducko-room-topic.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument]),
     HandlerScriptCase(script: "ducko-select-mode.sh", arguments: ["Register"], appleScriptArguments: ["-", "Register"]),
+    HandlerScriptCase(script: "ducko-reply.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument]),
     HandlerScriptCase(script: "ducko-connection-info.sh", arguments: [], appleScriptArguments: [], invocations: ["ducko-preferences.sh", "ducko-preferences-tab.sh", "osascript"])
 ]

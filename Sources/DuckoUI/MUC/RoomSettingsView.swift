@@ -24,7 +24,7 @@ struct RoomSettingsView: View {
                     Text(tab.rawValue).tag(tab)
                 }
             }
-            .pickerStyle(.segmented)
+            .roomSettingsTabsPickerStyle()
             .padding()
 
             Divider()
@@ -72,6 +72,17 @@ struct RoomSettingsView: View {
             Text("This will permanently destroy the room and remove all occupants. This action cannot be undone.")
         }
         .accessibilityIdentifier("room-settings-view")
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func roomSettingsTabsPickerStyle() -> some View {
+        if #available(macOS 27, *) {
+            pickerStyle(.tabs)
+        } else {
+            pickerStyle(.segmented)
+        }
     }
 }
 

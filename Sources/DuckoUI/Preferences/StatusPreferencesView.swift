@@ -23,7 +23,7 @@ struct StatusPreferencesView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             List(savedStatuses, selection: $selection) { saved in
                 HStack(spacing: 8) {
                     PresenceIndicator(status: saved.status)
@@ -36,6 +36,7 @@ struct StatusPreferencesView: View {
                 }
                 .tag(saved.id)
             }
+            .listStyle(.bordered)
             .overlay {
                 if savedStatuses.isEmpty {
                     Text("No saved statuses. Add one to reuse it from the status menu.")
@@ -45,8 +46,6 @@ struct StatusPreferencesView: View {
                         .padding()
                 }
             }
-
-            Divider()
 
             HStack(spacing: 0) {
                 Button {
@@ -68,8 +67,10 @@ struct StatusPreferencesView: View {
 
                 Spacer()
             }
-            .padding(6)
+            .padding(.top, 6)
         }
+        .padding()
+        .frame(height: 420)
         .sheet(isPresented: $isShowingAddSheet) {
             SavedStatusAddSheet()
         }

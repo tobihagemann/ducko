@@ -39,12 +39,11 @@ Settings {
         Tab("General", systemImage: "gear") { GeneralSettingsView() }
         Tab("Advanced", systemImage: "star") { AdvancedSettingsView() }
     }
-    .scenePadding()
-    .frame(maxWidth: 350, minHeight: 100)
+    .frame(width: 500)
 }
 ```
 
-Use `TabView` with `Tab` items for multi-pane preferences. Each tab's content is typically a `Form` with `@AppStorage`-backed controls.
+Use `TabView` with `Tab` items for multi-pane preferences. Each tab's content is typically a `Form` with `@AppStorage`-backed controls. Give the `TabView` one shared width and each pane its own height, so the window resizes to the pane without shifting the toolbar buttons — see [components/macos-settings.md](components/macos-settings.md).
 
 ### SettingsLink (macOS 14.0+)
 

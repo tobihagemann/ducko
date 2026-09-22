@@ -165,18 +165,27 @@ ducko_as_find_message_by_text() {
 EOF
 }
 
-# Right-click an element and select a named menu item.
-# After AXShowMenu the transient SwiftUI menu may render at process level (a
-# sibling of the windows) or under the window, so search the process's menus
-# first, then fall back to walking the window subtree.
-# Args: menu_item_name source_var [window_var] [error_msg]
+# Open an element's menu (a right-click context menu or a SwiftUI `Menu`
+# pull-down) and select a named menu item. AXShowMenu returns success without
+# opening the menu on a control that does not advertise it, such as a `Menu`
+# inside a grouped `Form`.
+# The transient SwiftUI menu may render at process level (a sibling of the
+# windows) or under the window, so search the process's menus first, then fall
+# back to walking the window subtree. A missing item keys Escape while DuckoApp
+# is still frontmost, so the open menu can't swallow later scripts' input.
+# Args: menu_item_name source_var [window_var] [error_msg] [on_success]
 ducko_as_click_context_menu_item() {
     local menu_item_name="$1"
     local source_var="${2:-targetElem}"
     local window_var="${3:-targetWin}"
     local error_msg="${4:-${menu_item_name} menu item not found}"
+    local on_success="${5:-return}"
     cat << EOF
-            perform action "AXShowMenu" of ${source_var}
+            if "AXShowMenu" is in (name of actions of ${source_var}) then
+                perform action "AXShowMenu" of ${source_var}
+            else
+                perform action "AXPress" of ${source_var}
+            end if
             delay 0.5
             set menuItem to missing value
             repeat with m in menus
@@ -184,10 +193,15 @@ ducko_as_click_context_menu_item() {
                 if menuItem is not missing value then exit repeat
             end repeat
             if menuItem is missing value then set menuItem to my findByRoleAndName(${window_var}, "AXMenuItem", "${menu_item_name}", 0, 30)
-            if menuItem is missing value then return "ERROR: ${error_msg}"
+            if menuItem is missing value then
+                if frontmost then key code 53
+                return "ERROR: ${error_msg}"
+            end if
             click menuItem
-            return "ok"
 EOF
+    if [[ "$on_success" == return ]]; then
+        echo '            return "ok"'
+    fi
 }
 
 # Navigate a file picker via Cmd+Shift+G.

@@ -2,8 +2,9 @@
 # Switch to a specific tab in the Room Settings sheet.
 # The Room Settings sheet must already be open (use ducko-room-settings.sh first).
 #
-# The tabs are a SwiftUI segmented Picker rendered as AXRadioButtons whose label
-# is exposed via AXDescription (AXTitle/name is empty on macOS 26), and the sheet
+# The tabs are a SwiftUI Picker: `.tabs` style on macOS 27, `.segmented` below.
+# Either way the segments expose their label through AXDescription and leave
+# AXTitle/name empty, so the lookup matches on that attribute. The sheet
 # is found via findByAttr rather than `entire contents`, which collapses on the
 # nested hierarchy.
 # Usage: ducko-room-settings-tab.sh <General|Members>

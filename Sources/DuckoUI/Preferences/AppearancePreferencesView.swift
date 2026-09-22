@@ -65,6 +65,7 @@ struct AppearancePreferencesView: View {
             }
         }
         .formStyle(.grouped)
+        .frame(height: 420)
     }
 
     private var themePreview: some View {

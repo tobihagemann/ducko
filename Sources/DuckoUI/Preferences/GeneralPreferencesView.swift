@@ -15,5 +15,6 @@ struct GeneralPreferencesView: View {
             }
         }
         .formStyle(.grouped)
+        .frame(height: 200)
     }
 }

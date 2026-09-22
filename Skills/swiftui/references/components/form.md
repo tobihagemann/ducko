@@ -93,5 +93,6 @@ struct AddRemoteServerView: View {
 ## Pitfalls
 
 - Avoid heavy custom layouts inside a `Form`; it can lead to spacing issues.
+- A `Menu` in a grouped `Form` row renders in the form's own pull-down style (label plus a chevron) and ignores `.menuStyle` and `.buttonStyle`, so it never takes the bezel of the plain buttons beside it. In accessibility it advertises only `AXPress`: `AXShowMenu` reports success without opening it, so UI automation must pick the action from the element's advertised list.
 - If you need highly custom layouts, prefer `ScrollView` + `VStack`.
 - Don’t mix multiple background strategies; pick either default Form styling or custom colors.

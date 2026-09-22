@@ -31,5 +31,6 @@ struct AdvancedPreferencesView: View {
             }
         }
         .formStyle(.grouped)
+        .frame(height: 300)
     }
 }

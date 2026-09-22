@@ -3,9 +3,9 @@
 # Uses script composition to ensure the Accounts tab is active first.
 #
 # Best-effort: selecting the account row drives a SwiftUI `List(selection:)`,
-# which synthetic clicks cannot reliably trigger, and the "Connection Info…"
-# button only appears once the account is connected. The button is located via
-# findByRoleAndName rather than `entire contents`, which collapses on macOS 26.
+# which synthetic clicks cannot reliably trigger. The Actions pull-down holding
+# "Connection Info…" only appears once the account is connected. It is located
+# via findByAttr rather than `entire contents`, which collapses on macOS 26.
 # Usage: ducko-connection-info.sh [open|close]
 # Closing requires DUCKO_PID to target the intended instance.
 set -euo pipefail
@@ -50,28 +50,29 @@ on run
     tell application "System Events"
         set frontmost of process "DuckoApp" to true
         delay 0.5
-        -- Select the first account so the detail pane (with Connection Info) renders.
+        -- Select the first account so the detail pane (with the Actions pull-down) renders.
+        set prefsWin to missing value
         repeat with win in (windows of process "DuckoApp")
             set acctRow to my findAccountRow(win, 0, 30)
             if acctRow is not missing value then
+                set prefsWin to contents of win
                 try
                     click acctRow
                 end try
                 exit repeat
             end if
         end repeat
+        if prefsWin is missing value then return "ERROR: account row not found"
         delay 0.4
 
-        -- Find the Connection Info… button in any window.
-        repeat with win in (windows of process "DuckoApp")
-            set btn to my findByRoleAndName(win, "AXButton", "Connection Info...", 0, 30)
-            if btn is not missing value then
-                click btn
-                delay 0.5
-                return "ok"
-            end if
-        end repeat
-        return "ERROR: Connection Info... button not found (is the account connected?)"
+        -- A SwiftUI Menu bridges as a menu/pop-up button, not AXButton, so match by identifier alone.
+        set actionsMenu to my findByAttr(prefsWin, "AXIdentifier", "account-actions-menu", 0, 30)
+        if actionsMenu is missing value then return "ERROR: Actions menu not found (is an account row selected and connected?)"
+        tell process "DuckoApp"
+$(ducko_as_click_context_menu_item "Connection Info..." 'actionsMenu' 'prefsWin' "Connection Info... menu item not found (does the account have TLS info?)" continue)
+        end tell
+        delay 0.5
+        return "ok"
     end tell
 end run
 APPLESCRIPT

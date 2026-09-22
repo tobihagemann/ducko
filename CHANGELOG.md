@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Changed
+
+- Fit the Settings window to the pane you are viewing, keeping the toolbar buttons in place as you switch panes
+- Gather the account actions in Settings ▸ Accounts into an Actions menu, so their labels read in full instead of being cut to a letter
+- Show the account and saved-status lists as bordered lists with add and remove buttons beneath them
+
+### Removed
+
+- Remove the Notifications settings pane, whose sound and Do Not Disturb switches had no effect
+
+### Fixed
+
+- Close the Server Info sheet with Escape, as the other account sheets already do
+
 ## [0.2.1] - 2026-09-22
 
 ### Changed

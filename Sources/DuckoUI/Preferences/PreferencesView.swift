@@ -1,32 +1,38 @@
 import SwiftUI
 
+/// Panes share one width so the centered toolbar stays put, and each pane sets
+/// its own height, which the `Settings` window resizes to. The `Settings` scene
+/// restores the last-viewed tab itself.
 public struct PreferencesView: View {
     public init() {}
 
     public var body: some View {
         TabView {
-            GeneralPreferencesView()
-                .tabItem { Label("General", systemImage: "gearshape") }
+            Tab("General", systemImage: "gearshape") {
+                GeneralPreferencesView()
+            }
 
-            AccountsPreferencesView()
-                .tabItem { Label("Accounts", systemImage: "person.crop.circle") }
+            Tab("Accounts", systemImage: "person.crop.circle") {
+                AccountsPreferencesView()
+            }
 
-            ChatPreferencesView()
-                .tabItem { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
+            Tab("Chat", systemImage: "bubble.left.and.bubble.right") {
+                ChatPreferencesView()
+            }
 
-            StatusPreferencesView()
-                .tabItem { Label("Status", systemImage: "circle.lefthalf.filled") }
+            Tab("Status", systemImage: "circle.lefthalf.filled") {
+                StatusPreferencesView()
+            }
 
-            AppearancePreferencesView()
-                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+            Tab("Appearance", systemImage: "paintbrush") {
+                AppearancePreferencesView()
+            }
 
-            NotificationsPreferencesView()
-                .tabItem { Label("Notifications", systemImage: "bell") }
-
-            AdvancedPreferencesView()
-                .tabItem { Label("Advanced", systemImage: "wrench.and.screwdriver") }
+            Tab("Advanced", systemImage: "wrench.and.screwdriver") {
+                AdvancedPreferencesView()
+            }
         }
-        .frame(width: 550, height: 400)
+        .frame(width: 600)
         .accessibilityIdentifier("preferences-window")
     }
 }

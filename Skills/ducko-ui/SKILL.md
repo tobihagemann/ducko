@@ -131,6 +131,8 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `connection-info-view` | TLS details sheet container | Connection Info |
 | `connection-info-done-button` | Done button; Return or Escape also dismisses | Connection Info |
 | `certFingerprint` | Certificate SHA-256 fingerprint | Connection Info |
+| `server-info-view` | Server contact-info sheet container; Done, Return or Escape dismisses | Server Info |
+| `server-info-content` | Settled (non-loading) content; wait on this rather than the sheet container, which mounts while the server request is still in flight | Server Info |
 | `message-list` | Scrollable message list container | Chat |
 | `message-bubble-{id}` | Individual message bubble (id is ChatMessage.id) | Chat |
 | `retracted-message` | Retracted message tombstone | Chat |
@@ -161,9 +163,9 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `file-transfer-banner` | Incoming file offer banner, one row per offer | Chat |
 | `accept-file-transfer-button` | Accept button on an incoming file offer | Chat |
 | `decline-file-transfer-button` | Decline button on an incoming file offer | Chat |
-| `cancel-account-button` | Cancel Account button | Account Detail |
-| `check-registration-button` | Check Registration button | Account Detail |
+| `account-actions-menu` | Actions pull-down in the account detail, shown only while connected; its items carry no identifiers, so address them by title | Account Detail |
 | `registration-form-sheet` | Registration form sheet | Registration |
+| `registration-form-content` | Settled (non-loading) content; wait on this rather than the sheet container, which mounts while the server request is still in flight | Registration |
 | `registration-submit-button` | Submit button in registration form | Registration |
 | `registration-username-field` | Username field in registration form | Registration |
 | `registration-password-field` | Password field in registration form | Registration |
@@ -186,6 +188,8 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `roster-notice` | Persistent contact-change notice, with a “Dismiss notice” button and Escape shortcut | Contacts |
 | `contact-info-roster-notice` | Persistent removal notice, with a “Dismiss notice” button and Escape shortcut | Contact Info |
 | `contact-context-remove` | Remove Contact context-menu item | Contacts |
+
+The `account-actions-menu` items, in menu order: Connection Info... (only when the account has TLS info), Server Info..., Change Password..., Check Registration..., Unregister Account...
 
 ## Context Menu Features
 
@@ -248,7 +252,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-avatar.sh` | Upload an avatar image via profile sheet | `IMAGE_PATH` |
 | `ducko-avatar-remove.sh` | Remove current avatar via profile sheet | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
-| `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Status\|Appearance\|Notifications\|Advanced>` |
+| `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Status\|Appearance\|Advanced>` |
 | `ducko-status.sh` | Set presence status and optional status message (best-effort; the borderless status `Menu` isn't reliably scriptable via osascript — see UIPresenceTests) | `STATUS [MESSAGE]` (`STATUS`: available\|away\|xa\|dnd\|offline) |
 | `ducko-bookmarks.sh` | Open the Bookmarks sheet from the File menu (⌘⇧B) | none |
 | `ducko-add-bookmark.sh` | Add a bookmark via the Bookmarks sheet | `ROOM_JID [NICKNAME]` |
@@ -483,8 +487,8 @@ $SCRIPTS/ducko-launch.sh
 # 2. Open Preferences (Cmd+,)
 $SCRIPTS/ducko-preferences.sh
 
-# 3. Screenshot to verify preferences window (General tab by default)
-$SCRIPTS/ducko-screenshot.sh "preferences-general.png"
+# 3. Screenshot to verify preferences window (opens on the last-viewed pane)
+$SCRIPTS/ducko-screenshot.sh "preferences-initial.png"
 
 # 4. Navigate to Accounts tab
 $SCRIPTS/ducko-preferences-tab.sh Accounts
@@ -498,9 +502,7 @@ $SCRIPTS/ducko-screenshot.sh "preferences-chat.png"
 $SCRIPTS/ducko-preferences-tab.sh Appearance
 $SCRIPTS/ducko-screenshot.sh "preferences-appearance.png"
 
-# 7. Navigate to Notifications and Advanced tabs
-$SCRIPTS/ducko-preferences-tab.sh Notifications
-$SCRIPTS/ducko-screenshot.sh "preferences-notifications.png"
+# 7. Navigate to Advanced tab
 $SCRIPTS/ducko-preferences-tab.sh Advanced
 $SCRIPTS/ducko-screenshot.sh "preferences-advanced.png"
 
@@ -856,11 +858,13 @@ To allow these scripts in `settings.local.json` without prompts:
 - App activation uses `set frontmost of process` (works with SwiftPM builds).
 - When the app is **not frontmost** it sends XEP-0352 `CSI inactive`, and the server queues MUC presence/subject pushes until `CSI active` — so verifying any **live** update (subject, participant count, presence) requires the app frontmost first, or the observation reads stale.
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
-- Element targeting uses recursive UI-element-tree walks (`findByAttr` and siblings) because `entire contents` silently collapses on deeply nested SwiftUI / NSTableView accessibility trees on macOS 26. Scripts that need these handlers source `ducko-helpers.sh` and emit `$(ducko_as_handlers)` in an unquoted heredoc. Scripts targeting shallow sheets, such as New Chat, Add Contact and Join Room, still use `entire contents` where it reaches their controls. SwiftUI segmented `Picker` segments and Room Settings tabs expose their label through `AXDescription`, so scripts match that attribute.
-- The scripts marked best-effort in the Script Reference table (`ducko-status.sh`, `ducko-chat-tabs.sh`, `ducko-connection-info.sh`, `ducko-change-password.sh`) hit osascript limitations covered authoritatively by the integration suite instead; each table row names the specific control and test.
+- Element targeting uses recursive UI-element-tree walks (`findByAttr` and siblings) because `entire contents` silently collapses on deeply nested SwiftUI / NSTableView accessibility trees on macOS 26. Scripts that need these handlers source `ducko-helpers.sh` and emit `$(ducko_as_handlers)` in an unquoted heredoc. Scripts targeting shallow sheets, such as New Chat, Add Contact and Join Room, still use `entire contents` where it reaches their controls. SwiftUI `Picker` segments and Room Settings tabs expose their label through `AXDescription`, so scripts match that attribute.
+- The scripts marked best-effort in the Script Reference table (`ducko-status.sh`, `ducko-chat-tabs.sh`, `ducko-connection-info.sh`, `ducko-change-password.sh`) hit osascript limitations covered authoritatively by the integration suite instead; each table row names the specific control. `ducko-connection-info.sh` and `ducko-change-password.sh` are covered by `UIPreferencesTests`' "accounts detail pane opens each Actions menu sheet".
 - The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Pass runtime values as arguments to `osascript -` and read them with `on run argv`. Keep them out of the generated AppleScript source.
 - Credentials are arguments, never hardcoded.
 - When the user drives the GUI on a profile, pause these scripts: `ducko-launch.sh`, `ducko-stop.sh` and `ducko-connect.sh` kill every DuckoApp this checkout built, regardless of profile. Run CLI or integration tests meanwhile on other `DUCKO_PROFILE`s and accounts, so their offers and messages stay out of the user's window. Hand the GUI over by running `swift build` and launching `DUCKO_PROFILE=<name> .build/debug/DuckoApp` (a packaged bundle can be stale).
 - The installed production app's executable is also named `DuckoApp`, and `swift run` launches the build product by a path relative to the checkout (`.build/out/Products/Debug/DuckoApp`). Anchor any process match for the dev app to this checkout's paths and accept the relative form, as `ducko-stop.sh` does.
-- While the production app runs, System Events `process "DuckoApp"` can resolve to it, so the helper scripts, which target the app by that name, can act on production. Drive the dev instance through PID-targeted AX (`AXUIElementCreateApplication(pid)`, as `ducko-dismiss.swift` does). AX actions need no focus: `AXShowMenu` on a `contact-row-*` followed by pressing its "Start Chat" menu item opens a chat, and `AXPress` works on `status-picker` and on segmented-picker radios. Prefer these to synthesized mouse clicks, which land on whatever window is frontmost.
+- While the production app runs, System Events `process "DuckoApp"` can resolve to it, so the helper scripts, which target the app by that name, can act on production. Drive the dev instance through PID-targeted AX (`AXUIElementCreateApplication(pid)`, as `ducko-dismiss.swift` does). AX actions need no focus: `AXShowMenu` on a `contact-row-*` followed by pressing its "Start Chat" menu item opens a chat, and `AXPress` works on `status-picker` and on picker radios. Open a menu with whichever action the element advertises — `AXShowMenu` returns success without opening the menu on a control that does not advertise it, such as `account-actions-menu`, a `Menu` inside a grouped `Form`, which advertises only `AXPress`. `AppAccessor.pressMenuItem` and `ducko_as_click_context_menu_item` both branch on the advertised action list. Prefer these to synthesized mouse clicks, which land on whatever window is frontmost.
+- Another agent session working in this repo can have its own DuckoApp up, including one built from a git worktree, and `process "DuckoApp"` resolves to whichever instance the system picks. Its clicks then land in that app and its failures read as script flakes. List the peer sessions, ask before driving the GUI, and say when you are done. Only the close paths take a `DUCKO_PID` (`ducko-connection-info.sh close`, `ducko-dismiss-roster-notice.sh`); every open path matches by name, so to scope one, copy `scripts/` to a scratch directory and replace `process "DuckoApp"` with `(first application process whose unix id is <pid>)`. The integration harness is unaffected, since `AppAccessor` targets by PID.
+- A sheet that fetches on appear needs an identifier on its settled (non-loading) content, not only on the sheet container: the container mounts while the request is in flight, so a wait on it passes before the fetch resolves and cannot fail when the fetch breaks. `server-info-content` and `registration-form-content` follow this; give new loading sheets the same pair.

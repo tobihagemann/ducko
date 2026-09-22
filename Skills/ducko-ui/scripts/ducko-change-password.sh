@@ -1,7 +1,7 @@
 #!/bin/bash
 # Change account password via Preferences > Accounts.
 # Opens Preferences on the Accounts tab, selects the account, opens the
-# Change Password sheet, fills the fields, and submits.
+# Change Password sheet from the Actions pull-down, fills the fields, and submits.
 #
 # Best-effort: selecting the account row drives a SwiftUI `List(selection:)`,
 # which synthetic clicks cannot reliably trigger. Fields and buttons are located
@@ -63,9 +63,12 @@ on run argv
         if prefsWin is missing value then return "ERROR: account row not found"
         delay 0.4
 
-        set cpBtn to my findByRoleAndName(prefsWin, "AXButton", "Change Password...", 0, 30)
-        if cpBtn is missing value then return "ERROR: Change Password button not found"
-        click cpBtn
+        -- A SwiftUI Menu bridges as a menu/pop-up button, not AXButton, so match by identifier alone.
+        set actionsMenu to my findByAttr(prefsWin, "AXIdentifier", "account-actions-menu", 0, 30)
+        if actionsMenu is missing value then return "ERROR: Actions menu not found (is an account row selected and connected?)"
+        tell process "DuckoApp"
+$(ducko_as_click_context_menu_item "Change Password..." 'actionsMenu' 'prefsWin' "" continue)
+        end tell
         delay 0.5
 
         set newField to my findByAttr(prefsWin, "AXIdentifier", "new-password-field", 0, 30)

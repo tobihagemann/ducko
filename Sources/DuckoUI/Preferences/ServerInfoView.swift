@@ -15,16 +15,11 @@ struct ServerInfoView: View {
             if isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let serverInfo, !serverInfo.contactAddresses.isEmpty {
-                addressList(serverInfo)
-            } else if let errorMessage {
-                Text(errorMessage)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                Text("No server contact information available.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                loadedContent
+                    // Only the settled states carry this, so automation can tell
+                    // a loaded sheet from one still waiting on the server.
+                    .accessibilityIdentifier("server-info-content")
             }
 
             Divider()
@@ -41,6 +36,24 @@ struct ServerInfoView: View {
         .frame(width: 400, height: 300)
         .task {
             await loadServerInfo()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("server-info-view")
+        .onExitCommand { dismiss() }
+    }
+
+    @ViewBuilder
+    private var loadedContent: some View {
+        if let serverInfo, !serverInfo.contactAddresses.isEmpty {
+            addressList(serverInfo)
+        } else if let errorMessage {
+            Text(errorMessage)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Text("No server contact information available.")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 

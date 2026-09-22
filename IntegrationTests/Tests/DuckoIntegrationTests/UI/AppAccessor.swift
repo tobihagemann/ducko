@@ -871,7 +871,12 @@ actor AppAccessor { // swiftlint:disable:this type_body_length
         if let pid = process?.processIdentifier {
             await Self.activateApp(pid: pid)
         }
-        let showErr = AXUIElementPerformAction(menuButton, kAXShowMenuAction as CFString)
+        // `AXShowMenu` reports success without opening the menu on a control that
+        // does not advertise it, such as a `Menu` hosted in a grouped `Form`.
+        var actionNames: CFArray?
+        AXUIElementCopyActionNames(menuButton, &actionNames)
+        let openAction = ((actionNames as? [String]) ?? []).contains(kAXShowMenuAction) ? kAXShowMenuAction : kAXPressAction
+        let showErr = AXUIElementPerformAction(menuButton, openAction as CFString)
         if showErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
         try await waitForShownMenu(on: menuButton, identifier: identifier)
 
