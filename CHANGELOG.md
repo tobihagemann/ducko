@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-23
+
 ### Added
 
 - Add Get Info (⇧⌘I), History (⌘L), and Send File… (⇧⌘F) to the Contact menu for the selected contact or the active chat, and a ⌘⌫ shortcut for Remove Contact…
@@ -146,7 +148,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Initial release.
 
-[Unreleased]: https://github.com/tobihagemann/ducko/compare/0.2.1...HEAD
+[Unreleased]: https://github.com/tobihagemann/ducko/compare/0.3.0...HEAD
+[0.3.0]: https://github.com/tobihagemann/ducko/compare/0.2.1...0.3.0
 [0.2.1]: https://github.com/tobihagemann/ducko/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/tobihagemann/ducko/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/tobihagemann/ducko/compare/0.0.2...0.1.0
