@@ -103,7 +103,7 @@ public final class FileTransferService {
             case let .fileSaveFailed(reason): "Could not save the file: \(reason)"
             case let .downloadFailed(reason): "Could not download the file: \(reason)"
             case .offerNotFound: "The file offer is no longer waiting"
-            case .noClient: "Not connected to the server"
+            case .noClient: notConnectedDescription
             case .noUploadModule: "File upload is not available"
             case .noJingleModule: "Direct file transfer is not available"
             case let .uploadFailed(reason): "Upload failed: \(reason)"

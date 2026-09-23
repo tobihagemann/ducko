@@ -39,26 +39,11 @@ on run
         end repeat
         if destroyBtn is missing value then return "ERROR: room-settings-destroy button not found"
         click destroyBtn
-        delay 0.5
-
-        -- Confirm the destruction in the confirmation dialog.
-        set confirmBtn to missing value
-        repeat with win in (windows of process "DuckoApp")
-            set confirmBtn to my findByRoleAndName(win, "AXButton", "Destroy", 0, 30)
-            if confirmBtn is not missing value then
-                click confirmBtn
-                return "ok"
-            end if
-        end repeat
-        return "ERROR: Destroy confirmation button not found"
+        $(ducko_as_click_button_by_label "Destroy" 'destroyWin' 'Destroy confirmation button not found')
+        return "ok"
     end tell
 end run
 APPLESCRIPT
 )
 
-if [[ "$RESULT" == ok ]]; then
-    echo "Destroy room initiated for $ROOM_JID"
-else
-    echo "$RESULT" >&2
-    exit 1
-fi
+ducko_check_result "$RESULT" "Destroy room initiated for $ROOM_JID"

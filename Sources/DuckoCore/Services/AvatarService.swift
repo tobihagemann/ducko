@@ -130,7 +130,7 @@ public final class AvatarService {
 
         public var errorDescription: String? {
             switch self {
-            case let .notConnected(id): notConnectedDescription(id)
+            case .notConnected: notConnectedDescription
             }
         }
     }

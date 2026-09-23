@@ -7,7 +7,7 @@ import Foundation
 extension XMPPClientError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .notConnected: "Not connected to the server"
+        case .notConnected: notConnectedDescription
         case .alreadyConnected: "Already connected to the server"
         case let .connectionFailed(reason): "Could not connect to the server: \(reason)"
         case let .sendFailed(reason): "Could not send data to the server: \(reason)"
@@ -45,7 +45,7 @@ extension XMPPRegistrationClient.RegistrationClientError: LocalizedError {
 extension RegistrationModule.RegistrationError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .notConnected: "Not connected to the server"
+        case .notConnected: notConnectedDescription
         case .registrationNotSupported: "The server does not support account registration"
         }
     }
@@ -62,7 +62,7 @@ extension MUCModule.MUCError: LocalizedError {
 extension HTTPUploadModule.HTTPUploadError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .notConnected: "Not connected to the server"
+        case .notConnected: notConnectedDescription
         case .noUploadServiceFound: "The server does not offer file uploads"
         case let .fileTooLarge(maxSize):
             "The file is too large: the server accepts up to \(ByteCountFormatter.string(fromByteCount: maxSize, countStyle: .file))"
@@ -74,7 +74,7 @@ extension HTTPUploadModule.HTTPUploadError: LocalizedError {
 extension JingleModule.JingleError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .notConnected, .noConnectedJID: "Not connected to the server"
+        case .notConnected, .noConnectedJID: notConnectedDescription
         case .sessionNotFound: "The file transfer session was not found"
         case .alreadyAccepted: "The file transfer was already accepted"
         case let .transportNegotiationFailed(reason): "File transfer negotiation failed: \(reason)"
@@ -86,7 +86,7 @@ extension JingleModule.JingleError: LocalizedError {
 extension ChannelSearchModule.ChannelSearchError: LocalizedError {
     public var errorDescription: String? {
         switch self {
-        case .notConnected: "Not connected to the server"
+        case .notConnected: notConnectedDescription
         case .noSearchServiceFound: "The server does not offer channel search"
         }
     }

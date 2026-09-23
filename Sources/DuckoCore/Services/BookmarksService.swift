@@ -10,8 +10,8 @@ enum BookmarksError: Error, LocalizedError {
         switch self {
         case let .invalidJID(jid):
             return "Invalid JID: \(jid)"
-        case let .notConnected(id):
-            return notConnectedDescription(id)
+        case .notConnected:
+            return notConnectedDescription
         }
     }
 }

@@ -161,9 +161,11 @@ private let handlerScriptCases: [HandlerScriptCase] = [
     HandlerScriptCase(script: "ducko-register.sh", arguments: [scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument]),
     HandlerScriptCase(script: "ducko-remove-contact.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-"], invocations: ["pgrep", "osascript", "osascript"], earlierCallArguments: [["-", scriptSpecialArgument]]),
     HandlerScriptCase(script: "ducko-remove-bookmark.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument], invocations: ["ducko-bookmarks.sh", "osascript"]),
+    HandlerScriptCase(script: "ducko-preferences-tab.sh", arguments: ["Accounts"], appleScriptArguments: ["-", "Accounts"]),
     HandlerScriptCase(script: "ducko-room-settings-tab.sh", arguments: ["Members"], appleScriptArguments: ["-", "Members"]),
     HandlerScriptCase(script: "ducko-room-topic.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument]),
     HandlerScriptCase(script: "ducko-select-mode.sh", arguments: ["Register"], appleScriptArguments: ["-", "Register"]),
+    HandlerScriptCase(script: "ducko-status.sh", arguments: ["away", scriptSpecialArgument], appleScriptArguments: ["-", "away", scriptSpecialArgument]),
     HandlerScriptCase(script: "ducko-reply.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument]),
     HandlerScriptCase(script: "ducko-connection-info.sh", arguments: [], appleScriptArguments: [], invocations: ["ducko-preferences.sh", "ducko-preferences-tab.sh", "osascript"])
 ]

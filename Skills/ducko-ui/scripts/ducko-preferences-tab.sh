@@ -7,7 +7,11 @@ set -euo pipefail
 
 TAB="${1:?Usage: ducko-preferences-tab.sh <General|Accounts|Chat|Status|Appearance|Advanced>}"
 
-RESULT=$(osascript - "$TAB" << 'APPLESCRIPT'
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
+
+RESULT=$(osascript - "$TAB" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set tabName to item 1 of argv
     set tabNames to {"General", "Accounts", "Chat", "Status", "Appearance", "Advanced"}
@@ -16,31 +20,7 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 0.3
         tell process "DuckoApp"
-            -- Find the Settings window (titled after the active tab).
-            -- Verify via toolbar buttons to distinguish from chat windows with the same title.
-            set settingsWin to missing value
-            repeat with win in windows
-                if name of win is in tabNames then
-                    set isSettings to false
-                    try
-                        set tbElems to entire contents of toolbar 1 of win
-                        repeat with elem in tbElems
-                            try
-                                if role of elem is "AXButton" and name of elem is in tabNames then
-                                    set isSettings to true
-                                    exit repeat
-                                end if
-                            end try
-                        end repeat
-                    end try
-                    if isSettings then
-                        set settingsWin to win
-                        exit repeat
-                    end if
-                end if
-            end repeat
-            if settingsWin is missing value then return "ERROR: Settings window not found (open it with ducko-preferences.sh first)"
-            perform action "AXRaise" of settingsWin
+            $(ducko_as_raise_window_by_id "preferences-window" "Settings window not found (open it with ducko-preferences.sh first)" "settingsWin")
 
             -- Click the tab button in the toolbar
             try

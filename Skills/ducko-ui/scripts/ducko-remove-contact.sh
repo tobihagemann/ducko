@@ -23,11 +23,7 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 0.3
         tell process "DuckoApp"
-            $(ducko_as_find_window_by_id "contact-list" "Contacts window not found" "contactWin")
-            perform action "AXRaise" of contactWin
-            delay 0.3
-            -- Window references are positional, so re-resolve Contacts after the raise reorders them.
-            $(ducko_as_find_window_by_id "contact-list" "Contacts window not found" "contactWin")
+            $(ducko_as_raise_window_by_id "contact-list" "Contacts window not found" "contactWin")
             -- A leftover confirmation would otherwise be the one the confirm step presses.
             if (count of sheets of contactWin) > 0 then return "ERROR: a dialog is already open in the Contacts window"
             $(ducko_as_find_element_by_id 'targetId' 'contactWin' 'contact row not found for " & contactJID & "' 'targetRow')

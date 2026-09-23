@@ -888,6 +888,35 @@ actor AppAccessor { // swiftlint:disable:this type_body_length
     /// Posts Escape and throws if the item is missing so an orphaned open
     /// menu can't poison later helpers.
     func pressMenuItem(title: String, identifier: String) async throws {
+        let menu = try await showMenu(identifier: identifier)
+        let itemIdentifier = "\(identifier)/menu-item[\(title)]"
+        guard let item = axDriver.findMenuItem(in: menu, title: title) else {
+            try? await pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+            throw TestHarnessError.elementNotFound(identifier: itemIdentifier)
+        }
+        if let error = Self.classifyContextMenuPressPick(
+            press: AXUIElementPerformAction(item, kAXPressAction as CFString),
+            pick: AXUIElementPerformAction(item, kAXPickAction as CFString),
+            identifier: itemIdentifier
+        ) {
+            throw error
+        }
+    }
+
+    /// Opens the pull-down `identifier`, reads its item titles in menu order
+    /// without pressing any, then closes it with Escape. A separator reads as
+    /// an empty title. Use it to pin items that must not be pressed, such as
+    /// a destructive one.
+    func menuItemTitles(identifier: String) async throws -> [String] {
+        let menu = try await showMenu(identifier: identifier)
+        let items = (axDriver.readAttribute(menu, kAXChildrenAttribute) as? [AXUIElement]) ?? []
+        let titles = items.map { (axDriver.readAttribute($0, kAXTitleAttribute) as? String) ?? "" }
+        try await pressKey(CGKeyCode(kVK_Escape), modifiers: [])
+        try await waitForContextMenuDismissed()
+        return titles
+    }
+
+    private func showMenu(identifier: String) async throws -> AXUIElement {
         let menuButton = try axDriver.resolveElement(identifier: identifier)
         if let pid = process?.processIdentifier {
             await Self.activateApp(pid: pid)
@@ -900,20 +929,7 @@ actor AppAccessor { // swiftlint:disable:this type_body_length
         let showErr = AXUIElementPerformAction(menuButton, openAction as CFString)
         if showErr == .apiDisabled { throw TestHarnessError.axTrustMissing }
         try await waitForShownMenu(on: menuButton, identifier: identifier)
-
-        let itemIdentifier = "\(identifier)/menu-item[\(title)]"
-        let menu = try axDriver.resolveShownMenu(for: menuButton, identifier: identifier)
-        guard let item = axDriver.findMenuItem(in: menu, title: title) else {
-            try? await pressKey(CGKeyCode(kVK_Escape), modifiers: [])
-            throw TestHarnessError.elementNotFound(identifier: itemIdentifier)
-        }
-        if let error = Self.classifyContextMenuPressPick(
-            press: AXUIElementPerformAction(item, kAXPressAction as CFString),
-            pick: AXUIElementPerformAction(item, kAXPickAction as CFString),
-            identifier: itemIdentifier
-        ) {
-            throw error
-        }
+        return try axDriver.resolveShownMenu(for: menuButton, identifier: identifier)
     }
 
     /// Sends a key-down/up pair only to the owned app process.

@@ -25,9 +25,7 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 0.3
         tell process "DuckoApp"
-            $(ducko_as_find_window_by_id "contact-list" "Contacts window not found" "contactWin")
-            perform action "AXRaise" of contactWin
-            delay 0.3
+            $(ducko_as_raise_window_by_id "contact-list" "Contacts window not found" "contactWin")
             $(ducko_as_find_element_by_id 'targetId' 'contactWin' 'room row not found for " & roomJID & "' 'targetRow')
 
             -- Open the context menu and select "Invite User…". The menu may render

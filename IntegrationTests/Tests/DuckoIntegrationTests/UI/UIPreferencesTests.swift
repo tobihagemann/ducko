@@ -49,7 +49,7 @@ extension DuckoIntegrationTests.UILayer {
             if: AppAccessor.appBundleExists && AppAccessor.isAccessibilityTrusted && CLIProcess.binaryExists,
             "Ducko.app missing, AX trust not granted, or DuckoCLI binary missing"
         ))
-        @MainActor func `accounts detail pane opens each Actions menu sheet`() async throws {
+        @MainActor func `accounts detail pane lists the Actions menu and opens each non-destructive sheet`() async throws {
             try await UISeededApp.withSeededApp { app in
                 // Gate on a connected account before opening prefs so the detail
                 // pane's `isConnected`-gated Actions menu renders. Wait on Bob (a
@@ -68,6 +68,14 @@ extension DuckoIntegrationTests.UILayer {
 
                 // The Actions pull-down renders only while connected.
                 try await app.waitForElement(identifier: "account-actions-menu", timeout: TestTimeout.uiElement)
+                // Unregister is only read, never pressed: accepting its confirmation would unregister the fixture account from the server.
+                let actionTitles = try await app.menuItemTitles(identifier: "account-actions-menu")
+                #expect(actionTitles == [
+                    "Connection Info...", "Server Info...", "",
+                    "Change Password...", "Check Registration...", "",
+                    "Unregister Account..."
+                ])
+
                 try await app.pressMenuItem(title: "Change Password...", identifier: "account-actions-menu")
                 try await app.waitForElement(identifier: "new-password-field", timeout: TestTimeout.uiElement)
                 try await app.pressKey(CGKeyCode(kVK_Escape), modifiers: [])

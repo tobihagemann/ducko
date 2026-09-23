@@ -132,6 +132,23 @@ ducko_as_find_window_by_id() {
 EOF
 }
 
+# Find a window containing an element with the given AXIdentifier and raise it.
+# System Events window references are positional, so the raise can re-point
+# the variable at another window; the window is found again afterwards.
+# Args: identifier [error_msg] [var_name] [raise_delay]
+ducko_as_raise_window_by_id() {
+    local identifier="$1"
+    local error_msg="${2:-window not found}"
+    local var_name="${3:-targetWin}"
+    local raise_delay="${4:-0.3}"
+    ducko_as_find_window_by_id "$identifier" "$error_msg" "$var_name"
+    cat << EOF
+            perform action "AXRaise" of ${var_name}
+            delay ${raise_delay}
+EOF
+    ducko_as_find_window_by_id "$identifier" "$error_msg" "$var_name"
+}
+
 # Find an element by AXIdentifier within a window variable.
 # The id_expr is an AppleScript expression: a quoted string like "\"foo\""
 # or a variable name like targetId.

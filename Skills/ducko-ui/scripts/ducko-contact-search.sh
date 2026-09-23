@@ -22,17 +22,7 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 0.5
         tell process "DuckoApp"
-            -- Find and raise the Contacts window.
-            set contactWin to missing value
-            repeat with win in windows
-                if (my findByAttr(win, "AXIdentifier", "contact-list", 0, 30)) is not missing value then
-                    set contactWin to win
-                    exit repeat
-                end if
-            end repeat
-            if contactWin is missing value then set contactWin to window 1
-            perform action "AXRaise" of contactWin
-            delay 0.2
+            $(ducko_as_raise_window_by_id "contact-list" "Contacts window not found" "contactWin" 0.2)
 
             if query is "" then
                 -- Toggle: ⌘F reveals or hides the field.

@@ -1101,7 +1101,7 @@ public final class ChatService { // swiftlint:disable:this type_body_length
         public var errorDescription: String? {
             switch self {
             case let .invalidJID(string): "Invalid JID: \(string)"
-            case let .notConnected(id): notConnectedDescription(id)
+            case .notConnected: notConnectedDescription
             case let .encryptionFailed(reason): "Encryption failed: \(reason)"
             case .notOutgoingMessage: "Cannot correct a message that was not sent by you"
             case let .timeout(jid): "Timed out waiting for room \(jid) join echo"

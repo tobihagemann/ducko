@@ -813,7 +813,7 @@ enum OMEMOServiceError: Error, LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case let .notConnected(id): notConnectedDescription(id)
+        case .notConnected: notConnectedDescription
         case .omemoNotAvailable: "OMEMO module not available"
         case .noTrustedRecipients: "No trusted OMEMO recipients"
         case .identityKeyMismatch: "OMEMO identity key mismatch"

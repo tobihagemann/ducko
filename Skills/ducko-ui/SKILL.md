@@ -195,13 +195,13 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `contact-info-window` | Contact Info (Get Info) window container | Contact Info |
 | `contact-info-nickname-field` | Editable nickname field | Contact Info |
 | `contact-info-request-presence` | "Request Presence" button | Contact Info |
-| `contact-info-block` | Block/Unblock button, shown only once the account's roster is loaded. A window opened while disconnected shows `Not connected: …` in its Profile section; close and reopen it after connecting, since Get Info only raises the existing window | Contact Info |
+| `contact-info-block` | Block/Unblock button, shown only once the account's roster is loaded. A window opened while disconnected shows `Not connected to the server` in its Profile section; close and reopen it after connecting, since Get Info only raises the existing window. The contact list shows no contact rows while offline, so to reach that state open the contact's chat while online, run `ducko-status-menu.sh offline`, then `ducko-chat-header.sh info` | Contact Info |
 | `contact-info-remove` | Remove Contact button, shown under the same condition as `contact-info-block` | Contact Info |
 | `roster-notice` | Persistent contact-change notice, with a “Dismiss notice” button and Escape shortcut | Contacts |
 | `contact-info-roster-notice` | Persistent removal notice, with a “Dismiss notice” button and Escape shortcut | Contact Info |
 | `contact-context-remove` | "Remove Contact…" context-menu item (asks for confirmation) | Contacts |
 
-The `account-actions-menu` items, in menu order: Connection Info... (only when the account has TLS info), Server Info..., Change Password..., Check Registration..., Unregister Account...
+The `account-actions-menu` items, in menu order: Connection Info... (only when the account has TLS info), Server Info..., Change Password..., Check Registration..., Unregister Account... Never press Unregister Account... in a test run, because accepting its confirmation unregisters the account from the server.
 
 ## Context Menu Features
 
@@ -296,7 +296,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-chat-header.sh` | Click a chat-header toolbar button (Profile info / History) | `<info\|history>` |
 | `ducko-invite-user.sh` | Invite a user to a room via context menu | `ROOM_JID INVITEE_JID` |
 | `ducko-destroy-room.sh` | Destroy a room via Room Settings sheet | `ROOM_JID` |
-| `ducko-room-config-save.sh` | Save room config in Room Settings sheet | `ROOM_JID` |
+| `ducko-room-config-save.sh` | Save room config in Room Settings sheet (best-effort; System Events cannot read the Save button's label on macOS 27) | `ROOM_JID` |
 | `ducko-room-settings-tab.sh` | Switch to a tab in the Room Settings sheet | `<General\|Members>` |
 | `ducko-add-affiliation.sh` | Add a JID to a room's affiliation list | `ROOM_JID JID` |
 | `ducko-stop.sh` | Kill the DuckoApp processes this checkout built, leaving an installed app running | none |
@@ -874,13 +874,14 @@ To allow these scripts in `settings.local.json` without prompts:
 - When the app is **not frontmost** it sends XEP-0352 `CSI inactive`, and the server queues MUC presence/subject pushes until `CSI active` — so verifying any **live** update (subject, participant count, presence) requires the app frontmost first, or the observation reads stale.
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
 - Element targeting uses recursive UI-element-tree walks (`findByAttr` and siblings) because `entire contents` silently collapses on deeply nested SwiftUI / NSTableView accessibility trees on macOS 26. Scripts that need these handlers source `ducko-helpers.sh` and emit `$(ducko_as_handlers)` in an unquoted heredoc. Scripts targeting shallow sheets, such as New Chat, Add Contact and Join Room, still use `entire contents` where it reaches their controls. SwiftUI `Picker` segments and Room Settings tabs expose their label through `AXDescription`, so scripts match that attribute. Confirmation-dialog buttons do too, so `ducko_as_click_button_by_label` falls back to it when a button has no title.
-- System Events window references are positional, so raising a window re-points a variable that held another one. Scripts re-find a window after `AXRaise`.
+- On macOS 27, other SwiftUI buttons in a sheet, such as Room Settings' Save, expose neither a title nor `AXDescription` to System Events, although Swift AX reads their description. Drive those by identifier or through Swift AX.
+- System Events window references are positional, so raising a window re-points a variable that held another one. When a script uses the window after raising it, raise it with `ducko_as_raise_window_by_id`, which finds it again after `AXRaise`.
 - Scripts that confirm a removal refuse while more than one DuckoApp runs, because System Events could press the confirmation in the wrong process. They also refuse while a dialog is already open in the target window, so a leftover dialog is never the one they act on. `ducko-contact-menu.sh` applies the open-dialog check to every action.
 - To verify a destructive confirm step without confirming, open the dialog and resolve its confirm button inside the dialog sheet with `findButtonByLabel(<sheetVar>, "<label>", 0, 30)` (from `$(ducko_as_handlers)`) without clicking it. Scope the lookup to the sheet, because a window can hold a same-named button outside the dialog (Contact Info does). Then dismiss the dialog with the generated `ducko_as_click_button_by_label "Cancel" <sheetVar>` snippet, which exercises the same lookup and click path end to end.
 - Keep apostrophes out of osascript heredoc bodies. `/bin/bash` 3.2, which the scripts' shebang selects, rejects a `$(… << EOF …)` body with an odd apostrophe count, while Homebrew bash 5 accepts it, so check with `/bin/bash -n` rather than a bare `bash -n`.
 - Limit `ducko-helpers.sh` and the wrapper scripts to bash builtins and the commands DuckoScriptTests stubs. Its capture fixture runs them with a PATH holding only stubs plus `cat` and `dirname`, and rejects absolute command paths.
 - Idle auto-away switches the status to Away after about five minutes without mouse movement or key presses, so an unattended run can observe Away unexpectedly. AX actions and clicks without movement don't count as input. Set the status explicitly (e.g. `ducko-status-menu.sh available`), which cancels auto-away, before asserting on it.
-- The scripts marked best-effort in the Script Reference table (`ducko-status.sh`, `ducko-chat-tabs.sh`, `ducko-connection-info.sh`, `ducko-change-password.sh`) hit osascript limitations covered authoritatively by the integration suite instead; each table row names the specific control. `ducko-connection-info.sh` and `ducko-change-password.sh` are covered by `UIPreferencesTests`' "accounts detail pane opens each Actions menu sheet".
+- The scripts marked best-effort in the Script Reference table (`ducko-status.sh`, `ducko-chat-tabs.sh`, `ducko-connection-info.sh`, `ducko-change-password.sh`, `ducko-room-config-save.sh`) hit osascript limitations covered authoritatively by the integration suite instead; each table row names the specific control. `UIPreferencesTests` covers `ducko-connection-info.sh` and `ducko-change-password.sh`, and `UIMUCTests` covers the Room Settings Save.
 - The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Pass runtime values as arguments to `osascript -` and read them with `on run argv`. Keep them out of the generated AppleScript source.
 - Credentials are arguments, never hardcoded.

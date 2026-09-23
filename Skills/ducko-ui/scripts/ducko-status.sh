@@ -5,11 +5,10 @@
 #   MESSAGE: optional status message text
 #
 # Limitation: the status control is a borderless SwiftUI `Menu` whose opened
-# menu renders as a process-level nested element. osascript can't reliably
-# traverse to it (`entire contents` silently truncates on the deep SwiftUI
-# tree), so this script's menu-item selection is best-effort and may report
+# menu renders as a process-level element that osascript can't reliably reach,
+# so this script's menu-item selection is best-effort and may report
 # "status menu item ... not found". The integration suite drives this control
-# via Swift AX and is authoritative — see UIPresenceTests.
+# via Swift AX and is authoritative (see UIPresenceTests).
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
@@ -20,7 +19,11 @@ fi
 STATUS="$1"
 MESSAGE="${2:-__none__}"
 
-RESULT=$(osascript - "$STATUS" "$MESSAGE" << 'APPLESCRIPT'
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/ducko-helpers.sh"
+
+RESULT=$(osascript - "$STATUS" "$MESSAGE" << APPLESCRIPT
+$(ducko_as_handlers)
 on run argv
     set statusArg to item 1 of argv
     set messageArg to item 2 of argv
@@ -28,23 +31,7 @@ on run argv
         set frontmost of process "DuckoApp" to true
         delay 0.3
         tell process "DuckoApp"
-            -- Find the Contacts window
-            set contactWin to missing value
-            repeat with win in windows
-                set allElems to entire contents of win
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "contact-list" then
-                            set contactWin to win
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if contactWin is not missing value then exit repeat
-            end repeat
-            if contactWin is missing value then return "ERROR: Contacts window not found"
-            perform action "AXRaise" of contactWin
-            delay 0.3
+            $(ducko_as_raise_window_by_id "contact-list" "Contacts window not found" "contactWin")
 
             -- Map status arg to display name
             set targetLabel to ""
@@ -63,25 +50,13 @@ on run argv
             end if
 
             -- Find and click the status picker menu
-            set pickerBtn to missing value
-            set allElems to entire contents of contactWin
-            repeat with elem in allElems
-                try
-                    if value of attribute "AXIdentifier" of elem is "status-picker" then
-                        set pickerBtn to elem
-                        exit repeat
-                    end if
-                end try
-            end repeat
-            if pickerBtn is missing value then return "ERROR: status-picker not found"
+            $(ducko_as_find_element_by_id '"status-picker"' 'contactWin' 'status-picker not found' 'pickerBtn')
             click pickerBtn
             delay 0.3
 
             -- Find and click the target status menu item. The SwiftUI Menu
             -- opens as a process-level menu (a sibling of the windows), not
-            -- under the button or window — so search the process-level menus.
-            -- The borderless Menu is awkward to drive via osascript;
-            -- UIPresenceTests is the authoritative check for this path.
+            -- under the button or window, so search the process-level menus.
             set clicked to false
             repeat with m in menus
                 try
@@ -98,17 +73,7 @@ on run argv
             -- Set a custom status message via the Custom… sheet from the pull-down,
             -- which opens pre-set to the presence just selected above.
             if messageArg is not "__none__" then
-                set pickerBtn to missing value
-                set allElems to entire contents of contactWin
-                repeat with elem in allElems
-                    try
-                        if value of attribute "AXIdentifier" of elem is "status-picker" then
-                            set pickerBtn to elem
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if pickerBtn is missing value then return "ERROR: status-picker not found"
+                $(ducko_as_find_element_by_id '"status-picker"' 'contactWin' 'status-picker not found' 'pickerBtn')
                 click pickerBtn
                 delay 0.3
 
@@ -128,16 +93,7 @@ on run argv
                 if not customClicked then return "ERROR: Custom… menu item not found"
                 delay 0.5
 
-                set msgField to missing value
-                repeat with elem in (entire contents of contactWin)
-                    try
-                        if value of attribute "AXIdentifier" of elem is "custom-status-message-field" then
-                            set msgField to elem
-                            exit repeat
-                        end if
-                    end try
-                end repeat
-                if msgField is missing value then return "ERROR: custom-status-message-field not found"
+                $(ducko_as_find_element_by_id '"custom-status-message-field"' 'contactWin' 'custom-status-message-field not found' 'msgField')
                 set focused of msgField to true
                 delay 0.2
                 keystroke "a" using command down

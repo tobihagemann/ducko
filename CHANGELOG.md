@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Show "Not connected to the server" instead of an internal account ID when something needs a connection while an account is offline, such as a contact's profile in Get Info
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

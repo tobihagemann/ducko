@@ -95,7 +95,7 @@ public final class PresenceService {
 
         public var errorDescription: String? {
             switch self {
-            case let .notConnected(id): notConnectedDescription(id)
+            case .notConnected: notConnectedDescription
             case let .invalidJID(string): "Invalid JID: \(string)"
             }
         }

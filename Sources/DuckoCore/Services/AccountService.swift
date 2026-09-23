@@ -65,7 +65,7 @@ public final class AccountService {
             case let .duplicateJID(jid): "An account with JID \(jid) already exists"
             case let .accountNotFound(id): "Account not found: \(id)"
             case let .noStoredPassword(jid): "No stored password for \(jid)"
-            case let .notConnected(id): notConnectedDescription(id)
+            case .notConnected: notConnectedDescription
             case let .moduleNotAvailable(id): "Module not available: \(id)"
             }
         }
