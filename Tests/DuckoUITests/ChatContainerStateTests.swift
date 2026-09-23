@@ -9,6 +9,8 @@ import Testing
 struct ChatContainerStateTests {
     private struct Fixture {
         let container: ChatContainerState
+        let environment: AppEnvironment
+        let store: MockPersistenceStore
         let accountID: UUID
         let accountID2: UUID
     }
@@ -40,6 +42,8 @@ struct ChatContainerStateTests {
         try await environment.accountService.loadAccounts()
         return Fixture(
             container: ChatContainerState(environment: environment),
+            environment: environment,
+            store: store,
             accountID: account.id,
             accountID2: account2.id
         )
@@ -161,6 +165,156 @@ struct ChatContainerStateTests {
         #expect(container.selectedKey == nil)
         #expect(!container.hasTabs)
         #expect(container.selectedState == nil)
+    }
+
+    @Test func `next and previous tab wrap at both ends`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let id = fixture.accountID
+        container.open("a@example.com", accountID: id)
+        container.open("b@example.com", accountID: id)
+        container.open("c@example.com", accountID: id)
+
+        container.selectNextTab()
+        #expect(container.selectedKey == key("a@example.com", id))
+        container.selectNextTab()
+        #expect(container.selectedKey == key("b@example.com", id))
+
+        container.selectPreviousTab()
+        #expect(container.selectedKey == key("a@example.com", id))
+        container.selectPreviousTab()
+        #expect(container.selectedKey == key("c@example.com", id))
+    }
+
+    @Test func `tab cycling is a no-op with one tab`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let id = fixture.accountID
+        container.open("solo@example.com", accountID: id)
+
+        container.selectNextTab()
+        container.selectPreviousTab()
+
+        #expect(container.selectedKey == key("solo@example.com", id))
+    }
+
+    @Test func `closeAll empties the tabs and clears the selection`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let id = fixture.accountID
+        container.open("a@example.com", accountID: id)
+        container.open("b@example.com", accountID: id)
+
+        container.closeAll()
+
+        #expect(container.orderedTabs.isEmpty)
+        #expect(container.selectedKey == nil)
+        #expect(container.state(for: key("a@example.com", id)) == nil)
+    }
+
+    @Test func `tab cycling pauses while the New Chat sheet or the file importer is up`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let id = fixture.accountID
+        container.open("a@example.com", accountID: id)
+        #expect(!container.canCycleTabs)
+        container.open("b@example.com", accountID: id)
+        #expect(container.canCycleTabs)
+
+        container.newChat()
+        #expect(!container.canCycleTabs)
+        container.isShowingNewChat = false
+
+        container.selectedState?.showFileImporter()
+        #expect(!container.canCycleTabs)
+    }
+
+    @Test func `switching tabs drops the outgoing tab's file importer request`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let id = fixture.accountID
+        container.open("a@example.com", accountID: id)
+        let stateA = try #require(container.state(for: key("a@example.com", id)))
+        stateA.showFileImporter()
+
+        // Opening another chat from outside the chat window moves the selection past the open picker.
+        container.open("b@example.com", accountID: id)
+
+        #expect(!stateA.isShowingFileImporter)
+    }
+
+    @Test func `a background tab finishing its load leaves the selected tab active`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let chatService = fixture.environment.chatService
+        let id = fixture.accountID
+
+        // Hold A's load in its conversation upsert while B opens, loads, and activates.
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await fixture.store.installConversationWriteGate(entered: entered, release: release)
+        container.open("a@example.com", accountID: id)
+        let stateA = try #require(container.state(for: key("a@example.com", id)))
+        await entered.wait()
+        await openAndAwaitLoad(container, "b@example.com", id)
+        let conversationB = try #require(container.state(for: key("b@example.com", id))?.conversation)
+        try await waitUntil { chatService.activeConversationID == conversationB.id }
+
+        await release.signal()
+        try await waitUntil { stateA.conversation != nil && !stateA.isLoading }
+
+        #expect(chatService.activeConversationID == conversationB.id)
+    }
+
+    @Test func `a tab re-selected while loading becomes active once its load finishes`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let chatService = fixture.environment.chatService
+        let id = fixture.accountID
+
+        // Hold A's load in its conversation upsert, then move on to B, which loads and activates.
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await fixture.store.installConversationWriteGate(entered: entered, release: release)
+        container.open("a@example.com", accountID: id)
+        let stateA = try #require(container.state(for: key("a@example.com", id)))
+        await entered.wait()
+        await openAndAwaitLoad(container, "b@example.com", id)
+        let conversationB = try #require(container.state(for: key("b@example.com", id))?.conversation)
+        try await waitUntil { chatService.activeConversationID == conversationB.id }
+
+        // Back on A before its conversation exists: `select` can't activate it, so A's own load must.
+        container.select(key("a@example.com", id))
+        await release.signal()
+        try await waitUntil { stateA.conversation != nil && !stateA.isLoading }
+
+        #expect(chatService.activeConversationID == stateA.conversation?.id)
+    }
+
+    @Test func `a tab closed while loading never becomes the active conversation`() async throws {
+        let fixture = try await Self.makeFixture()
+        let container = fixture.container
+        let chatService = fixture.environment.chatService
+        let id = fixture.accountID
+        await openAndAwaitLoad(container, "a@example.com", id)
+        let conversationA = try #require(container.state(for: key("a@example.com", id))?.conversation)
+        try await waitUntil { chatService.activeConversationID == conversationA.id }
+
+        // Hold B's load in its conversation upsert.
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await fixture.store.installConversationWriteGate(entered: entered, release: release)
+        container.open("b@example.com", accountID: id)
+        let stateB = try #require(container.state(for: key("b@example.com", id)))
+        await entered.wait()
+
+        container.closeAll()
+        try await waitUntil { chatService.activeConversationID == nil }
+
+        await release.signal()
+        try await waitUntil { stateB.conversation != nil && !stateB.isLoading }
+
+        #expect(chatService.activeConversationID == nil)
     }
 
     @Test func `draft text is retained per tab across switches`() async throws {

@@ -177,9 +177,9 @@ struct ChatHeaderView: View {
 
     @ViewBuilder
     private var trailingButtons: some View {
-        if let accountID = conversation.accountID, !isGroupchat, !isMUCPrivateMessage {
+        if let contactInfoRef = conversation.contactInfoRef {
             Button {
-                openWindow(id: "contact-info", value: ContactInfoRef(accountID: accountID, jid: conversation.jid.description))
+                openWindow(id: "contact-info", value: contactInfoRef)
             } label: {
                 Image(systemName: "info.circle")
             }

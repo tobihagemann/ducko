@@ -59,6 +59,32 @@ struct StatusBarPreferencesTests {
         #expect(prefs.savedMessages(for: .away) == [])
     }
 
+    @Test func `requesting a custom offline status presets available`() throws {
+        let prefs = StatusBarPreferences(defaults: PreferencesFixture().defaults)
+        prefs.requestCustomStatus(presence: .offline, message: "Back soon")
+        let preset = try #require(prefs.requestedCustomStatus)
+        #expect(preset.presence == .available)
+        #expect(preset.message == "Back soon")
+    }
+
+    @Test(arguments: PresenceService.PresenceStatus.selectableCases)
+    func `a custom status request keeps a selectable presence`(_ presence: PresenceService.PresenceStatus) throws {
+        let prefs = StatusBarPreferences(defaults: PreferencesFixture().defaults)
+        prefs.requestCustomStatus(presence: presence, message: "")
+        #expect(try #require(prefs.requestedCustomStatus).presence == presence)
+    }
+
+    @Test func `the held identity and custom status request are not persisted`() {
+        let fixture = PreferencesFixture()
+        let prefs = StatusBarPreferences(defaults: fixture.defaults)
+        prefs.heldIdentityAccountID = UUID()
+        prefs.requestCustomStatus(presence: .away, message: "Lunch")
+
+        let reloaded = StatusBarPreferences(defaults: fixture.defaults)
+        #expect(reloaded.heldIdentityAccountID == nil)
+        #expect(reloaded.requestedCustomStatus == nil)
+    }
+
     @Test func `removeMessage deletes a saved entry and persists`() {
         let fixture = PreferencesFixture()
         let prefs = StatusBarPreferences(defaults: fixture.defaults)

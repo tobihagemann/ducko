@@ -44,6 +44,17 @@ public final class ChatWindowState {
         serviceConversation?.roomSubject
     }
 
+    /// The conversation as a Contact menu target; `nil` until `load()` resolves it.
+    public var commandTarget: ContactCommandTarget? {
+        guard let conversation = liveConversation else { return nil }
+        return ContactCommandTarget(
+            contactInfoRef: conversation.contactInfoRef,
+            transcriptRef: ConversationRef(conversation: conversation),
+            chatKey: ConversationKey(accountID: accountID, jid: jidString),
+            contact: nil
+        )
+    }
+
     // MARK: - Composer Draft
 
     /// The composer's live text, retained per-tab so switching conversations in the
@@ -67,6 +78,7 @@ public final class ChatWindowState {
     // MARK: - Attachments
 
     var pendingAttachments: [DraftAttachment] = []
+    var isShowingFileImporter = false
 
     // MARK: - Groupchat
 
@@ -119,7 +131,9 @@ public final class ChatWindowState {
 
     // MARK: - Public API
 
-    func load() async {
+    /// `shouldActivate` is checked right before this tab becomes the active conversation, so a load that finishes
+    /// after the tab was deselected or closed doesn't re-point the active conversation.
+    func load(shouldActivate: @MainActor () -> Bool = { true }) async {
         guard let accountID = resolvedAccountID else { return }
 
         isLoading = true
@@ -142,6 +156,7 @@ public final class ChatWindowState {
             conversation = conv
             messages = await environment.chatService.loadMessages(for: conv.id)
             prefetchLinkPreviews()
+            guard shouldActivate() else { return }
             await environment.chatService.selectConversation(conv.id, accountID: accountID)
         } catch {
             // Conversation creation failed — leave state empty
@@ -399,6 +414,10 @@ public final class ChatWindowState {
     }
 
     // MARK: - Attachments
+
+    public func showFileImporter() {
+        isShowingFileImporter = true
+    }
 
     func addAttachment(url: URL) {
         let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"

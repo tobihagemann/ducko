@@ -36,7 +36,7 @@ struct ContactListWindow: View {
             // banner) the resize rides the coordinator's animation instead of
             // `.contentMinSize` snapping the window outside the transaction.
             VStack(spacing: 0) {
-                StatusBarView()
+                StatusBarView(windowState: state)
 
                 Divider()
 
@@ -47,7 +47,7 @@ struct ContactListWindow: View {
 
                 SubscriptionRequestBanner()
 
-                RoomInviteBanner()
+                RoomInviteBanner(isEditingNickname: $state.isEditingInviteNickname)
 
                 if let notice = state.rosterNotice {
                     DismissibleBanner(message: notice, dismissalLabel: "Dismiss notice", dismissalShortcut: .cancelAction) {
@@ -68,7 +68,7 @@ struct ContactListWindow: View {
                 }
             }
 
-            ContactListView(searchText: state.searchText, preferences: state.preferences, chromeHeight: chromeHeight, presentNotice: presentRosterNotice)
+            ContactListView(windowState: state, chromeHeight: chromeHeight)
                 .frame(maxHeight: .infinity)
                 .layoutPriority(1)
         }
@@ -98,7 +98,7 @@ struct ContactListWindow: View {
             environment.presenceService.startIdleMonitoring()
         }
         .sheet(isPresented: $state.isShowingAddContact) {
-            AddContactSheet(presentNotice: presentRosterNotice)
+            AddContactSheet { state.presentRosterNotice($0, accountID: $1, environment: environment) }
         }
         .sheet(isPresented: $state.isShowingJoinRoom) {
             RoomJoinDialog { jidString, accountID in
@@ -113,6 +113,20 @@ struct ContactListWindow: View {
         }
         .sheet(isPresented: $state.isShowingProfile) {
             ProfileEditView()
+        }
+        .confirmationDialog(
+            "Remove \(state.pendingRemoval?.displayName ?? "")?",
+            isPresented: Binding(
+                get: { state.pendingRemoval != nil },
+                set: { if !$0 { state.pendingRemoval = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: state.pendingRemoval
+        ) { contact in
+            Button("Remove Contact", role: .destructive) {
+                Task { await state.confirmRemoval(contact, environment: environment) }
+            }
+            Button("Cancel", role: .cancel) {}
         }
         .alert(
             "Certificate Changed",
@@ -140,11 +154,6 @@ struct ContactListWindow: View {
                 Text("The TLS certificate for \(warning.accountJID) has changed.\n\nPrevious: \(warning.previousFingerprint)\nNew: \(warning.newFingerprint)")
             }
         }
-    }
-
-    private func presentRosterNotice(_ message: String, accountID: UUID) {
-        let account = environment.accountService.accounts.first { $0.id == accountID }
-        state.rosterNotice = "\(account?.jid.description ?? accountID.uuidString): \(message)"
     }
 }
 

@@ -10,7 +10,14 @@ import SwiftUI
 public final class ChatContainerState {
     public private(set) var orderedTabs: [ConversationKey] = []
     private var states: [ConversationKey: ChatWindowState] = [:]
-    public var selectedKey: ConversationKey?
+    public var selectedKey: ConversationKey? {
+        didSet {
+            // The chat window's one file importer rebinds to the newly selected tab, so the outgoing tab's request
+            // would otherwise reopen the picker when that tab comes back.
+            guard let oldValue, oldValue != selectedKey else { return }
+            states[oldValue]?.isShowingFileImporter = false
+        }
+    }
 
     /// Drives the container-owned New Chat sheet so the tab-bar "+" and the menu-bar
     /// New Chat command work when the chat window is frontmost — the Contacts window
@@ -29,6 +36,12 @@ public final class ChatContainerState {
 
     public var hasTabs: Bool {
         !orderedTabs.isEmpty
+    }
+
+    /// False while the New Chat sheet or the file importer is up: tab shortcuts still reach the window behind them,
+    /// and a switch would rebind the open importer to another tab.
+    public var canCycleTabs: Bool {
+        orderedTabs.count > 1 && !isShowingNewChat && selectedState?.isShowingFileImporter != true
     }
 
     public func state(for key: ConversationKey) -> ChatWindowState? {
@@ -50,7 +63,7 @@ public final class ChatContainerState {
             // stale and bails instead of re-pointing the active conversation behind this
             // newly opened, now-selected tab.
             activationGeneration += 1
-            Task { await state.load() }
+            Task { await state.load { [weak self, weak state] in self?.isCurrentTab(state) ?? false } }
         } else {
             select(key)
         }
@@ -60,6 +73,19 @@ public final class ChatContainerState {
         guard let state = states[key], selectedKey != key else { return }
         selectedKey = key
         scheduleActivation(of: state)
+    }
+
+    public func selectNextTab() {
+        selectTab(offsetBy: 1)
+    }
+
+    public func selectPreviousTab() {
+        selectTab(offsetBy: -1)
+    }
+
+    private func selectTab(offsetBy offset: Int) {
+        guard orderedTabs.count > 1, let selectedKey, let index = orderedTabs.firstIndex(of: selectedKey) else { return }
+        select(orderedTabs[(index + offset + orderedTabs.count) % orderedTabs.count])
     }
 
     public func close(_ key: ConversationKey) {
@@ -76,6 +102,13 @@ public final class ChatContainerState {
         } else {
             scheduleDeactivation()
         }
+    }
+
+    public func closeAll() {
+        orderedTabs.removeAll()
+        states.removeAll()
+        selectedKey = nil
+        scheduleDeactivation()
     }
 
     public func newChat() {
@@ -106,6 +139,13 @@ public final class ChatContainerState {
     /// rather than re-pointing the active conversation (and marking it read) behind the
     /// now-visible tab.
     private var activationGeneration = 0
+
+    /// True only while `state` is the selected tab's own instance, so a load finishing in a background, closed, or
+    /// reopened tab can't activate it.
+    private func isCurrentTab(_ state: ChatWindowState?) -> Bool {
+        guard let state, let selectedKey else { return false }
+        return states[selectedKey] === state
+    }
 
     private func scheduleActivation(of state: ChatWindowState) {
         activationGeneration += 1

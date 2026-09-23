@@ -8,19 +8,19 @@ final class ContactListMenuBuilder {
     private let openWindow: OpenWindowAction?
     private let transcriptScope: TranscriptScope?
     private let presentSheet: (ContactListRowSheet) -> Void
-    private let presentNotice: (String, UUID) -> Void
+    private let requestRemoval: (Contact) -> Void
     private weak var target: AnyObject?
     private let action: Selector
 
     init(
         openChat: OpenChatAction, openWindow: OpenWindowAction?, transcriptScope: TranscriptScope?,
-        presentSheet: @escaping (ContactListRowSheet) -> Void, presentNotice: @escaping (String, UUID) -> Void, target: AnyObject, action: Selector
+        presentSheet: @escaping (ContactListRowSheet) -> Void, requestRemoval: @escaping (Contact) -> Void, target: AnyObject, action: Selector
     ) {
         self.openChat = openChat
         self.openWindow = openWindow
         self.transcriptScope = transcriptScope
         self.presentSheet = presentSheet
-        self.presentNotice = presentNotice
+        self.requestRemoval = requestRemoval
         self.target = target
         self.action = action
     }
@@ -45,9 +45,7 @@ final class ContactListMenuBuilder {
             self.openWindow?(id: "contact-info", value: ContactInfoRef(accountID: contact.accountID, jid: contact.jid.description))
         })
         menu.addItem(item("History", identifier: "contact-context-history") {
-            let ref = conversation.map { ConversationRef(conversation: $0) }
-                ?? ConversationRef(accountID: contact.accountID, jid: contact.jid.description, type: .chat)
-            self.transcriptScope?.request(ref)
+            self.transcriptScope?.request(ConversationRef(contact: contact, openConversation: conversation))
             self.openWindow?(id: "transcripts")
         })
         menu.addItem(.separator())
@@ -73,15 +71,8 @@ final class ContactListMenuBuilder {
                 }
             }
         })
-        menu.addItem(item("Remove Contact", identifier: "contact-context-remove") {
-            Task {
-                do {
-                    let outcome = try await environment.rosterService.removeContact(contact, accountID: contact.accountID)
-                    if !outcome.isComplete { self.presentNotice(outcome.message, contact.accountID) }
-                } catch {
-                    self.presentNotice("\(contact.jid): \(error.localizedDescription)", contact.accountID)
-                }
-            }
+        menu.addItem(item("Remove Contact…", identifier: "contact-context-remove") {
+            self.requestRemoval(contact)
         })
         return menu
     }

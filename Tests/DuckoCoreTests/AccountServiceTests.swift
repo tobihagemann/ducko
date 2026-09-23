@@ -260,6 +260,62 @@ enum AccountServiceTests {
             connectTask.cancel()
             await service.disconnect(accountID: account.id)
         }
+
+        @Test
+        @MainActor
+        func `connectEnabledAccountsOnLaunch connects only on its first call`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let account = Account(id: UUID(), jid: testJID, isEnabled: true, connectOnLaunch: true, createdAt: Date())
+            await store.addAccount(account)
+            credentials.savePassword("secret", for: account.jid.description)
+
+            // A permanent connect error lands an attempted account in `.error` without a handshake.
+            let transport = MockTransport(connectError: TestError())
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+            try await service.loadAccounts()
+
+            await service.connectEnabledAccountsOnLaunch()
+            guard case .error = service.connectionStates[account.id] else {
+                Issue.record("Expected the first call to attempt a connect, got \(String(describing: service.connectionStates[account.id]))")
+                return
+            }
+
+            await service.disconnect(accountID: account.id)
+            await service.connectEnabledAccountsOnLaunch()
+
+            guard case .disconnected = service.connectionStates[account.id] else {
+                Issue.record("Expected the second call not to reconnect, got \(String(describing: service.connectionStates[account.id]))")
+                return
+            }
+        }
+
+        @Test
+        @MainActor
+        func `connectEnabledAccountsOnLaunch still connects when its caller is cancelled`() async throws {
+            let store = makeStore()
+            let credentials = makeCredentials()
+            let account = Account(id: UUID(), jid: testJID, isEnabled: true, connectOnLaunch: true, createdAt: Date())
+            await store.addAccount(account)
+            credentials.savePassword("secret", for: account.jid.description)
+
+            // A cancelled connect bails before `.connecting`, so only a real attempt reaches the connect error's `.error`.
+            let transport = MockTransport(connectError: TestError())
+            let factory = MockXMPPClientFactory(transport: transport)
+            let service = makeAccountService(store: store, credentials: credentials, clientFactory: factory)
+            try await service.loadAccounts()
+
+            // Closing the Contacts window cancels the view task that makes the launch call.
+            let caller = Task { await service.connectEnabledAccountsOnLaunch() }
+            caller.cancel()
+            await caller.value
+
+            guard case .error = service.connectionStates[account.id] else {
+                Issue.record("Expected the launch attempt to survive cancellation, got \(String(describing: service.connectionStates[account.id]))")
+                return
+            }
+        }
     }
 
     struct DeleteAccount {
@@ -622,7 +678,7 @@ enum AccountServiceTests {
     struct ConnectedProjections {
         @Test
         @MainActor
-        func `connectedAccounts and firstConnectedAccount follow accounts order and exclude unconnected`() async throws {
+        func `connectedAccounts follows accounts order and excludes unconnected`() async throws {
             let store = makeStore()
             let credentials = makeCredentials()
             let aliceTransport = MockTransport()
@@ -641,7 +697,6 @@ enum AccountServiceTests {
             let (_, aliceTask) = try await driveMockConnect(service, accountID: aliceID, transport: aliceTransport)
 
             #expect(service.connectedAccounts.map(\.id) == [aliceID, bobID])
-            #expect(service.firstConnectedAccount?.id == aliceID)
             #expect(!service.connectedAccounts.map(\.id).contains(carolID))
 
             bobTask.cancel()
@@ -652,7 +707,7 @@ enum AccountServiceTests {
 
         @Test
         @MainActor
-        func `connectedAccounts is empty and firstConnectedAccount nil with nothing connected`() async throws {
+        func `connectedAccounts is empty with nothing connected`() async throws {
             let store = makeStore()
             let credentials = makeCredentials()
             let factory = MockXMPPClientFactory(transport: MockTransport())
@@ -660,7 +715,6 @@ enum AccountServiceTests {
             _ = try await service.createAccount(jidString: "alice@example.com")
 
             #expect(service.connectedAccounts.isEmpty)
-            #expect(service.firstConnectedAccount == nil)
         }
     }
 }

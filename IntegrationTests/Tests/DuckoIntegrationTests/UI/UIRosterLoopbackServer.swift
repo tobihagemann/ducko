@@ -9,7 +9,7 @@ actor UIRosterLoopbackServer {
     private var connection: NWConnection?
     private var parser = XMPPStreamParser()
     private var authenticated = false
-    private var mutated = false
+    private(set) var mutated = false
     private var rejection = false
     private(set) var requestedVersions: [String?] = []
 

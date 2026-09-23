@@ -579,6 +579,27 @@ actor AppAccessor { // swiftlint:disable:this type_body_length
         }
     }
 
+    /// Selects the table row containing `identifier` with a real single click,
+    /// then waits for its `kAXRowRole` ancestor to report selected.
+    /// `click(identifier:)` performs `kAXPressAction`, which does not change
+    /// `NSTableView` selection.
+    func selectRow(identifier: String) async throws {
+        try await retryOnStaleElement(identifier: identifier) {
+            let element = try self.axDriver.resolveElement(identifier: identifier)
+            self.axDriver.raiseWindow(of: element)
+            await self.ensureFrontmost()
+            guard let point = self.axDriver.elementCenter(of: element), self.axDriver.pointHitsSameWindow(as: element, at: point) else {
+                throw TestHarnessError.elementNotFound(identifier: "\(identifier)/occluded")
+            }
+            self.axDriver.postClickPair(at: point, clickState: 1)
+        }
+        try await pollUntil(timeout: TestTimeout.uiElement) {
+            guard let element = try? self.axDriver.resolveElement(identifier: identifier),
+                  let row = self.axDriver.findAncestor(from: element, role: kAXRowRole) else { return false }
+            return (self.axDriver.readAttribute(row, kAXSelectedAttribute) as? Bool) == true
+        }
+    }
+
     /// Resolves `identifier`, focuses it, and either sets `kAXValueAttribute`
     /// or falls back to per-character keystrokes via `mapSetterError`. The
     /// fallback covers SwiftUI `TextField`s that ignore `kAXSetValueAction`.
@@ -1176,8 +1197,16 @@ actor AppAccessor { // swiftlint:disable:this type_body_length
             ) {
                 throw error
             }
-        } else {
-            try axDriver.perform(action: kAXPressAction, on: action, identifier: identifier)
+        } else if let pressError = Self.mapPerformError(AXUIElementPerformAction(action, kAXPressAction as CFString), identifier: identifier, action: kAXPressAction) {
+            // The action can dismiss the dialog while the press is still in
+            // flight, so AX reports an error for an action that committed.
+            // Dismissal decides.
+            do {
+                try await waitForConfirmationDialogDismissed(dialogText: dialogText)
+            } catch {
+                throw pressError
+            }
+            return
         }
         try await waitForConfirmationDialogDismissed(dialogText: dialogText)
     }

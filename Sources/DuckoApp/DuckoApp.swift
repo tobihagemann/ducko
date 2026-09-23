@@ -22,6 +22,7 @@ struct DuckoApp: App {
     @FocusedValue(\.chatWindowState) private var focusedChatWindowState
     @FocusedValue(\.contactListWindowState) private var focusedContactListWindowState
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @State private var isShowingAdiumImport = false
 
     init() {
@@ -118,12 +119,12 @@ struct DuckoApp: App {
         .defaultSize(width: 900, height: 600)
         .commands {
             CommandGroup(after: .appInfo) {
-                Button("Check for Updates...") {
+                Button("Check for Updates…") {
                     updateManager.checkForUpdates()
                 }
                 .disabled(!updateManager.canCheckForUpdates)
 
-                Button("Install Command Line Tools...") {
+                Button("Install Command Line Tools…") {
                     CLIInstaller.installCLITools()
                 }
             }
@@ -135,13 +136,13 @@ struct DuckoApp: App {
                 }
                 .keyboardShortcut("n")
 
-                Button("Join Room...") {
+                Button("Join Room…") {
                     focusedContactListWindowState?.joinRoom()
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(focusedContactListWindowState == nil)
 
-                Button("Bookmarks...") {
+                Button("Bookmarks…") {
                     focusedContactListWindowState?.showBookmarks()
                 }
                 .keyboardShortcut("b", modifiers: [.command, .shift])
@@ -156,13 +157,30 @@ struct DuckoApp: App {
 
                 Divider()
 
-                Button("Import Adium Logs...") {
+                Button("Import Adium Logs…") {
                     isShowingAdiumImport = true
                 }
             }
 
+            // Replaces the default Close / Close All pair: its Option-alternate Close All claims ⌥⌘W, which SwiftUI
+            // then drops from any later item.
+            CommandGroup(replacing: .saveItem) {
+                Button("Close") {
+                    NSApp.keyWindow?.performClose(nil)
+                }
+                .keyboardShortcut("w")
+
+                Button("Close All Chats") {
+                    chatContainer.closeAll()
+                    dismissWindow(id: "chat")
+                }
+                .keyboardShortcut("w", modifiers: [.command, .option])
+                .accessibilityIdentifier("close-all-chats-menu")
+                .disabled(!chatContainer.hasTabs)
+            }
+
             CommandMenu("Contact") {
-                Button("Add Contact...") {
+                Button("Add Contact…") {
                     focusedContactListWindowState?.addContact()
                 }
                 .keyboardShortcut("d")
@@ -170,10 +188,56 @@ struct DuckoApp: App {
 
                 Divider()
 
-                Button("My Profile...") {
+                Button("Get Info") {
+                    if let contactInfoRef = contactCommandTarget?.contactInfoRef {
+                        openWindow(id: "contact-info", value: contactInfoRef)
+                    }
+                }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+                .accessibilityIdentifier("contact-menu-get-info")
+                .disabled(contactCommandTarget?.contactInfoRef == nil)
+
+                Button("History") {
+                    if let target = contactCommandTarget {
+                        transcriptScope.request(target.transcriptRef)
+                        openWindow(id: "transcripts")
+                    }
+                }
+                .keyboardShortcut("l")
+                .accessibilityIdentifier("contact-menu-history")
+                .disabled(contactCommandTarget == nil)
+
+                Button("Send File…") {
+                    if let chat = focusedChatWindowState {
+                        chat.showFileImporter()
+                    } else if let target = contactCommandTarget {
+                        openChatAction(target.chatKey.jid, accountID: target.chatKey.accountID)
+                        chatContainer.state(for: target.chatKey)?.showFileImporter()
+                    }
+                }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .accessibilityIdentifier("contact-menu-send-file")
+                .disabled(contactCommandTarget == nil)
+
+                Button("Remove Contact…") {
+                    focusedContactListWindowState?.removeSelectedContact(in: environment)
+                }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .accessibilityIdentifier("contact-menu-remove")
+                .disabled(!(focusedContactListWindowState?.canRemoveSelectedContact ?? false) || isShowingAdiumImport)
+
+                Divider()
+
+                Button("My Profile…") {
                     focusedContactListWindowState?.editProfile()
                 }
                 .disabled(focusedContactListWindowState == nil)
+            }
+
+            CommandMenu("Status") {
+                StatusCommandsMenu(environment: environment, preferences: statusBarPreferences) {
+                    openWindow(id: "contacts")
+                }
             }
 
             CommandGroup(after: .sidebar) {
@@ -184,7 +248,7 @@ struct DuckoApp: App {
             }
 
             CommandGroup(replacing: .textEditing) {
-                Button("Find...") {
+                Button("Find…") {
                     if let chat = focusedChatWindowState {
                         chat.toggleSearch()
                     } else {
@@ -195,8 +259,39 @@ struct DuckoApp: App {
                 .disabled(focusedChatWindowState == nil && focusedContactListWindowState == nil)
             }
 
+            CommandGroup(before: .windowList) {
+                // Titled "Contact List" so it doesn't read as a duplicate of the window list's own "Contacts" entry.
+                Button(focusedContactListWindowState != nil ? "Hide Contact List" : "Show Contact List") {
+                    if focusedContactListWindowState != nil {
+                        dismissWindow(id: "contacts")
+                    } else {
+                        openWindow(id: "contacts")
+                    }
+                }
+                .keyboardShortcut("/")
+                .accessibilityIdentifier("contacts-window-menu")
+
+                Divider()
+
+                Button("Select Next Tab") {
+                    chatContainer.selectNextTab()
+                }
+                .keyboardShortcut(.tab, modifiers: .control)
+                .accessibilityIdentifier("next-tab-menu")
+                .disabled(!canCycleChatTabs)
+
+                Button("Select Previous Tab") {
+                    chatContainer.selectPreviousTab()
+                }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .accessibilityIdentifier("previous-tab-menu")
+                .disabled(!canCycleChatTabs)
+
+                Divider()
+            }
+
             CommandGroup(after: .help) {
-                Button("Export Logs...") {
+                Button("Export Logs…") {
                     exportLogs()
                 }
             }
@@ -206,6 +301,7 @@ struct DuckoApp: App {
             MenuBarStatusView()
                 .environment(environment)
                 .environment(themeEngine)
+                .environment(statusBarPreferences)
         }
 
         Settings {
@@ -215,6 +311,15 @@ struct DuckoApp: App {
                 .environment(generalPreferences)
                 .environment(statusBarPreferences)
         }
+    }
+
+    /// The active conversation when the Chat window is focused, else the selected Contacts row.
+    private var contactCommandTarget: ContactCommandTarget? {
+        focusedChatWindowState?.commandTarget ?? focusedContactListWindowState?.commandTarget(in: environment)
+    }
+
+    private var canCycleChatTabs: Bool {
+        focusedChatWindowState != nil && chatContainer.canCycleTabs
     }
 
     private var totalUnread: Int {
@@ -302,6 +407,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         log.info("disconnectAll completed (or timed out); cancelling service tasks")
         await environment.shutdown(within: disconnectDeadline)
         log.info("service shutdown completed; replying terminate")
+    }
+
+    /// With automatic tabbing on, AppKit adds Show Next/Previous Tab (⌃⇥ / ⌃⇧⇥) to the Window menu once a tabbable
+    /// window opens, which collides with the chat tab commands and mangles the SwiftUI Window menu group.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

@@ -83,7 +83,7 @@ struct ContactListOwnersTests {
         var sheet: ContactListRowSheet?
         let builder = ContactListMenuBuilder(
             openChat: OpenChatAction { jid, accountID in opened = ConversationKey(accountID: accountID, jid: jid) },
-            openWindow: nil, transcriptScope: nil, presentSheet: { sheet = $0 }, presentNotice: { _, _ in }, target: target, action: Selector(("unused:"))
+            openWindow: nil, transcriptScope: nil, presentSheet: { sheet = $0 }, requestRemoval: { _ in }, target: target, action: Selector(("unused:"))
         )
         let selectedRoom = room()
         var rows: [ContactListRow] = [.room(selectedRoom), .room(room(name: "Other"))]

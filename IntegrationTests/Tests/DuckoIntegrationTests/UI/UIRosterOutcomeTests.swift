@@ -12,7 +12,7 @@ extension DuckoIntegrationTests.UILayer {
         "Debug Ducko.app or accessibility trust unavailable"
     ))
     struct UIRosterOutcomeTests {
-        @Test(arguments: ["add", "menu", "info", "rejection", "script", "script-info"])
+        @Test(arguments: ["add", "menu", "shortcut", "info", "rejection", "script", "script-info"])
         @MainActor func `roster outcomes remain visible and can be dismissed`(entry: String) async throws {
             let server = UIRosterLoopbackServer()
             let port = try await server.start()
@@ -23,6 +23,42 @@ extension DuckoIntegrationTests.UILayer {
                 try await AppAccessor.withAppAccessor(profile: profile) { app in
                     try await app.waitForElement(identifier: "contact-row-bob@example.com")
                     try await exercise(entry, app: app)
+                }
+                await server.stop()
+            } catch {
+                await server.stop()
+                await CLIProcess.removeProfileDirectory(profile: profile)
+                throw error
+            }
+        }
+
+        @Test
+        @MainActor func `cancelled removal keeps the contact and hiding it clears the selection`() async throws {
+            let server = UIRosterLoopbackServer()
+            let port = try await server.start()
+            let profile = "inttest-ui-\(UUID().uuidString.prefix(8))"
+            do {
+                try await seed(profile: profile, port: port)
+                try await AppAccessor.withAppAccessor(profile: profile) { app in
+                    try await app.waitForElement(identifier: "contact-row-bob@example.com")
+                    try await app.selectRow(identifier: "contact-row-bob@example.com")
+                    try await app.pressKey(CGKeyCode(kVK_Delete), modifiers: .maskCommand)
+                    try await app.clickConfirmationDialogButton(dialogText: "Remove Bob?", buttonLabel: "Cancel")
+                    try await app.waitForElement(identifier: "contact-row-bob@example.com")
+                    // The server acknowledges a removal without pushing it back, so Bob staying visible alone
+                    // wouldn't prove Cancel sent nothing.
+                    try await Task.sleep(for: .seconds(1))
+                    #expect(await !server.mutated)
+
+                    // Hiding the selected offline contact moves the table selection without a click.
+                    try await app.pressKey(CGKeyCode(kVK_ANSI_H), modifiers: [.maskCommand, .maskShift])
+                    try await app.waitForAbsence(identifier: "contact-row-bob@example.com")
+                    try await app.pressKey(CGKeyCode(kVK_Delete), modifiers: .maskCommand)
+                    try await Task.sleep(for: .seconds(1))
+                    try await app.waitForSheetDismissed(timeout: .seconds(1))
+
+                    try await app.pressKey(CGKeyCode(kVK_ANSI_H), modifiers: [.maskCommand, .maskShift])
+                    try await app.waitForElement(identifier: "contact-row-bob@example.com")
                 }
                 await server.stop()
             } catch {
@@ -50,7 +86,12 @@ extension DuckoIntegrationTests.UILayer {
                 try await app.waitForSheetDismissed()
             case "menu":
                 try await app.rightClick(identifier: "contact-row-bob@example.com")
-                try await app.contextMenuItem(title: "Remove Contact")
+                try await app.contextMenuItem(title: "Remove Contact…")
+                try await app.clickConfirmationDialogButton(dialogText: "Remove Bob?", buttonLabel: "Remove Contact")
+            case "shortcut":
+                try await app.selectRow(identifier: "contact-row-bob@example.com")
+                try await app.pressKey(CGKeyCode(kVK_Delete), modifiers: .maskCommand)
+                try await app.clickConfirmationDialogButton(dialogText: "Remove Bob?", buttonLabel: "Remove Contact")
             case "info", "script-info":
                 try await app.rightClick(identifier: "contact-row-bob@example.com")
                 try await app.contextMenuItem(title: "Get Info")

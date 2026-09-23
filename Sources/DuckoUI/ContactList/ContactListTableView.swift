@@ -16,7 +16,8 @@ struct ContactListTableInputs {
     var openWindow: OpenWindowAction?
     var transcriptScope: TranscriptScope?
     var presentSheet: (ContactListRowSheet) -> Void = { _ in }
-    var presentNotice: (String, UUID) -> Void = { _, _ in }
+    var requestRemoval: (Contact) -> Void = { _ in }
+    var onSelectionChange: (ContactListRow?) -> Void = { _ in }
     var preferences: ContactListPreferences?
     var incomingRows: [ContactListRow] = []
     var chromeHeight: CGFloat = 0
@@ -45,7 +46,8 @@ struct ContactListTableView: NSViewRepresentable {
     let maxWidthPreference: Double
     let hasConnectedAccount: Bool
     let presentSheet: (ContactListRowSheet) -> Void
-    let presentNotice: (String, UUID) -> Void
+    let requestRemoval: (Contact) -> Void
+    let onSelectionChange: (ContactListRow?) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -64,7 +66,8 @@ struct ContactListTableView: NSViewRepresentable {
             openWindow: openWindow,
             transcriptScope: transcriptScope,
             presentSheet: presentSheet,
-            presentNotice: presentNotice,
+            requestRemoval: requestRemoval,
+            onSelectionChange: onSelectionChange,
             preferences: preferences,
             incomingRows: rows,
             chromeHeight: chromeHeight,
@@ -85,6 +88,7 @@ struct ContactListTableView: NSViewRepresentable {
 
         private var rows: [ContactListRow] = []
         private var rowHeights: [CGFloat] = []
+        private var lastReportedRowID: String?
         private var lastAppliedKey: ContactListResize.LayoutKey?
         private var pendingInitialApply = true
         private let measurement = ContactListMeasurement()
@@ -167,6 +171,7 @@ struct ContactListTableView: NSViewRepresentable {
         func reconcile() {
             guard inputs.theme != nil, inputs.environment != nil, inputs.preferences != nil,
                   let tableView, let scrollView else { return }
+            defer { reportSelection() }
 
             container?.setAccessibilityValue(inputs.hasConnectedAccount ? "connected" : "connecting")
 
@@ -431,6 +436,23 @@ struct ContactListTableView: NSViewRepresentable {
             openRow(tableView.selectedRow)
         }
 
+        func tableViewSelectionDidChange(_ notification: Notification) {
+            reportSelection()
+        }
+
+        /// Publishes the selected row for the menu-bar commands. `reconcile()` reports too, because `reloadData()` and
+        /// the row diff move the selection without posting a selection change. It reports only when the row identity
+        /// changes. `reconcile()` runs on every `updateNSView`, and the App body reads the published row, so an
+        /// unconditional write would loop into another `updateNSView`.
+        private func reportSelection() {
+            guard let tableView else { return }
+            let index = tableView.selectedRow
+            let row = rows.indices.contains(index) ? rows[index] : nil
+            guard row?.id != lastReportedRowID else { return }
+            lastReportedRowID = row?.id
+            inputs.onSelectionChange(row)
+        }
+
         // MARK: - Context menu (NSMenuDelegate)
 
         /// Populates the table-owned menu for the right-clicked row just before
@@ -455,7 +477,7 @@ struct ContactListTableView: NSViewRepresentable {
             guard rows.indices.contains(index), let environment = inputs.environment else { return nil }
             return ContactListMenuBuilder(
                 openChat: inputs.openChat, openWindow: inputs.openWindow, transcriptScope: inputs.transcriptScope,
-                presentSheet: inputs.presentSheet, presentNotice: inputs.presentNotice, target: self, action: #selector(performMenuItem(_:))
+                presentSheet: inputs.presentSheet, requestRemoval: inputs.requestRemoval, target: self, action: #selector(performMenuItem(_:))
             )
             .menu(for: rows[index], environment: environment)
         }

@@ -4,10 +4,15 @@ import SwiftUI
 
 public struct MenuBarStatusView: View {
     @Environment(AppEnvironment.self) private var environment
+    @Environment(StatusBarPreferences.self) private var preferences
     @Environment(\.openWindow) private var openWindow
 
+    private var identityAccountID: UUID? {
+        environment.identityAccount(preferences: preferences)?.id
+    }
+
     private var currentStatus: PresenceService.PresenceStatus {
-        environment.presenceService.displayedPresence(for: environment.accountService.firstConnectedAccount?.id).status
+        environment.presenceService.displayedPresence(for: identityAccountID).status
     }
 
     public init() {}
@@ -46,17 +51,7 @@ public struct MenuBarStatusView: View {
     }
 
     private func setPresence(_ status: PresenceService.PresenceStatus) {
-        // No identity switcher here, so resolve the empty-`connectOnLaunch` reconnect fallback on the spot.
-        let identityAccountID = environment.accountService.firstConnectedAccount?.id
-            ?? environment.accountService.accounts.first { $0.isEnabled }?.id
-        Task {
-            // Picking a base presence clears any custom status message and broadcasts to every online account,
-            // matching the Contacts "me" header so both surfaces send the same payload.
-            await environment.presenceService.applyGlobalPresence(status, message: nil, identityAccountID: identityAccountID) { id in
-                try await environment.accountService.connect(accountID: id)
-            } disconnect: { id in
-                await environment.accountService.disconnect(accountID: id)
-            }
-        }
+        // Picking a base presence clears any custom status message and broadcasts to every online account.
+        environment.applyGlobalStatus(status, message: nil, identityAccountID: identityAccountID)
     }
 }

@@ -6,11 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Add Get Info (⇧⌘I), History (⌘L), and Send File… (⇧⌘F) to the Contact menu for the selected contact or the active chat, and a ⌘⌫ shortcut for Remove Contact…
+- Add a Status menu to the menu bar with Available (⇧⌘Y), a ⌘Y toggle between Custom Away… and Available, and Custom…
+- Add Close All Chats (⌥⌘W) to the File menu
+- Add Select Next Tab (⌃⇥ or ⇧⌘]) and Select Previous Tab (⌃⇧⇥ or ⇧⌘[) to cycle through chat tabs
+- Add Show/Hide Contact List (⌘/) to the Window menu
+- Add a ⇧⌘H shortcut for Hide Offline Contacts
+
 ### Changed
 
 - Fit the Settings window to the pane you are viewing, keeping the toolbar buttons in place as you switch panes
 - Gather the account actions in Settings ▸ Accounts into an Actions menu, so their labels read in full instead of being cut to a letter
 - Show the account and saved-status lists as bordered lists with add and remove buttons beneath them
+- Ask for confirmation before removing a contact from the Contacts window
+- Show the same account's status in the menu bar icon as in the Contacts header
 
 ### Removed
 
@@ -19,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - Close the Server Info sheet with Escape, as the other account sheets already do
+- Keep accounts you took offline disconnected when the Contacts window is closed and reopened
 
 ## [0.2.1] - 2026-09-22
 

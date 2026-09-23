@@ -8,50 +8,56 @@ import Testing
 
 @MainActor
 struct RosterOutcomeTests {
-    @Test(arguments: [false, true])
-    func `both removal owners preserve a partial notice with account and contact context`(infoWindow: Bool) async throws {
+    @Test func `the contact info removal preserves a partial notice with account and contact context`() async throws {
         let fixture = try await RosterUIFixture.connected()
-        let contact = try #require(fixture.environment.rosterService.contact(jidString: "bob@example.com", accountID: fixture.accountID))
-        let noticeArrived = AsyncSemaphore()
-        var notice: String?
-        var noticeAccount: UUID?
         let state = ContactInfoWindowState(ref: ContactInfoRef(accountID: fixture.accountID, jid: "bob@example.com"), environment: fixture.environment)
         await state.load()
-        let action: Task<Void, Never>?
-        if infoWindow {
-            action = Task { await state.remove() }
-        } else {
-            action = nil
-            let builder = ContactListMenuBuilder(openChat: OpenChatAction { _, _ in }, openWindow: nil, transcriptScope: nil, presentSheet: { _ in }, presentNotice: { text, account in
-                notice = text
-                noticeAccount = account
-                Task { await noticeArrived.signal() }
-            }, target: NSView(), action: Selector(("unused:")))
-            let menu = try #require(builder.menu(for: .contact(sectionName: "Ungrouped", contact: contact), environment: fixture.environment))
-            let item = try #require(menu.items.first { $0.accessibilityIdentifier() == "contact-context-remove" })
-            try #require(item.representedObject as? MenuCommand).run()
-        }
-        let mutation = try await fixture.next("type=\"set\"")
-        await fixture.reply(to: mutation)
-        let readback = try await fixture.next("type=\"get\"")
-        // The contact can disappear while the confirmed command's readback fails.
-        await fixture.transport.simulateReceive("<iq type='set' id='removed'><query xmlns='jabber:iq:roster'><item jid='bob@example.com' subscription='remove'/></query></iq>")
-        try await fixture.waitUntil { fixture.environment.rosterService.contact(jidString: "bob@example.com", accountID: fixture.accountID) == nil }
-        await fixture.reply(to: readback)
-        if let action {
-            await action.value
-            #expect(state.contact == nil)
-            #expect(!state.isRemoving)
-            #expect(state.rosterNotice?.contains("alice@example.com") == true)
-            #expect(state.rosterNotice?.contains("bob@example.com") == true)
-            #expect(state.rosterNotice?.contains("sync") == true)
-        } else {
-            try #require(try await boundedOutcome { await noticeArrived.wait() } != nil)
-            #expect(notice?.contains("bob@example.com") == true)
-            #expect(noticeAccount == fixture.accountID)
-        }
-        await fixture.environment.accountService.disconnect(accountID: fixture.accountID)
-        await fixture.environment.shutdown(within: .seconds(2))
+        let action = Task { await state.remove() }
+
+        try await fixture.completeRemovalWithFailedReadback()
+
+        await action.value
+        #expect(state.contact == nil)
+        #expect(!state.isRemoving)
+        #expect(state.rosterNotice?.contains("alice@example.com") == true)
+        #expect(state.rosterNotice?.contains("bob@example.com") == true)
+        #expect(state.rosterNotice?.contains("sync") == true)
+        await fixture.tearDown()
+    }
+
+    @Test func `the contact list removal confirms first and preserves a partial notice`() async throws {
+        let fixture = try await RosterUIFixture.connected()
+        let contact = try #require(fixture.environment.rosterService.contact(jidString: "bob@example.com", accountID: fixture.accountID))
+        let windowState = ContactListWindowState()
+        let builder = ContactListMenuBuilder(
+            openChat: OpenChatAction { _, _ in }, openWindow: nil, transcriptScope: nil, presentSheet: { _ in },
+            requestRemoval: { windowState.requestRemoval(of: $0) }, target: NSView(), action: Selector(("unused:"))
+        )
+        let menu = try #require(builder.menu(for: .contact(sectionName: "Ungrouped", contact: contact), environment: fixture.environment))
+        let item = try #require(menu.items.first { $0.accessibilityIdentifier() == "contact-context-remove" })
+        try #require(item.representedObject as? MenuCommand).run()
+
+        // The context item only asks for confirmation; nothing reaches the server yet.
+        let requested = try #require(windowState.pendingRemoval)
+        #expect(requested.jid == contact.jid)
+        #expect(requested.accountID == contact.accountID)
+        let sent = await fixture.transport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+        #expect(!sent.contains { $0.contains("jabber:iq:roster") })
+
+        // Dismissing the confirmation dialog clears the pending removal before the confirmed removal runs.
+        windowState.pendingRemoval = nil
+        let action = Task { await windowState.confirmRemoval(requested, environment: fixture.environment) }
+
+        try await fixture.completeRemovalWithFailedReadback()
+
+        await action.value
+        #expect(windowState.rosterNotice?.contains("alice@example.com") == true)
+        #expect(windowState.rosterNotice?.contains("bob@example.com") == true)
+        // Only the confirmed removal reached the server, not a second one started by the context item itself.
+        let rosterSets = await fixture.transport.sentBytes.map { String(decoding: $0, as: UTF8.self) }
+            .filter { $0.contains("jabber:iq:roster") && $0.contains("type=\"set\"") }
+        #expect(rosterSets.count == 1)
+        await fixture.tearDown()
     }
 }
 
@@ -82,19 +88,25 @@ private final class RosterUIFixture {
         let initial = try await fixture.next("jabber:iq:roster")
         await fixture.reply(to: initial, contents: "<query xmlns='jabber:iq:roster'><item jid='bob@example.com'/></query>")
         try await connection.value
-        try await fixture.waitUntil { environment.rosterService.contact(jidString: "bob@example.com", accountID: id) != nil }
+        try await waitUntil { environment.rosterService.contact(jidString: "bob@example.com", accountID: id) != nil }
         await transport.clearSentBytes()
         return fixture
     }
 
-    func waitUntil(_ predicate: @escaping @MainActor () -> Bool) async throws {
-        let result = try await boundedOutcome { @MainActor in
-            while !predicate() {
-                try Task.checkCancellation(); await Task.yield()
-            }
-        }
-        try #require(result != nil)
-        try result?.get()
+    /// Acknowledges the removal, then removes the contact by push while its readback is still pending, so the
+    /// confirmed removal ends with an incomplete outcome.
+    func completeRemovalWithFailedReadback() async throws {
+        let mutation = try await next("type=\"set\"")
+        await reply(to: mutation)
+        let readback = try await next("type=\"get\"")
+        await transport.simulateReceive("<iq type='set' id='removed'><query xmlns='jabber:iq:roster'><item jid='bob@example.com' subscription='remove'/></query></iq>")
+        try await waitUntil { self.environment.rosterService.contact(jidString: "bob@example.com", accountID: self.accountID) == nil }
+        await reply(to: readback)
+    }
+
+    func tearDown() async {
+        await environment.accountService.disconnect(accountID: accountID)
+        await environment.shutdown(within: .seconds(2))
     }
 
     func next(_ fragment: String) async throws -> String {

@@ -4,39 +4,13 @@ import SwiftUI
 struct StatusBarView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(StatusBarPreferences.self) private var preferences
-    @State private var isShowingCustomStatus = false
+    @Bindable var windowState: ContactListWindowState
     @State private var isHoveringStatus = false
 
-    /// Caches the last identity that resolved to a connected account, so a freshly-picked identity that is still
-    /// `.connecting` holds the previous avatar/name/profile instead of snapping to `firstConnectedAccount`.
-    @State private var lastResolvedIdentityID: UUID?
-
-    /// The account whose avatar/name/profile the header shows. Resolution order: the persisted pick if connected
-    /// → the last identity that resolved while connected (so a pick still connecting, or accounts finishing their
-    /// handshakes in different orders, don't bounce the header) → first connected → first enabled. Display-only:
-    /// status always applies globally (not through this account).
+    /// The account whose avatar/name/profile the header shows (see `IdentityResolver`). Status applies globally. This
+    /// account is only the one connected when going online finds no connect-on-launch account.
     private var identityAccount: Account? {
-        let service = environment.accountService
-        let accounts = service.accounts
-        if let pickedID = preferences.identityAccountID,
-           let picked = accounts.first(where: { $0.id == pickedID }),
-           case .connected? = service.connectionStates[pickedID] {
-            return picked
-        }
-        if let held = connectedHeldAccount {
-            return held
-        }
-        return service.firstConnectedAccount ?? accounts.first { $0.isEnabled }
-    }
-
-    /// The last identity that resolved while connected, if it is still enabled and connected — a pure cache of
-    /// the last good resolution that keeps the header stable through connect ordering and a pick's connecting gap.
-    private var connectedHeldAccount: Account? {
-        guard let id = lastResolvedIdentityID,
-              let account = environment.accountService.accounts.first(where: { $0.id == id && $0.isEnabled }),
-              case .connected? = environment.accountService.connectionStates[id]
-        else { return nil }
-        return account
+        environment.identityAccount(preferences: preferences)
     }
 
     /// Enabled accounts, offered by the identity switcher (shown only when more than one exists).
@@ -81,15 +55,22 @@ struct StatusBarView: View {
         .padding(.vertical, 8)
         .task(id: connectedAccountID) {
             guard let accountID = connectedAccountID else { return }
-            lastResolvedIdentityID = accountID
+            preferences.heldIdentityAccountID = accountID
             if environment.profileService.ownProfile(for: accountID) == nil {
                 await environment.profileService.fetchOwnProfile(accountID: accountID)
             }
         }
-        .sheet(isPresented: $isShowingCustomStatus) {
+        // The Status menu's requests land here, since this window owns the sheet. `initial` covers a request made
+        // while the window was closed.
+        .onChange(of: preferences.requestedCustomStatus, initial: true) { _, request in
+            guard let request else { return }
+            windowState.customStatusPreset = request
+            preferences.requestedCustomStatus = nil
+        }
+        .sheet(item: $windowState.customStatusPreset) { preset in
             CustomStatusSheet(
-                presence: customSheetPresence,
-                message: headerPresence.message ?? ""
+                presence: preset.presence,
+                message: preset.message
             ) { presence, message, save in
                 if save {
                     preferences.saveMessage(message, for: presence)
@@ -161,7 +142,7 @@ struct StatusBarView: View {
             Divider()
 
             Button("Custom…") {
-                isShowingCustomStatus = true
+                windowState.customStatusPreset = CustomStatusPreset(presence: headerPresence.status, message: headerPresence.message ?? "")
             }
         } label: {
             HStack(spacing: 3) {
@@ -237,28 +218,10 @@ struct StatusBarView: View {
         return headerPresence.status.displayName
     }
 
-    /// Presence to preselect in the custom-status sheet — the one the header shows,
-    /// unless it is offline (which has no custom message).
-    private var customSheetPresence: PresenceService.PresenceStatus {
-        let current = headerPresence.status
-        return current == .offline ? .available : current
-    }
-
     // MARK: - Actions
 
     private func applyGlobal(_ status: PresenceService.PresenceStatus, message: String?) {
-        let resolved = normalize(message)
-        Task {
-            await environment.presenceService.applyGlobalPresence(
-                status,
-                message: resolved,
-                identityAccountID: identityAccount?.id
-            ) { id in
-                try await environment.accountService.connect(accountID: id)
-            } disconnect: { id in
-                await environment.accountService.disconnect(accountID: id)
-            }
-        }
+        environment.applyGlobalStatus(status, message: normalize(message), identityAccountID: identityAccount?.id)
     }
 
     private func normalize(_ message: String?) -> String? {
@@ -267,8 +230,8 @@ struct StatusBarView: View {
     }
 }
 
-/// Sheet for composing a custom status: pick the presence and type a message,
-/// reachable from the "Custom…" item in the status dropdown.
+/// Sheet for composing a custom status: pick the presence and type a message. Reachable from the status dropdown's
+/// "Custom…" item and from the Status menu.
 private struct CustomStatusSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State var presence: PresenceService.PresenceStatus

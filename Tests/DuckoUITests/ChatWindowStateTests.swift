@@ -54,6 +54,31 @@ struct ChatWindowStateTests {
         #expect(fixture.windowState.accountID == fixture.accountID)
     }
 
+    @Test func `commandTarget offers contact info for a 1:1 chat`() async throws {
+        let fixture = try await Self.makeFixture()
+        let target = try #require(fixture.windowState.commandTarget)
+        #expect(target.contactInfoRef == ContactInfoRef(accountID: fixture.accountID, jid: Self.jidString))
+    }
+
+    @Test(arguments: [(type: Conversation.ConversationType.groupchat, occupant: String?.none), (type: .chat, occupant: "nick")])
+    func `commandTarget offers no contact info for a room or a MUC private message`(
+        conversation: (type: Conversation.ConversationType, occupant: String?)
+    ) throws {
+        let environment = AppEnvironment(store: MockPersistenceStore(), transcripts: MockTranscriptStore(), credentialStore: NullCredentialStore())
+        let accountID = UUID()
+        let jidString = conversation.occupant.map { "room@conference.example.com/\($0)" } ?? "room@conference.example.com"
+        let windowState = ChatWindowState(jidString: jidString, accountID: accountID, environment: environment)
+        windowState.conversation = try Conversation(
+            id: UUID(), accountID: accountID, jid: #require(BareJID.parse("room@conference.example.com")), type: conversation.type,
+            isPinned: false, isMuted: false, unreadCount: 0, occupantNickname: conversation.occupant, createdAt: Date()
+        )
+
+        let target = try #require(windowState.commandTarget)
+
+        #expect(target.contactInfoRef == nil)
+        #expect(target.chatKey == ConversationKey(accountID: accountID, jid: jidString))
+    }
+
     @Test func `windowState resolves the contact under its own account when the JID is on two`() async throws {
         let store = MockPersistenceStore()
         let transcripts = MockTranscriptStore()

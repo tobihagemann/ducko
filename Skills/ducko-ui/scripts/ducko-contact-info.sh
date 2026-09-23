@@ -16,6 +16,10 @@ ACTION="${2:-__none__}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/ducko-helpers.sh"
 
+if [[ "$ACTION" == "remove" ]]; then
+    ducko_require_single_app
+fi
+
 RESULT=$(osascript - "$JID" "$ACTION" << APPLESCRIPT
 $(ducko_as_handlers)
 on run argv
@@ -29,6 +33,8 @@ on run argv
             $(ducko_as_find_window_by_id "contact-list" "Contacts window not found" "contactWin")
             perform action "AXRaise" of contactWin
             delay 0.3
+            -- Window references are positional, so re-resolve Contacts after the raise reorders them.
+            $(ducko_as_find_window_by_id "contact-list" "Contacts window not found" "contactWin")
             $(ducko_as_find_element_by_id 'targetId' 'contactWin' 'contact row not found for " & contactJID & "' 'targetRow')
             $(ducko_as_click_context_menu_item "Get Info" 'targetRow' 'contactWin')
         end tell
@@ -63,19 +69,15 @@ on run argv
         delay 0.5
         tell process "DuckoApp"
             $(ducko_as_find_window_by_id "contact-info-window" "Contact Info window not found" "infoWin")
+            -- A leftover confirmation would otherwise be the one the remove step confirms.
+            if infoAction is "remove" and (count of sheets of infoWin) > 0 then return "ERROR: a dialog is already open in the Contact Info window"
             $(ducko_as_click_element_by_id 'buttonId' 'infoWin' 'action button not found')
             if infoAction is "remove" then
                 delay 0.5
-                set allElems to entire contents of infoWin
-                repeat with elem in allElems
-                    try
-                        if role of elem is "AXButton" and name of elem is "Remove Contact" then
-                            click elem
-                            return "ok"
-                        end if
-                    end try
-                end repeat
-                return "ERROR: remove confirmation button not found"
+                if (count of sheets of infoWin) is 0 then return "ERROR: remove confirmation did not appear"
+                -- Search only the dialog: the form button of the window shares the "Remove Contact" name.
+                set confirmSheet to sheet 1 of infoWin
+                $(ducko_as_click_button_by_label "Remove Contact" 'confirmSheet' 'remove confirmation button not found')
             end if
             return "ok"
         end tell

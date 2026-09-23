@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 
 struct MessageInputView: View {
     @Bindable var windowState: ChatWindowState
-    @State private var showFileImporter = false
     @State private var isSending = false
     @FocusState private var isInputFocused: Bool
 
@@ -26,7 +25,7 @@ struct MessageInputView: View {
 
             HStack(alignment: .bottom, spacing: 8) {
                 Button {
-                    showFileImporter = true
+                    windowState.showFileImporter()
                 } label: {
                     Image(systemName: "paperclip")
                         .font(.title3)
@@ -74,7 +73,7 @@ struct MessageInputView: View {
             .padding(12)
         }
         .fileImporter(
-            isPresented: $showFileImporter,
+            isPresented: $windowState.isShowingFileImporter,
             allowedContentTypes: [.item],
             allowsMultipleSelection: true
         ) { result in

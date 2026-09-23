@@ -15,11 +15,11 @@ DuckoApp ships separate windows:
 
 - **Contact List** (`id: "contacts"`) — singleton, main window after login (roster, status picker, search).
 - **Chat** (`id: "chat"`) — singleton tabbed window holding every open conversation as a bottom tab (`chat-tab-bar`); opened/raised by double-click or New Chat. Switching tabs preserves each conversation's draft, search, and sidebar state.
-- **Contact Info** (`id: "contact-info"`, keyed by `ContactInfoRef`) — Get Info window: identity, roster/subscription state, vCard, and Block/Remove. Opened from the chat header (i) button or a contact's "Get Info" context item.
-- **Chat Transcripts** (`id: "transcripts"`) — singleton history window; the header clock and a contact's "History" context item retarget it to that conversation.
+- **Contact Info** (`id: "contact-info"`, keyed by `ContactInfoRef`) — Get Info window: identity, roster/subscription state, vCard, and Block/Remove. Opened from the chat header (i) button, a contact's "Get Info" context item, or Contact ▸ Get Info (⌘⇧I).
+- **Chat Transcripts** (`id: "transcripts"`) — singleton history window; the header clock, a contact's "History" context item, and Contact ▸ History (⌘L) retarget it to that conversation.
 - **MenuBarExtra** — quick status, Show Contact List, Quit.
 
-The Contacts window has **no toolbar**. Its actions live in the app menu bar: New Chat (⌘N), Join Room (⌘⇧N), Bookmarks (⌘⇧B) under File; Add Contact (⌘D), My Profile under the Contact menu; sort order + Hide Offline under View. `⌘F` reveals the roster search field (`contact-search-field`). Scripts drive these via keyboard shortcuts or menu-bar clicks (`menu bar item ... of menu bar 1`), not window buttons.
+The Contacts window has **no toolbar**. Its actions live in the app menu bar. File holds New Chat (⌘N), Join Room… (⌘⇧N), Bookmarks… (⌘⇧B) and Close All Chats (⌥⌘W). The Contact menu holds Add Contact… (⌘D) and My Profile…. Its Get Info (⌘⇧I), History (⌘L) and Send File… (⌘⇧F) act on the selected Contacts row or the active chat, while Remove Contact… (⌘⌫) acts only on the selected Contacts row. The Status menu sets presence (⌘⇧Y Available, ⌘Y toggle, Custom…). View holds sort order and Hide Offline (⌘⇧H). Window holds Show/Hide Contact List (⌘/) and chat tab cycling (⌃⇥/⌃⇧⇥). `⌘F` reveals the roster search field (`contact-search-field`). Scripts drive these via keyboard shortcuts or menu-bar clicks (`menu bar item ... of menu bar 1`), not window buttons.
 
 ## Prerequisites
 
@@ -40,7 +40,7 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `contact-list` | Contact list view | Contacts |
 | `contact-row-{jid}` | Individual contact row (account-qualified as `contact-row-{jid}\|{account-jid}` when the JID is on more than one account) | Contacts |
 | `status-picker` | Presence status pull-down (status rows with colored dots, saved statuses, per-account override submenus, Custom…) in the "me" header | Contacts |
-| `custom-status-message-field` | Message field in the status pull-down's Custom… sheet | Contacts |
+| `custom-status-message-field` | Message field in the Custom Status sheet (status pull-down or Status menu "Custom…" / "Custom Away…") | Contacts |
 | `identity-switcher` | Identity (account) switcher menu on the "me" header name, shown with 2+ enabled accounts | Contacts |
 | `my-avatar` | Self avatar in the "me" header | Contacts |
 | `status-preferences` | Saved-status management list in Preferences ▸ Status | Preferences |
@@ -63,6 +63,18 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `reply-compose-bar` | Reply/edit compose bar above input | Chat |
 | `message-search-bar` | Cmd+F search bar in chat | Chat |
 | `sort-mode-menu` | "Sort Contacts" picker, in the View menu bar | Contacts (menu bar) |
+| `hide-offline-menu` | "Hide Offline Contacts" toggle (⌘⇧H), in the View menu bar | Contacts (menu bar) |
+| `status-menu-{status}` | Status menu row (`available` ⌘⇧Y, `away`, `xa`, `dnd`, `offline`), checked on the "me" header's current status | Menu bar |
+| `status-menu-toggle` | Status menu ⌘Y item: "Custom Away…" when Available (opens the Custom Status sheet on Contacts), "Available" otherwise | Menu bar |
+| `status-menu-custom` | Status menu "Custom…" item, opening the Custom Status sheet on Contacts | Menu bar |
+| `contacts-window-menu` | Window ▸ Hide Contact List / Show Contact List (⌘/): closes the Contacts window when focused, otherwise opens and raises it | Menu bar |
+| `next-tab-menu` | Window ▸ Select Next Tab (⌃⇥), wrapping. ⌘⇧] does the same inside the chat window | Menu bar |
+| `previous-tab-menu` | Window ▸ Select Previous Tab (⌃⇧⇥), wrapping. ⌘⇧[ does the same inside the chat window | Menu bar |
+| `close-all-chats-menu` | File ▸ Close All Chats (⌥⌘W): closes every tab and the chat window | Menu bar |
+| `contact-menu-get-info` | Contact ▸ Get Info (⌘⇧I) for the selected Contacts row or the active chat (1:1 contacts only) | Menu bar |
+| `contact-menu-history` | Contact ▸ History (⌘L) for the selected Contacts row or the active chat | Menu bar |
+| `contact-menu-send-file` | Contact ▸ Send File… (⌘⇧F): opens the chat's file picker (from Contacts, opens the chat first) | Menu bar |
+| `contact-menu-remove` | Contact ▸ Remove Contact… (⌘⌫) for the selected contact, with confirmation | Menu bar |
 | `room-row-{jid}` | Room row in Rooms section | Contacts |
 | `room-invite-banner` | Pending room invitation banner | Contacts |
 | `room-jid-field` | Room JID field in Join Room dialog | Contacts |
@@ -88,7 +100,7 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `attachment-load-image` | Placeholder for a remote image. Tapping it loads the image inline. | Chat |
 | `image-preview` | Full-size image preview sheet | Chat |
 | `link-preview` | Link preview card in message bubble | Chat |
-| `room-settings-menu-item` | "Room Settings..." context menu item | Contacts |
+| `room-settings-menu-item` | "Room Settings…" context menu item | Contacts |
 | `room-settings-view` | Room settings sheet (tabs + destroy) | Room Settings |
 | `room-settings-destroy` | Destroy Room button | Room Settings |
 | `room-config-view` | Room config form (General tab) | Room Settings |
@@ -183,11 +195,11 @@ Scripts target SwiftUI accessibility identifiers, not positional selectors.
 | `contact-info-window` | Contact Info (Get Info) window container | Contact Info |
 | `contact-info-nickname-field` | Editable nickname field | Contact Info |
 | `contact-info-request-presence` | "Request Presence" button | Contact Info |
-| `contact-info-block` | Block/Unblock button | Contact Info |
-| `contact-info-remove` | Remove Contact button | Contact Info |
+| `contact-info-block` | Block/Unblock button, shown only once the account's roster is loaded. A window opened while disconnected shows `Not connected: …` in its Profile section; close and reopen it after connecting, since Get Info only raises the existing window | Contact Info |
+| `contact-info-remove` | Remove Contact button, shown under the same condition as `contact-info-block` | Contact Info |
 | `roster-notice` | Persistent contact-change notice, with a “Dismiss notice” button and Escape shortcut | Contacts |
 | `contact-info-roster-notice` | Persistent removal notice, with a “Dismiss notice” button and Escape shortcut | Contact Info |
-| `contact-context-remove` | Remove Contact context-menu item | Contacts |
+| `contact-context-remove` | "Remove Contact…" context-menu item (asks for confirmation) | Contacts |
 
 The `account-actions-menu` items, in menu order: Connection Info... (only when the account has TLS info), Server Info..., Change Password..., Check Registration..., Unregister Account...
 
@@ -204,7 +216,7 @@ Right-click a contact row in the contact list:
 - **Mute / Unmute** — mute or unmute notifications
 - **Rename** — set a local alias for the contact
 - **Block / Unblock** — block or unblock the contact
-- **Remove Contact** — remove from roster
+- **Remove Contact…** — remove from roster after a confirmation
 
 ### Room Row
 
@@ -242,7 +254,7 @@ Right-click a participant in the chat window sidebar:
 | `ducko-search.sh` | Toggle Cmd+F search bar in chat, optionally search | `[QUERY]` (optional) |
 | `ducko-contact-search.sh` | Reveal the contact-list search (⌘F), optionally filter the roster | `[QUERY]` (optional) |
 | `ducko-reply.sh` | Right-click a message and select Reply | `[TEXT]` (optional, matches message containing TEXT; default: last message) |
-| `ducko-sort.sh` | Open the View menu (Sort Contacts / Hide Offline), optionally select sort/filter | `[alphabetical\|byStatus\|recentConversation\|hideOffline]` (optional) |
+| `ducko-sort.sh` | Open the View menu (Sort Contacts / Hide Offline), optionally select sort/filter (`hideOffline` is also ⌘⇧H with Contacts focused) | `[alphabetical\|byStatus\|recentConversation\|hideOffline]` (optional) |
 | `ducko-join-room.sh` | Open Join Room sheet, fill room JID + nickname, join | `ROOM_JID [NICKNAME]` |
 | `ducko-toggle-sidebar.sh` | Toggle participant sidebar in active groupchat window | none |
 | `ducko-focus-contacts.sh` | Raise the Contacts window to the front | none |
@@ -253,7 +265,8 @@ Right-click a participant in the chat window sidebar:
 | `ducko-avatar-remove.sh` | Remove current avatar via profile sheet | none |
 | `ducko-preferences.sh` | Open Preferences (Settings) window via Cmd+, | none |
 | `ducko-preferences-tab.sh` | Switch to a specific tab in the Preferences window | `<General\|Accounts\|Chat\|Status\|Appearance\|Advanced>` |
-| `ducko-status.sh` | Set presence status and optional status message (best-effort; the borderless status `Menu` isn't reliably scriptable via osascript — see UIPresenceTests) | `STATUS [MESSAGE]` (`STATUS`: available\|away\|xa\|dnd\|offline) |
+| `ducko-status.sh` | Set presence status and optional status message. Best-effort: osascript can't reliably drive the borderless status `Menu`, which UIPresenceTests covers. Without a message, prefer `ducko-status-menu.sh` | `STATUS [MESSAGE]` (`STATUS`: available\|away\|xa\|dnd\|offline) |
+| `ducko-status-menu.sh` | Set presence from the Status menu bar menu, or run its ⌘Y toggle / Custom… items | `<available\|away\|xa\|dnd\|offline\|toggle\|custom>` |
 | `ducko-bookmarks.sh` | Open the Bookmarks sheet from the File menu (⌘⇧B) | none |
 | `ducko-add-bookmark.sh` | Add a bookmark via the Bookmarks sheet | `ROOM_JID [NICKNAME]` |
 | `ducko-remove-bookmark.sh` | Remove a bookmark from the Bookmarks sheet | `ROOM_JID` |
@@ -275,9 +288,11 @@ Right-click a participant in the chat window sidebar:
 | `ducko-menu-bar.sh` | Toggle menu bar icon visibility in General preferences | none |
 | `ducko-edit-profile.sh` | Edit profile fields and optionally save | `[--fullname NAME] [--nickname NICK] [--email EMAIL] [--save]` |
 | `ducko-dismiss-roster-notice.sh` | Dismiss a persistent roster outcome notice using the Swift AX helper; set `DUCKO_PID` with multiple instances | `[contacts\|info]` |
-| `ducko-remove-contact.sh` | Remove a contact via context menu | `JID` |
-| `ducko-contact-info.sh` | Open the Contact Info window via context menu, optionally block/remove | `JID [block\|remove]` |
-| `ducko-chat-tabs.sh` | List, select, or close bottom chat tabs (close is best-effort; the hover-revealed close button is merged into the chip's combined element) | `<list\|select\|close> [JID]` |
+| `ducko-remove-contact.sh` | Remove a contact via context menu and confirm | `JID` |
+| `ducko-contact-menu.sh` | Select a contact row, then run a Contact menu-bar command on it (`remove` confirms) | `JID <get-info\|history\|send-file\|remove>` |
+| `ducko-toggle-contacts.sh` | Toggle the Contacts window via Window ▸ Hide/Show Contact List (⌘/) | none |
+| `ducko-contact-info.sh` | Open the Contact Info window via context menu, optionally block/remove (`remove` confirms) | `JID [block\|remove]` |
+| `ducko-chat-tabs.sh` | List, select, close, or cycle bottom chat tabs, or close all chats (close is best-effort; the hover-revealed close button is merged into the chip's combined element) | `<list\|select\|close\|next\|previous\|close-all> [JID]` |
 | `ducko-chat-header.sh` | Click a chat-header toolbar button (Profile info / History) | `<info\|history>` |
 | `ducko-invite-user.sh` | Invite a user to a room via context menu | `ROOM_JID INVITEE_JID` |
 | `ducko-destroy-room.sh` | Destroy a room via Room Settings sheet | `ROOM_JID` |
@@ -595,7 +610,7 @@ SCRIPTS="Skills/ducko-ui/scripts"
 $SCRIPTS/ducko-launch.sh
 
 # 2. Set status to Away
-$SCRIPTS/ducko-status.sh away
+$SCRIPTS/ducko-status-menu.sh away
 $SCRIPTS/ducko-screenshot.sh "status-away.png"
 
 # 3. Set status with a message
@@ -603,7 +618,7 @@ $SCRIPTS/ducko-status.sh dnd "In a meeting"
 $SCRIPTS/ducko-screenshot.sh "status-dnd-message.png"
 
 # 4. Back to Available
-$SCRIPTS/ducko-status.sh available
+$SCRIPTS/ducko-status-menu.sh available
 $SCRIPTS/ducko-screenshot.sh "status-available.png"
 
 # 5. Cleanup
@@ -800,7 +815,7 @@ $SCRIPTS/ducko-stop.sh
 
 ### Sparkle update check test
 
-Sparkle's updater starts only inside an app bundle, so `ducko-launch.sh` (`swift run`) leaves "Check for Updates..." disabled. Test updates against a packaged debug bundle.
+Sparkle's updater starts only inside an app bundle, so `ducko-launch.sh` (`swift run`) leaves "Check for Updates…" disabled. Test updates against a packaged debug bundle.
 
 First confirm `pgrep -fl DuckoApp` prints nothing. Same-named processes defeat System Events targeting, so another running `DuckoApp` (including the installed production app) would receive these clicks and the final Quit.
 
@@ -812,10 +827,10 @@ for i in $(seq 1 20); do PID=$(pgrep -f "$PWD/Ducko.app/Contents/MacOS/DuckoApp"
 sleep 5
 
 # 2. Confirm the updater started: the app menu item is enabled
-osascript -e 'tell application "System Events" to tell process "DuckoApp" to get enabled of menu item "Check for Updates..." of menu 1 of menu bar item 2 of menu bar 1'
+osascript -e 'tell application "System Events" to tell process "DuckoApp" to get enabled of menu item "Check for Updates…" of menu 1 of menu bar item 2 of menu bar 1'
 
 # 3. Run the check against the real appcast
-osascript -e 'tell application "System Events" to tell process "DuckoApp" to click menu item "Check for Updates..." of menu 1 of menu bar item 2 of menu bar 1'
+osascript -e 'tell application "System Events" to tell process "DuckoApp" to click menu item "Check for Updates…" of menu 1 of menu bar item 2 of menu bar 1'
 
 # 4. Capture the result window: pick WINDOW_ID from the listing
 peekaboo window list --pid "$PID" --json
@@ -858,7 +873,13 @@ To allow these scripts in `settings.local.json` without prompts:
 - App activation uses `set frontmost of process` (works with SwiftPM builds).
 - When the app is **not frontmost** it sends XEP-0352 `CSI inactive`, and the server queues MUC presence/subject pushes until `CSI active` — so verifying any **live** update (subject, participant count, presence) requires the app frontmost first, or the observation reads stale.
 - Multi-step interactions are bundled in single osascript blocks to avoid focus loss.
-- Element targeting uses recursive UI-element-tree walks (`findByAttr` and siblings) because `entire contents` silently collapses on deeply nested SwiftUI / NSTableView accessibility trees on macOS 26. Scripts that need these handlers source `ducko-helpers.sh` and emit `$(ducko_as_handlers)` in an unquoted heredoc. Scripts targeting shallow sheets, such as New Chat, Add Contact and Join Room, still use `entire contents` where it reaches their controls. SwiftUI `Picker` segments and Room Settings tabs expose their label through `AXDescription`, so scripts match that attribute.
+- Element targeting uses recursive UI-element-tree walks (`findByAttr` and siblings) because `entire contents` silently collapses on deeply nested SwiftUI / NSTableView accessibility trees on macOS 26. Scripts that need these handlers source `ducko-helpers.sh` and emit `$(ducko_as_handlers)` in an unquoted heredoc. Scripts targeting shallow sheets, such as New Chat, Add Contact and Join Room, still use `entire contents` where it reaches their controls. SwiftUI `Picker` segments and Room Settings tabs expose their label through `AXDescription`, so scripts match that attribute. Confirmation-dialog buttons do too, so `ducko_as_click_button_by_label` falls back to it when a button has no title.
+- System Events window references are positional, so raising a window re-points a variable that held another one. Scripts re-find a window after `AXRaise`.
+- Scripts that confirm a removal refuse while more than one DuckoApp runs, because System Events could press the confirmation in the wrong process. They also refuse while a dialog is already open in the target window, so a leftover dialog is never the one they act on. `ducko-contact-menu.sh` applies the open-dialog check to every action.
+- To verify a destructive confirm step without confirming, open the dialog and resolve its confirm button inside the dialog sheet with `findButtonByLabel(<sheetVar>, "<label>", 0, 30)` (from `$(ducko_as_handlers)`) without clicking it. Scope the lookup to the sheet, because a window can hold a same-named button outside the dialog (Contact Info does). Then dismiss the dialog with the generated `ducko_as_click_button_by_label "Cancel" <sheetVar>` snippet, which exercises the same lookup and click path end to end.
+- Keep apostrophes out of osascript heredoc bodies. `/bin/bash` 3.2, which the scripts' shebang selects, rejects a `$(… << EOF …)` body with an odd apostrophe count, while Homebrew bash 5 accepts it, so check with `/bin/bash -n` rather than a bare `bash -n`.
+- Limit `ducko-helpers.sh` and the wrapper scripts to bash builtins and the commands DuckoScriptTests stubs. Its capture fixture runs them with a PATH holding only stubs plus `cat` and `dirname`, and rejects absolute command paths.
+- Idle auto-away switches the status to Away after about five minutes without mouse movement or key presses, so an unattended run can observe Away unexpectedly. AX actions and clicks without movement don't count as input. Set the status explicitly (e.g. `ducko-status-menu.sh available`), which cancels auto-away, before asserting on it.
 - The scripts marked best-effort in the Script Reference table (`ducko-status.sh`, `ducko-chat-tabs.sh`, `ducko-connection-info.sh`, `ducko-change-password.sh`) hit osascript limitations covered authoritatively by the integration suite instead; each table row names the specific control. `ducko-connection-info.sh` and `ducko-change-password.sh` are covered by `UIPreferencesTests`' "accounts detail pane opens each Actions menu sheet".
 - The contact list and chat windows are both singletons (`Window`). The chat window holds all open conversations as bottom tabs (`chat-tab-bar`); `ducko-send.sh` targets the active tab in the frontmost chat window. Contact Info is a `WindowGroup` keyed by `ContactInfoRef`.
 - Pass runtime values as arguments to `osascript -` and read them with `on run argv`. Keep them out of the generated AppleScript source.

@@ -271,6 +271,12 @@ Button("Delete") {
 .keyboardShortcut(.delete, modifiers: .command)
 ```
 
+**Collisions with system items are silent.** When an earlier menu item already owns a key equivalent, SwiftUI still shows the later item but gives it no shortcut. Check a new shortcut against the system menus before assigning it, for example by dumping `NSApp.mainMenu` recursively, including items where `isAlternate` is true.
+- File ▸ Close (⌘W) has a hidden Option-alternate, "Close All" (⌥⌘W), owned by `.saveItem`. `CommandGroup(replacing: .saveItem)` frees ⌥⌘W, but it also removes Close, so re-add Close (⌘W, calling the key window's `performClose`). This was observed with the macOS 27 SDK.
+- AppKit's automatic window-tab items, "Show Next Tab" (⌃⇥) and "Show Previous Tab" (⌃⇧⇥), appear once the app opens a second window and claim those keys. In that state SwiftUI's own Window-menu items lost their titles or disappeared (observed with the macOS 27 SDK). Setting `NSWindow.allowsAutomaticWindowTabbing = false` in `applicationWillFinishLaunching` removes them.
+
+A `Button` takes one `.keyboardShortcut`. A secondary binding for the same action needs its own button in the window's view hierarchy, hidden with a zero frame and `opacity(0)`. It can't go in `Commands`, because every `Button` there becomes a visible menu item.
+
 ### openWindow
 
 Programmatically open a window. If the target window is already open, brings it to the front.

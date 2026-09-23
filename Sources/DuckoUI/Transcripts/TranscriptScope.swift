@@ -42,6 +42,15 @@ public struct ConversationRef: Sendable, Hashable {
         )
     }
 
+    /// Prefers the open conversation so its `conversationID` scopes the history to that exact conversation.
+    init(contact: Contact, openConversation: Conversation?) {
+        if let openConversation {
+            self.init(conversation: openConversation)
+        } else {
+            self.init(accountID: contact.accountID, jid: contact.jid.description, type: .chat)
+        }
+    }
+
     /// Matches a sidebar conversation: prefer `conversationID`, fall back to the full
     /// tuple — never bare JID alone (which mis-keys MUC PMs and cross-account duplicates).
     func matches(_ conversation: Conversation) -> Bool {

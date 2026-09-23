@@ -41,6 +41,10 @@ if let user {
 }
 ```
 
+### Attach Always-On Modifiers to a Container, Not a `Group`
+
+A `Group` passes its modifiers to its children, so an `onChange`, `task`, or `onAppear` on a `Group` exists only while the group has content. It is gone whenever the content is empty and misses the change that empties it, and a `task` or `onAppear` re-runs each time the branch changes. When the modifier must run whatever the content, attach it to a container that stays in the hierarchy, such as `VStack(spacing: 0)`, wrapping the `if`.
+
 ## Extract Subviews, Not Computed Properties
 
 ### The Problem with @ViewBuilder Functions

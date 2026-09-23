@@ -33,6 +33,7 @@ public final class AccountService {
 
     private var connectionResources: [UUID: AccountConnectionResources] = [:]
     private var isAppActive: Bool = true
+    private var hasRunLaunchConnect = false
     private weak var omemoService: OMEMOService?
     var onEvent: ((XMPPEvent, UUID) -> Void)?
     var onRosterSessionStarted: ((UUID, UUID, XMPPClient) -> Void)?
@@ -221,7 +222,16 @@ public final class AccountService {
         try await loadAccounts()
     }
 
-    public func connectEnabledAccounts() async {
+    /// Runs `connectEnabledAccounts()` only on the first call per launch, so reopening the Contacts window doesn't
+    /// reconnect accounts the user took offline. The connect runs in its own task, so cancelling the caller can't
+    /// abort the launch attempt.
+    public func connectEnabledAccountsOnLaunch() async {
+        guard !hasRunLaunchConnect else { return }
+        hasRunLaunchConnect = true
+        await Task { await connectEnabledAccounts() }.value
+    }
+
+    func connectEnabledAccounts() async {
         await withTaskGroup(of: Void.self) { group in
             for account in accounts where account.isEnabled && account.connectOnLaunch {
                 let state = connectionStates[account.id]
@@ -434,11 +444,6 @@ public final class AccountService {
             if case .connected = $0 { return true }
             return false
         }
-    }
-
-    /// The first `.connected` account in `accounts` order, so identity resolution is stable.
-    public var firstConnectedAccount: Account? {
-        connectedAccounts.first
     }
 
     /// Every `.connected` account in `accounts` order. UI menus consume this instead of reasoning

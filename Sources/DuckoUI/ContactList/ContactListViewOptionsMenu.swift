@@ -21,5 +21,7 @@ public struct ContactListViewOptionsMenu: View {
         .accessibilityIdentifier("sort-mode-menu")
 
         Toggle("Hide Offline Contacts", isOn: $preferences.hideOffline)
+            .keyboardShortcut("h", modifiers: [.command, .shift])
+            .accessibilityIdentifier("hide-offline-menu")
     }
 }

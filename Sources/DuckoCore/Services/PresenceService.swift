@@ -58,9 +58,8 @@ public final class PresenceService {
 
         /// User-selectable presences in canonical `allCases` order, excluding
         /// `offline` (a disconnected state rather than a status picked alongside
-        /// a custom message). Used by the menu-bar and custom-status menus; the
-        /// Contacts header menu deliberately iterates the full `allCases` so it
-        /// can also offer Offline (which disconnects).
+        /// a custom message). Menus that can also go offline iterate the full
+        /// `allCases` instead.
         public static let selectableCases: [PresenceStatus] = allCases.filter { $0 != .offline }
 
         public var displayName: String {

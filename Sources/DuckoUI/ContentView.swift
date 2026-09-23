@@ -24,7 +24,7 @@ public struct ContentView: View {
                 openWindow(id: "welcome")
                 dismissWindow(id: "contacts")
             } else {
-                await environment.accountService.connectEnabledAccounts()
+                await environment.accountService.connectEnabledAccountsOnLaunch()
             }
         }
         .onChange(of: environment.accountService.accounts.isEmpty) { _, isEmpty in

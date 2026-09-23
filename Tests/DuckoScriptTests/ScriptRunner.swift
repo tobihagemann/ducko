@@ -63,8 +63,9 @@ enum ScriptRunner {
 
 struct CapturedAppleScript {
     let result: ScriptResult
-    let source: String
-    let arguments: [String]
+    /// One entry per osascript call, in call order.
+    let sources: [String]
+    let argumentsByCall: [[String]]
     let compilerExitCode: Int32
     let compilerErrors: String
     let invocations: [String]
@@ -89,13 +90,15 @@ extension ScriptRunner {
         func read(_ name: String) -> String {
             (try? String(contentsOf: captureDirectory.appendingPathComponent(name), encoding: .utf8)) ?? ""
         }
+        let invocations = read("invocations").split(separator: "\n").map(String.init)
+        let calls = 1 ..< invocations.count { $0 == "osascript" } + 1
         return CapturedAppleScript(
             result: result,
-            source: read("source.applescript"),
-            arguments: read("argv").split(separator: "\0", omittingEmptySubsequences: false).dropLast().map(String.init),
+            sources: calls.map { read("source.applescript.\($0)") },
+            argumentsByCall: calls.map { read("argv.\($0)").split(separator: "\0", omittingEmptySubsequences: false).dropLast().map(String.init) },
             compilerExitCode: Int32(read("compile-status").trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1,
             compilerErrors: read("compile-errors"),
-            invocations: read("invocations").split(separator: "\n").map(String.init)
+            invocations: invocations
         )
     }
 
@@ -136,9 +139,11 @@ exit 0
 private let captureOSAScript = #"""
 #!/bin/bash
 printf '%s\n' osascript >> "$CAPTURE_DIR/invocations"
-if [[ $# -gt 0 ]]; then printf '%s\0' "$@" > "$CAPTURE_DIR/argv"; fi
-/bin/cat > "$CAPTURE_DIR/source.applescript"
-/usr/bin/osacompile -o "$CAPTURE_DIR/compiled.scpt" "$CAPTURE_DIR/source.applescript" > /dev/null 2> "$CAPTURE_DIR/compile-errors"
+n=1
+while [[ -e "$CAPTURE_DIR/source.applescript.$n" ]]; do n=$((n + 1)); done
+if [[ $# -gt 0 ]]; then printf '%s\0' "$@" > "$CAPTURE_DIR/argv.$n"; else : > "$CAPTURE_DIR/argv.$n"; fi
+/bin/cat > "$CAPTURE_DIR/source.applescript.$n"
+/usr/bin/osacompile -o "$CAPTURE_DIR/compiled.scpt" "$CAPTURE_DIR/source.applescript.$n" > /dev/null 2> "$CAPTURE_DIR/compile-errors"
 status=$?
 printf '%s\n' "$status" > "$CAPTURE_DIR/compile-status"
 printf '%s\n' "$CAPTURE_RESPONSE"

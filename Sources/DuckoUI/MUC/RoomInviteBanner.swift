@@ -5,18 +5,27 @@ struct RoomInviteBanner: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(ThemeEngine.self) private var theme
     @Environment(\.colorScheme) private var colorScheme
+    @Binding var isEditingNickname: Bool
+    @FocusState private var focusedInviteID: PendingRoomInvite.ID?
 
     var body: some View {
         let invites = environment.chatService.pendingInvites
-        if !invites.isEmpty {
-            VStack(spacing: 4) {
-                ForEach(invites) { invite in
-                    RoomInviteRow(invite: invite)
+        VStack(spacing: 0) {
+            if !invites.isEmpty {
+                VStack(spacing: 4) {
+                    ForEach(invites) { invite in
+                        RoomInviteRow(invite: invite, focusedInviteID: $focusedInviteID)
+                    }
                 }
+                .padding(.vertical, 4)
+                .background(theme.current.accentColor.resolved(for: colorScheme).opacity(0.1))
+                .accessibilityIdentifier("room-invite-banner")
             }
-            .padding(.vertical, 4)
-            .background(theme.current.accentColor.resolved(for: colorScheme).opacity(0.1))
-            .accessibilityIdentifier("room-invite-banner")
+        }
+        // On a container that outlives the `if`, so the last invite going away while its field is focused still
+        // clears the flag.
+        .onChange(of: focusedInviteID) {
+            isEditingNickname = focusedInviteID != nil
         }
     }
 }
@@ -25,6 +34,7 @@ private struct RoomInviteRow: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(\.openChat) private var openChat
     let invite: PendingRoomInvite
+    var focusedInviteID: FocusState<PendingRoomInvite.ID?>.Binding
     @State private var nickname = ""
     @State private var errorMessage: String?
 
@@ -69,6 +79,7 @@ private struct RoomInviteRow: View {
                 TextField("Nickname", text: $nickname)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 150)
+                    .focused(focusedInviteID, equals: invite.id)
 
                 Spacer()
 

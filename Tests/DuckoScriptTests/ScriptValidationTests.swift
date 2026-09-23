@@ -22,6 +22,20 @@ struct ScriptValidationTests {
         #expect(result.stderr.contains("Usage:"))
     }
 
+    @Test(arguments: [[], ["busy"]])
+    func `ducko-status-menu rejects a missing or unknown action`(_ arguments: [String]) throws {
+        let result = try ScriptRunner.run("ducko-status-menu.sh", arguments: arguments)
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("Usage:"))
+    }
+
+    @Test(arguments: [[], ["bob@example.com"], ["bob@example.com", "block"]])
+    func `ducko-contact-menu rejects a missing or unknown action`(_ arguments: [String]) throws {
+        let result = try ScriptRunner.run("ducko-contact-menu.sh", arguments: arguments)
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("Usage:"))
+    }
+
     @Test func `ducko-import parses as valid bash`() throws {
         // `ducko-import.sh` probes for a running app, so it has no hermetic
         // argument-validation surface like login/register. A `bash -n` parse is
@@ -75,8 +89,9 @@ struct ScriptValidationTests {
 
     @Test func `ducko-change-password keeps filling the sheet after the menu click`() throws {
         let captured = try ScriptRunner.capture("ducko-change-password.sh", arguments: ["pw"])
-        #expect(captured.source.contains("keystroke newPw"))
-        #expect(captured.source.components(separatedBy: "return \"ok\"").count - 1 == 1)
+        let source = try #require(captured.sources.last)
+        #expect(source.contains("keystroke newPw"))
+        #expect(source.components(separatedBy: "return \"ok\"").count - 1 == 1)
     }
 
     private func emitContextMenuSnippet(mode: String) throws -> String {
@@ -96,11 +111,13 @@ private extension ScriptValidationTests {
         let result = try ScriptRunner.capture(fixture.script, arguments: fixture.arguments, response: fixture.response)
         #expect(result.result.exitCode == 0, "Wrapper failed: \(result.result.stderr)")
         #expect(result.compilerExitCode == 0, "AppleScript failed: \(result.compilerErrors)")
-        #expect(result.arguments == fixture.appleScriptArguments)
+        #expect(result.argumentsByCall == fixture.earlierCallArguments + [fixture.appleScriptArguments])
         #expect(result.invocations == fixture.invocations)
-        #expect(result.source.contains("on findByAttr("))
-        #expect(result.source.contains("on findByRoleAndName("))
-        #expect(!result.source.contains(scriptSpecialArgument))
+        for source in result.sources {
+            #expect(source.contains("on findByAttr("))
+            #expect(source.contains("on findByRoleAndName("))
+            #expect(!source.contains(scriptSpecialArgument))
+        }
     }
 
     @Test(arguments: handlerScriptCases)
@@ -121,6 +138,8 @@ private struct HandlerScriptCase {
     let appleScriptArguments: [String]
     var response = "ok"
     var invocations = ["osascript"]
+    /// Arguments of the osascript calls before the last, for scripts that call it more than once.
+    var earlierCallArguments: [[String]] = []
 }
 
 private let scriptSpecialArgument = "quote\" and ' newline\n dollar$ backtick` backslash\\ $(not-a-command)"
@@ -128,7 +147,11 @@ private let scriptSpecialArgument = "quote\" and ' newline\n dollar$ backtick` b
 private let handlerScriptCases: [HandlerScriptCase] = [
     HandlerScriptCase(script: "ducko-add-affiliation.sh", arguments: ["room@example.com", scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument], invocations: ["ducko-room-settings.sh", "ducko-room-settings-tab.sh", "sleep", "osascript"]),
     HandlerScriptCase(script: "ducko-avatar-remove.sh", arguments: [], appleScriptArguments: [], invocations: ["ducko-profile.sh", "osascript"]),
+    HandlerScriptCase(script: "ducko-chat-tabs.sh", arguments: ["close-all"], appleScriptArguments: ["-", "close-all", ""]),
     HandlerScriptCase(script: "ducko-change-password.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument], invocations: ["ducko-preferences.sh", "ducko-preferences-tab.sh", "sleep", "osascript"]),
+    HandlerScriptCase(script: "ducko-contact-info.sh", arguments: [scriptSpecialArgument, "remove"], appleScriptArguments: ["-", "contact-info-remove", "remove"], invocations: ["pgrep", "osascript", "osascript"], earlierCallArguments: [["-", scriptSpecialArgument, "remove"]]),
+    HandlerScriptCase(script: "ducko-contact-menu.sh", arguments: [scriptSpecialArgument, "history"], appleScriptArguments: ["-", scriptSpecialArgument, "history", "History"]),
+    HandlerScriptCase(script: "ducko-contact-menu.sh", arguments: [scriptSpecialArgument, "remove"], appleScriptArguments: ["-", scriptSpecialArgument, "remove", "Remove Contact…"], invocations: ["pgrep", "osascript"]),
     HandlerScriptCase(script: "ducko-contact-search.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument], response: "searched"),
     HandlerScriptCase(script: "ducko-destroy-room.sh", arguments: [scriptSpecialArgument], appleScriptArguments: [], invocations: ["ducko-room-settings.sh", "sleep", "osascript"]),
     HandlerScriptCase(script: "ducko-device-trust.sh", arguments: [scriptSpecialArgument, "trust"], appleScriptArguments: ["-", scriptSpecialArgument, "trust"]),
@@ -136,6 +159,7 @@ private let handlerScriptCases: [HandlerScriptCase] = [
     HandlerScriptCase(script: "ducko-import.sh", arguments: [], appleScriptArguments: []),
     HandlerScriptCase(script: "ducko-login.sh", arguments: [scriptSpecialArgument, scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument, scriptSpecialArgument]),
     HandlerScriptCase(script: "ducko-register.sh", arguments: [scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument, scriptSpecialArgument]),
+    HandlerScriptCase(script: "ducko-remove-contact.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-"], invocations: ["pgrep", "osascript", "osascript"], earlierCallArguments: [["-", scriptSpecialArgument]]),
     HandlerScriptCase(script: "ducko-remove-bookmark.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument], invocations: ["ducko-bookmarks.sh", "osascript"]),
     HandlerScriptCase(script: "ducko-room-settings-tab.sh", arguments: ["Members"], appleScriptArguments: ["-", "Members"]),
     HandlerScriptCase(script: "ducko-room-topic.sh", arguments: [scriptSpecialArgument], appleScriptArguments: ["-", scriptSpecialArgument]),

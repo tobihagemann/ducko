@@ -52,6 +52,31 @@ on findByRoleAndName(el, roleWanted, nameWanted, depth, maxDepth)
     return missing value
 end findByRoleAndName
 
+-- Matches a button by its title, falling back to AXDescription when the title is empty (confirmation dialog
+-- buttons carry their label only there).
+on findButtonByLabel(el, labelWanted, depth, maxDepth)
+    tell application "System Events"
+        if depth > maxDepth then return missing value
+        try
+            repeat with c in (UI elements of el)
+                try
+                    if (role of c) is "AXButton" then
+                        set buttonLabel to missing value
+                        try
+                            set buttonLabel to value of attribute "AXTitle" of c
+                        end try
+                        if buttonLabel is missing value or buttonLabel is "" then set buttonLabel to value of attribute "AXDescription" of c
+                        if buttonLabel is labelWanted then return c
+                    end if
+                end try
+                set found to my findButtonByLabel(c, labelWanted, depth + 1, maxDepth)
+                if found is not missing value then return found
+            end repeat
+        end try
+    end tell
+    return missing value
+end findButtonByLabel
+
 on collectStaticTexts(el, depth, maxDepth)
     set acc to {}
     tell application "System Events"
@@ -204,6 +229,44 @@ EOF
     fi
 }
 
+# Select the table row enclosing an element. A System Events `click` on a
+# combined SwiftUI row element is an AX press, which does not change the
+# NSTableView selection. Walk up to the AXRow and set it selected instead.
+# Args: element_var [error_msg]
+ducko_as_select_table_row() {
+    local element_var="${1:-targetElem}"
+    local error_msg="${2:-table row not found}"
+    cat << EOF
+            set rowElem to ${element_var}
+            try
+                repeat until (role of rowElem) is "AXRow"
+                    set rowElem to value of attribute "AXParent" of rowElem
+                end repeat
+                set value of attribute "AXSelected" of rowElem to true
+            on error
+                return "ERROR: ${error_msg}"
+            end try
+            delay 0.3
+            if (value of attribute "AXSelected" of rowElem) is not true then return "ERROR: ${error_msg}"
+EOF
+}
+
+# Click a button by its label (title, or AXDescription when untitled) anywhere
+# in a window, including its attached sheets (e.g. a confirmation dialog's
+# destructive button).
+# Args: button_label window_var [error_msg]
+ducko_as_click_button_by_label() {
+    local button_label="$1"
+    local window_var="${2:-targetWin}"
+    local error_msg="${3:-${button_label} button not found}"
+    cat << EOF
+            delay 0.5
+            set labeledButton to my findButtonByLabel(${window_var}, "${button_label}", 0, 30)
+            if labeledButton is missing value then return "ERROR: ${error_msg}"
+            click labeledButton
+EOF
+}
+
 # Navigate a file picker via Cmd+Shift+G.
 # The path_var is an AppleScript variable name holding the file path.
 # Args: path_var
@@ -223,6 +286,18 @@ EOF
 }
 
 # --- Bash utility functions ---
+
+# Refuse destructive automation while more than one DuckoApp runs: `process "DuckoApp"` resolves to an arbitrary
+# instance, which may be an installed production app.
+ducko_require_single_app() {
+    local pids
+    pids=$(pgrep -x DuckoApp || true)
+    # pgrep prints one PID per line, so a newline means more than one instance.
+    if [[ "$pids" == *$'\n'* ]]; then
+        echo "ERROR: more than one DuckoApp process is running; quit all but the one to drive" >&2
+        exit 1
+    fi
+}
 
 # Standard result handler. Prints success message or error and exits.
 # Args: result success_msg

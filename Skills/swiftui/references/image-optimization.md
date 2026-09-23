@@ -103,7 +103,8 @@ struct OptimizedImageView: View {
     @State private var processedImage: UIImage?
     
     var body: some View {
-        Group {
+        // A container, not a Group: a Group would attach .task to each branch and decode again on the flip.
+        ZStack {
             if let processedImage {
                 Image(uiImage: processedImage)
                     .resizable()
@@ -180,7 +181,7 @@ struct ImageView: View {
     private let processor = ImageProcessor()
     
     var body: some View {
-        Group {
+        ZStack {
             if let image {
                 Image(uiImage: image)
                     .resizable()

@@ -8,17 +8,18 @@ import SwiftUI
 /// the co-animated window resize.
 struct ContactListView: View {
     @Environment(AppEnvironment.self) private var environment
-    let searchText: String
-    let preferences: ContactListPreferences
+    @Bindable var windowState: ContactListWindowState
     let chromeHeight: CGFloat
-    let presentNotice: (String, UUID) -> Void
     @AppStorage(ContactListSizingDefaults.autoSizeVerticalKey, store: PreferencesDefaults.store)
     private var autoSizeVertical = true
     @AppStorage(ContactListSizingDefaults.autoSizeHorizontalKey, store: PreferencesDefaults.store)
     private var autoSizeHorizontal = true
     @AppStorage(ContactListSizingDefaults.maxWidthKey, store: PreferencesDefaults.store)
     private var maxWidthPreference = ContactListSizingDefaults.defaultMaxWidth
-    @State private var activeSheet: ContactListRowSheet?
+
+    private var preferences: ContactListPreferences {
+        windowState.preferences
+    }
 
     private var roomConversations: [Conversation] {
         environment.chatService.openConversations.filter { $0.type == .groupchat }
@@ -71,12 +72,13 @@ struct ContactListView: View {
             autoSizeHorizontal: autoSizeHorizontal,
             maxWidthPreference: maxWidthPreference,
             hasConnectedAccount: hasConnectedAccount,
-            presentSheet: { activeSheet = $0 },
-            presentNotice: presentNotice
+            presentSheet: { windowState.activeRowSheet = $0 },
+            requestRemoval: { windowState.requestRemoval(of: $0) },
+            onSelectionChange: { windowState.selectedRow = $0 }
         )
         // The table-owned AppKit context menu routes sheet presentation back
         // here, where SwiftUI owns it.
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: $windowState.activeRowSheet) { sheet in
             switch sheet {
             case let .rename(contact):
                 RenameContactSheet(contact: contact)
@@ -95,7 +97,7 @@ struct ContactListView: View {
         .onChange(of: newlyCreatedRoom?.id, initial: true) { _, newID in
             guard let newID, let room = roomConversations.first(where: { $0.id == newID }),
                   let accountID = room.accountID else { return }
-            activeSheet = .roomSettings(room)
+            windowState.activeRowSheet = .roomSettings(room)
             environment.chatService.clearNewlyCreatedRoom(room.jid.description, accountID: accountID)
         }
     }
@@ -113,7 +115,7 @@ struct ContactListView: View {
 
         return ContactListFilter.sortedAndFiltered(
             groups: environment.rosterService.groups,
-            searchText: searchText,
+            searchText: windowState.searchText,
             hideOffline: preferences.hideOffline,
             sortMode: preferences.sortMode,
             context: ContactListFilter.PresenceContext(

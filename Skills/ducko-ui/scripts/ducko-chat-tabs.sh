@@ -1,9 +1,12 @@
 #!/bin/bash
-# Enumerate, select, or close the bottom conversation tabs in the chat window.
-# Usage: ducko-chat-tabs.sh <list|select|close> [JID]
+# Enumerate, select, cycle, or close the bottom conversation tabs in the chat window.
+# Usage: ducko-chat-tabs.sh <list|select|close|next|previous|close-all> [JID]
 #   list:        print the identity of all open tabs (one per line)
 #   select JID:  click the tab for JID to make it active
 #   close JID:   click the tab's close button (revealed on hover over the tab)
+#   next:        Window > Select Next Tab (⌃⇥), wrapping at the end
+#   previous:    Window > Select Previous Tab (⌃⇧⇥), wrapping at the start
+#   close-all:   File > Close All Chats (⌥⌘W), closing every tab and the chat window
 #
 # Tab identity is the bare JID when unique. When the same peer JID is open under
 # more than one account, each tab is account-qualified as "{jid}|{account-jid}"
@@ -20,7 +23,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: ducko-chat-tabs.sh <list|select|close> [JID]" >&2
+    echo "Usage: ducko-chat-tabs.sh <list|select|close|next|previous|close-all> [JID]" >&2
     exit 1
 fi
 
@@ -61,6 +64,28 @@ on run argv
                 return "ok"
             else if tabAction is "close" then
                 $(ducko_as_click_element_by_id '"chat-tab-close-" & tabJID' 'chatWin' 'tab close button not found')
+                return "ok"
+            else if tabAction is "next" or tabAction is "previous" then
+                -- Tab cycling acts on the focused chat window.
+                perform action "AXRaise" of chatWin
+                delay 0.3
+                if tabAction is "next" then
+                    set itemName to "Select Next Tab"
+                else
+                    set itemName to "Select Previous Tab"
+                end if
+                try
+                    click menu item itemName of menu 1 of menu bar item "Window" of menu bar 1
+                on error
+                    return "ERROR: " & itemName & " not found or disabled (needs two or more tabs)"
+                end try
+                return "ok"
+            else if tabAction is "close-all" then
+                try
+                    click menu item "Close All Chats" of menu 1 of menu bar item "File" of menu bar 1
+                on error
+                    return "ERROR: Close All Chats not found or disabled"
+                end try
                 return "ok"
             else
                 return "ERROR: unknown action: " & tabAction

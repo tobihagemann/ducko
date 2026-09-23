@@ -70,7 +70,7 @@ Never install fixture trust into a developer's normal keychains. Ordinary tests 
 
 Integration tests live in a sibling SwiftPM package at `IntegrationTests/` so a plain `swift test` at the repo root never runs them. They run against a live XMPP server and skip automatically when credentials are not set.
 
-Credentials live in `IntegrationTests/.env.test` (git-ignored; copy `IntegrationTests/.env.test.example`). `TestCredentials` auto-loads that file on first access.
+Credentials live in `IntegrationTests/.env.test` (git-ignored; copy `IntegrationTests/.env.test.example`). `TestCredentials` auto-loads that file on first access. A linked git worktree has no copy, so the suites skip there; symlink the main checkout's file into the worktree rather than copying or reading it.
 
 ```
 swift test --package-path IntegrationTests
@@ -126,7 +126,7 @@ Logger labels use dot notation: `Logger(label: "im.ducko.xmpp.client")` — last
 
 **Privacy policy**: error/warning/info/notice must never contain sensitive data (passwords, tokens, keys). Only debug/trace may contain JIDs, stanza fragments. Ultra-sensitive data is never logged.
 
-**Export**: `ducko logs` CLI subcommand, Help > Export Logs... in GUI.
+**Export**: `ducko logs` CLI subcommand, Help > Export Logs… in GUI.
 
 ## Dev/Prod Isolation
 

@@ -2,8 +2,8 @@ import DuckoCore
 import Foundation
 import SwiftUI
 
-/// Shared across the Contacts "me" header dropdown and the Status preferences pane, so saved-status edits in
-/// Preferences reflect live in the header. Owned once at the app level and injected into both scenes.
+/// Owned once at the app level and injected into every scene that shows status, so saved-status edits and the
+/// resolved identity stay in step everywhere.
 @MainActor @Observable
 public final class StatusBarPreferences {
     private enum Keys {
@@ -21,6 +21,13 @@ public final class StatusBarPreferences {
     var savedMessages: [PresenceService.PresenceStatus: [String]] {
         didSet { saveSavedMessages() }
     }
+
+    /// The last identity the Contacts header resolved while connected. Not persisted: it only keeps the resolved
+    /// identity stable through connect ordering and a pick's connecting gap within one launch.
+    var heldIdentityAccountID: UUID?
+
+    /// A Custom Status sheet the Status menu asked the Contacts window to present. Not persisted.
+    var requestedCustomStatus: CustomStatusPreset?
 
     @ObservationIgnored
     @AppStorage(Keys.identityAccountID) private var identityAccountIDStorage = ""
@@ -57,6 +64,10 @@ public final class StatusBarPreferences {
         guard var messages = savedMessages[status] else { return }
         messages.removeAll { $0 == message }
         savedMessages[status] = messages.isEmpty ? nil : messages
+    }
+
+    func requestCustomStatus(presence: PresenceService.PresenceStatus, message: String) {
+        requestedCustomStatus = CustomStatusPreset(presence: presence, message: message)
     }
 
     /// Persists as JSON keyed by `PresenceStatus.rawValue` — encoding the `[PresenceStatus: …]` dict directly

@@ -40,6 +40,7 @@ public struct ChatContainerView: View {
             ChatTabBarView(container: container)
         }
         .frame(minWidth: 380, minHeight: 320)
+        .background { secondaryTabShortcuts }
         .navigationTitle(container.selectedState?.displayName ?? "Chat")
         .focusedSceneValue(\.chatWindowState, container.selectedState)
         .onChange(of: observedLastMessageDate) {
@@ -56,6 +57,22 @@ public struct ChatContainerView: View {
                 container.open(jidString, accountID: accountID)
             }
         }
+    }
+
+    /// ⌘⇧] / ⌘⇧[ as secondary bindings for Select Next/Previous Tab. A menu item carries only one shortcut, so these
+    /// live on invisible buttons. The window matches them as key equivalents before the message field sees the
+    /// keystroke.
+    private var secondaryTabShortcuts: some View {
+        ZStack {
+            Button("Select Next Tab") { container.selectNextTab() }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+            Button("Select Previous Tab") { container.selectPreviousTab() }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
+        .disabled(!container.canCycleTabs)
     }
 
     private var emptyState: some View {
