@@ -22,8 +22,8 @@ public final class StatusBarPreferences {
         didSet { saveSavedMessages() }
     }
 
-    /// The last identity the Contacts header resolved while connected. Not persisted: it only keeps the resolved
-    /// identity stable through connect ordering and a pick's connecting gap within one launch.
+    /// The last identity the Contacts header resolved while connected. Not persisted: without an enabled pick, it only keeps
+    /// the resolved identity stable through connect ordering within one launch.
     var heldIdentityAccountID: UUID?
 
     /// A Custom Status sheet the Status menu asked the Contacts window to present. Not persisted.

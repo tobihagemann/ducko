@@ -1,8 +1,7 @@
 import DuckoCore
 import Foundation
 
-/// Every caller connects its account before invoking this, so the multi-account reconnect branch never
-/// fires; `accountID` seeds the reconnect fallback for symmetry.
+/// Scoped to the command's own account: a global pick would also bring every other enabled account online.
 @MainActor
 func applyPresence(
     _ presenceStatus: PresenceService.PresenceStatus,
@@ -10,10 +9,10 @@ func applyPresence(
     environment: AppEnvironment,
     accountID: UUID
 ) async {
-    await environment.presenceService.applyGlobalPresence(
+    await environment.presenceService.applyPresence(
         presenceStatus,
         message: message,
-        identityAccountID: accountID
+        accountID: accountID
     ) { id in
         try await environment.accountService.connect(accountID: id)
     } disconnect: { id in

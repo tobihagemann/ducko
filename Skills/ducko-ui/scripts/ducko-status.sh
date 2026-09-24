@@ -58,10 +58,12 @@ on run argv
             -- opens as a process-level menu (a sibling of the windows), not
             -- under the button or window, so search the process-level menus.
             set clicked to false
+            -- Match by prefix because a marked row carries a trailing checkmark or dash in its title.
             repeat with m in menus
                 try
-                    if exists (menu item targetLabel of m) then
-                        click (menu item targetLabel of m)
+                    set matches to (menu items of m whose name starts with targetLabel)
+                    if (count of matches) > 0 then
+                        click (item 1 of matches)
                         set clicked to true
                         exit repeat
                     end if

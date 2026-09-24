@@ -171,16 +171,6 @@ private final class RosterResumptionFixture {
         }
     }
 
-    private func eventually(_ predicate: @escaping @MainActor () async throws -> Bool) async throws {
-        let result = try await boundedOutcome { @MainActor in
-            while try await !predicate() {
-                try Task.checkCancellation(); await Task.yield()
-            }
-        }
-        try #require(result != nil)
-        try result?.get()
-    }
-
     private func stanza(_ transport: MockTransport, matching fragment: String) async throws -> String {
         let task = Task { await transport.waitForSent(matching: { $0.contains(fragment) }) }
         let result = try await boundedOutcome { _ = await task.value }

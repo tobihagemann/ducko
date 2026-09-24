@@ -49,7 +49,7 @@ on run argv
                     end if
                 else
                     -- Status rows come first, so the first match is the row rather than the toggle. Match by prefix
-                    -- because the active row carries a trailing checkmark in its title.
+                    -- because a marked row carries a trailing checkmark or dash in its title.
                     click (first menu item of statusMenu whose name starts with statusLabel)
                 end if
             on error

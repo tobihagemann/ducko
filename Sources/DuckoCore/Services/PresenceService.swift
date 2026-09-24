@@ -77,6 +77,9 @@ public final class PresenceService {
     private var idleMonitorTask: Task<Void, Never>?
     private var autoAwayActive: Bool = false
     private var previousPresence: PresenceStatus?
+    /// Bumped by every global pick. A pick's per-account connects and teardowns start only while it is the latest, so
+    /// an older pick still working through its accounts can't undo a newer one.
+    private var globalPickGeneration = 0
     private let idleTimeSource: any IdleTimeSource
 
     public init(idleTimeSource: any IdleTimeSource = SystemIdleTimeSource()) {
@@ -128,8 +131,8 @@ public final class PresenceService {
         _ status: PresenceStatus,
         message: String?,
         accountID: UUID,
-        connect: @escaping (UUID) async throws -> Void,
-        disconnect: @escaping (UUID) async -> Void
+        connect: @escaping @MainActor (UUID) async throws -> Void,
+        disconnect: @escaping @MainActor (UUID) async -> Void
     ) async {
         if status == .offline {
             goOffline(accountID: accountID)
@@ -147,52 +150,54 @@ public final class PresenceService {
     }
 
     /// Sets the global status and broadcasts it to every online account, clearing any per-account overrides
-    /// first (Adium's "reset everyone to the same"). `identityAccountID` carries the UI's resolved header
-    /// identity so an Available-from-fully-offline action isn't a silent no-op when no `connectOnLaunch`
-    /// account exists. Reads `AccountService.connectionStates` directly so the offline teardown also reaches
-    /// `.connecting`/reconnecting accounts.
+    /// first. Going online connects every disconnected enabled account, including one taken offline on its own, since
+    /// `connectOnLaunch` governs only startup. Going offline tears down every account that isn't already disconnected,
+    /// including `.connecting` and reconnecting (`.error`) ones.
     public func applyGlobalPresence(
         _ status: PresenceStatus,
         message: String?,
-        identityAccountID: UUID?,
-        connect: @escaping (UUID) async throws -> Void,
-        disconnect: @escaping (UUID) async -> Void
+        connect: @escaping @MainActor (UUID) async throws -> Void,
+        disconnect: @escaping @MainActor (UUID) async -> Void
     ) async {
         cancelAutoAway()
         presenceOverridesByAccount.removeAll()
         myPresence = status
         myStatusMessage = status == .offline ? nil : message
+        globalPickGeneration += 1
+        let generation = globalPickGeneration
 
         if status == .offline {
-            // Tear down every account that isn't already disconnected — connected, connecting, and
-            // reconnecting (`.error`) — so an in-flight connect can't finish and emit available after offline.
-            for account in accountService?.accounts ?? [] {
-                switch accountService?.connectionStates[account.id] {
-                case .connected, .connecting, .error:
-                    await disconnect(account.id)
-                case .disconnected, .none:
-                    break
+            // Concurrent, so one stalled server can't keep the accounts after it online.
+            let live = (accountService?.accounts ?? []).filter { Self.needsTeardown(state: accountService?.connectionStates[$0.id]) }
+            await withTaskGroup(of: Void.self) { group in
+                for account in live {
+                    group.addTask {
+                        await self.performIfLatest(generation) { await disconnect(account.id) }
+                    }
                 }
             }
         } else {
-            // Going online from fully-offline mirrors launch: reconnect the normal online set
-            // (`connectOnLaunch` accounts), falling back to the identity account so the action isn't a no-op.
-            // Skip accounts already connecting (`isAccountDisconnected` is false for `.connecting`/`.connected`)
-            // so an in-flight connect isn't torn down and restarted.
-            if let accountService, !accountService.hasAnyConnectedAccount {
-                let onlineSet = accountService.accounts.filter { $0.isEnabled && $0.connectOnLaunch }
-                if onlineSet.isEmpty {
-                    if let identityAccountID, isAccountDisconnected(accountID: identityAccountID) {
-                        try? await connect(identityAccountID)
-                    }
-                } else {
-                    for account in onlineSet where isAccountDisconnected(accountID: account.id) {
-                        try? await connect(account.id)
+            // The broadcast runs alongside the connects, so a stalled server can't hold back the accounts already
+            // online; a newly connected account picks up the held presence in `reapplyHeldPresenceAfterReconnect`.
+            // Skip accounts already connecting, so an in-flight connect isn't torn down and restarted.
+            let disconnected = (accountService?.enabledAccounts ?? []).filter { isAccountDisconnected(accountID: $0.id) }
+            await withTaskGroup(of: Void.self) { group in
+                for account in disconnected {
+                    group.addTask {
+                        await self.performIfLatest(generation) { try? await connect(account.id) }
                     }
                 }
+                await broadcastPresenceToConnectedAccounts()
             }
-            await broadcastPresenceToConnectedAccounts()
         }
+    }
+
+    /// Runs a global pick's per-account `action` only if `generation` is still the latest pick. The check and the
+    /// action's synchronous start (which publishes `.connecting` or `.disconnected`) share one main-actor turn, so a
+    /// newer pick either skips this action or sees its effect.
+    private func performIfLatest(_ generation: Int, _ action: @MainActor () async -> Void) async {
+        guard generation == globalPickGeneration else { return }
+        await action()
     }
 
     /// Pins `accountID` to its own status, layered over the global value. Offline is not modeled as an override:
@@ -202,8 +207,8 @@ public final class PresenceService {
         _ status: PresenceStatus,
         message: String?,
         accountID: UUID,
-        connect: @escaping (UUID) async throws -> Void,
-        disconnect: @escaping (UUID) async -> Void
+        connect: @escaping @MainActor (UUID) async throws -> Void,
+        disconnect: @escaping @MainActor (UUID) async -> Void
     ) async {
         if status == .offline {
             presenceOverridesByAccount.removeValue(forKey: accountID)
@@ -367,6 +372,16 @@ public final class PresenceService {
         }
     }
 
+    /// Classifies a connection state for going offline: a live, in-flight, or reconnecting (`.error`) connection has
+    /// something to tear down.
+    nonisolated static func needsTeardown(state: AccountService.ConnectionState?) -> Bool {
+        guard let state else { return false }
+        return switch state {
+        case .connected, .connecting, .error: true
+        case .disconnected: false
+        }
+    }
+
     private func handlePresenceUpdated(from: JID, presence: XMPPPresence, accountID: UUID) {
         let bareJID = from.bareJID
         let status = mapPresence(presence)
@@ -474,6 +489,11 @@ public final class PresenceService {
         return effectivePresence(for: accountID)
     }
 
+    /// Every enabled account's displayed presence, in `accounts` order.
+    public func displayedPresences() -> [(status: PresenceStatus, message: String?)] {
+        (accountService?.enabledAccounts ?? []).map { displayedPresence(for: $0.id) }
+    }
+
     /// The effective `Show` for an account, mirroring `currentShow` over `effectivePresence(for:)`.
     func effectiveShow(for accountID: UUID) -> XMPPPresence.Show? {
         Self.show(for: effectivePresence(for: accountID).status)
@@ -495,9 +515,6 @@ public final class PresenceService {
     }
 
     private func sendPresence(accountID: UUID) async {
-        // Global offline is a hard stop: never broadcast presence while the user is offline, even if an
-        // account still carries a non-offline override.
-        guard myPresence != .offline else { return }
         let effective = effectivePresence(for: accountID)
         guard effective.status != .offline else { return }
         guard let client = accountService?.connectedClient(for: accountID) else { return }

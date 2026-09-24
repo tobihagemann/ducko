@@ -32,9 +32,15 @@ struct IdentityResolverTests {
         #expect(resolve(picked: second, held: first, states) == second.id)
     }
 
-    @Test func `a disconnected pick falls back to the held identity`() throws {
-        let states = try [first.id: connected(first), second.id: .connecting]
-        #expect(resolve(picked: second, held: first, states) == first.id)
+    @Test(arguments: [AccountService.ConnectionState.connecting, .disconnected])
+    func `a pick that is not connected still wins`(state: AccountService.ConnectionState) throws {
+        let states = try [first.id: connected(first), second.id: state]
+        #expect(resolve(picked: second, held: first, states) == second.id)
+    }
+
+    @Test func `a disabled pick falls back to the held identity`() throws {
+        let states = try [first.id: connected(first), second.id: connected(second)]
+        #expect(resolve(picked: disabled, held: second, states) == second.id)
     }
 
     @Test func `the held identity wins over list order without a pick`() throws {
@@ -48,7 +54,7 @@ struct IdentityResolverTests {
     }
 
     @Test func `with nothing connected the first enabled account wins`() {
-        #expect(resolve(picked: second, [:]) == first.id)
+        #expect(resolve(held: second, [:]) == first.id)
     }
 
     @Test func `a held identity that was disabled no longer wins`() throws {

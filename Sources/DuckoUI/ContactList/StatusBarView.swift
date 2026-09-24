@@ -5,17 +5,11 @@ struct StatusBarView: View {
     @Environment(AppEnvironment.self) private var environment
     @Environment(StatusBarPreferences.self) private var preferences
     @Bindable var windowState: ContactListWindowState
-    @State private var isHoveringStatus = false
 
-    /// The account whose avatar/name/profile the header shows (see `IdentityResolver`). Status applies globally. This
-    /// account is only the one connected when going online finds no connect-on-launch account.
+    /// The account whose avatar/name/profile the header shows and whose status leads the status line (see
+    /// `IdentityResolver`). Status picks apply to every enabled account, not just this one.
     private var identityAccount: Account? {
         environment.identityAccount(preferences: preferences)
-    }
-
-    /// Enabled accounts, offered by the identity switcher (shown only when more than one exists).
-    private var enabledAccounts: [Account] {
-        environment.accountService.accounts.filter(\.isEnabled)
     }
 
     /// The identity account's ID once it has reached `.connected`; `nil` while it is still connecting.
@@ -84,27 +78,25 @@ struct StatusBarView: View {
 
     @ViewBuilder
     private var identityName: some View {
+        let enabledAccounts = environment.accountService.enabledAccounts
         if enabledAccounts.count > 1 {
-            Menu {
+            HeaderPullDown {
                 ForEach(enabledAccounts) { account in
                     Button {
                         preferences.identityAccountID = account.id
                     } label: {
-                        HStack {
-                            MenuStatusDot(status: environment.presenceService.displayedPresence(for: account.id).status)
-                            Text(account.displayName ?? account.jid.description)
-                        }
+                        MenuStatusRow(
+                            status: environment.presenceService.displayedPresence(for: account.id).status,
+                            label: account.displayName ?? account.jid.description,
+                            mark: .none
+                        )
                     }
                 }
-            } label: {
+            } title: {
                 Text(displayName)
                     .fontWeight(.semibold)
                     .lineLimit(1)
             }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .menuIndicator(.hidden)
-            .fixedSize()
             .accessibilityIdentifier("identity-switcher")
         } else {
             Text(displayName)
@@ -115,28 +107,13 @@ struct StatusBarView: View {
 
     // MARK: - Status menu
 
+    @ViewBuilder
     private var statusMenu: some View {
-        Menu {
-            ForEach(PresenceService.PresenceStatus.allCases, id: \.self) { status in
-                Button {
-                    applyGlobal(status, message: nil)
-                } label: {
-                    MenuStatusRow(
-                        status: status,
-                        label: status.displayName,
-                        isActive: status == headerPresence.status && headerPresence.message == nil
-                    )
-                }
-            }
-
-            if !preferences.savedMessages.isEmpty {
-                Divider()
-                savedMessagesSection
-            }
-
-            if environment.accountService.connectedAccounts.count > 1 {
-                Divider()
-                AccountStatusMenu()
+        let presences = environment.presenceService.displayedPresences()
+        let label = StatusSummary.label(for: headerPresence, presences: presences)
+        HeaderPullDown {
+            StatusMenuSections {
+                globalRows(presences: presences)
             }
 
             Divider()
@@ -144,49 +121,36 @@ struct StatusBarView: View {
             Button("Custom…") {
                 windowState.customStatusPreset = CustomStatusPreset(presence: headerPresence.status, message: headerPresence.message ?? "")
             }
-        } label: {
-            HStack(spacing: 3) {
-                Text(statusLabel)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
-            }
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.vertical, 1)
-            .padding(.horizontal, 5)
-            // Transparent until hover. The negative horizontal padding below
-            // cancels this inner padding for layout so the label stays aligned
-            // with the name above, while the hover fill still extends past it.
-            .background(
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(Color.primary.opacity(isHoveringStatus ? 0.1 : 0))
-            )
-            .padding(.horizontal, -5)
+        } title: {
+            Text(label)
+                .lineLimit(1)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .onHover { isHoveringStatus = $0 }
         .accessibilityIdentifier("status-picker")
         // The custom `Menu` label doesn't surface its text as `kAXValue`, so
         // publish the current status label explicitly for VoiceOver and the UI
         // tests that read it back after a selection.
-        .accessibilityValue(statusLabel)
+        .accessibilityValue(label)
     }
 
-    private var savedMessagesSection: some View {
-        ForEach(PresenceService.PresenceStatus.selectableCases, id: \.self) { status in
-            ForEach(preferences.savedMessages(for: status), id: \.self) { message in
-                Button {
-                    applyGlobal(status, message: message)
-                } label: {
-                    MenuStatusRow(
-                        status: status,
-                        label: message,
-                        isActive: message == environment.presenceService.myStatusMessage
-                    )
+    @ViewBuilder
+    private func globalRows(presences: StatusSummary.Presences) -> some View {
+        GlobalStatusRows(presences: presences)
+
+        if !preferences.savedMessages.isEmpty {
+            Divider()
+            ForEach(PresenceService.PresenceStatus.selectableCases, id: \.self) { status in
+                ForEach(preferences.savedMessages(for: status), id: \.self) { message in
+                    Button {
+                        applyGlobal(status, message: message)
+                    } label: {
+                        MenuStatusRow(
+                            status: status,
+                            label: message,
+                            mark: StatusSummary.mark(for: status, message: message, presences: presences)
+                        )
+                    }
                 }
             }
         }
@@ -208,25 +172,50 @@ struct StatusBarView: View {
         environment.presenceService.displayedPresence(for: identityAccount?.id)
     }
 
-    /// The closed-menu label: the custom status message when one is set,
-    /// otherwise the current presence name (Adium shows the message in place
-    /// of the presence label).
-    private var statusLabel: String {
-        if let message = headerPresence.message, !message.isEmpty {
-            return message
-        }
-        return headerPresence.status.displayName
-    }
-
     // MARK: - Actions
 
     private func applyGlobal(_ status: PresenceService.PresenceStatus, message: String?) {
-        environment.applyGlobalStatus(status, message: normalize(message), identityAccountID: identityAccount?.id)
+        environment.applyGlobalStatus(status, message: normalize(message))
     }
 
     private func normalize(_ message: String?) -> String? {
         let trimmed = message?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (trimmed?.isEmpty ?? true) ? nil : trimmed
+    }
+}
+
+/// A borderless header pull-down whose label is the title, a chevron, and a fill that appears on hover.
+private struct HeaderPullDown<Items: View, Title: View>: View {
+    @ViewBuilder let items: Items
+    @ViewBuilder let title: Title
+    @State private var isHovering = false
+
+    var body: some View {
+        Menu {
+            items
+        } label: {
+            HStack(spacing: 3) {
+                title
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 1)
+            .padding(.horizontal, 5)
+            // Transparent until hover. The negative horizontal padding below
+            // cancels this inner padding for layout so the label stays aligned
+            // with the rest of the header, while the hover fill still extends past it.
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(isHovering ? 0.1 : 0))
+            )
+            .padding(.horizontal, -5)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .onHover { isHovering = $0 }
     }
 }
 

@@ -63,3 +63,14 @@ func driveMockConnect(
     let client = try #require(service.connectedClient(for: accountID))
     return (client, task)
 }
+
+/// Waits until `predicate` holds, failing the test when it doesn't within `boundedOutcome`'s deadline.
+func eventually(_ predicate: @escaping @MainActor () async throws -> Bool) async throws {
+    let result = try await boundedOutcome { @MainActor in
+        while try await !predicate() {
+            try Task.checkCancellation(); await Task.yield()
+        }
+    }
+    try #require(result != nil)
+    try result?.get()
+}

@@ -4,9 +4,10 @@ import Foundation
 /// Resolves the account whose avatar, name, and status the Contacts "me" header shows. Every status surface resolves
 /// through it, so they agree on the current status.
 enum IdentityResolver {
-    /// Resolution order: the persisted pick if connected, then the held identity if still enabled and connected, then
-    /// the first connected account, then the first enabled one. The held step keeps the header from bouncing while a
-    /// pick is still connecting or accounts finish their handshakes in different orders.
+    /// Resolution order: the persisted pick if still enabled, then the held identity if still enabled and connected,
+    /// then the first connected account, then the first enabled one. The pick wins even while disconnected, so an
+    /// account taken offline stays in the header reading Offline. Without an enabled pick, the held step keeps the
+    /// header from bouncing while accounts finish their handshakes in different orders.
     static func resolve(
         pickedID: UUID?,
         heldID: UUID?,
@@ -17,7 +18,7 @@ enum IdentityResolver {
             if case .connected? = connectionStates[id] { return true }
             return false
         }
-        if let pickedID, let picked = accounts.first(where: { $0.id == pickedID }), isConnected(pickedID) {
+        if let pickedID, let picked = accounts.first(where: { $0.id == pickedID && $0.isEnabled }) {
             return picked
         }
         if let heldID, let held = accounts.first(where: { $0.id == heldID && $0.isEnabled }), isConnected(heldID) {

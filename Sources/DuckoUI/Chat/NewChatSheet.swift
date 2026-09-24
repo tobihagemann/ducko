@@ -9,10 +9,10 @@ struct NewChatSheet: View {
     @State private var selectedAccountID: UUID?
     @State private var errorMessage: String?
 
-    /// Only enabled accounts can send, so the picker offers (and defaults to) those —
-    /// mirroring `StatusBarView`/`RoomInviteRow`. Shown only when more than one exists.
+    /// Only enabled accounts can send, so the picker offers (and defaults to) those. Shown only when more than one
+    /// exists.
     private var enabledAccounts: [Account] {
-        environment.accountService.accounts.filter(\.isEnabled)
+        environment.accountService.enabledAccounts
     }
 
     var body: some View {

@@ -162,6 +162,123 @@ struct AccountConnectionResourceTests {
         _ = await connection.result
     }
 
+    @Test
+    func `connect account read failure leaves a terminal error`() async throws {
+        let store = MockPersistenceStore()
+        let factory = AccountConnectionFactoryProbe(transports: [])
+        let service = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: factory)
+        let id = try await service.createAccount(jidString: "alice@example.com")
+        await store.setFetchAccountsError(AccountConnectionFactoryProbe.Failure.connect)
+        await #expect(throws: AccountConnectionFactoryProbe.Failure.self) { try await service.connect(accountID: id, password: "secret") }
+        guard case .error = service.connectionStates[id] else {
+            Issue.record("A failed account read left \(String(describing: service.connectionStates[id]))")
+            return
+        }
+        #expect(await factory.requestCount == 0)
+    }
+
+    @Test
+    func `superseded connect cannot strand the account connecting when the newer account read fails`() async throws {
+        let store = MockPersistenceStore()
+        let service = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: AccountConnectionFactoryProbe(transports: []))
+        let id = try await service.createAccount(jidString: "alice@example.com")
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await store.installFetchAccountsGate(entered: entered, release: release)
+        let first = Task { try await service.connect(accountID: id, password: "secret") }
+        let held = try await boundedOutcome { await entered.wait() }
+        #expect(held != nil)
+
+        // The second connect supersedes the held one while it still shows `.connecting`, then fails its own read.
+        await store.setFetchAccountsError(AccountConnectionFactoryProbe.Failure.connect)
+        await #expect(throws: AccountConnectionFactoryProbe.Failure.self) { try await service.connect(accountID: id, password: "secret") }
+        await release.signal()
+        _ = await first.result
+
+        guard case .error = service.connectionStates[id] else {
+            Issue.record("The superseded attempt left \(String(describing: service.connectionStates[id]))")
+            return
+        }
+    }
+
+    @Test
+    func `superseded connect's failed account read leaves the newer attempt connecting`() async throws {
+        let store = MockPersistenceStore()
+        let factoryRelease = AsyncSemaphore()
+        let factory = AccountConnectionFactoryProbe(transports: [MockTransport()], firstRelease: factoryRelease)
+        let service = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: factory)
+        let id = try await service.createAccount(jidString: "alice@example.com")
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await store.installFetchAccountsGate(entered: entered, release: release)
+        let first = Task { try await service.connect(accountID: id, password: "secret") }
+        let held = try await boundedOutcome { await entered.wait() }
+        #expect(held != nil)
+
+        // The newer connect reads the account and waits in client construction, still `.connecting`.
+        let second = Task { try await service.connect(accountID: id, password: "secret") }
+        _ = try await factory.nextRequest()
+        await store.setFetchAccountsError(AccountConnectionFactoryProbe.Failure.connect)
+        await release.signal()
+        await #expect(throws: AccountConnectionFactoryProbe.Failure.self) { try await first.value }
+        guard case .connecting = service.connectionStates[id] else {
+            Issue.record("The superseded attempt's failure replaced the newer attempt's state")
+            return
+        }
+
+        await service.disconnect(accountID: id)
+        await factoryRelease.signal()
+        _ = await second.result
+    }
+
+    @Test
+    func `cancelled connect waiting on the account read settles disconnected`() async throws {
+        let store = MockPersistenceStore()
+        let service = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: AccountConnectionFactoryProbe(transports: []))
+        let id = try await service.createAccount(jidString: "alice@example.com")
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await store.installFetchAccountsGate(entered: entered, release: release)
+        let connection = Task { try await service.connect(accountID: id, password: "secret") }
+        let held = try await boundedOutcome { await entered.wait() }
+        #expect(held != nil)
+        guard case .connecting = service.connectionStates[id] else {
+            Issue.record("The held connect didn't publish connecting")
+            return
+        }
+
+        connection.cancel()
+        await release.signal()
+        await #expect(throws: CancellationError.self) { try await connection.value }
+        guard case .disconnected = service.connectionStates[id] else {
+            Issue.record("The cancelled attempt left \(String(describing: service.connectionStates[id]))")
+            return
+        }
+    }
+
+    @Test
+    func `failed account read keeps the state a certificate rejection published`() async throws {
+        let store = MockPersistenceStore()
+        let service = AccountService(store: store, credentialStore: MockCredentialStore(), clientFactory: AccountConnectionFactoryProbe(transports: []))
+        let id = try await service.createAccount(jidString: "alice@example.com")
+        let entered = AsyncSemaphore()
+        let release = AsyncSemaphore()
+        await store.installFetchAccountsGate(entered: entered, release: release)
+        let connection = Task { try await service.connect(accountID: id, password: "secret") }
+        let held = try await boundedOutcome { await entered.wait() }
+        #expect(held != nil)
+
+        // Rejecting publishes `.disconnected` without replacing the attempt, so only the state tells the read apart.
+        await service.rejectNewCertificate(for: id)
+        await store.setFetchAccountsError(AccountConnectionFactoryProbe.Failure.connect)
+        await release.signal()
+        await #expect(throws: AccountConnectionFactoryProbe.Failure.self) { try await connection.value }
+        guard case .disconnected = service.connectionStates[id] else {
+            Issue.record("The failed read overwrote the rejection with \(String(describing: service.connectionStates[id]))")
+            return
+        }
+    }
+
     private func suspendAtStreamManagement(_ transport: MockTransport, requiresTLS: Bool) async throws {
         try await exchange(transport, matching: "<stream:stream", response: testServerStreamOpen + testFeaturesNoTLS)
         if requiresTLS {

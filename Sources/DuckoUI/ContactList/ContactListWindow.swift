@@ -13,8 +13,7 @@ struct ContactListWindow: View {
     /// Enabled account IDs in a stable order, so the per-account load `.task(id:)`
     /// re-fires on membership change but not on reorder.
     private var enabledAccountIDs: [UUID] {
-        environment.accountService.accounts
-            .filter(\.isEnabled)
+        environment.accountService.enabledAccounts
             .map(\.id)
             .sorted { $0.uuidString < $1.uuidString }
     }

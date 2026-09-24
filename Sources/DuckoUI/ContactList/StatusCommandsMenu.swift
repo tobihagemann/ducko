@@ -1,9 +1,8 @@
 import DuckoCore
 import SwiftUI
 
-/// The menu-bar Status menu. Reads the same identity account as the Contacts "me" header, so its checkmark and the
-/// ⌘Y item follow the status the header shows. Like the menu-bar extra, it checks the status even when a message is
-/// set, where the header's own pull-down checks only a matching saved-message row.
+/// The menu-bar Status menu, sharing the Contacts header's sections (`StatusMenuSections`) and marks
+/// (`StatusSummary`). The ⌘Y item and Custom… follow the status of the account the header shows.
 public struct StatusCommandsMenu: View {
     private let environment: AppEnvironment
     private let preferences: StatusBarPreferences
@@ -28,15 +27,18 @@ public struct StatusCommandsMenu: View {
     }
 
     public var body: some View {
+        let presences = environment.presenceService.displayedPresences()
         Group {
-            ForEach(PresenceService.PresenceStatus.allCases, id: \.self) { status in
-                Button {
-                    apply(status)
-                } label: {
-                    MenuStatusRow(status: status, label: status.displayName, isActive: status == currentPresence.status)
+            StatusMenuSections {
+                ForEach(PresenceService.PresenceStatus.allCases, id: \.self) { status in
+                    Button {
+                        apply(status)
+                    } label: {
+                        MenuStatusRow(status: status, label: status.displayName, mark: StatusSummary.mark(for: status, presences: presences))
+                    }
+                    .keyboardShortcut(status == .available ? KeyboardShortcut("y", modifiers: [.command, .shift]) : nil)
+                    .accessibilityIdentifier("status-menu-\(status.rawValue)")
                 }
-                .keyboardShortcut(status == .available ? KeyboardShortcut("y", modifiers: [.command, .shift]) : nil)
-                .accessibilityIdentifier("status-menu-\(status.rawValue)")
             }
 
             Divider()
@@ -64,9 +66,11 @@ public struct StatusCommandsMenu: View {
             .accessibilityIdentifier("status-menu-custom")
         }
         .disabled(environment.accountService.accounts.isEmpty)
+        // Commands don't inherit the scene's environment, and the shared sections read it.
+        .environment(environment)
     }
 
     private func apply(_ status: PresenceService.PresenceStatus) {
-        environment.applyGlobalStatus(status, message: nil, identityAccountID: identityAccountID)
+        environment.applyGlobalStatus(status, message: nil)
     }
 }

@@ -129,8 +129,9 @@ public final class AccountService {
         onRequestedDisconnect?(accountID)
         certificateWarnings[accountID] = nil
         let detached = detachConnectionResources(for: accountID, terminal: true)
+        // Published before the teardown suspends, so a status pick made meanwhile sees the account as disconnected.
+        connectionStates[accountID] = .disconnected
         await detached?.client?.disconnect()
-        if connectionResources[accountID] == nil { connectionStates[accountID] = .disconnected }
     }
 
     /// Detaches owned work synchronously; awaited cleanup uses the returned snapshot only.
@@ -446,13 +447,8 @@ public final class AccountService {
         }
     }
 
-    /// Every `.connected` account in `accounts` order. UI menus consume this instead of reasoning
-    /// about `XMPPClient`s, keeping DuckoUI on the DuckoCore boundary.
-    public var connectedAccounts: [Account] {
-        accounts.filter {
-            if case .connected = connectionStates[$0.id] { return true }
-            return false
-        }
+    public var enabledAccounts: [Account] {
+        accounts.filter(\.isEnabled)
     }
 
     public func tlsInfo(for accountID: UUID) -> TLSInfo? {
@@ -494,15 +490,26 @@ public final class AccountService {
         let attemptID = UUID()
         connectionResources[accountID]?.attemptID = attemptID
         connectionResources[accountID]?.redirectCount = 0
-
-        let storedAccounts = try await store.fetchAccounts()
-        guard let account = storedAccounts.first(where: { $0.id == accountID }) else {
-            throw AccountServiceError.accountNotFound(accountID)
-        }
-
-        try Task.checkCancellation()
-        guard connectionResources[accountID]?.attemptID == attemptID else { throw CancellationError() }
+        // Published before the store fetch, so a requested teardown sees the attempt while the fetch is pending.
         connectionStates[accountID] = .connecting
+
+        let account: Account
+        do {
+            let storedAccounts = try await store.fetchAccounts()
+            guard let found = storedAccounts.first(where: { $0.id == accountID }) else {
+                throw AccountServiceError.accountNotFound(accountID)
+            }
+            try Task.checkCancellation()
+            account = found
+        } catch {
+            // Only the current attempt settles its own `.connecting`. A connect that superseded it, or a teardown such
+            // as rejecting a certificate, has already published the state.
+            if connectionResources[accountID]?.attemptID == attemptID, case .connecting = connectionStates[accountID] {
+                connectionStates[accountID] = Task.isCancelled ? .disconnected : .error(error.localizedDescription)
+            }
+            throw error
+        }
+        guard connectionResources[accountID]?.attemptID == attemptID else { throw CancellationError() }
 
         let previousSMState = connectionResources[accountID]?.resumeState
         connectionResources[accountID]?.resumeState = nil

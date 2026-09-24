@@ -6,8 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- Take a single account offline or back online from its own submenu in the status menus, which now list every enabled account, including offline ones
+
 ### Changed
 
+- Group the Contacts header status menu, the menu bar icon's menu, and the Status menu into All Accounts and Each Account sections when you have more than one account, with a dash beside a status only some of your accounts show
+- Show the header account's own status in the Contacts header, followed by how many accounts show another one, such as "Available · 1 Offline"
+- Connect every enabled account when you pick an online status for all accounts, including accounts that don't connect on launch
+- Keep the account you picked in the Contacts header while it is offline, and show that its name opens the account switcher
 - Turn on Connect on Launch for imported accounts unless their original settings turned it off
 
 ### Fixed

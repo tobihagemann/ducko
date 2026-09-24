@@ -29,6 +29,13 @@ struct ScriptValidationTests {
         #expect(result.stderr.contains("Usage:"))
     }
 
+    @Test(arguments: [[], ["alice@example.com"], ["alice@example.com", "busy"]])
+    func `ducko-account-status rejects a missing account or unknown status`(_ arguments: [String]) throws {
+        let result = try ScriptRunner.run("ducko-account-status.sh", arguments: arguments)
+        #expect(result.exitCode == 1)
+        #expect(result.stderr.contains("Usage:"))
+    }
+
     @Test(arguments: [[], ["bob@example.com"], ["bob@example.com", "block"]])
     func `ducko-contact-menu rejects a missing or unknown action`(_ arguments: [String]) throws {
         let result = try ScriptRunner.run("ducko-contact-menu.sh", arguments: arguments)

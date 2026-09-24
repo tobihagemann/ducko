@@ -22,6 +22,7 @@ public actor MockPersistenceStore: PersistenceStore {
     private var fetchContactsGateRelease: AsyncSemaphore?
 
     private var conversationWriteGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
+    private var fetchAccountsGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
     private var contactCaptureGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
     private var contactWriteGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
     private var rosterApplyGate: (entered: AsyncSemaphore, release: AsyncSemaphore)?
@@ -47,6 +48,11 @@ public actor MockPersistenceStore: PersistenceStore {
     }
 
     public init() {}
+
+    /// Holds the next `fetchAccounts` until `release` is signaled, signaling `entered` once it is held.
+    public func installFetchAccountsGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
+        fetchAccountsGate = (entered, release)
+    }
 
     public func installConversationWriteGate(entered: AsyncSemaphore, release: AsyncSemaphore) {
         conversationWriteGate = (entered, release)
@@ -84,6 +90,11 @@ public actor MockPersistenceStore: PersistenceStore {
     // MARK: - Accounts
 
     public func fetchAccounts() async throws -> [Account] {
+        if let gate = fetchAccountsGate {
+            fetchAccountsGate = nil
+            await gate.entered.signal()
+            await gate.release.wait()
+        }
         if let fetchAccountsError { throw fetchAccountsError }
         return accounts
     }
