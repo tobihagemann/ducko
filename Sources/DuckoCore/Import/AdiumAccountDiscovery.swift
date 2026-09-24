@@ -39,7 +39,7 @@ public enum AdiumAccountDiscovery {
             let connectPort: Int? = connectServer != nil ? accountPrefs?["Connect Port"] as? Int : nil
             let resource = accountPrefs?["Jabber:Resource"] as? String
             let requireTLS = accountPrefs?["Jabber:Require TLS"] as? Bool ?? true
-            let autoConnect = accountPrefs?["AutoConnect"] as? Bool ?? false
+            let autoConnect = accountPrefs?["AutoConnect"] as? Bool ?? true
 
             return AdiumAccount(
                 id: objectID,

@@ -133,7 +133,21 @@ enum AdiumAccountDiscoveryTests {
                 #expect(accounts[0].resource == nil)
                 #expect(accounts[0].connectServer == nil)
                 #expect(accounts[0].requireTLS == true)
-                #expect(accounts[0].autoConnect == false)
+                #expect(accounts[0].autoConnect == true)
+            }
+        }
+
+        @Test
+        func `Defaults AutoConnect to true when the account prefs omit it`() throws {
+            try withTemporaryDirectory { dir in
+                try writeAccountsPlist([
+                    ["ObjectID": "1", "Service": "Jabber", "Type": "libpurple-Jabber", "UID": "alice@example.com"]
+                ], to: dir)
+                try writeAccountPrefsPlist(["1": ["Jabber:Resource": "laptop"] as [String: Any]], to: dir)
+
+                let accounts = AdiumAccountDiscovery.discoverAccounts(at: dir)
+                #expect(accounts.count == 1)
+                #expect(accounts[0].autoConnect == true)
             }
         }
     }
