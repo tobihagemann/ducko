@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-24
+
 ### Added
 
 - Take a single account offline or back online from its own submenu in the status menus, which now list every enabled account, including offline ones
@@ -164,7 +166,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 Initial release.
 
-[Unreleased]: https://github.com/tobihagemann/ducko/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/tobihagemann/ducko/compare/0.4.0...HEAD
+[0.4.0]: https://github.com/tobihagemann/ducko/compare/0.3.0...0.4.0
 [0.3.0]: https://github.com/tobihagemann/ducko/compare/0.2.1...0.3.0
 [0.2.1]: https://github.com/tobihagemann/ducko/compare/0.2.0...0.2.1
 [0.2.0]: https://github.com/tobihagemann/ducko/compare/0.1.0...0.2.0
