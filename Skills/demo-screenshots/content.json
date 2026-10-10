@@ -83,6 +83,29 @@
         { "id": "43E1628D-F97A-4BCF-B151-0DD2B48CA3FF", "stanzaID": "demo-2", "from": "me", "time": "13:53:02", "body": "On it 👀", "status": "read" }
       ]
     },
+    "jonas": {
+      "peer": "jonas",
+      "kind": "chat",
+      "messages": [
+        { "id": "A306A709-B8A3-48B0-96AD-8106A20DAB9D", "stanzaID": "demo-1", "from": "peer", "time": "12:31:44", "body": "Crisps or pretzels for tonight?" }
+      ]
+    },
+    "mia": {
+      "peer": "mia",
+      "kind": "chat",
+      "messages": [
+        { "id": "F0A9C500-8C54-4025-9C17-3AA1ADC2C69E", "stanzaID": "demo-1", "from": "me", "time": "11:18:09", "body": "Thanks for the photos!", "status": "read" },
+        { "id": "9115C3BF-450B-44CA-9CC1-4D06A5113753", "stanzaID": "demo-2", "from": "peer", "time": "11:19:27", "body": "Any time 📸" }
+      ]
+    },
+    "priya": {
+      "peer": "priya",
+      "kind": "chat",
+      "messages": [
+        { "id": "108045AC-F6AD-48C1-9203-6E54B8A1220C", "stanzaID": "demo-1", "from": "peer", "time": "10:02:15", "body": "Notes from standup are in the doc." },
+        { "id": "35B80774-E3E8-449A-9606-9F5D06D29AB9", "stanzaID": "demo-2", "from": "me", "time": "10:04:51", "body": "Great, thanks", "status": "read" }
+      ]
+    },
     "pondclub": {
       "peer": "pondclub",
       "kind": "room",
@@ -111,7 +134,7 @@
     "chat-delivered": { "lastOutgoingStatus": "delivered" },
     "chat-read": { "lastOutgoingStatus": "read" },
     "chat-input-filled": { "input": "Want me to bring bread for the ducks?" },
-    "chat-tabs": { "tabs": ["lena", "marco", "pondclub"], "rooms": ["pondclub"], "unread": { "pondclub": 2 } },
+    "chat-tabs": { "tabs": ["lena", "marco", "pondclub", "jonas", "mia", "priya"], "overflow": true, "rooms": ["pondclub"], "unread": { "pondclub": 2 } },
     "chat-tab-hover": { "tabs": ["lena", "marco", "pondclub"], "rooms": ["pondclub"], "unread": { "pondclub": 2 }, "hover": { "tab": "marco" } },
     "chat-bubble-hover": { "tabs": ["lena-grouped"], "hover": { "message": "10DD83D1-413E-4917-8385-2EABF1A48EE5" } },
     "chat-me": { "tabs": ["lena-me"] },

@@ -243,6 +243,8 @@ Tell the user that the run needs the VM to itself for about three minutes, measu
 
 ### R2: Set Up the Work Folder
 
+In a work folder kept from an earlier round, run `zsh Skills/lume-vm/scripts/vm.sh gui '/bin/rm -rf /Users/lume/work/DuckoDemo.app'` between item 1's `start` and `push`, since `push` merges into an existing bundle. Of item 2, only copy `content.json` and start the stub: the account carries over, since `bootstrap` restores the folder's first snapshot. Skip item 3, whose setting lasts until the VM is reset. Then repeat item 4.
+
 1. On the host, build the copy as in Step 2, leaving out the `Add :NSRequiresAquaSystemAppearance bool true` line. The run sets each appearance through the system, and `reference.py` refuses a copy pinned to light. Then start the VM and push the copy:
 
    ```bash
@@ -285,9 +287,11 @@ python3 "$R" bootstrap /Users/lume/work && python3 "$R" run /Users/lume/work "/V
 
 `run` checks the build, the baseline and the Mac's appearance before it touches `out`, and each refusal names its fix. `--ids a,b` reruns those states into an existing folder captured from the same sources, content, macOS build and settings, and replaces only their files and entries. Each state restores the baseline, seeds its content, launches the copy and performs its live steps. It then checks through Accessibility that the state holds, and captures. A state that fails any of these lands in `skipped` with the step named, and leaves no PNG. Progress goes to `/Users/lume/work/reference.log`.
 
+To check a change to `reference.py` or to some states, run with `--ids` for those states into a new folder, which keeps `out` from the last full run. For changed states, copy the new `content.json` into `/Users/lume/work` and run `bootstrap` first, or the run uses the old states.
+
 ### R4: Check the Captures
 
-Copy `out` to the host (`zsh Skills/lume-vm/scripts/vm.sh pull /Users/lume/work/out <host folder>`) and read every PNG. Accessibility asserts your own status, the tab badges and typing, the input text, the editing bar, the selected row, collapsed groups, the empty chat, the key window, the first tab's last message, the last outgoing message's delivery mark and the Dock badge. Only the PNGs show the rest:
+Copy `out` to the host (`zsh Skills/lume-vm/scripts/vm.sh pull /Users/lume/work/out <host folder>`) and read every PNG. Accessibility asserts your own status, the tab badges and typing, the tab overflow control, the input text, the editing bar, the selected row, collapsed groups, the empty chat, the key window, the first tab's last message, the last outgoing message's delivery mark and the Dock badge. Only the PNGs show the rest:
 
 - hover effects: the status picker's fill, Marco's tab close button, the first grouped bubble's metadata
 - the accent selection in `contacts-selected-key` and the unemphasized one in `contacts-selected-inactive`
@@ -312,7 +316,9 @@ Move `out` into the website's `reference/captures/`. Then stop the stub (`pkill 
 | `conversations` | Variants keyed by name: `peer` (a contact's local part or a room's key), `kind` (`chat` or `room`), `messages` with a fixed uppercase `id`, `stanzaID`, `from` (`me`, `peer` or a nickname), `time`, `body`, outgoing `status` (`sent`, `delivered`, `read`) and optional `editedSecondsAgo` |
 | `states` | One entry per manifest id; unset fields take their defaults |
 
-A state's fields: `key` (the window that is key, by default the manifest's window), `tabs` (conversation variants, the first selected; default `["lena"]`), `lastOutgoingStatus`, `closeAllTabs`, `rooms` (room keys to keep), `unread` (unread counts by conversation variant, such as `{"marco": 3}`), `collapsedGroups`, `selectedContact`, `ownStatus` (`available`, `away`, `xa`, `dnd`, `offline`), `typing` (contacts), `input` (draft text), `editing` (a message id), `hover` (`{"statusPicker": true}`, `{"tab": <variant>}` or `{"message": <id>}`) and `menu` (`"status"` or `{"message": <id>}`). A manifest id without an entry is skipped as "no content entry".
+A state's fields: `key` (the window that is key, by default the manifest's window), `tabs` (conversation variants, the first selected; default `["lena"]`), `overflow` (true when the tabs don't all fit the bar), `lastOutgoingStatus`, `closeAllTabs`, `rooms` (room keys to keep), `unread` (unread counts by conversation variant, such as `{"marco": 3}`), `collapsedGroups`, `selectedContact`, `ownStatus` (`available`, `away`, `xa`, `dnd`, `offline`), `typing` (contacts), `input` (draft text), `editing` (a message id), `hover` (`{"statusPicker": true}`, `{"tab": <variant>}` or `{"message": <id>}`) and `menu` (`"status"` or `{"message": <id>}`). A manifest id without an entry is skipped as "no content entry".
+
+Tabs past the bar's width go into its overflow menu, which shows no badge or typing, so give `unread` and `typing` only to tabs that fit.
 
 ### capture.json
 

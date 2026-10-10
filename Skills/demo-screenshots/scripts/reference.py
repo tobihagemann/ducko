@@ -45,7 +45,7 @@ APPEARANCE_METHOD = "system"
 CARET_ARGUMENTS = ["-NSTextInsertionPointBlinkPeriodOn", "100000000", "-NSTextInsertionPointBlinkPeriodOff", "0"]
 STATUS_TITLES = {"available": "Available", "away": "Away", "xa": "Extended Away", "dnd": "Do Not Disturb", "offline": "Offline"}
 DEFAULTS = {
-    "tabs": ["lena"], "lastOutgoingStatus": None, "closeAllTabs": False, "rooms": [], "unread": {}, "collapsedGroups": [],
+    "tabs": ["lena"], "overflow": False, "lastOutgoingStatus": None, "closeAllTabs": False, "rooms": [], "unread": {}, "collapsedGroups": [],
     "selectedContact": None, "ownStatus": "available", "typing": [], "input": None, "editing": None, "hover": None, "menu": None,
 }
 MENU_LAYER = 101
@@ -712,13 +712,24 @@ class Run:
         checks = [("status-picker reads %s" % STATUS_TITLES[spec["ownStatus"]],
                    lambda: self.quiet(pid, "value", "status-picker") == STATUS_TITLES[spec["ownStatus"]], 5)]
         if not spec["closeAllTabs"]:
+            overflow = "true" if spec["overflow"] else "false"
+            checks.append(("chat-tab-overflow %s" % ("shown" if spec["overflow"] else "absent"),
+                           lambda: self.quiet(pid, "exists", "chat-tab-overflow") == overflow, 5))
             for variant, jid in zip(spec["tabs"], tab_jids):
                 count = spec["unread"].get(variant, 0)
                 expected = ("1 unread message" if count == 1 else "%d unread messages" % count) if count else (
                     "Typing" if conversations[variant]["peer"] in spec["typing"] else "")
-                checks.append(("chat-tab-%s reads %r" % (jid, expected),
-                               lambda jid=jid, expected=expected: self.quiet(pid, "value", "chat-tab-%s" % jid) == expected,
-                               10 if expected == "Typing" else 5))
+                spills = spec["overflow"] and not expected
+
+                # The bar makes chips only for the tabs that fit and lists the rest in the overflow menu. The menu shows no
+                # badge or typing bubble, so a tab that must show one has to be a chip.
+                def tab(chip="chat-tab-%s" % jid, expected=expected, spills=spills):
+                    value = self.quiet(pid, "value", chip)
+                    if value is not None:
+                        return value == expected
+                    return spills and self.quiet(pid, "exists", chip) == "false"
+                checks.append(("chat-tab-%s reads %r%s" % (jid, expected, " or has no chip" if spills else ""),
+                               tab, 10 if expected == "Typing" else 5))
         messages = conversations[spec["tabs"][0]]["messages"]
         outgoing = [m for m in messages if m["from"] == "me"]
         if not outgoing and not spec["closeAllTabs"]:
