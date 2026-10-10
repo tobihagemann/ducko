@@ -29,13 +29,14 @@ private func occupantPresence(_ nickname: String) -> String {
     """
 }
 
-/// Parses one stanza as a client's stream would deliver it.
-private func stanza(_ xml: String) throws -> XMLElement {
-    let events = XMPPStreamParser().parse(Array((testServerStreamOpen + xml).utf8))
-    for case let .stanzaReceived(element) in events {
-        return element
-    }
-    throw XMPPClientError.unexpectedStreamState("No stanza in \(xml)")
+/// The error presence with which a room refuses a join or nickname change to `nickname`.
+private func errorPresence(from nickname: String, condition: XMPPStanzaError.Condition) -> String {
+    """
+    <presence type='error' from='room@conference.example.com/\(nickname)'>\
+    <x xmlns='http://jabber.org/protocol/muc'/>\
+    <error type='cancel'><\(condition.rawValue) xmlns='urn:ietf:params:xml:ns:xmpp-stanzas'/></error>\
+    </presence>
+    """
 }
 
 /// A room module driven without a client, recording the events it emits.
@@ -349,6 +350,33 @@ enum MUCModuleResumeTests {
                 if case .disconnected = event { return true }
                 return false
             }
+        }
+    }
+
+    struct RefusedPresence {
+        @Test
+        func `A join the room refuses is no longer tracked and is not carried to a resumed session`() async throws {
+            let harness = ModuleHarness()
+            try await harness.module.joinRoom(testRoomJID, nickname: "me")
+
+            try harness.receivePresence(errorPresence(from: "me", condition: .registrationRequired))
+
+            #expect(harness.module.nickname(in: testRoomJID) == nil)
+            #expect(MUCModule(resuming: harness.module.resumeState).nickname(in: testRoomJID) == nil)
+            #expect(harness.events.isEmpty)
+        }
+
+        @Test
+        func `A refused nickname change leaves the joined room as it was`() async throws {
+            let harness = try await ModuleHarness.joinedSession()
+            let eventCount = harness.events.count
+
+            try harness.receivePresence(errorPresence(from: "renamed", condition: .conflict))
+
+            let occupancy = try #require(harness.module.roomOccupancies[testRoomJID])
+            #expect(occupancy.nickname == "me")
+            #expect(Set(occupancy.occupants.map(\.nickname)) == ["me", "other"])
+            #expect(harness.events.count == eventCount)
         }
     }
 

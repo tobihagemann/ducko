@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix interactive mode and `ducko room join` printing each room message, each private message from a room and the "Joined" line twice
+- Fix a room that refused your join (wrong password, banned, nickname taken) counting as joined, with you listed as its only occupant
+- Fix Ducko rejoining a room you had just left when a check of your presence in the room was answered at the same moment
+
 ## [0.8.0] - 2026-10-08
 
 ### Added

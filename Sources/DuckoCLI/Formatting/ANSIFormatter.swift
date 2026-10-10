@@ -239,14 +239,6 @@ struct ANSIFormatter: CLIFormatter {
         "\(Color.bold)--- \(group.affiliation.displayName) (\(group.participants.count)) ---\(Color.reset)"
     }
 
-    func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String {
-        var line = "\(Color.green)Joined \(Color.bold)\(room)\(Color.reset)\(Color.green) as \(nickname) (\(participantCount) participants)\(Color.reset)"
-        if let subject, !subject.isEmpty {
-            line += "\n\(Color.dim)Topic: \(subject)\(Color.reset)"
-        }
-        return line
-    }
-
     private func formatCarbonEvent(_ forwarded: ForwardedMessage, isOutgoing: Bool) -> String? {
         let jid = isOutgoing ? forwarded.message.to?.bareJID : forwarded.message.from?.bareJID
         let oob = forwarded.message.oobData

@@ -82,6 +82,21 @@ public struct XMPPMessage: XMPPStanza {
         element.child(named: "unstyled", namespace: XMPPNamespaces.styling) != nil
     }
 
+    /// Whether a module reports this message as an event of its own (a room message, invite, or room private message,
+    /// a correction, a retraction, an encrypted message), so a consumer of the raw `.messageReceived` leaves it alone.
+    /// A room private message without a muc#user element is recognized only by its room, which the caller checks.
+    public var hasClassifiedEvent: Bool {
+        if messageType == .groupchat { return true }
+        if element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil { return true }
+        if element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil { return true }
+        if element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil { return true }
+        if element.child(named: "x", namespace: XMPPNamespaces.mucDirectInvite) != nil { return true }
+        guard let mucUser = element.child(named: "x", namespace: XMPPNamespaces.mucUser) else { return false }
+        if mucUser.child(named: "invite") != nil { return true }
+        guard messageType == .chat || messageType == .normal, case .full = from else { return false }
+        return true
+    }
+
     // MARK: - XEP-0066 Out-of-Band Data
 
     public struct OOBData: Sendable {

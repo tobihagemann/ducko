@@ -76,8 +76,8 @@ extension DuckoIntegrationTests.CLILayer {
 
                 // A sentinel deviceID guaranteed absent from any real devicelist.
                 let output = try await cli.run(["omemo", "trust", bob, "\(Self.sentinelDeviceID)"])
-                #expect(output.exitCode == 0)
-                #expect(output.stdout.contains("Device \(Self.sentinelDeviceID) not found"))
+                #expect(output.exitCode != 0)
+                #expect(output.stderr.contains("Device \(Self.sentinelDeviceID) not found for \(bob)."))
             }
         }
 

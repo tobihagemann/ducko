@@ -105,6 +105,17 @@ func disconnectFast(_ client: XMPPClient) async {
     await client.disconnect(streamCloseTimeout: .milliseconds(20), syncAckTimeout: .milliseconds(20))
 }
 
+// MARK: - Stanza Parsing
+
+/// Parses one stanza as a client's stream would deliver it.
+func stanza(_ xml: String) throws -> XMLElement {
+    let events = XMPPStreamParser().parse(Array((testServerStreamOpen + xml).utf8))
+    for case let .stanzaReceived(element) in events {
+        return element
+    }
+    throw XMPPClientError.unexpectedStreamState("No stanza in \(xml)")
+}
+
 // MARK: - Stub Module Context
 
 /// A `ModuleContext` with inert dependencies for driving a module without a client; pass only the ones a test observes.

@@ -482,19 +482,6 @@ struct JSONFormatter: CLIFormatter {
         ])
     }
 
-    func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String {
-        var dict: [String: String] = [
-            "type": "room_joined",
-            "room": room,
-            "nickname": nickname,
-            "participants": "\(participantCount)"
-        ]
-        if let subject, !subject.isEmpty {
-            dict["subject"] = subject
-        }
-        return encode(dict)
-    }
-
     private func formatRoomJoinedEvent(room: BareJID, occupancy: RoomOccupancy, isNewlyCreated: Bool, account: String) -> String {
         var dict: [String: String] = [
             "type": "room_joined", "room": room.description,

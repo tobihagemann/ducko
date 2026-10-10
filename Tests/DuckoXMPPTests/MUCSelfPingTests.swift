@@ -1,4 +1,5 @@
 import DuckoTestSupport
+import struct os.OSAllocatedUnfairLock
 import Testing
 @testable import DuckoXMPP
 
@@ -24,17 +25,22 @@ private func makeConnectedClient(mock: MockTransport) async throws -> (XMPPClien
     return (client, module)
 }
 
-/// Joins `room` as "me" and delivers the self-presence that starts its self-ping.
-private func join(_ room: BareJID, module: MUCModule, mock: MockTransport) async throws {
-    try await module.joinRoom(room, nickname: "me")
-    await mock.simulateReceive("""
+/// The presence that confirms the own occupant "me" in `room` and starts its self-ping.
+private func selfPresence(in room: BareJID) -> String {
+    """
     <presence from='\(room)/me'>\
     <x xmlns='http://jabber.org/protocol/muc#user'>\
     <item affiliation='member' role='participant'/>\
     <status code='110'/>\
     </x>\
     </presence>
-    """)
+    """
+}
+
+/// Joins `room` as "me" and delivers the self-presence that starts its self-ping.
+private func join(_ room: BareJID, module: MUCModule, mock: MockTransport) async throws {
+    try await module.joinRoom(room, nickname: "me")
+    await mock.simulateReceive(selfPresence(in: room))
 }
 
 /// Waits for a self-ping to `room` other than the ones in `answered`, and returns its id.
@@ -160,6 +166,43 @@ enum MUCSelfPingTests {
             #expect(!events.contains { if case .mucSelfPingFailed = $0 { true } else { false } })
 
             await disconnectFast(client)
+        }
+
+        @Test
+        func `An error reply that a leave and rejoin overtake is not reported`() async throws {
+            let module = MUCModule(selfPingInterval: .milliseconds(10))
+            let events = OSAllocatedUnfairLock(initialState: [XMPPEvent]())
+            let pingCount = OSAllocatedUnfairLock(initialState: 0)
+            let pinged = AsyncSemaphore()
+            module.setUp(makeStubModuleContext(
+                sendIQ: { [weak module] _, _ in
+                    let isFirstPing = pingCount.withLock { count in
+                        count += 1
+                        return count == 1
+                    }
+                    guard isFirstPing, let module else {
+                        await pinged.signal()
+                        return nil
+                    }
+                    // The error reply is in, and the room is left and joined again before the ping loop handles it.
+                    try await module.leaveRoom(testRoomJID)
+                    try await module.joinRoom(testRoomJID, nickname: "me")
+                    await pinged.signal()
+                    throw XMPPStanzaError(errorType: .cancel, condition: .notAcceptable)
+                },
+                emitEvent: { event in events.withLock { $0.append(event) } }
+            ))
+            try await module.joinRoom(testRoomJID, nickname: "me")
+            try module.handlePresence(XMPPPresence(element: stanza(selfPresence(in: testRoomJID))))
+
+            try #require(try await boundedOutcome { await pinged.wait() } != nil)
+            try module.handlePresence(XMPPPresence(element: stanza(selfPresence(in: testRoomJID))))
+            // The rejoined room's first ping waits a full interval, by which time a report of the stale error would have
+            // been emitted.
+            try #require(try await boundedOutcome { await pinged.wait() } != nil)
+
+            #expect(!events.withLock { $0 }.contains { if case .mucSelfPingFailed = $0 { true } else { false } })
+            await module.handleDisconnect()
         }
     }
 }

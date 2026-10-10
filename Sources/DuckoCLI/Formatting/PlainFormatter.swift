@@ -342,14 +342,6 @@ struct PlainFormatter: CLIFormatter {
         "--- \(group.affiliation.displayName) (\(group.participants.count)) ---"
     }
 
-    func formatRoomJoinedConfirmation(room: String, nickname: String, participantCount: Int, subject: String?) -> String {
-        var line = "Joined \(room) as \(nickname) (\(participantCount) participants)"
-        if let subject, !subject.isEmpty {
-            line += "\nTopic: \(subject)"
-        }
-        return line
-    }
-
     func formatTransferProgress(fileName: String, fileSize: Int64, progress: Double) -> String {
         let percent = Int(progress * 100)
         return "Uploading \(fileName) (\(formatByteCount(fileSize))): \(percent)%"

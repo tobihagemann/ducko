@@ -80,6 +80,8 @@ swift test --package-path IntegrationTests --filter "Alice connects to server"
 
 Sourcing the file in the shell still works and overrides any value from the file.
 
+The CLI suites spawn the root package's `.build/debug/DuckoCLI`, which `swift test --package-path IntegrationTests` does not rebuild. Run `swift build --product DuckoCLI` after changing CLI code, or the suites drive a stale binary.
+
 When the live test server has drifted (OMEMO devicelist past `pruneProbeCap = 64`, or the seeded `subscription=both` baseline lost), run the env-gated reset suite to retract devicelists and reseed roster subscriptions:
 
 ```

@@ -81,7 +81,7 @@ extension DuckoIntegrationTests.CLILayer {
         }
 
         @Test
-        @MainActor func `REPL room send delivers a group message`() async throws {
+        @MainActor func `REPL prints a delivered group message and its join once`() async throws {
             try await TestHarness.withHarness { harness in
                 try await harness.setUp(accounts: ["alice": TestCredentials.alice])
 
@@ -120,6 +120,20 @@ extension DuckoIntegrationTests.CLILayer {
                         containing: body,
                         timeout: TestTimeout.event
                     )
+
+                    // Waiting for a later message gives any duplicate line of the first message time to print.
+                    let laterBody = "msg-\(UUID().uuidString.prefix(8))"
+                    try await harness.environment.chatService.sendGroupMessage(
+                        toJIDString: roomJID.description,
+                        body: laterBody,
+                        accountID: aliceAccount.accountID
+                    )
+                    let output = try await bobREPL.waitForOutput(
+                        containing: laterBody,
+                        timeout: TestTimeout.event
+                    )
+                    #expect(output.ranges(of: body).count == 1)
+                    #expect(output.ranges(of: "Joined ").count == 1)
                 }
             }
         }

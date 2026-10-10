@@ -465,7 +465,7 @@ printf '/status\n/roster\n/join chat@conference.example.com alice\n/members\n/le
   | DUCKO_PROFILE=<unique> .build/debug/DuckoCLI interactive --output plain
 ```
 
-Output sent to a pipe or file is block-buffered and arrives only when the session exits. To read results while the session runs (for example, to wait for an incoming offer before answering it), drive the REPL under a pseudo-terminal instead: a `tmux -L <name>` session (`send-keys` to type a line, `capture-pane` to read) or `script -q <log> …`. A pseudo-terminal counts as a terminal, so still pass `--output plain`.
+Output sent to a pipe or file is block-buffered and arrives only when the session exits. To read results while the session runs (for example, to wait for an incoming offer before answering it), drive the REPL under a pseudo-terminal instead: a `tmux -L <name>` session (`send-keys` to type a line, `capture-pane` to read) or `script -q <log> …`. Let the REPL write straight to the pseudo-terminal: piping or redirecting its output there, even into `tee`, makes it block-buffered again. A pseudo-terminal counts as a terminal, so still pass `--output plain`.
 
 `/approve <jid>` adds a `subscription=none` roster stub for that JID on the server even when no request was pending. Remove it afterwards with `roster remove <jid>`, or use a syntactically invalid JID when only the error path matters.
 

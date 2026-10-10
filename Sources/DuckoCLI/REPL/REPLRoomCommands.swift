@@ -15,8 +15,6 @@ func handleJoinREPLCommand(_ arguments: String, context: REPLContext) async -> R
             jidString: roomJID, nickname: nick,
             accountID: context.accountID, timeout: .seconds(15)
         )
-        let count = await MainActor.run { context.environment.chatService.participantCount(forRoomJIDString: roomJID, accountID: context.accountID) }
-        print(context.formatter.formatRoomJoinedConfirmation(room: roomJID, nickname: nick, participantCount: count, subject: nil))
         let isNewlyCreated = await MainActor.run { context.environment.chatService.isRoomNewlyCreated(jidString: roomJID, accountID: context.accountID) }
         if isNewlyCreated {
             print("Room created and locked — run /config submit-default to open it, or /config to customize.")

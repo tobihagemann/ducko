@@ -53,24 +53,6 @@ struct PlainRoomFormatterTests {
         #expect(output.contains("1"))
     }
 
-    // MARK: - formatRoomJoinedConfirmation
-
-    @Test func `format room joined confirmation with subject`() {
-        let output = formatter.formatRoomJoinedConfirmation(room: "chat@conference.example.com", nickname: "alice", participantCount: 5, subject: "Welcome!")
-        #expect(output.contains("Joined"))
-        #expect(output.contains("chat@conference.example.com"))
-        #expect(output.contains("alice"))
-        #expect(output.contains("5 participants"))
-        #expect(output.contains("Welcome!"))
-    }
-
-    @Test func `format room joined confirmation without subject`() {
-        let output = formatter.formatRoomJoinedConfirmation(room: "chat@conference.example.com", nickname: "alice", participantCount: 3, subject: nil)
-        #expect(output.contains("Joined"))
-        #expect(output.contains("3 participants"))
-        #expect(!output.contains("Topic"))
-    }
-
     // MARK: - MUC Events
 
     @Test func `format event room joined`() throws {
@@ -256,19 +238,6 @@ struct JSONRoomFormatterTests {
         #expect(json["type"] == "room_participant_group")
         #expect(json["affiliation"] == "Owner")
         #expect(json["count"] == "2")
-    }
-
-    // MARK: - formatRoomJoinedConfirmation
-
-    @Test func `format room joined confirmation is valid JSON`() throws {
-        let output = formatter.formatRoomJoinedConfirmation(room: "chat@conference.example.com", nickname: "alice", participantCount: 5, subject: "Hello")
-        let data = try #require(output.data(using: .utf8))
-        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
-        #expect(json["type"] == "room_joined")
-        #expect(json["room"] == "chat@conference.example.com")
-        #expect(json["nickname"] == "alice")
-        #expect(json["participants"] == "5")
-        #expect(json["subject"] == "Hello")
     }
 
     // MARK: - MUC Events

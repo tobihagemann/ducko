@@ -243,4 +243,19 @@ enum XMPPMessageTests {
             #expect(message.oobData[0].desc == nil)
         }
     }
+
+    struct ClassifiedEvent {
+        @Test(arguments: [
+            ("<message type='groupchat' from='room@conference.example.com/nick'><body>Hi</body></message>", true),
+            ("<message type='chat' from='contact@example.com/res'><retract id='1' xmlns='urn:xmpp:message-retract:1'/></message>", true),
+            ("<message from='room@conference.example.com'><x xmlns='http://jabber.org/protocol/muc#user'><invite from='contact@example.com'/></x></message>", true),
+            ("<message from='contact@example.com/res'><x xmlns='jabber:x:conference' jid='room@conference.example.com'/></message>", true),
+            ("<message type='chat' from='room@conference.example.com/nick'><body>Hi</body><x xmlns='http://jabber.org/protocol/muc#user'/></message>", true),
+            ("<message from='room@conference.example.com'><x xmlns='http://jabber.org/protocol/muc#user'><decline from='contact@example.com'/></x></message>", false),
+            ("<message type='chat' from='contact@example.com/res'><body>Hi</body></message>", false)
+        ])
+        func `Messages a module reports as their own event are classified`(xml: String, isClassified: Bool) throws {
+            #expect(try XMPPMessage(element: stanza(xml)).hasClassifiedEvent == isClassified)
+        }
+    }
 }

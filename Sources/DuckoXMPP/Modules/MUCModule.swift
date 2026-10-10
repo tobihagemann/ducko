@@ -48,6 +48,13 @@ public final class MUCModule: XMPPModule, Sendable {
         var rooms: [BareJID: RoomState] = [:]
         var pendingNickChanges: [BareJID: [String: RoomOccupant]] = [:]
         var selfPingTasks: [BareJID: Task<Void, Never>] = [:]
+
+        /// Stops tracking `room`, returning its self-ping task for the caller to cancel outside the lock.
+        mutating func removeRoom(_ room: BareJID) -> Task<Void, Never>? {
+            rooms.removeValue(forKey: room)
+            pendingNickChanges.removeValue(forKey: room)
+            return selfPingTasks.removeValue(forKey: room)
+        }
     }
 
     private let state: OSAllocatedUnfairLock<State>
@@ -123,6 +130,11 @@ public final class MUCModule: XMPPModule, Sendable {
         let (isTracked, context) = state.withLock { ($0.rooms[roomJID] != nil, $0.context) }
         guard isTracked else { return }
 
+        if presence.presenceType == .error {
+            handleErrorPresence(presence, roomJID: roomJID)
+            return
+        }
+
         let mucUser = presence.element.child(named: "x", namespace: XMPPNamespaces.mucUser)
         let item = mucUser?.child(named: "item")
         let occupant: RoomOccupant = if let item, let parsed = RoomOccupant.parse(item, nickname: nickname) {
@@ -143,6 +155,20 @@ public final class MUCModule: XMPPModule, Sendable {
         }
     }
 
+    /// A refused join (wrong password, banned, members-only, nickname in use) stops tracking its room. An error for a
+    /// room already joined, such as a refused nickname change, leaves the room as it was.
+    private func handleErrorPresence(_ presence: XMPPPresence, roomJID: BareJID) {
+        let (wasPendingJoin, pingTask) = state.withLock { state -> (Bool, Task<Void, Never>?) in
+            guard let room = state.rooms[roomJID], room.occupants[room.nickname] == nil else { return (false, nil) }
+            return (true, state.removeRoom(roomJID))
+        }
+        guard wasPendingJoin else { return }
+        pingTask?.cancel()
+        let condition = XMPPStanzaError.parse(from: presence.element.child(named: "error"))?.condition.rawValue ?? "an unknown error"
+        log.info("Room join refused with \(condition)")
+        log.debug("The room that refused the join is \(roomJID)")
+    }
+
     private func handleUnavailablePresence(_ info: PresenceInfo, context: ModuleContext?) {
         // Nick change (status 303): store old occupant under new nick, don't emit leave
         if info.statusCodes.contains(303), let newNick = info.item?.attribute("nick") {
@@ -158,11 +184,7 @@ public final class MUCModule: XMPPModule, Sendable {
         if info.isSelfPresence, let destroy = info.mucUser?.child(named: "destroy") {
             let reason = destroy.child(named: "reason")?.textContent
             let alternateVenue = destroy.attribute("jid").flatMap { BareJID.parse($0) }
-            let pingTask = state.withLock { state -> Task<Void, Never>? in
-                state.rooms.removeValue(forKey: info.roomJID)
-                state.pendingNickChanges.removeValue(forKey: info.roomJID)
-                return state.selfPingTasks.removeValue(forKey: info.roomJID)
-            }
+            let pingTask = state.withLock { $0.removeRoom(info.roomJID) }
             pingTask?.cancel()
             log.info("Room \(info.roomJID) was destroyed")
             context?.emitEvent(.roomDestroyed(room: info.roomJID, reason: reason, alternateVenue: alternateVenue))
@@ -263,12 +285,7 @@ public final class MUCModule: XMPPModule, Sendable {
         let (isSelf, pingTask) = state.withLock { state -> (Bool, Task<Void, Never>?) in
             state.rooms[roomJID]?.occupants.removeValue(forKey: nickname)
             let selfLeft = state.rooms[roomJID]?.nickname == nickname
-            var task: Task<Void, Never>?
-            if selfLeft {
-                task = state.selfPingTasks.removeValue(forKey: roomJID)
-                state.rooms.removeValue(forKey: roomJID)
-            }
-            return (selfLeft, task)
+            return (selfLeft, selfLeft ? state.removeRoom(roomJID) : nil)
         }
         pingTask?.cancel()
 
@@ -443,11 +460,7 @@ public final class MUCModule: XMPPModule, Sendable {
         let presence = XMPPPresence(type: .unavailable, to: .full(fullJID))
         // A leave the client refuses keeps the room tracked: a resumed stream is still in it.
         try await context.sendStanza(presence) { [state] in
-            let pingTask = state.withLock { state -> Task<Void, Never>? in
-                state.rooms.removeValue(forKey: room)
-                state.pendingNickChanges.removeValue(forKey: room)
-                return state.selfPingTasks.removeValue(forKey: room)
-            }
+            let pingTask = state.withLock { $0.removeRoom(room) }
             pingTask?.cancel()
         }
         log.info("Leaving room \(room)")
@@ -756,6 +769,9 @@ public final class MUCModule: XMPPModule, Sendable {
             // Success — still joined
             state.withLock { $0.rooms[room]?.lastActivity = .now }
         } catch let error as XMPPStanzaError {
+            // A leave untracks the room and then cancels this loop, so either one makes the reply stale. After a rejoin
+            // has tracked the room again, only the cancellation still shows it.
+            guard !Task.isCancelled, state.withLock({ $0.rooms[room] != nil }) else { return }
             handleSelfPingError(error, room: room, nickname: nickname, context: context)
         } catch {
             // Timeout or network error — retry on next interval

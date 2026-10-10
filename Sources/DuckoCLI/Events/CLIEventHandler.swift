@@ -13,7 +13,7 @@ actor CLIEventHandler {
     func handleEvent(_ event: XMPPEvent, accountID: UUID) {
         switch event {
         case let .messageReceived(message):
-            if shouldSkipRawMessage(message) { return }
+            if message.hasClassifiedEvent { return }
             ringBell()
         case .messageCarbonReceived, .messageCarbonSent,
              .roomMessageReceived, .mucPrivateMessageReceived, .roomInviteReceived,
@@ -55,12 +55,6 @@ actor CLIEventHandler {
         if let output = formatter.formatTypingIndicator(from: from, state: state) {
             print(output)
         }
-    }
-
-    private func shouldSkipRawMessage(_ message: XMPPMessage) -> Bool {
-        message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil
-            || message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil
-            || message.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil
     }
 
     private func ringBell() {

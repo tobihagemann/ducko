@@ -79,8 +79,6 @@ extension DuckoCLI {
                     accountID: selectedAccount.id, timeout: .seconds(15), remember: false
                 )
 
-                let participantCount = await MainActor.run { env.chatService.participantCount(forRoomJIDString: jid, accountID: selectedAccount.id) }
-                print(formatter.formatRoomJoinedConfirmation(room: jid, nickname: nick, participantCount: participantCount, subject: nil))
                 print("Type 'send <message>' to send, 'quit' to leave.")
 
                 let accountID = selectedAccount.id

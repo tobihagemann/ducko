@@ -2065,23 +2065,11 @@ public final class ChatService { // swiftlint:disable:this type_body_length
 
     /// Returns `true` if the raw `.messageReceived` stanza should be skipped because a classified event handles it.
     private func shouldSkipRawMessage(_ message: XMPPMessage, accountID: UUID) -> Bool {
-        // Retractions, corrections, encrypted — handled by classified events
-        if message.element.child(named: "retract", namespace: XMPPNamespaces.messageRetract) != nil { return true }
-        if message.element.child(named: "replace", namespace: XMPPNamespaces.messageCorrect) != nil { return true }
-        if message.element.child(named: "encryption", namespace: XMPPNamespaces.eme) != nil { return true }
-        // MUC invites — handled by .roomInviteReceived
-        if message.element.child(named: "x", namespace: XMPPNamespaces.mucDirectInvite) != nil { return true }
-        if let mucUser = message.element.child(named: "x", namespace: XMPPNamespaces.mucUser),
-           mucUser.child(named: "invite") != nil { return true }
-        // MUC private messages — handled by .mucPrivateMessageReceived
-        if message.messageType == .chat || message.messageType == .normal, let from = message.from, case .full = from {
-            let roomJID = from.bareJID
-            if openConversations.contains(where: { $0.jid == roomJID && $0.type == .groupchat && $0.accountID == accountID })
-                || message.element.child(named: "x", namespace: XMPPNamespaces.mucUser) != nil {
-                return true
-            }
-        }
-        return false
+        if message.hasClassifiedEvent { return true }
+        // A room private message without a muc#user element, handled by .mucPrivateMessageReceived
+        guard message.messageType == .chat || message.messageType == .normal, let from = message.from, case .full = from else { return false }
+        let roomJID = from.bareJID
+        return openConversations.contains { $0.jid == roomJID && $0.type == .groupchat && $0.accountID == accountID }
     }
 
     /// Returns `false` when the message was not kept because its room is gone.
