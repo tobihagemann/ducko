@@ -25,6 +25,8 @@ Simulated keystrokes (`peekaboo type`, `peekaboo paste`, `peekaboo hotkey`) go t
 
 *`set value` updates the accessibility layer but **does not trigger SwiftUI `@State` bindings**. Use `keystroke` inside a single osascript block when SwiftUI binding updates are needed (see Multi-Step Interaction Sequences below).
 
+Prefer the `/lume-vm` VM for steps that move the pointer, bring windows to the front or switch the system appearance: the procedures below run there through `vm.sh gui` against a pushed app bundle. On the user's Mac, tell the user before any such step.
+
 ## Check for a Locked Screen
 
 While the session screen is locked, window accessibility elements report the role `AXApplication`, controls inside windows can't be resolved, and window captures fail (`screencapture -l` reports "could not create image from window"). Read the lock state before starting the workflow:
@@ -78,6 +80,10 @@ peekaboo see --window-id WID --no-elements --path /tmp/screenshot.png
 
 Capture by window ID only. A screen recording, or a capture of the whole screen or a region of it, holds everything else the user has open, and shows whatever is in front, which may not be the app. `screencapture -l WID` has captured a window correctly while it was on another Space.
 
+In top-level code of a Swift script that captures with ScreenCaptureKit, annotate the result (`let image: CGImage = try await SCScreenshotManager.captureImage(...)`), or the completion-handler overload is chosen and the result is `Void`. Touch `NSApplication.shared` before the first capture, or it asserts in `CGS_REQUIRE_INIT`.
+
+To cut a region out of a capture, read it with `CGImageSource`, crop it with `CGImage.cropping(to:)` and write it with `CGImageDestination`. The rectangle is in pixels, and one that runs past the image is clamped without an error, so check the result's size. `sips -c H W --cropOffset 0 0` crops the center rather than the top left, and sips cannot write its temporary file inside the Bash sandbox.
+
 ### Step 5: Interact with Elements
 
 **Click an element** (accessibility API, no focus needed):
@@ -104,9 +110,11 @@ osascript -e 'tell application "System Events" to get value of text field 1 of g
 osascript -e 'tell application "System Events" to click button "Submit" of group 1 of window 1 of process "AppName"'
 ```
 
-> **Synthetic coordinate clicks don't drive SwiftUI gestures.** AppleScript `click at {x,y}` and `peekaboo click --coords` do **not** trigger `.onTapGesture`/`.simultaneousGesture` or `List(selection:)` selection — only real user clicks or an accessibility **`AXPress`** on an actual `Button` do (`peekaboo perform-action --on ELEM --action AXPress`, or `peekaboo click --on ELEM` from `see --json`). So a `Button` is verifiable, but UI relying on tap gestures or list selection **can't be confirmed by synthetic clicks** — treat such a result as a signal, not proof, and hand the app to the user when only real clicks suffice.
+> **Synthetic coordinate clicks don't drive SwiftUI gestures.** AppleScript `click at {x,y}` and `peekaboo click --at X,Y` do **not** trigger `.onTapGesture`/`.simultaneousGesture` or `List(selection:)` selection — only real user clicks or an accessibility **`AXPress`** on an actual `Button` do (`peekaboo click --on ELEM` from `see --json`). So a `Button` is verifiable, but UI relying on tap gestures or list selection **can't be confirmed by synthetic clicks** — treat such a result as a signal, not proof, and hand the app to the user when only real clicks suffice.
 >
 > Peekaboo targets apps by **display name** (`--app Ducko`), not the executable name (`DuckoApp`).
+>
+> Peekaboo 4 replaced `click --coords` with `--at X,Y`. In the background, `--at` coordinates are relative to the window of a `--snapshot` from a fresh `see --window-id WID`. `--foreground` focuses the target app instead, so use it only in the `/lume-vm` VM.
 
 ### Step 6: Verify Results
 

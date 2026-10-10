@@ -10,6 +10,7 @@ These skills were written for Ducko specifically:
 - `demo-screenshots`
 - `ducko-cli`
 - `ducko-ui`
+- `lume-vm`
 - `macos-ui-testing`
 - `package-app`
 - `release`

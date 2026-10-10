@@ -29,8 +29,9 @@ guard CommandLine.arguments.count == 4, let pid = Int32(CommandLine.arguments[1]
     fail("Expected a process ID, container identifier, and button label")
 }
 guard AXIsProcessTrusted() else { fail("Accessibility permission is required") }
+// Set on the system-wide element, the timeout covers every element; set on one element, it covers that one alone.
+AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 2)
 let application = AXUIElementCreateApplication(pid)
-AXUIElementSetMessagingTimeout(application, 2)
 let identifier = CommandLine.arguments[2]
 let buttonLabel = CommandLine.arguments[3]
 func container() -> AXUIElement? {
