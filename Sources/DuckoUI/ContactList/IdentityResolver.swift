@@ -38,4 +38,27 @@ extension AppEnvironment {
             connectionStates: accountService.connectionStates
         )
     }
+
+    /// The name you go by on an account.
+    func ownName(of account: Account?) -> String {
+        account?.displayName
+            ?? account.flatMap { profileService.ownProfile(for: $0.id)?.nickname }
+            ?? account?.jid.localPart
+            ?? account?.jid.domainPart
+            ?? "Me"
+    }
+
+    /// What your `/me` lines in a conversation call you: your nickname in a room or in a private chat within one,
+    /// otherwise the name you go by on the account.
+    func ownName(in conversation: Conversation) -> String {
+        let roomNickname = if conversation.occupantNickname == nil {
+            conversation.roomNickname
+        } else {
+            // A private chat's own record names only the occupant, so your nickname comes from the room's.
+            chatService.openConversations.first {
+                $0.type == .groupchat && $0.jid == conversation.jid && $0.accountID == conversation.accountID
+            }?.roomNickname
+        }
+        return roomNickname ?? ownName(of: accountService.accounts.first { $0.id == conversation.accountID })
+    }
 }

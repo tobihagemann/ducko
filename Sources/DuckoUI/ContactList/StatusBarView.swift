@@ -13,8 +13,6 @@ struct StatusBarView: View {
     }
 
     /// The identity account's ID once it has reached `.connected`; `nil` while it is still connecting.
-    /// `fetchOwnProfile` no-ops until the client connects, so keying the fetch on this re-runs it when the
-    /// handshake completes instead of leaving the header blank for the rest of the session.
     private var connectedAccountID: UUID? {
         guard let account = identityAccount,
               case .connected? = environment.accountService.connectionStates[account.id]
@@ -23,7 +21,7 @@ struct StatusBarView: View {
     }
 
     /// The identity account's own profile, resolved per-account so switching accounts never shows the previous
-    /// account's avatar or nickname.
+    /// account's photo.
     private var ownProfile: ProfileInfo? {
         guard let accountID = identityAccount?.id else { return nil }
         return environment.profileService.ownProfile(for: accountID)
@@ -47,12 +45,9 @@ struct StatusBarView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .task(id: connectedAccountID) {
-            guard let accountID = connectedAccountID else { return }
-            preferences.heldIdentityAccountID = accountID
-            if environment.profileService.ownProfile(for: accountID) == nil {
-                await environment.profileService.fetchOwnProfile(accountID: accountID)
-            }
+        .onChange(of: connectedAccountID, initial: true) {
+            guard let connectedAccountID else { return }
+            preferences.heldIdentityAccountID = connectedAccountID
         }
         // The Status menu's requests land here, since this window owns the sheet. `initial` covers a request made
         // while the window was closed.
@@ -159,11 +154,7 @@ struct StatusBarView: View {
     // MARK: - Computed
 
     private var displayName: String {
-        identityAccount?.displayName
-            ?? ownProfile?.nickname
-            ?? identityAccount?.jid.localPart
-            ?? identityAccount?.jid.domainPart
-            ?? "Me"
+        environment.ownName(of: identityAccount)
     }
 
     /// The identity account's displayed status, so a per-account override shows through and a disconnected account

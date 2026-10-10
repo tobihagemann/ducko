@@ -140,15 +140,17 @@ struct ChatHeaderView: View {
             environment.presenceService.statusMessage(for: conversation.jid)
         }
 
+        // Unlike the presence above, the name and photo stay while the account is disconnected.
+        let knownContact = windowState?.knownContact ?? contact
         return HStack(spacing: 8) {
-            if let contact {
-                AvatarView(contact: contact, size: 32)
+            if let knownContact {
+                AvatarView(contact: knownContact, size: 32)
             } else {
                 AvatarView(imageData: nil, name: conversation.displayTitle, size: 32)
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(contact?.displayName ?? conversation.displayName ?? conversation.jid.description)
+                Text(knownContact?.displayName ?? conversation.displayName ?? conversation.jid.description)
                     .font(.headline)
                     .singleLine()
 

@@ -47,15 +47,24 @@ public final class ChatWindowState {
         serviceConversation ?? conversation
     }
 
-    /// The contact as the roster holds it now, so a tab opened before the roster was loaded still gets its name.
-    /// A room and a private chat within one have none, which is known once the conversation is loaded.
+    /// The contact as the roster holds it now, which a tab opened before the roster was loaded picks up once it is.
     var contact: Contact? {
-        guard conversation?.isDirectChat != false, let accountID = resolvedAccountID else { return nil }
-        return environment.rosterService.contact(jidString: jidString, accountID: accountID)
+        contactAccountID.flatMap { environment.rosterService.contact(jidString: jidString, accountID: $0) }
+    }
+
+    /// The contact for their name and photo, which unlike `contact` stay while the account is disconnected.
+    var knownContact: Contact? {
+        contactAccountID.flatMap { environment.rosterService.knownContact(jidString: jidString, accountID: $0) }
+    }
+
+    /// A room and a private chat within one have no contact, which is known once the conversation is loaded.
+    private var contactAccountID: UUID? {
+        guard conversation?.isDirectChat != false else { return nil }
+        return resolvedAccountID
     }
 
     var displayName: String {
-        liveConversation?.displayName ?? contact?.displayName ?? jidString
+        liveConversation?.displayName ?? knownContact?.displayName ?? jidString
     }
 
     var unreadCount: Int {

@@ -10,6 +10,8 @@ enum TranscriptRows {
         var displayName = ""
         /// The contact's name in the contact list, for a chat with someone who is in it.
         var contactName: String?
+        /// What your own `/me` lines call you.
+        var ownName = ""
         var searchResults: Set<UUID> = []
         /// The text the search results were found for.
         var searchQuery = ""
@@ -95,7 +97,7 @@ enum TranscriptRows {
                     replyQuote: nil,
                     linkPreview: nil,
                     transferStatus: .resolve(for: message, transfer: transfersByID[message.id], recipientName: details.displayName),
-                    actionSenderName: message.fromJID,
+                    actionSenderName: actionSenderName(of: message, chat: details),
                     loadsIncomingImagesOnSight: false,
                     searchMatch: searchMatch(of: message, details: details)
                 )))
@@ -117,8 +119,9 @@ enum TranscriptRows {
     }
 
     private static func actionSenderName(of message: ChatMessage, chat: Details) -> String {
+        // A message you sent usually stores the recipient or the room rather than you.
         if message.isOutgoing {
-            return "You"
+            return chat.ownName
         }
         if message.type == "groupchat" {
             return message.fromJID

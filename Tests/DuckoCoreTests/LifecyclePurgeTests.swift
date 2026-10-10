@@ -19,7 +19,7 @@ enum LifecyclePurgeTests {
         }
 
         /// Builds a real `AppEnvironment`, creates one account, and seeds every per-account cache the lifecycle
-        /// purge should clear (roster, presence, bookmarks, avatar, profile, file offers), asserting each is populated.
+        /// purge should clear (roster, presence, bookmarks, avatar, file offers), asserting each is populated.
         @MainActor
         private func makeSeededEnvironment() async throws -> (env: AppEnvironment, accountID: UUID) {
             let store = MockPersistenceStore()
@@ -51,7 +51,6 @@ enum LifecyclePurgeTests {
             )
             env.bookmarksService.setBookmarksForTesting([RoomBookmark(jidString: "room@conference.example.com")], accountID: accountID)
             env.avatarService.setOwnAvatarHashForTesting("hash", accountID: accountID)
-            env.profileService.setOwnProfileForTesting(ProfileInfo(fullName: "Alice"), accountID: accountID)
             env.fileTransferService.handleJingleEvent(
                 .jingleFileTransferReceived(JingleFileOffer(offerID: "file-offer", sid: "file-sid", from: peerFull, fileName: "f.bin", fileSize: 1)),
                 accountID: accountID
@@ -67,7 +66,6 @@ enum LifecyclePurgeTests {
             #expect(!env.chatService.pendingInvites.isEmpty)
             #expect(!env.bookmarksService.bookmarks.isEmpty)
             #expect(env.avatarService.ownAvatarHash(for: accountID) != nil)
-            #expect(env.profileService.ownProfile(for: accountID) != nil)
             #expect(env.fileTransferService.viewIncomingOffers.count == 2)
 
             return (env, accountID)
@@ -81,7 +79,6 @@ enum LifecyclePurgeTests {
             #expect(env.chatService.pendingInvites.isEmpty)
             #expect(env.bookmarksService.bookmarks.isEmpty)
             #expect(env.avatarService.ownAvatarHash(for: accountID) == nil)
-            #expect(env.profileService.ownProfile(for: accountID) == nil)
             #expect(env.fileTransferService.viewIncomingOffers.isEmpty)
         }
 

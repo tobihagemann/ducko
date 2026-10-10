@@ -87,6 +87,7 @@ public final class AppEnvironment {
         avatarService.setAccountService(accountService)
         avatarService.setRosterService(rosterService)
         avatarService.setPresenceService(presenceService)
+        avatarService.setProfileService(profileService)
         profileService.setAccountService(accountService)
         fileTransferService.setAccountService(accountService)
         fileTransferService.setChatService(chatService)
@@ -108,8 +109,13 @@ public final class AppEnvironment {
             chatService.purgeAccount(accountID)
             bookmarksService.purgeAccount(accountID)
             avatarService.purgeAccount(accountID)
-            profileService.purgeAccount(accountID)
             fileTransferService.purgeAccount(accountID)
+        }
+        // A delete also drops what a disconnect keeps showing of the account.
+        accountService.onAccountDeleted = { [weak self] accountID in
+            guard let self else { return }
+            rosterService.forgetAccount(accountID)
+            profileService.forgetAccount(accountID)
         }
     }
 

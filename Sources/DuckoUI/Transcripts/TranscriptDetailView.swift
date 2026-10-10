@@ -53,6 +53,7 @@ struct TranscriptDetailView: View {
             details: TranscriptRows.Details(
                 isGroupchat: state.shownConversation?.type == .groupchat,
                 displayName: state.shownConversation?.displayTitle ?? "",
+                ownName: state.shownConversation.map { environment.ownName(in: $0) } ?? "",
                 searchResults: state.shownMatchIDs,
                 searchQuery: state.trimmedKeyword,
                 currentSearchResult: state.currentMatchID

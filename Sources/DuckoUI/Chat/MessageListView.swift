@@ -26,7 +26,8 @@ struct MessageListView: View {
             details: TranscriptRows.Details(
                 isGroupchat: windowState.isGroupchat,
                 displayName: windowState.displayName,
-                contactName: windowState.contact?.displayName,
+                contactName: windowState.knownContact?.displayName,
+                ownName: windowState.liveConversation.map { environment.ownName(in: $0) } ?? "",
                 searchResults: Set(windowState.searchResults),
                 searchQuery: windowState.searchResultsQuery,
                 currentSearchResult: windowState.currentSearchResultID,

@@ -44,6 +44,8 @@ public final class AccountService {
     /// synchronously, so stale events cannot repopulate cleared state. Not fired on
     /// auto-reconnecting drops, which go through `handleDisconnect` and deliver `.disconnected` normally.
     var onRequestedDisconnect: ((UUID) -> Void)?
+    /// Fired once `deleteAccount(_:)` has deleted the account's data, to drop the state a disconnect keeps.
+    var onAccountDeleted: ((UUID) -> Void)?
 
     public enum ConnectionState: Sendable {
         case disconnected
@@ -265,6 +267,7 @@ public final class AccountService {
         // The OMEMO seen-device cache is delete-only — it deliberately survives reconnects, so `disconnect`
         // leaves it intact; drop it here now that the account row is gone.
         omemoService?.purgeSeenDeviceClassifications(accountID: id)
+        onAccountDeleted?(id)
         try await loadAccounts()
     }
 

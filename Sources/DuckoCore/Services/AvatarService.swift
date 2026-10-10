@@ -28,6 +28,7 @@ public final class AvatarService {
     private weak var accountService: AccountService?
     private weak var rosterService: RosterService?
     private weak var presenceService: PresenceService?
+    private weak var profileService: ProfileService?
     private let store: any PersistenceStore
 
     public init(store: any PersistenceStore) {
@@ -46,6 +47,10 @@ public final class AvatarService {
 
     func setPresenceService(_ service: PresenceService) {
         presenceService = service
+    }
+
+    func setProfileService(_ service: ProfileService) {
+        profileService = service
     }
 
     // MARK: - Lifecycle
@@ -228,8 +233,8 @@ public final class AvatarService {
         await client.awaitInitialPresenceSent()
 
         async let conversionResult: Void = detectConversionSupport(accountID: accountID)
-        async let hashResult: Void = loadOwnAvatarHash(accountID: accountID)
-        _ = await (try? conversionResult, try? hashResult)
+        async let vcardResult: Void = loadOwnVCard(accountID: accountID)
+        _ = await (try? conversionResult, try? vcardResult)
     }
 
     private func detectConversionSupport(accountID: UUID) async {
@@ -251,7 +256,7 @@ public final class AvatarService {
         }
     }
 
-    private func loadOwnAvatarHash(accountID: UUID) async {
+    private func loadOwnVCard(accountID: UUID) async {
         guard let client = accountService?.connectedClient(for: accountID) else { return }
         guard let vcardModule = await client.module(ofType: VCardModule.self) else { return }
         guard let presenceModule = await client.module(ofType: PresenceModule.self) else { return }
@@ -261,12 +266,13 @@ public final class AvatarService {
             // A disconnect/purge during the await tore the account down; don't restore its cleared state.
             guard accountService?.connectedClient(for: accountID) === client else { return }
             ownAvatarHashByAccount[accountID] = vcard?.photoHash
+            profileService?.receiveOwnVCard(vcard, accountID: accountID)
             presenceModule.setOwnAvatarHash(vcard?.photoHash)
             // Re-broadcast presence so contacts receive the XEP-0153 hash
             // (initial presence was sent before this fetch completed)
             await presenceService?.resendEffectivePresence(accountID: accountID)
         } catch {
-            log.warning("Failed to fetch own vCard for avatar hash: \(error.localizedDescription)")
+            log.warning("Failed to fetch own vCard: \(error.localizedDescription)")
         }
     }
 

@@ -289,6 +289,8 @@ python3 "$R" bootstrap /Users/lume/work && python3 "$R" run /Users/lume/work "/V
 
 To check a change to `reference.py` or to some states, run with `--ids` for those states into a new folder, which keeps `out` from the last full run. For changed states, copy the new `content.json` into `/Users/lume/work` and run `bootstrap` first, or the run uses the old states.
 
+After a rebuild of the copy from changed sources, or a change of `content.json`, hand over a full run into a new folder, since `--ids` refuses to merge into a folder captured from other sources or content.
+
 ### R4: Check the Captures
 
 Copy `out` to the host (`zsh Skills/lume-vm/scripts/vm.sh pull /Users/lume/work/out <host folder>`) and read every PNG. Accessibility asserts your own status, the tab badges and typing, the tab overflow control, the input text, the editing bar, the selected row, collapsed groups, the empty chat, the key window, the first tab's last message, the last outgoing message's delivery mark and the Dock badge. Only the PNGs show the rest:
@@ -299,6 +301,8 @@ Copy `out` to the host (`zsh Skills/lume-vm/scripts/vm.sh pull /Users/lume/work/
 - no hover effect in any state that names none
 
 Rerun anything in `skipped` with `--ids`.
+
+When a PNG shows something that looks off, find out from the code whether it is an app bug or how the app really looks before reporting it. The website recreates what the captures show, so recommend fixing an app bug before the hand-over. Fix a capture problem in `reference.py`, `drive.swift` or `content.json` instead.
 
 ### R5: Hand Over and Clean Up
 
@@ -337,3 +341,30 @@ Run `swift scripts/compare.swift <a.png> <b.png> [diff.png]` to compare two runs
 ### Adding a State
 
 Add the id to the website's manifest and an entry to `content.json`'s `states`, built from the fields above. When the state needs a mechanism the run lacks, add a `drive.swift` command for it, a live step and an Accessibility check in `reference.py`, and the PNG-only signal to R4.
+
+### Driving a State by Hand
+
+To try something no state covers, such as a smoke test, stage a state from a Python script run in the VM and drive the app from there:
+
+```python
+import sys
+sys.path.insert(0, "/Volumes/My Shared Files/ducko/Skills/demo-screenshots/scripts")
+import reference as R
+
+work = R.Work("/Users/lume/work")
+run = R.Run(work, "/Volumes/My Shared Files/vm-exchange/states.json", "/Users/lume/work/manual", None)
+run.preflight()
+run.parking = work.drive("parking").split()
+stop, launch = work.stop, work.launch
+launched = []
+work.stop = lambda: None if launched else stop()  # `stage` stops the app once it has captured
+work.launch = lambda: launched.append(True) or launch()
+spec = {**R.DEFAULTS, "key": "chat", **run.content["states"]["chat-room"]}
+try:
+    run.stage({"id": "chat-room", "window": "chat", "appearances": ["light"]}, "light", spec, "manual-chat-room")
+except R.Skip as skip:
+    print("stage stopped at %s: %s" % (run.step, skip))
+pid = work.process.pid
+```
+
+Then use `work.drive(pid, …)` and capture a window by the id `work.windows(pid)` lists with `screencapture -x -o -l <id>`, and call `stop()` at the end. The app shows the VM's current appearance; the appearance argument only names the files. Overrides in `spec` change the state, and a spec its assertions no longer match raises `Skip` after launch. To change the store or defaults beyond the state's fields, do it in the `work.launch` wrapper, which runs after the state's setup: a `room@conference/nick` tab written to `chatSavedTabs` there opens a private chat within a room.

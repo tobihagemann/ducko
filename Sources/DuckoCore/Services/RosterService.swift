@@ -11,6 +11,9 @@ public final class RosterService {
     /// captures the generation before its store read and re-checks it before publishing, so a teardown
     /// during the await can't resurrect a just-cleared account. Mirrors `OMEMOService.seenDeviceLoadGeneration`.
     private var groupsLoadGeneration: [UUID: UInt64] = [:]
+    /// Each account's groups as the contact list showed them before its last disconnect. The list empties then, but an
+    /// open chat still names the contact and shows their photo from here until the roster loads again.
+    private var groupsBeforeDisconnect: [UUID: [ContactGroup]] = [:]
 
     /// Per-account groups merged into one section per name (Adium-style), so a
     /// multi-account setup doesn't show duplicate same-named sections. Each row
@@ -64,14 +67,25 @@ public final class RosterService {
     // MARK: - Public API
 
     public func contact(jidString: String) -> Contact? {
-        groups.lazy.flatMap(\.contacts).first { $0.jid.description == jidString }
+        Self.contact(jidString: jidString, in: groups)
     }
 
     /// Account-scoped lookup. Prefer this when the account is known: `contact(jidString:)`
     /// returns the first match across all accounts, so it resolves the wrong account when
     /// the same JID is on two.
     public func contact(jidString: String, accountID: UUID) -> Contact? {
-        groupsByAccount[accountID]?.lazy.flatMap(\.contacts).first { $0.jid.description == jidString }
+        groupsByAccount[accountID].flatMap { Self.contact(jidString: jidString, in: $0) }
+    }
+
+    /// The contact as the roster holds them, or while the account is disconnected, as the contact list last showed
+    /// them. Read only their name and photo from it, since the rest may be out of date.
+    public func knownContact(jidString: String, accountID: UUID) -> Contact? {
+        contact(jidString: jidString, accountID: accountID)
+            ?? groupsBeforeDisconnect[accountID].flatMap { Self.contact(jidString: jidString, in: $0) }
+    }
+
+    private static func contact(jidString: String, in groups: [ContactGroup]) -> Contact? {
+        groups.lazy.flatMap(\.contacts).first { $0.jid.description == jidString }
     }
 
     /// Accounts whose roster contains `jidString` (a bare JID), deduped so a contact appearing in
@@ -330,6 +344,11 @@ public final class RosterService {
         clearGroups(for: accountID)
     }
 
+    /// Forgets what the contact list last showed for a deleted account.
+    func forgetAccount(_ accountID: UUID) {
+        groupsBeforeDisconnect.removeValue(forKey: accountID)
+    }
+
     func takePendingTasks() -> [Task<Void, Never>] {
         for accountID in synchronization.keys {
             purgeAccount(accountID)
@@ -345,13 +364,17 @@ public final class RosterService {
     /// per-account roster result so cross-account derived reads stay current.
     private func setGroups(_ groups: [ContactGroup], for accountID: UUID) {
         groupsByAccount[accountID] = groups
+        groupsBeforeDisconnect.removeValue(forKey: accountID)
         rebuildGroups()
     }
 
-    /// Drops one account's groups slot, bumps the load generation so any in-flight load bails, and
-    /// republishes the merge. Both the `.disconnected` handler and `purgeAccount` route through here.
+    /// Moves one account's groups slot aside for `knownContact`, bumps the load generation so any in-flight load bails,
+    /// and republishes the merge. Both the `.disconnected` handler and `purgeAccount` route through here.
     private func clearGroups(for accountID: UUID) {
-        groupsByAccount.removeValue(forKey: accountID)
+        // A second teardown of an account already cleared keeps what the list showed before the first.
+        if let groups = groupsByAccount.removeValue(forKey: accountID) {
+            groupsBeforeDisconnect[accountID] = groups
+        }
         groupsLoadGeneration[accountID, default: 0] &+= 1
         rebuildGroups()
     }

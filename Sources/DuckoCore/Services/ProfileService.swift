@@ -38,9 +38,9 @@ public final class ProfileService {
 
     // MARK: - Lifecycle
 
-    /// Drops one account's cached own-profile on a lifecycle teardown (user-initiated `AccountService.disconnect`,
-    /// account delete), keeping profile state consistent with the other per-account caches.
-    func purgeAccount(_ accountID: UUID) {
+    /// Drops a deleted account's own profile. A disconnect keeps it, so your photo and nickname still show while you
+    /// are offline.
+    func forgetAccount(_ accountID: UUID) {
         ownProfilesByAccount.removeValue(forKey: accountID)
     }
 
@@ -52,6 +52,12 @@ public final class ProfileService {
         }
     #endif
 
+    /// Takes the account's own vCard as fetched on connect. Having none clears the profile, so one removed meanwhile
+    /// does not keep showing.
+    func receiveOwnVCard(_ vcard: VCardModule.VCard?, accountID: UUID) {
+        ownProfilesByAccount[accountID] = vcard.map { mapVCardToProfileInfo($0) }
+    }
+
     // MARK: - Public API
 
     public func fetchOwnProfile(accountID: UUID) async {
@@ -60,7 +66,7 @@ public final class ProfileService {
 
         do {
             let vcard = try await vcardModule.fetchOwnVCard(forceRefresh: true)
-            // A disconnect/purge during the await tore the account down; don't restore its cleared profile.
+            // A disconnect during the await ended this connection, and a delete may have dropped the profile since.
             guard accountService?.connectedClient(for: accountID) === client else { return }
             if let vcard {
                 ownProfilesByAccount[accountID] = mapVCardToProfileInfo(vcard)
@@ -112,7 +118,7 @@ public final class ProfileService {
             }
         } catch let stanzaError as XMPPStanzaError where stanzaError.condition == .itemNotFound {}
         try await vcardModule.publishVCard(vcard)
-        // A disconnect/purge during the publish tore the account down; don't restore its cleared profile.
+        // A disconnect during the publish ended this connection, and a delete may have dropped the profile since.
         guard accountService?.connectedClient(for: accountID) === client else { return }
         ownProfilesByAccount[accountID] = profile
     }

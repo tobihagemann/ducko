@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fix interactive mode and `ducko room join` printing each room message, each private message from a room and the "Joined" line twice
 - Fix a room that refused your join (wrong password, banned, nickname taken) counting as joined, with you listed as its only occupant
 - Fix Ducko rejoining a room you had just left when a check of your presence in the room was answered at the same moment
+- Fix your own `/me` messages reading "* You waves" in a chat and showing the other person's address in Chat History: they now name you, by your nickname in a room and in a private chat within one
+- Fix an open chat losing the contact's name and photo, and the Contacts window losing your own photo, when you go offline
 
 ## [0.8.0] - 2026-10-08
 

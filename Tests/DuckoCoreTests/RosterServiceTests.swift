@@ -553,6 +553,31 @@ enum RosterServiceTests {
 
         @Test
         @MainActor
+        func `A disconnected account's contacts stay known until its roster loads again or it is deleted`() async throws {
+            let store = makeStore()
+            let fixture = RosterServiceFixture(store: store)
+            let service = fixture.service
+            let alice = contactJID1.description
+
+            await fixture.deliver(.snapshot([makeRosterItem(jid: contactJID1, name: "Alice")]), accountID: testAccountID)
+            service.receiveRosterEvent(.disconnected(.requested), accountID: testAccountID)
+            service.purgeAccount(testAccountID)
+
+            #expect(service.contact(jidString: alice, accountID: testAccountID) == nil)
+            #expect(service.knownContact(jidString: alice, accountID: testAccountID)?.displayName == "Alice")
+            service.forgetAccount(testAccountID)
+            #expect(service.knownContact(jidString: alice, accountID: testAccountID) == nil)
+
+            try await service.loadContacts(for: testAccountID)
+            service.purgeAccount(testAccountID)
+            #expect(service.knownContact(jidString: alice, accountID: testAccountID) != nil)
+            try await store.deleteContacts(for: testAccountID)
+            try await service.loadContacts(for: testAccountID)
+            #expect(service.knownContact(jidString: alice, accountID: testAccountID) == nil)
+        }
+
+        @Test
+        @MainActor
         func `A roster load racing a purge does not repopulate the cleared groups`() async throws {
             let store = makeStore()
             let fixture = RosterServiceFixture(store: store)

@@ -82,16 +82,16 @@ enum AppEnvironmentPurgeTests {
 extension AppEnvironmentPurgeTests {
     @Test(arguments: [false, true])
     @MainActor
-    static func `composed teardown clears all six feature caches for only its account`(delete: Bool) async throws {
+    static func `composed teardown clears the feature caches for only its account, and a delete also clears what stays shown offline`(delete: Bool) async throws {
         let store = MockPersistenceStore()
         let env = makeEnvironment(store: store)
         let first = try await seedCaches(env, store: store, name: "first")
         let second = try await seedCaches(env, store: store, name: "second")
-        assertCaches(env, account: first, present: true)
-        assertCaches(env, account: second, present: true)
+        assertCaches(env, account: first, present: true, shown: true)
+        assertCaches(env, account: second, present: true, shown: true)
         if delete { try await env.accountService.deleteAccount(first.id) } else { await env.accountService.disconnect(accountID: first.id) }
-        assertCaches(env, account: first, present: false)
-        assertCaches(env, account: second, present: true)
+        assertCaches(env, account: first, present: false, shown: !delete)
+        assertCaches(env, account: second, present: true, shown: true)
         await env.shutdown(within: .seconds(2))
     }
 
@@ -138,13 +138,16 @@ extension AppEnvironmentPurgeTests {
         return (id, peer)
     }
 
+    /// `shown` is whether open chats and the Contacts header still show the account's contact and your profile, which a
+    /// disconnect keeps and a delete drops.
     @MainActor
-    private static func assertCaches(_ env: AppEnvironment, account: (id: UUID, peer: BareJID), present: Bool) {
+    private static func assertCaches(_ env: AppEnvironment, account: (id: UUID, peer: BareJID), present: Bool, shown: Bool) {
         #expect((env.rosterService.contact(jidString: account.peer.description, accountID: account.id) != nil) == present)
+        #expect((env.rosterService.knownContact(jidString: account.peer.description, accountID: account.id) != nil) == shown)
         #expect(env.presenceService.pendingSubscriptionRequests.contains(account.peer) == present)
         #expect(env.chatService.pendingInvites.contains { $0.accountID == account.id } == present)
         #expect(env.bookmarksService.bookmarks.contains { $0.jidString == account.peer.description } == present)
         #expect((env.avatarService.ownAvatarHash(for: account.id) != nil) == present)
-        #expect((env.profileService.ownProfile(for: account.id) != nil) == present)
+        #expect((env.profileService.ownProfile(for: account.id) != nil) == shown)
     }
 }

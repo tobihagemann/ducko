@@ -199,6 +199,25 @@ struct TranscriptRowsTests {
         #expect(alone.replyQuote == nil)
     }
 
+    @Test func `a /me line names you by your own name in the chat and in History`() {
+        let sent = message(at: 0, body: "/me waves", isOutgoing: true)
+        let received = message(at: 10, body: "/me waves back")
+        let names = { (rows: [TranscriptRow]) in
+            rows.compactMap { row -> String? in
+                guard case let .message(message) = row.kind else { return nil }
+                return message.actionSenderName
+            }
+        }
+
+        let chatRows = rows([sent, received], chat: TranscriptRows.Details(contactName: "Bob", ownName: "Alice"))
+        let historyRows = TranscriptRows.history(
+            items: [.message(sent)], positions: [:], details: TranscriptRows.Details(ownName: "Alice"), transfers: []
+        )
+
+        #expect(names(chatRows) == ["Alice", "Bob"])
+        #expect(names(historyRows) == ["Alice"])
+    }
+
     @Test func `a History row carries the stored position and no reply quote`() {
         let quoted = message(at: 0)
         var reply = message(at: 10)
