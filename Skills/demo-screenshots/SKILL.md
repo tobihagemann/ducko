@@ -1,11 +1,11 @@
 ---
 name: demo-screenshots
-description: "Produce screenshots of the Ducko contacts list and chat window filled with made-up contacts and messages, using a local stub server and an isolated copy of the debug app, so no real account, contact, or conversation appears. Use when the user asks for \"demo screenshots\", \"screenshots with demo content\", \"a screenshot for the README\", \"screenshots for the website\", \"screenshots for slides\", \"marketing screenshots\", or \"a screenshot without my real contacts\"."
+description: "Produce screenshots of the Ducko contacts list and chat window filled with made-up contacts and messages, using a local stub server and an isolated copy of the debug app, so no real account, contact, or conversation appears. Also captures the website's reference set: every state in its manifest, in light and dark, unattended in the Lume VM. Use when the user asks for \"demo screenshots\", \"screenshots with demo content\", \"a screenshot for the README\", \"screenshots for the website\", \"screenshots for slides\", \"marketing screenshots\", \"a screenshot without my real contacts\", \"website reference captures\", or \"capture the reference states\"."
 ---
 
 # Demo Screenshots
 
-Capture the Contacts window and the chat window at its default size, in light appearance, with made-up content served by a stub on `127.0.0.1`.
+Steps 1–7 capture the Contacts window and the chat window at its default size, in light appearance, with made-up content from `content.json` served by a stub on `127.0.0.1`. [Reference Mode for the Website](#reference-mode-for-the-website) captures every state the website's manifest lists, in light and dark.
 
 ## Prerequisites
 
@@ -25,7 +25,7 @@ SCRIPTS=Skills/demo-screenshots/scripts
 STORE="$HOME/Library/Application Support/Ducko-Dev-${PROFILE:?}"
 ```
 
-The `pgrep -fl` and `pkill` patterns are written out in full on purpose, so a snippet run without these lines can never match the installed app. Keep the `^${APP:?}` anchor in every `PID=` lookup: a launch command with the path spelled out leaves a shell that has the same path in its command line, and an unanchored lookup returns that shell's PID as well. With `APP` unset, the lookup stops with an error and `PID` stays empty.
+The `pgrep -fl` and `pkill` patterns are written out in full on purpose, so a snippet run without these lines can never match the installed app. Keep the `^${APP:?}` anchor in every `PID=` lookup: a launch command with the path spelled out leaves a shell that has the same path in its command line, and an unanchored lookup returns that shell's PID as well. The anchor matches only a launch by the absolute path, so never launch the copy by a relative one. With `APP` unset, the lookup stops with an error and `PID` stays empty.
 
 Drive the demo instance only by its PID. Skip every tool that targets the app by name (System Events `process "DuckoApp"`, Peekaboo `--app`, the scripts in `Skills/ducko-ui/scripts`), because an installed Ducko that is running has the same process name. The installed app may keep running throughout.
 
@@ -80,8 +80,8 @@ Continue once it prints `signed-ok`.
    python3 $SCRIPTS/stub.py $PORT "$WORK"
    ```
 
-   It logs every byte sent and received to `$WORK/stub.log`.
-3. Add the account, then allow plaintext to the stub and turn on Connect on Launch. The CLI has no option for either, so set them in the profile's store. The last line must print `1`:
+   It serves the account, contacts and rooms of `content.json`. It logs every byte sent and received to `$WORK/stub.log`.
+3. Add the account, then allow plaintext to the stub and turn on Connect on Launch. The CLI has no option for either, so set them in the profile's store. The JID, password and display name are `account.jid`, `account.password` and `account.name` of the content file in use. The last line must print `1`:
 
    ```bash
    BIN=$(swift build --show-bin-path)
@@ -96,7 +96,7 @@ Continue once it prints `signed-ok`.
    DUCKO_PROFILE=$PROFILE "$BIN/DuckoCLI" roster list
    ```
 
-   It must print `connected as tobias@pond.example/…` and the contacts in their groups. On any other result, read `$WORK/stub.log` for the last exchange and fix the stub before continuing.
+   It must print `connected as tobias@pond.example/…` (the `account.jid` in use) and the contacts in their groups. On any other result, read `$WORK/stub.log` for the last exchange and fix the stub before continuing.
 
 ## Step 4: Create the Conversation
 
@@ -133,11 +133,10 @@ Continue once it prints `signed-ok`.
 
 ## Step 5: Seed the Conversation
 
-With the instance stopped, overwrite the day file from Step 4 and clear the unread count. The last line must print `1`:
+With the instance stopped, replace the conversation from Step 4 with the `lena` conversation of `content.json` and clear the unread count. The seeder writes a day file per UTC date, as the app names them, and removes the folder's other day files. The last line must print `1`:
 
 ```bash
-DAYFILE=$(ls "$STORE"/Transcripts/*/*.jsonl)
-python3 $SCRIPTS/seed_transcript.py "$DAYFILE"
+python3 $SCRIPTS/seed_transcript.py "$(ls -d "$STORE"/Transcripts/*/)" lena
 sqlite3 "$STORE/default.store" "UPDATE ZCONVERSATIONRECORD SET ZUNREADCOUNT=0; SELECT changes();"
 ```
 
@@ -145,18 +144,24 @@ Launch the instance again as in Step 4.1, then wait as in Step 4.2 with `TITLE="
 
 ## Step 6: Capture
 
+Compile `scripts/drive.swift`, which drives the windows by PID, once per work folder:
+
+```bash
+mkdir -p "$WORK/bin" && swiftc -O $SCRIPTS/drive.swift -o "$WORK/bin/drive"
+```
+
 A restored chat can ask for older messages a moment before the connection is up, which leaves a "Couldn't load older messages" banner in it. Close it first. The command prints `dismissed` and the number of banners it closed:
 
 ```bash
 PID=$(pgrep -f "^${APP:?}/Contents/MacOS/DuckoApp")
-swift $SCRIPTS/dismiss_banner.swift "$PID"
+"$WORK/bin/drive" "$PID" dismiss-banners
 ```
 
-A window that is not the key window shows gray traffic lights, so bring each one to the front before capturing it. Run this once with `TITLE="Contacts"` and `OUT=ducko-contacts.png`, and once with `TITLE="Lena Fischer"` and `OUT=ducko-chat.png`:
+A window that is not the key window shows gray traffic lights, so bring each one to the front before capturing it. Run this once with `SCENE=contacts`, `TITLE="Contacts"` and `OUT=ducko-contacts.png`, and once with `SCENE=chat`, `TITLE="Lena Fischer"` and `OUT=ducko-chat.png`:
 
 ```bash
 PID=$(pgrep -f "^${APP:?}/Contents/MacOS/DuckoApp")
-swift $SCRIPTS/focus.swift "$PID" "$TITLE"
+"$WORK/bin/drive" "$PID" focus "$SCENE"
 perl -e 'select(undef,undef,undef,2)'
 WID=$(swift $SCRIPTS/windows.swift "$PID" | grep -m1 "onscreen true.*title: $TITLE\$" | cut -d' ' -f1)
 screencapture -x -o -l "${WID:?no on-screen window with that title}" "$WORK/shots/$OUT"
@@ -201,12 +206,13 @@ When the user may want another round with different content, leave the profile a
 
 ## Changing the Content
 
-The contacts, their presence, and the account live in the constants at the top of `scripts/stub.py`. The avatars live in `scripts/avatars.swift`, keyed by the same local parts, and the messages in `scripts/seed_transcript.py`. For other content, copy the script into the work folder, edit the constants there, and run the copy.
+The account, contacts, rooms and conversations live in `content.json`, read by `stub.py` and `seed_transcript.py`. The avatars live in `scripts/avatars.swift`, keyed by the same local parts. For other content, copy `content.json` into the work folder, edit the copy, and pass its path: as the third argument of `stub.py` and as `--content` to `seed_transcript.py`.
 
-The same names also appear in the snippets above and in `seed_transcript.py`, so change them together:
+The same names also appear in the snippets of Steps 3–6 and R2, so change them together:
 
-- The account JID and display name in Step 3.3, and `ME` in `seed_transcript.py`
-- The peer's JID in Step 4.3, and `PEER` in `seed_transcript.py`
+- The account JID and display name in Step 3.3 and R2.2
+- The peer's JID in Step 4.3
+- The conversation key, `lena`, in Step 5
 - The peer's display name, which is the chat window's title in Steps 4.4, 5 and 6
 
 Rules for the content:
@@ -215,12 +221,113 @@ Rules for the content:
 - A contact without an avatar file shows its initials.
 - Keep status messages short enough for the contact list's width.
 - Four single-line messages fill the default chat window. A fifth one, or a message that wraps, makes it scroll.
-- Message times in `seed_transcript.py` are UTC on the day file's date and show in local time. Keep them earlier than the current time.
+- Message times are on `presentation.date` in `presentation.timeZone`, and Steps 4–6 show them in local time. Keep the date in the past.
 - An incoming stanza appended to `$WORK/inject.txt` reaches the running instance. `{ME}` stands for the account's full JID.
 - A room invitation shows its banner in Contacts. Append one `<message from='…' to='{ME}'>` line carrying `<x xmlns='jabber:x:conference' jid='<room address>'/>` after the last relaunch, since a pending invitation is not kept across one.
 - A transcript line takes `replyToID`, naming another line's `stanzaID`, for a reply quote. For file cards it takes `attachments`, a list of objects with `id` (a UUID string), `url`, and optionally `fileName`, `fileSize` and `mimeType`. A line that fails to decode is dropped without an error.
 - An attachment object with `"savedOrigin":"locallySaved"` and a `file:` address as its `url` is shown as a file saved on this Mac. When its `mimeType` starts with `image/` and no file exists at that address, the chat shows the missing-image placeholder with the file's name.
-- A status in the stub's `CONTACTS` may hold `\n` for a status message with line breaks.
+- A contact's `status` may hold `\n` for a status message with line breaks.
 - A second account added after Step 3.3's `UPDATE`, with that step's `DUCKO_PROFILE=$PROFILE "$BIN/DuckoCLI" account add` line and `<jid> --password demo --host 127.0.0.1 --port <unused port> --no-connect`, keeps Connect on Launch off and stays offline. The Contacts header then shows the identity switcher and a status such as `Available · 1 Offline`.
 - The Contacts window fits its width to the widest contact name, between 200 points and a cap of 280. To change the cap, run `defaults write im.ducko.dev.$PROFILE contactListMaxWidth -float <points>` before launching, with a value from 150 to 400. A cap below 200 sets the width outright. A cap above the fitted width changes nothing, and the stock names fit in 200.
-- The stub has no group chat service. For a room row, add a row to `ZCONVERSATIONRECORD` in `$STORE/default.store` while the instance is stopped, after Step 5's unread update. Copy the chat's row, set `ZTYPE` to `groupchat` and `ZJID` to the room's address, give it a new `Z_PK` and a `ZID` from `randomblob(16)`, and raise `Z_MAX` for that entity in `Z_PRIMARYKEY`. `ZDISPLAYNAME` names the row, `ZROOMSUBJECT` gives it a caption and `ZUNREADCOUNT` a badge.
+- The stub joins the client to the rooms of `content.json`, with their occupants and subject, and then writes `$WORK/joined/<room address>`. For a room row, add a row to `ZCONVERSATIONRECORD` in `$STORE/default.store` while the instance is stopped, after Step 5's unread update. Copy the chat's row, set `ZTYPE` to `groupchat` and `ZJID` to the room's address, give it a new `Z_PK` and a `ZID` from `randomblob(16)`, and raise `Z_MAX` for that entity in `Z_PRIMARYKEY`. The client joins the room only with `ZREJOINSONCONNECT` set to 1 and the room's `nickname` in `ZROOMNICKNAME`. `ZDISPLAYNAME` names the row, `ZROOMSUBJECT` gives it a caption and `ZUNREADCOUNT` a badge.
+
+## Reference Mode for the Website
+
+The ducko.im website recreates the Contacts window, the chat window and the Dock badge, and overlays reference PNGs of the real app on them until they match. The website owns which states exist (`reference/states.json` in `ducko-im/ducko-im.github.io`). This skill owns how to reach each one and capture it, and `content.json` owns what each state shows. The website builds its fixtures from the `content.json` states, so a change of content belongs here.
+
+`scripts/reference.py` runs the whole manifest unattended. It switches the system appearance, empties the Dock while capturing it, brings windows to the front and moves the pointer, so run it in the Lume VM (the `/lume-vm` skill), never on a Mac someone is using. Run every `vm.sh` call below outside the sandbox. The snippets assume a checkout folder named `ducko`; in another checkout, replace `ducko` in `/Volumes/My Shared Files/ducko` with that folder's name.
+
+### R1: Tell the User
+
+Tell the user that the run needs the VM to itself for about three minutes, measured with 28 states in two appearances.
+
+### R2: Set Up the Work Folder
+
+1. On the host, build the copy as in Step 2, leaving out the `Add :NSRequiresAquaSystemAppearance bool true` line. The run sets each appearance through the system, and `reference.py` refuses a copy pinned to light. Then start the VM and push the copy:
+
+   ```bash
+   zsh Skills/lume-vm/scripts/vm.sh start
+   zsh Skills/lume-vm/scripts/vm.sh push "$WORK/DuckoDemo.app" /Users/lume/work/DuckoDemo.app
+   ```
+
+2. In the VM, copy the content snapshot, render the avatars, start the stub detached, add the account through the copy's own CLI, and prove the stub. The last line must print `connected as …`:
+
+   ```bash
+   zsh Skills/lume-vm/scripts/vm.sh gui 'cd /Users/lume/work; S="/Volumes/My Shared Files/ducko/Skills/demo-screenshots"
+   cp "$S/content.json" content.json && mkdir -p avatars && swift "$S/scripts/avatars.swift" avatars >/dev/null
+   nohup python3 "$S/scripts/stub.py" 5299 /Users/lume/work /Users/lume/work/content.json >stub.out 2>&1 &
+   sleep 1; STORE="$HOME/Library/Application Support/Ducko-Dev-demo-screenshots"; CLI=DuckoDemo.app/Contents/Resources/ducko
+   DUCKO_PROFILE=demo-screenshots $CLI account add tobias@pond.example --password demo --host 127.0.0.1 --port 5299 --no-connect
+   sqlite3 "$STORE/default.store" "UPDATE ZACCOUNTRECORD SET ZREQUIRETLS=0, ZCONNECTONLAUNCH=1, ZDISPLAYNAME='"'"'Tobias'"'"';"
+   DUCKO_PROFILE=demo-screenshots $CLI roster list | head -1'
+   ```
+
+   The scripts run straight from the read-only repository share, and everything they write goes to `/Users/lume/work`.
+3. Allow the copy's notifications once, since macOS draws no Dock badge for an app whose notifications are off. Launch the copy by its absolute path, so `reference.py` can stop it later:
+
+   ```bash
+   zsh Skills/lume-vm/scripts/vm.sh gui 'DUCKO_PROFILE=demo-screenshots nohup /Users/lume/work/DuckoDemo.app/Contents/MacOS/DuckoApp >/dev/null 2>&1 &'
+   ```
+
+   Then turn on Allow notifications with Badge application icon in System Settings > Notifications > Ducko, with Peekaboo in the VM, and quit the copy: `zsh Skills/lume-vm/scripts/vm.sh gui 'pkill -f "DuckoDemo.app/Contents/MacOS/DuckoApp"'`. The setting lasts until the VM is reset.
+4. Record what the copy was built from: `zsh Skills/lume-vm/scripts/vm.sh gui 'python3 "/Volumes/My Shared Files/ducko/Skills/demo-screenshots/scripts/reference.py" build-info /Users/lume/work'`. Repeat it after every rebuild of the copy.
+
+### R3: Bootstrap and Run
+
+Copy the website's `reference/states.json` into the host's `.build/vm-exchange/` (the VM's `/Volumes/My Shared Files/vm-exchange/`). When the website has no `reference/states.json`, write a manifest listing every `content.json` state with `"appearances": ["light", "dark"]` and the `window` its id's prefix names (`contacts`, `chat` or `dock`). Then:
+
+```bash
+zsh Skills/lume-vm/scripts/vm.sh gui 'cd /Users/lume/work; R="/Volumes/My Shared Files/ducko/Skills/demo-screenshots/scripts/reference.py"
+python3 "$R" bootstrap /Users/lume/work && python3 "$R" run /Users/lume/work "/Volumes/My Shared Files/vm-exchange/states.json" out'
+```
+
+`bootstrap` builds `baseline/`, the store and defaults every state starts from. Run it again after any change of `/Users/lume/work/content.json`. The stub picks up the new content at its next session. A changed `account.jid` or `account.name` needs a new work folder.
+
+`run` checks the build, the baseline and the Mac's appearance before it touches `out`, and each refusal names its fix. `--ids a,b` reruns those states into an existing folder captured from the same sources, content, macOS build and settings, and replaces only their files and entries. Each state restores the baseline, seeds its content, launches the copy and performs its live steps. It then checks through Accessibility that the state holds, and captures. A state that fails any of these lands in `skipped` with the step named, and leaves no PNG. Progress goes to `/Users/lume/work/reference.log`.
+
+### R4: Check the Captures
+
+Copy `out` to the host (`zsh Skills/lume-vm/scripts/vm.sh pull /Users/lume/work/out <host folder>`) and read every PNG. Accessibility asserts your own status, the tab badges and typing, the input text, the editing bar, the selected row, collapsed groups, the empty chat, the key window, the first tab's last message, the last outgoing message's delivery mark and the Dock badge. Only the PNGs show the rest:
+
+- hover effects: the status picker's fill, Marco's tab close button, the first grouped bubble's metadata
+- the accent selection in `contacts-selected-key` and the unemphasized one in `contacts-selected-inactive`
+- the "(edited 2 minutes ago)" label
+- no hover effect in any state that names none
+
+Rerun anything in `skipped` with `--ids`.
+
+### R5: Hand Over and Clean Up
+
+Move `out` into the website's `reference/captures/`. Then stop the stub (`pkill -f stub.py` in the VM) and either `zsh Skills/lume-vm/scripts/vm.sh stop` and `reset`, or keep the work folder for the next round.
+
+### content.json
+
+| Key | Holds |
+|---|---|
+| `version` | The contract version the website checks |
+| `presentation` | `timeZone` and `locale` the run launches the copy with, and the `date` every message falls on |
+| `account` | `jid`, `name`, `password` |
+| `contacts` | `localpart`, `name`, `group`, `resource`, `show` (null for available, `away`, `xa`, `dnd`, `offline`), `status` |
+| `rooms` | `key`, `jid`, `name`, `subject`, own `nickname`, `occupants` with `nick`, `affiliation`, `role` |
+| `conversations` | Variants keyed by name: `peer` (a contact's local part or a room's key), `kind` (`chat` or `room`), `messages` with a fixed uppercase `id`, `stanzaID`, `from` (`me`, `peer` or a nickname), `time`, `body`, outgoing `status` (`sent`, `delivered`, `read`) and optional `editedSecondsAgo` |
+| `states` | One entry per manifest id; unset fields take their defaults |
+
+A state's fields: `key` (the window that is key, by default the manifest's window), `tabs` (conversation variants, the first selected; default `["lena"]`), `lastOutgoingStatus`, `closeAllTabs`, `rooms` (room keys to keep), `unread` (unread counts by conversation variant, such as `{"marco": 3}`), `collapsedGroups`, `selectedContact`, `ownStatus` (`available`, `away`, `xa`, `dnd`, `offline`), `typing` (contacts), `input` (draft text), `editing` (a message id), `hover` (`{"statusPicker": true}`, `{"tab": <variant>}` or `{"message": <id>}`) and `menu` (`"status"` or `{"message": <id>}`). A manifest id without an entry is skipped as "no content entry".
+
+### capture.json
+
+`macOS` (`productVersion`, `buildVersion`), `ducko` (the copy's `version`, `commit`, `dirty` and `sourceDigest`), `displayScale`, `capturedAt`, `appearanceMethod` (`system`), `environment` (interface style and its automatic switching, accent and highlight color, wallpaper tinting, reduce transparency and increase contrast, each null when unset), `content` (`version`, `sha256` of the `content.json` beside it), `captures[]` and `skipped[]` (`id`, `appearance`, `reason`). A capture has `id`, `appearance`, `window`, `file` and `size` in points. Its `layers[]` holds an open menu: `kind: "menu"`, `file`, `offset` from the window's top-left and `size`, in points. A Dock capture adds `tileSize` and `iconRect`, the 128-point icon's rect within the crop.
+
+Window PNGs hold the window alone, with transparent corners and no shadow, at the display's scale, tagged with the display's color profile. An open menu is drawn into its window's surface, so no capture holds it alone. The window PNG is taken just before the menu opens. The menu PNG is cut, at the menu's bounds, from a capture of the window with the menu open. Where a menu overhangs its window, its glass shows the VM's plain wallpaper. The Dock PNG is the Dock item's frame rounded outward to whole points, with the Dock set to 128-point tiles and emptied of everything but running apps while capturing. The run restores the Dock's settings afterwards.
+
+### Appearance, Caret and Reproducibility
+
+The run sets the system appearance for each pass through System Events and confirms it from a fresh AppKit process, then sets the original back. On macOS 27.0.1, `scripts/compare.swift` compared an app-level `NSApp.appearance = .darkAqua` against the system's Dark. Two app-level runs matched pixel for pixel. App-level against system Dark differed on 72–93 % of each PNG's pixels, by up to 7 levels per channel, a tint across the window background. The Dock follows only the system appearance anyway. After a macOS update, rerun that comparison before switching to the app-level method.
+
+The copy launches with `-NSTextInsertionPointBlinkPeriodOn 100000000 -NSTextInsertionPointBlinkPeriodOff 0`, which holds a focused field's caret on: five captures 0.3 s apart matched exactly with them, and differed by the caret without them.
+
+Run `swift scripts/compare.swift <a.png> <b.png> [diff.png]` to compare two runs. It prints the pixels differing by more than 2 in any channel and the largest difference. Given `diff.png`, it draws those pixels in red. Two runs of the same build, content and settings differ only in text anti-aliasing, and in the "(edited …)" label when its minute rolls over.
+
+### Adding a State
+
+Add the id to the website's manifest and an entry to `content.json`'s `states`, built from the fields above. When the state needs a mechanism the run lacks, add a `drive.swift` command for it, a live step and an Accessibility check in `reference.py`, and the PNG-only signal to R4.

@@ -1,17 +1,22 @@
 """Local XMPP stub for Ducko demo screenshots.
 
 Plays the server for one made-up account on 127.0.0.1: plaintext stream, SASL PLAIN
-(any password), resource bind, a fixed roster, and presence for the made-up contacts.
-Every other IQ gets a harmless canned answer. Nothing leaves this machine.
+(any password), resource bind, a fixed roster, presence for the made-up contacts, and
+answers to joins of the made-up rooms. Every other IQ gets a harmless canned
+answer. Nothing leaves this machine.
 
-Usage: python3 stub.py <port> <workdir>
+Usage: python3 stub.py <port> <workdir> [content.json]
+  [content.json]         the made-up account, contacts and rooms; defaults to the skill's
+                         own content.json, and is read again at the start of each session
   <workdir>/stub.log     every byte string sent and received
   <workdir>/inject.txt   append one stanza per line to push it to the client; a line is
                          held until a client has received its roster and the presences
+  <workdir>/joined/<room address>   written once the client has joined that room
   <workdir>/avatars/<localpart>.png   optional avatars served via vcard-temp
 """
 import base64
 import hashlib
+import json
 import os
 import socket
 import sys
@@ -20,28 +25,15 @@ import time
 from xml.etree.ElementTree import XMLPullParser
 from xml.sax.saxutils import escape, quoteattr
 
-DOMAIN = "pond.example"
-ME = "tobias@" + DOMAIN
-MY_NAME = "Tobias"
-
-# (localpart, name, group, resource, show, status); show None = available, "offline" = no presence
-CONTACTS = [
-    ("lena", "Lena Fischer", "Friends", "laptop", None, "Feeding the ducks"),
-    ("jonas", "Jonas Weber", "Friends", "phone", "away", "At the gym"),
-    ("mia", "Mia Schneider", "Friends", "laptop", None, None),
-    ("noah", "Noah Becker", "Friends", None, "offline", None),
-    ("priya", "Priya Nair", "Work", "desk", "dnd", "Deep work until 3"),
-    ("marco", "Marco Rossi", "Work", "desk", None, "In code review"),
-    ("sofia", "Sofia Lindqvist", "Work", "phone", "xa", "Back on Monday"),
-    ("daniel", "Daniel Okafor", "Work", "laptop", None, None),
-    ("emma", "Emma Dubois", "Work", None, "offline", None),
-]
-
 PORT = int(sys.argv[1])
 WORKDIR = sys.argv[2]
+CONTENT = sys.argv[3] if len(sys.argv) > 3 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "content.json")
 LOG = open(os.path.join(WORKDIR, "stub.log"), "a", buffering=1)
 INJECT = os.path.join(WORKDIR, "inject.txt")
 AVATARS = os.path.join(WORKDIR, "avatars")
+JOINED = os.path.join(WORKDIR, "joined")
+
+MUC_NS = "http://jabber.org/protocol/muc"
 
 current = None  # the live client socket
 current_lock = threading.Lock()
@@ -70,8 +62,16 @@ def ns(tag):
 class Session:
     def __init__(self, sock):
         self.sock = sock
+        with open(CONTENT, encoding="utf-8") as f:
+            content = json.load(f)
+        self.me = content["account"]["jid"]
+        self.my_name = content["account"]["name"]
+        self.domain = self.me.split("@", 1)[1]
+        # show None = available, "offline" = no presence
+        self.contacts = content["contacts"]
+        self.rooms = {room["jid"]: room for room in content["rooms"]}
         self.authenticated = False
-        self.full_jid = ME + "/ducko"
+        self.full_jid = self.me + "/ducko"
         self.presence_sent = False
         self.ready = False  # roster and presences are out, so injected stanzas may follow
 
@@ -83,7 +83,7 @@ class Session:
         self.send(
             "<?xml version='1.0'?><stream:stream xmlns='jabber:client' "
             "xmlns:stream='http://etherx.jabber.org/streams' from='%s' version='1.0' id='demo%d'>"
-            % (DOMAIN, int(time.time()))
+            % (self.domain, int(time.time()))
         )
         if not self.authenticated:
             self.send(
@@ -114,31 +114,50 @@ class Session:
     def roster(self):
         items = "".join(
             "<item jid='%s@%s' name=%s subscription='both'><group>%s</group></item>"
-            % (lp, DOMAIN, quoteattr(name), escape(group))
-            for lp, name, group, _, _, _ in CONTACTS
+            % (c["localpart"], self.domain, quoteattr(c["name"]), escape(c["group"]))
+            for c in self.contacts
         )
         return "<query xmlns='jabber:iq:roster'>%s</query>" % items
 
     def send_presences(self):
-        for lp, _, _, resource, show, status in CONTACTS:
-            if show == "offline":
+        for c in self.contacts:
+            if c["show"] == "offline":
                 continue
             body = ""
-            if show:
-                body += "<show>%s</show>" % show
-            if status:
-                body += "<status>%s</status>" % escape(status)
-            photo = avatar(lp)
+            if c["show"]:
+                body += "<show>%s</show>" % c["show"]
+            if c["status"]:
+                body += "<status>%s</status>" % escape(c["status"])
+            photo = avatar(c["localpart"])
             if photo:
                 body += "<x xmlns='vcard-temp:x:update'><photo>%s</photo></x>" % hashlib.sha1(photo).hexdigest()
             self.send(
                 "<presence from='%s@%s/%s' to=%s>%s</presence>"
-                % (lp, DOMAIN, resource, quoteattr(self.full_jid), body)
+                % (c["localpart"], self.domain, c["resource"], quoteattr(self.full_jid), body)
             )
+
+    def join_room(self, room, nickname):
+        def occupant(nick, affiliation, role, own=False):
+            status = "<status code='110'/>" if own else ""
+            return (
+                "<presence from=%s to=%s><x xmlns='http://jabber.org/protocol/muc#user'>"
+                "<item affiliation='%s' role='%s'/>%s</x></presence>"
+                % (quoteattr("%s/%s" % (room["jid"], nick)), quoteattr(self.full_jid), affiliation, role, status)
+            )
+
+        for o in room["occupants"]:
+            self.send(occupant(o["nick"], o["affiliation"], o["role"]))
+        self.send(occupant(nickname, "member", "participant", own=True))
+        self.send(
+            "<message from=%s to=%s type='groupchat'><subject>%s</subject></message>"
+            % (quoteattr(room["jid"]), quoteattr(self.full_jid), escape(room["subject"]))
+        )
+        os.makedirs(JOINED, exist_ok=True)
+        open(os.path.join(JOINED, room["jid"]), "w").close()
 
     def vcard(self, bare):
         lp = bare.split("@", 1)[0]
-        name = MY_NAME if bare == ME else next((n for l, n, *_ in CONTACTS if l == lp), lp)
+        name = self.my_name if bare == self.me else next((c["name"] for c in self.contacts if c["localpart"] == lp), lp)
         photo = avatar(lp)
         photo_xml = ""
         if photo:
@@ -159,7 +178,7 @@ class Session:
         if space == "urn:ietf:params:xml:ns:xmpp-bind":
             res = child.find("{urn:ietf:params:xml:ns:xmpp-bind}resource")
             if res is not None and res.text:
-                self.full_jid = "%s/%s" % (ME, res.text)
+                self.full_jid = "%s/%s" % (self.me, res.text)
             return self.send(
                 "<iq type='result' id=%s><bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'><jid>%s</jid></bind></iq>"
                 % (quoteattr(iq.get("id", "")), escape(self.full_jid))
@@ -173,9 +192,9 @@ class Session:
         if space == "vcard-temp":
             if kind == "set":
                 return self.result(iq)
-            return self.result(iq, self.vcard(to_bare or ME))
+            return self.result(iq, self.vcard(to_bare or self.me))
         if space == "http://jabber.org/protocol/disco#info":
-            if to_bare in (None, DOMAIN):
+            if to_bare in (None, self.domain):
                 return self.result(
                     iq,
                     "<query xmlns='http://jabber.org/protocol/disco#info'>"
@@ -183,7 +202,7 @@ class Session:
                     "<feature var='http://jabber.org/protocol/disco#info'/>"
                     "<feature var='vcard-temp'/><feature var='urn:xmpp:ping'/></query>",
                 )
-            if to_bare == ME:
+            if to_bare == self.me:
                 return self.result(
                     iq,
                     "<query xmlns='http://jabber.org/protocol/disco#info'>"
@@ -215,10 +234,15 @@ class Session:
         if name == "iq":
             self.handle_iq(el)
         elif name == "presence":
-            if not el.get("type") and not el.get("to") and not self.presence_sent:
+            to = el.get("to")
+            if not el.get("type") and not to and not self.presence_sent:
                 self.presence_sent = True
                 self.send_presences()
                 self.ready = True
+            elif not el.get("type") and to and "/" in to and el.find("{%s}x" % MUC_NS) is not None:
+                room_jid, nickname = to.split("/", 1)
+                if room_jid in self.rooms:
+                    self.join_room(self.rooms[room_jid], nickname)
         return None
 
     def run(self):
@@ -250,7 +274,12 @@ class Session:
 
 def serve(sock):
     global current
-    session = Session(sock)
+    try:
+        session = Session(sock)
+    except (OSError, ValueError, KeyError) as exc:
+        log("ERR", "content unreadable: %r" % exc)
+        sock.close()
+        return
     with current_lock:
         current = session
     try:

@@ -1,40 +1,100 @@
-"""Overwrites a transcript day file with the made-up demo conversation.
+"""Writes one made-up conversation from content.json into a transcript folder.
 
-Usage: python3 seed_transcript.py <path to Transcripts/<conversation-id>/<YYYY-MM-DD>.jsonl>
+Usage: python3 seed_transcript.py <conversation dir> <variant> [--last-outgoing-status S] [--content content.json]
+  <conversation dir>         Transcripts/<conversation id>, created when missing
+  <variant>                  a key under "conversations" in the content file
+  --last-outgoing-status S   sent, delivered or read, replacing the last outgoing message's status
+  --content                  defaults to the skill's own content.json
 
-The day comes from the file name. Times are UTC and show in local time.
+Times are on presentation.date in presentation.timeZone. Writes a day file per UTC date, as the app names them, and
+removes the folder's other day files. An edit's time is relative to now, so its "(edited …)" label reads the same on
+every run unless a minute rolls over before the capture.
 """
+import argparse
+import datetime
 import json
 import os
-import sys
-import uuid
+import zoneinfo
 
-ME, PEER = "tobias@pond.example", "lena@pond.example"
+STATUS_AMENDMENT = {"sent": None, "delivered": "delivery", "read": "displayed"}
 
-# (outgoing, UTC time, body). Four single-line messages fill the default chat window without scrolling.
-MESSAGES = [
-    (False, "14:03:40", "Meeting at the pond at six. Are you in? 🦆"),
-    (True, "14:05:12", "Sounds good! I'll bring coffee ☕️"),
-    (False, "14:05:48", "Perfect. Jonas is bringing snacks."),
-    (True, "14:07:05", "See you there!"),
-]
+parser = argparse.ArgumentParser()
+parser.add_argument("directory")
+parser.add_argument("variant")
+parser.add_argument("--last-outgoing-status", choices=sorted(STATUS_AMENDMENT))
+parser.add_argument("--content", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "content.json"))
+args = parser.parse_args()
 
-path = sys.argv[1]
-day = os.path.basename(path).removesuffix(".jsonl")
-with open(path, "w") as f:
-    for index, (outgoing, clock, body) in enumerate(MESSAGES, 1):
-        record = {
-            "attachments": [],
-            "body": body,
-            "fromJID": ME if outgoing else PEER,
-            "id": str(uuid.uuid4()).upper(),
-            "isEncrypted": False,
-            "isOutgoing": outgoing,
-            "isUndecryptable": False,
-            "messageType": "chat",
-            "stanzaID": "demo-%d" % index,
-            "timestamp": "%sT%sZ" % (day, clock),
-            "type": "msg",
-        }
-        f.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
-print("%d messages written to %s" % (len(MESSAGES), path))
+with open(args.content, encoding="utf-8") as f:
+    content = json.load(f)
+presentation = content["presentation"]
+conversation = content["conversations"][args.variant]
+domain = content["account"]["jid"].split("@", 1)[1]
+if conversation["kind"] == "room":
+    peer = next(room["jid"] for room in content["rooms"] if room["key"] == conversation["peer"])
+else:
+    peer = "%s@%s" % (conversation["peer"], domain)
+
+messages = [dict(message) for message in conversation["messages"]]
+outgoing = [message for message in messages if message["from"] == "me"]
+if args.last_outgoing_status and outgoing:
+    outgoing[-1]["status"] = args.last_outgoing_status
+
+zone = zoneinfo.ZoneInfo(presentation["timeZone"])
+now = datetime.datetime.now(datetime.timezone.utc)
+
+
+def iso(moment):
+    return moment.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def sender(message):
+    # The app stores an outgoing message under the conversation's address, and a room message under the nickname.
+    if message["from"] == "me" or message["from"] == "peer":
+        return peer
+    return message["from"]
+
+
+# An amendment goes into its target message's day file, as the app files it.
+days = {}
+day_of = {}
+for message in messages:
+    moment = datetime.datetime.fromisoformat("%sT%s" % (presentation["date"], message["time"])).replace(tzinfo=zone)
+    body = message["body"]
+    if "editedSecondsAgo" in message:
+        body = body.rsplit(" ", 1)[0] if " " in body else body[:-1]
+    day_of[message["id"]] = iso(moment)[:10]
+    days.setdefault(day_of[message["id"]], []).append({
+        "attachments": [],
+        "body": body,
+        "fromJID": sender(message),
+        "id": message["id"],
+        "isEncrypted": False,
+        "isOutgoing": message["from"] == "me",
+        "isUndecryptable": False,
+        "messageType": "groupchat" if conversation["kind"] == "room" else "chat",
+        "stanzaID": message["stanzaID"],
+        "timestamp": iso(moment),
+        "type": "msg",
+    })
+for message in messages:
+    lines = days[day_of[message["id"]]]
+    action = STATUS_AMENDMENT[message["status"]] if "status" in message else None
+    if action:
+        lines.append({"action": action, "targetMessageID": message["id"], "timestamp": iso(now), "type": "amend"})
+    if "editedSecondsAgo" in message:
+        edited = now - datetime.timedelta(seconds=message["editedSecondsAgo"])
+        lines.append({
+            "action": "edit", "body": message["body"], "targetMessageID": message["id"], "timestamp": iso(edited), "type": "amend",
+        })
+
+os.makedirs(args.directory, exist_ok=True)
+for name in os.listdir(args.directory):
+    if name.endswith(".jsonl"):
+        os.remove(os.path.join(args.directory, name))
+for day, lines in sorted(days.items()):
+    path = os.path.join(args.directory, day + ".jsonl")
+    with open(path, "w", encoding="utf-8") as f:
+        for line in lines:
+            f.write(json.dumps(line, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n")
+print("%d messages written to %s" % (len(messages), ", ".join(os.path.join(args.directory, day + ".jsonl") for day in sorted(days))))

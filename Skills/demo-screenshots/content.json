@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "presentation": {
+    "timeZone": "UTC",
+    "locale": "en_GB",
+    "date": "2026-05-14"
+  },
+  "account": {
+    "jid": "tobias@pond.example",
+    "name": "Tobias",
+    "password": "demo"
+  },
+  "contacts": [
+    { "localpart": "lena", "name": "Lena Fischer", "group": "Friends", "resource": "laptop", "show": null, "status": "Feeding the ducks" },
+    { "localpart": "jonas", "name": "Jonas Weber", "group": "Friends", "resource": "phone", "show": "away", "status": "At the gym" },
+    { "localpart": "mia", "name": "Mia Schneider", "group": "Friends", "resource": "laptop", "show": null, "status": null },
+    { "localpart": "noah", "name": "Noah Becker", "group": "Friends", "resource": null, "show": "offline", "status": null },
+    { "localpart": "priya", "name": "Priya Nair", "group": "Work", "resource": "desk", "show": "dnd", "status": "Deep work until 3" },
+    { "localpart": "marco", "name": "Marco Rossi", "group": "Work", "resource": "desk", "show": null, "status": "In code review" },
+    { "localpart": "sofia", "name": "Sofia Lindqvist", "group": "Work", "resource": "phone", "show": "xa", "status": "Back on Monday" },
+    { "localpart": "daniel", "name": "Daniel Okafor", "group": "Work", "resource": "laptop", "show": null, "status": null },
+    { "localpart": "emma", "name": "Emma Dubois", "group": "Work", "resource": null, "show": "offline", "status": null }
+  ],
+  "rooms": [
+    {
+      "key": "pondclub",
+      "jid": "pondclub@conference.pond.example",
+      "name": "Pond Club",
+      "subject": "Peas, not bread",
+      "nickname": "Tobias",
+      "occupants": [
+        { "nick": "Lena", "affiliation": "owner", "role": "moderator" },
+        { "nick": "Marco", "affiliation": "member", "role": "participant" },
+        { "nick": "Priya", "affiliation": "member", "role": "participant" }
+      ]
+    }
+  ],
+  "conversations": {
+    "lena": {
+      "peer": "lena",
+      "kind": "chat",
+      "messages": [
+        { "id": "7C78F528-F7B7-4097-B39D-41037DC4679E", "stanzaID": "demo-1", "from": "peer", "time": "14:03:40", "body": "Meeting at the pond at six. Are you in? 🦆" },
+        { "id": "507D1303-3020-44E8-ADCB-23F97C550EAD", "stanzaID": "demo-2", "from": "me", "time": "14:05:12", "body": "Sounds good! I'll bring coffee ☕️", "status": "read" },
+        { "id": "77F4A4F0-D4CF-4BB0-83F4-732151064E23", "stanzaID": "demo-3", "from": "peer", "time": "14:05:48", "body": "Perfect. Jonas is bringing snacks." },
+        { "id": "DFDEEC2D-F214-4EC0-B9DA-28C3A3C666E2", "stanzaID": "demo-4", "from": "me", "time": "14:07:05", "body": "See you there!", "status": "sent" }
+      ]
+    },
+    "lena-grouped": {
+      "peer": "lena",
+      "kind": "chat",
+      "messages": [
+        { "id": "3667EF1E-39AA-4C61-82A6-2D0F961BB2D2", "stanzaID": "demo-1", "from": "peer", "time": "14:03:40", "body": "Meeting at the pond at six. Are you in? 🦆" },
+        { "id": "10DD83D1-413E-4917-8385-2EABF1A48EE5", "stanzaID": "demo-2", "from": "me", "time": "14:05:12", "body": "Sounds good!", "status": "read" },
+        { "id": "CA19462D-63D8-450E-B3B3-8BB9A214C8D4", "stanzaID": "demo-3", "from": "me", "time": "14:05:40", "body": "I'll bring coffee ☕️", "status": "read" },
+        { "id": "83F1214A-0ED6-4E48-978C-1C2C288A481D", "stanzaID": "demo-4", "from": "peer", "time": "14:05:58", "body": "Perfect. Jonas is bringing snacks." }
+      ]
+    },
+    "lena-me": {
+      "peer": "lena",
+      "kind": "chat",
+      "messages": [
+        { "id": "687EE17C-A862-41A0-B64E-874F14928061", "stanzaID": "demo-1", "from": "peer", "time": "14:03:40", "body": "Meeting at the pond at six. Are you in? 🦆" },
+        { "id": "FC955167-96A7-4DF0-A2B5-0AB40CAA9E35", "stanzaID": "demo-2", "from": "me", "time": "14:05:12", "body": "/me waves", "status": "read" },
+        { "id": "936AEAC7-B11A-4DF7-9024-31F9EB150B33", "stanzaID": "demo-3", "from": "peer", "time": "14:05:48", "body": "/me waves back" }
+      ]
+    },
+    "lena-edited": {
+      "peer": "lena",
+      "kind": "chat",
+      "messages": [
+        { "id": "4571C192-EDDB-48C9-9943-A31651986523", "stanzaID": "demo-1", "from": "peer", "time": "14:03:40", "body": "Meeting at the pond at six. Are you in? 🦆" },
+        { "id": "1CEF6A60-1B87-42B8-87A8-A118FC4D87BC", "stanzaID": "demo-2", "from": "me", "time": "14:05:12", "body": "Sounds good! I'll bring coffee ☕️", "status": "read" },
+        { "id": "02405660-56B2-433C-B707-A621D91282CC", "stanzaID": "demo-3", "from": "peer", "time": "14:05:48", "body": "Perfect. Jonas is bringing snacks." },
+        { "id": "7AF37986-E917-442A-86E8-267F04DF0C57", "stanzaID": "demo-4", "from": "me", "time": "14:07:05", "body": "See you there!", "status": "sent", "editedSecondsAgo": 120 }
+      ]
+    },
+    "marco": {
+      "peer": "marco",
+      "kind": "chat",
+      "messages": [
+        { "id": "CCB0E90F-A6A3-461B-B641-E7E3C4D45674", "stanzaID": "demo-1", "from": "peer", "time": "13:52:10", "body": "Could you look at my pull request before lunch?" },
+        { "id": "43E1628D-F97A-4BCF-B151-0DD2B48CA3FF", "stanzaID": "demo-2", "from": "me", "time": "13:53:02", "body": "On it 👀", "status": "read" }
+      ]
+    },
+    "pondclub": {
+      "peer": "pondclub",
+      "kind": "room",
+      "messages": [
+        { "id": "A4FA19EC-C1BE-48ED-9A40-F640C7D21AE9", "stanzaID": "demo-1", "from": "Lena", "time": "13:40:05", "body": "Who's bringing bread on Saturday?" },
+        { "id": "A794F77F-B6FE-451F-955E-59ADB93A5376", "stanzaID": "demo-2", "from": "Marco", "time": "13:41:30", "body": "No bread! Peas are better for ducks." },
+        { "id": "6D7F6D85-D1A7-4A0D-9D01-6A933E96FE8F", "stanzaID": "demo-3", "from": "Priya", "time": "13:42:12", "body": "Oats work too 🌾" }
+      ]
+    }
+  },
+  "states": {
+    "contacts-key": { "key": "contacts" },
+    "contacts-inactive": { "key": "chat" },
+    "contacts-selected-key": { "selectedContact": "lena" },
+    "contacts-selected-inactive": { "selectedContact": "lena", "key": "chat" },
+    "contacts-group-collapsed": { "collapsedGroups": ["Work"] },
+    "contacts-status-menu": { "menu": "status" },
+    "contacts-status-hover": { "hover": { "statusPicker": true } },
+    "contacts-status-away": { "ownStatus": "away" },
+    "contacts-status-dnd": { "ownStatus": "dnd" },
+    "contacts-status-offline": { "ownStatus": "offline" },
+    "contacts-room-row": { "rooms": ["pondclub"], "unread": { "pondclub": 3 } },
+    "chat-key": {},
+    "chat-inactive": { "key": "contacts" },
+    "chat-typing": { "typing": ["lena"] },
+    "chat-delivered": { "lastOutgoingStatus": "delivered" },
+    "chat-read": { "lastOutgoingStatus": "read" },
+    "chat-input-filled": { "input": "Want me to bring bread for the ducks?" },
+    "chat-tabs": { "tabs": ["lena", "marco", "pondclub"], "rooms": ["pondclub"], "unread": { "pondclub": 2 } },
+    "chat-tab-hover": { "tabs": ["lena", "marco", "pondclub"], "rooms": ["pondclub"], "unread": { "pondclub": 2 }, "hover": { "tab": "marco" } },
+    "chat-bubble-hover": { "tabs": ["lena-grouped"], "hover": { "message": "10DD83D1-413E-4917-8385-2EABF1A48EE5" } },
+    "chat-me": { "tabs": ["lena-me"] },
+    "chat-edited": { "tabs": ["lena-edited"] },
+    "chat-room": { "tabs": ["pondclub"], "rooms": ["pondclub"] },
+    "chat-empty": { "closeAllTabs": true },
+    "chat-context-menu": { "menu": { "message": "DFDEEC2D-F214-4EC0-B9DA-28C3A3C666E2" } },
+    "chat-editing": { "editing": "DFDEEC2D-F214-4EC0-B9DA-28C3A3C666E2" },
+    "chat-offline": { "ownStatus": "offline" },
+    "dock-badge": { "key": "chat", "unread": { "marco": 3 } }
+  }
+}

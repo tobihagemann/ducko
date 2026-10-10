@@ -44,7 +44,7 @@ To take the client past login to a connected session with a roster and contact p
 python3 Skills/demo-screenshots/scripts/stub.py <port> <workdir>
 ```
 
-`<workdir>` is an existing directory that receives `stub.log`. The stub plays the account `tobias@pond.example`, accepts repeated connections, and runs until killed, so record its PID for cleanup. Edit a copy for other server data.
+`<workdir>` is an existing directory that receives `stub.log`. The stub plays the account `tobias@pond.example`, accepts repeated connections, and runs until killed, so record its PID for cleanup. For other server data, copy `Skills/demo-screenshots/content.json`, edit the copy, and pass its path as a third argument.
 
 The stub speaks plaintext, so the account needs Require TLS off. The CLI has no option for it. Add the account, then set it in the throwaway profile's store. The second command must print `1`:
 
